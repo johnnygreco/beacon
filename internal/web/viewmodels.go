@@ -109,8 +109,3 @@ type ContextPoint struct {
 	MaxTokens       int64     `json:"max_tokens"`
 	CompactionEvent bool      `json:"compaction_event"`
 }
-
-type SSEEvent struct {
-	Type string `json:"type"` // dashboard_update, session_update, new_activity
-	Data any    `json:"data"`
-}

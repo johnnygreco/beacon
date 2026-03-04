@@ -2,8 +2,6 @@ package database
 
 import (
 	"context"
-	"fmt"
-
 	"github.com/technodrome-ai/technodrome/internal/models"
 )
 
@@ -85,14 +83,6 @@ func InsertDocument(ctx context.Context, conn *DB, d *models.Document) error {
 	return err
 }
 
-// UpdateDocumentEmbedding updates a document's embedding.
-func UpdateDocumentEmbedding(ctx context.Context, conn *DB, id string, embedding []float32, model string) error {
-	_, err := conn.writeConn.ExecContext(ctx,
-		`UPDATE documents SET embedding = ?::FLOAT[], embedding_model = ? WHERE id = ?`,
-		fmt.Sprintf("%v", embedding), model, id,
-	)
-	return err
-}
 
 // InsertRawEvent inserts a raw event.
 func InsertRawEvent(ctx context.Context, conn *DB, re *models.RawEvent) error {

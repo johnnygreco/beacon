@@ -44,7 +44,7 @@ func ParseCodexEvent(lr *logspb.LogRecord, source string) []NormalizedEvent {
 	base := NormalizedEvent{
 		SessionID: sessionID,
 		TurnID:    strAttr(attrs, "turn_id"),
-		Source:    "codex",
+		Source:    source,
 		Timestamp: ts,
 		UserID:    strAttr(attrs, "user_id"),
 		MachineID: strAttr(attrs, "machine_id"),

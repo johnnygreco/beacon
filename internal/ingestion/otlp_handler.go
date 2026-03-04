@@ -1,7 +1,6 @@
 package ingestion
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -53,13 +52,11 @@ func (h *OTLPHandler) HandleLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		// JSON (including empty content type)
-		if err := protojson.Unmarshal(data, &req); err != nil {
-			// Fall back to standard JSON for compatibility
-			if err2 := json.Unmarshal(data, &req); err2 != nil {
-				h.logger.Error("failed to unmarshal json", "error", err, "fallback_error", err2)
-				http.Error(w, "invalid json", http.StatusBadRequest)
-				return
-			}
+		opts := protojson.UnmarshalOptions{DiscardUnknown: true}
+		if err := opts.Unmarshal(data, &req); err != nil {
+			h.logger.Error("failed to unmarshal json", "error", err)
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
 		}
 	}
 

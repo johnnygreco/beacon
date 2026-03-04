@@ -1,6 +1,7 @@
 package pages
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/technodrome-ai/technodrome/internal/views"
 	"github.com/technodrome-ai/technodrome/internal/views/components"
@@ -53,6 +54,38 @@ templ SessionDetail(data views.SessionDetailData) {
 				<h2 class="text-lg font-semibold text-gray-200 mb-3">Turn Timeline</h2>
 				@components.TurnTimeline(data.Turns)
 			</div>
+
+			<!-- Initial chart data embedded as JSON for session charts -->
+			<script id="session-tokens-data" type="application/json">
+				{ chartDataToJSON(data.TokensChart) }
+			</script>
+			<script id="session-context-data" type="application/json">
+				{ chartDataToJSON(data.ContextChart) }
+			</script>
+			<script>
+				(function() {
+					function loadChart(chartName, dataId) {
+						var el = document.getElementById(dataId);
+						if (!el || !window[chartName]) return;
+						try {
+							var d = JSON.parse(el.textContent);
+							if (d.labels && d.labels.length > 0) {
+								window[chartName].data.labels = d.labels;
+								window[chartName].data.datasets[0].data = d.values;
+								window[chartName].update();
+							}
+						} catch(e) {}
+					}
+					loadChart('sessionTokensChart', 'session-tokens-data');
+					loadChart('sessionContextChart', 'session-context-data');
+				})();
+			</script>
 		</div>
 	}
+}
+
+func chartDataToJSON(data views.ChartData) string {
+	m := map[string]any{"labels": data.Labels, "values": data.Values}
+	b, _ := json.Marshal(m)
+	return string(b)
 }

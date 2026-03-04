@@ -29,8 +29,8 @@ templ SessionCard(s views.SessionSummary) {
 				<p class="text-gray-300">{ fmt.Sprintf("$%.4f", s.TotalCost) }</p>
 			</div>
 			<div>
-				<span class="text-gray-500">Model</span>
-				<p class="text-gray-300 truncate">{ s.ActiveModel }</p>
+				<span class="text-gray-500">Turns</span>
+				<p class="text-gray-300">{ fmt.Sprintf("%d", s.TurnCount) }</p>
 			</div>
 		</div>
 	</a>

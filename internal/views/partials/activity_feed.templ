@@ -7,16 +7,18 @@ templ ActivityFeed(items []views.ActivityItem) {
 		<div class="flex items-start gap-3 p-3 bg-gray-800 rounded-lg border border-gray-700">
 			<div class={
 				"w-2 h-2 rounded-full mt-1.5 flex-shrink-0",
-				templ.KV("bg-blue-400", item.Type == "prompt" || item.Type == "model_call"),
-				templ.KV("bg-purple-400", item.Type == "response"),
+				templ.KV("bg-blue-400", item.Type == "prompt"),
+				templ.KV("bg-purple-400", item.Type == "response" || item.Type == "model_call"),
 				templ.KV("bg-yellow-400", item.Type == "tool_call"),
 				templ.KV("bg-red-400", item.Type == "error"),
 			}></div>
 			<div class="flex-1 min-w-0">
 				<p class="text-sm text-gray-300 truncate">{ item.Summary }</p>
 				<div class="flex items-center gap-2 mt-1 text-xs text-gray-500">
-					<span>{ item.Actor }</span>
-					<span>·</span>
+					if item.SessionID != "" {
+						<a href={ templ.SafeURL("/sessions/" + item.SessionID) } class="hover:text-blue-400">{ item.SessionID[:8] }</a>
+						<span>·</span>
+					}
 					<span>{ item.Timestamp.Format("15:04:05") }</span>
 				</div>
 			</div>
