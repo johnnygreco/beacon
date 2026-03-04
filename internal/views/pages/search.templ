@@ -1,0 +1,45 @@
+package pages
+
+import (
+	"github.com/technodrome-ai/technodrome/internal/views"
+	"github.com/technodrome-ai/technodrome/internal/views/components"
+)
+
+templ Search(results []views.SearchResult) {
+	@views.Layout("Search") {
+		<div class="space-y-6">
+			<h1 class="text-2xl font-bold text-gray-100">Search Conversations</h1>
+
+			<!-- Search Input -->
+			<div>
+				<input
+					type="text"
+					name="q"
+					placeholder="Search prompts, responses, and tool outputs..."
+					class="w-full bg-gray-800 text-gray-100 rounded-lg px-4 py-3 border border-gray-700 focus:border-blue-500 focus:outline-none text-lg placeholder-gray-500"
+					hx-get="/search/results"
+					hx-trigger="input changed delay:300ms"
+					hx-target="#search-results"
+					hx-include="#search-filters"
+				/>
+			</div>
+
+			<!-- Filters -->
+			<div id="search-filters">
+				@components.FilterBar()
+			</div>
+
+			<!-- Results -->
+			<div id="search-results" class="space-y-3">
+				for _, r := range results {
+					@components.SearchResultCard(r)
+				}
+				if len(results) == 0 {
+					<div class="text-center py-12 text-gray-500">
+						<p class="text-lg">Enter a query to search conversations</p>
+					</div>
+				}
+			</div>
+		</div>
+	}
+}

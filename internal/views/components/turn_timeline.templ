@@ -1,0 +1,48 @@
+package components
+
+import (
+	"fmt"
+	"github.com/technodrome-ai/technodrome/internal/views"
+)
+
+templ TurnTimeline(turns []views.TurnDetail) {
+	<div class="space-y-4">
+		for _, t := range turns {
+			@TurnItem(t)
+		}
+	</div>
+}
+
+templ TurnItem(t views.TurnDetail) {
+	<div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+		<div class="flex items-center justify-between mb-2">
+			<div class="flex items-center gap-2">
+				if t.Role == "user" {
+					<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-blue-500/20 text-blue-400">User</span>
+				} else if t.Role == "assistant" {
+					<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-purple-500/20 text-purple-400">Assistant</span>
+				} else {
+					<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">{ t.Role }</span>
+				}
+				if t.Model != "" {
+					<span class="text-xs text-gray-500">{ t.Model }</span>
+				}
+			</div>
+			<div class="flex items-center gap-3 text-xs text-gray-500">
+				<span>{ fmt.Sprintf("%d tok", t.Tokens) }</span>
+				<span>{ fmt.Sprintf("$%.4f", t.Cost) }</span>
+				if t.DurationMs > 0 {
+					<span>{ fmt.Sprintf("%dms", t.DurationMs) }</span>
+				}
+			</div>
+		</div>
+		<div class="text-sm text-gray-300 whitespace-pre-wrap mt-2">{ t.Content }</div>
+		if len(t.ToolCalls) > 0 {
+			<div class="mt-3 flex flex-wrap gap-2">
+				for _, tc := range t.ToolCalls {
+					@ToolCallBadge(tc)
+				}
+			</div>
+		}
+	</div>
+}

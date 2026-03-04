@@ -1,0 +1,40 @@
+package pages
+
+import (
+	"github.com/technodrome-ai/technodrome/internal/views"
+	"github.com/technodrome-ai/technodrome/internal/views/components"
+	"github.com/technodrome-ai/technodrome/internal/views/partials"
+)
+
+templ Dashboard(data views.DashboardData) {
+	@views.Layout("Dashboard") {
+		<div hx-ext="sse" sse-connect="/sse/dashboard" class="space-y-6">
+			<!-- Metric Cards -->
+			<div id="metrics" sse-swap="metrics-update" hx-swap="innerHTML">
+				@partials.DashboardMetrics(data.Metrics)
+			</div>
+
+			<!-- Charts -->
+			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+				@components.ChartContainer("tokensChart", "300px")
+				@components.ChartContainer("costChart", "300px")
+			</div>
+
+			<!-- Sessions + Activity -->
+			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+				<div>
+					<h2 class="text-lg font-semibold text-gray-200 mb-3">Active Sessions</h2>
+					<div id="session-list" sse-swap="sessions-update" hx-swap="innerHTML" class="space-y-3">
+						@partials.SessionList(data.ActiveSessions)
+					</div>
+				</div>
+				<div>
+					<h2 class="text-lg font-semibold text-gray-200 mb-3">Recent Activity</h2>
+					<div id="activity-feed" sse-swap="activity-update" hx-swap="innerHTML" class="space-y-2">
+						@partials.ActivityFeed(data.RecentActivity)
+					</div>
+				</div>
+			</div>
+		</div>
+	}
+}

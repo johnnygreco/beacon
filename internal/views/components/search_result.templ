@@ -1,0 +1,28 @@
+package components
+
+import (
+	"fmt"
+	"github.com/technodrome-ai/technodrome/internal/views"
+)
+
+templ SearchResultCard(r views.SearchResult) {
+	<div class="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-gray-600 transition-colors">
+		<div class="flex items-center justify-between mb-2">
+			<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", r.SessionID)) } class="text-sm text-blue-400 hover:underline">
+				Session { r.SessionID }
+			</a>
+			<div class="flex items-center gap-2">
+				if r.MatchType == "semantic" {
+					<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-purple-500/20 text-purple-400">Semantic</span>
+				} else if r.MatchType == "keyword" {
+					<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-blue-500/20 text-blue-400">Keyword</span>
+				} else {
+					<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-yellow-500/20 text-yellow-400">Hybrid</span>
+				}
+				<span class="text-xs text-gray-500">{ fmt.Sprintf("%.1f%%", r.Score*100) }</span>
+			</div>
+		</div>
+		<p class="text-sm text-gray-300 leading-relaxed">{ r.Snippet }</p>
+		<p class="text-xs text-gray-500 mt-2">{ r.Timestamp.Format("Jan 2 15:04:05") }</p>
+	</div>
+}

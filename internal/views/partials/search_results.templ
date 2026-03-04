@@ -1,0 +1,17 @@
+package partials
+
+import (
+	"github.com/technodrome-ai/technodrome/internal/views"
+	"github.com/technodrome-ai/technodrome/internal/views/components"
+)
+
+templ SearchResults(results []views.SearchResult) {
+	for _, r := range results {
+		@components.SearchResultCard(r)
+	}
+	if len(results) == 0 {
+		<div class="text-center py-8 text-gray-500">
+			<p>No results found</p>
+		</div>
+	}
+}

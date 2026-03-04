@@ -1,0 +1,14 @@
+package partials
+
+import (
+	"github.com/technodrome-ai/technodrome/internal/views"
+	"github.com/technodrome-ai/technodrome/internal/views/components"
+)
+
+templ DashboardMetrics(metrics []views.MetricData) {
+	<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+		for _, m := range metrics {
+			@components.MetricCard(m)
+		}
+	</div>
+}

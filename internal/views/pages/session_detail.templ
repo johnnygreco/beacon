@@ -1,0 +1,58 @@
+package pages
+
+import (
+	"fmt"
+	"github.com/technodrome-ai/technodrome/internal/views"
+	"github.com/technodrome-ai/technodrome/internal/views/components"
+)
+
+templ SessionDetail(data views.SessionDetailData) {
+	@views.Layout("Session " + data.Session.ID) {
+		<div hx-ext="sse" sse-connect={ fmt.Sprintf("/sse/session/%s", data.Session.ID) } class="space-y-6">
+			<!-- Session Header -->
+			<div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+				<div class="flex items-center justify-between mb-4">
+					<div>
+						<h1 class="text-2xl font-bold text-gray-100">{ data.Session.Actor }</h1>
+						<p class="text-sm text-gray-500 mt-1">Session { data.Session.ID }</p>
+					</div>
+					if data.Session.Status == "active" {
+						<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-green-500/20 text-green-400">Active</span>
+					} else {
+						<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">Completed</span>
+					}
+				</div>
+				<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+					<div>
+						<span class="text-gray-500">Duration</span>
+						<p class="text-gray-200 font-medium">{ data.Session.Duration }</p>
+					</div>
+					<div>
+						<span class="text-gray-500">Total Tokens</span>
+						<p class="text-gray-200 font-medium">{ fmt.Sprintf("%d", data.Session.TotalTokens) }</p>
+					</div>
+					<div>
+						<span class="text-gray-500">Total Cost</span>
+						<p class="text-gray-200 font-medium">{ fmt.Sprintf("$%.4f", data.Session.TotalCost) }</p>
+					</div>
+					<div>
+						<span class="text-gray-500">Turns</span>
+						<p class="text-gray-200 font-medium">{ fmt.Sprintf("%d", data.Session.TurnCount) }</p>
+					</div>
+				</div>
+			</div>
+
+			<!-- Charts -->
+			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+				@components.ChartContainer("sessionTokensChart", "250px")
+				@components.ChartContainer("sessionContextChart", "250px")
+			</div>
+
+			<!-- Turn Timeline -->
+			<div>
+				<h2 class="text-lg font-semibold text-gray-200 mb-3">Turn Timeline</h2>
+				@components.TurnTimeline(data.Turns)
+			</div>
+		</div>
+	}
+}

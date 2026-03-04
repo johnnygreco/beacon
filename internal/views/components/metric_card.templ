@@ -1,0 +1,28 @@
+package components
+
+import "github.com/technodrome-ai/technodrome/internal/views"
+
+templ MetricCard(m views.MetricData) {
+	<div class="bg-gray-800 rounded-lg p-5 border border-gray-700 hover:border-gray-600 transition-colors">
+		<p class="text-sm text-gray-400 uppercase tracking-wide">{ m.Label }</p>
+		<div class="flex items-end justify-between mt-2">
+			<p class="text-3xl font-bold text-gray-100">{ m.Value }</p>
+			if m.Trend == "up" {
+				<span class="text-green-400 text-sm flex items-center">
+					<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>
+					</svg>
+				</span>
+			} else if m.Trend == "down" {
+				<span class="text-red-400 text-sm flex items-center">
+					<svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+					</svg>
+				</span>
+			}
+		</div>
+		if m.Sublabel != "" {
+			<p class="text-xs text-gray-500 mt-2">{ m.Sublabel }</p>
+		}
+	</div>
+}

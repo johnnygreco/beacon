@@ -1,0 +1,15 @@
+package partials
+
+import (
+	"github.com/technodrome-ai/technodrome/internal/views"
+	"github.com/technodrome-ai/technodrome/internal/views/components"
+)
+
+templ SessionList(sessions []views.SessionSummary) {
+	for _, s := range sessions {
+		@components.SessionCard(s)
+	}
+	if len(sessions) == 0 {
+		<p class="text-sm text-gray-500 text-center py-4">No active sessions</p>
+	}
+}
