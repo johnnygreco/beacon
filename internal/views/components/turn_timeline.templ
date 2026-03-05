@@ -17,32 +17,52 @@ templ TurnItem(t views.TurnDetail) {
 	<div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
 		<div class="flex items-center justify-between mb-2">
 			<div class="flex items-center gap-2">
-				if t.Role == "user" {
-					<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-blue-500/20 text-blue-400">User</span>
-				} else if t.Role == "assistant" {
-					<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-purple-500/20 text-purple-400">Assistant</span>
-				} else {
-					<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">{ t.Role }</span>
-				}
-				if t.Model != "" {
-					<span class="text-xs text-gray-500">{ t.Model }</span>
-				}
+				<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-blue-500/20 text-blue-400">
+					{ fmt.Sprintf("Turn %d", t.TurnSeq) }
+				</span>
+				<span class="text-xs text-gray-500">{ fmt.Sprintf("%d events", len(t.Events)) }</span>
 			</div>
 			<div class="flex items-center gap-3 text-xs text-gray-500">
-				<span>{ fmt.Sprintf("%d tok", t.Tokens) }</span>
-				<span>{ fmt.Sprintf("$%.4f", t.Cost) }</span>
-				if t.DurationMs > 0 {
-					<span>{ fmt.Sprintf("%dms", t.DurationMs) }</span>
-				}
+				<span>{ fmt.Sprintf("%d tok", t.TotalTokens) }</span>
+				<span>{ fmt.Sprintf("$%.4f", t.TotalCost) }</span>
 			</div>
 		</div>
-		<div class="text-sm text-gray-300 whitespace-pre-wrap mt-2">{ t.Content }</div>
-		if len(t.ToolCalls) > 0 {
-			<div class="mt-3 flex flex-wrap gap-2">
-				for _, tc := range t.ToolCalls {
-					@ToolCallBadge(tc)
-				}
-			</div>
+		<div class="space-y-2 mt-2">
+			for _, e := range t.Events {
+				@EventItem(e)
+			}
+		</div>
+	</div>
+}
+
+templ EventItem(e views.EventSummary) {
+	<div class="pl-3 border-l-2 border-gray-700 py-1">
+		<div class="flex items-center gap-2 text-xs">
+			if e.ActorRole == "user" {
+				<span class="px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-400 font-medium">user</span>
+			} else if e.ActorRole == "assistant" {
+				<span class="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-400 font-medium">assistant</span>
+			} else if e.ActorRole == "tool" {
+				<span class="px-1.5 py-0.5 rounded bg-yellow-500/20 text-yellow-400 font-medium">tool</span>
+			} else if e.ActorRole != "" {
+				<span class="px-1.5 py-0.5 rounded bg-gray-600/40 text-gray-400 font-medium">{ e.ActorRole }</span>
+			}
+			<span class="text-gray-500">{ e.EventKind }</span>
+			if e.ToolName != "" {
+				<span class="text-yellow-400">{ e.ToolName }</span>
+			}
+			if e.Model != "" {
+				<span class="text-gray-600">{ e.Model }</span>
+			}
+			if e.Tokens > 0 {
+				<span class="text-gray-600">{ fmt.Sprintf("%d tok", e.Tokens) }</span>
+			}
+			if e.DurationMs > 0 {
+				<span class="text-gray-600">{ fmt.Sprintf("%dms", e.DurationMs) }</span>
+			}
+		</div>
+		if e.TextPreview != "" {
+			<p class="text-sm text-gray-300 mt-1 truncate">{ e.TextPreview }</p>
 		}
 	</div>
 }

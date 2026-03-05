@@ -24,10 +24,13 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 	var totalTokens int64
 	var totalCost float64
 
-	db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions`).Scan(&totalSessions)
-	db.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions WHERE ended_at IS NULL`).Scan(&activeSessions)
-	db.QueryRowContext(ctx, `SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM model_calls`).Scan(&totalTokens)
-	db.QueryRowContext(ctx, `SELECT COALESCE(SUM(cost_usd), 0) FROM model_calls`).Scan(&totalCost)
+	db.QueryRowContext(ctx,
+		`SELECT COUNT(DISTINCT session_id),
+		        COUNT(DISTINCT CASE WHEN timestamp > current_timestamp - INTERVAL '1 hour' THEN session_id END),
+		        COALESCE(SUM(input_tokens + output_tokens), 0),
+		        COALESCE(SUM(cost_usd), 0)
+		 FROM events`,
+	).Scan(&totalSessions, &activeSessions, &totalTokens, &totalCost)
 
 	return []views.MetricData{
 		{Label: "Total Sessions", Value: fmt.Sprintf("%d", totalSessions)},
@@ -40,9 +43,9 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 // QueryActiveSessions returns session summaries ordered by most recent.
 func QueryActiveSessions(ctx context.Context, db *sql.DB) []views.SessionSummary {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, source, started_at, ended_at, total_cost,
-		        COALESCE(turn_count, 0), COALESCE(total_tokens, 0)
-		 FROM session_summaries
+		`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
+		        total_cost, turn_count, total_tokens, COALESCE(last_model, '')
+		 FROM v_session_summary
 		 ORDER BY started_at DESC
 		 LIMIT 20`)
 	if err != nil {
@@ -53,17 +56,17 @@ func QueryActiveSessions(ctx context.Context, db *sql.DB) []views.SessionSummary
 	var sessions []views.SessionSummary
 	for rows.Next() {
 		var s views.SessionSummary
-		var source string
-		var startedAt time.Time
-		var endedAt sql.NullTime
-		if err := rows.Scan(&s.ID, &source, &startedAt, &endedAt, &s.TotalCost, &s.TurnCount, &s.TotalTokens); err != nil {
+		var source, model string
+		var startedAt, endedAt time.Time
+		if err := rows.Scan(&s.ID, &source, &startedAt, &endedAt, &s.TotalCost, &s.TurnCount, &s.TotalTokens, &model); err != nil {
 			continue
 		}
 		s.Actor = source
+		s.ActiveModel = model
 		s.StartedAt = startedAt
-		if endedAt.Valid {
+		if !endedAt.IsZero() && endedAt.After(startedAt) {
 			s.Status = "completed"
-			s.Duration = endedAt.Time.Sub(startedAt).Truncate(time.Second).String()
+			s.Duration = endedAt.Sub(startedAt).Truncate(time.Second).String()
 		} else {
 			s.Status = "active"
 			s.Duration = time.Since(startedAt).Truncate(time.Second).String()
@@ -73,27 +76,22 @@ func QueryActiveSessions(ctx context.Context, db *sql.DB) []views.SessionSummary
 	return sessions
 }
 
-// QueryRecentActivity returns a mixed feed of recent model calls, tool calls, and errors.
+// QueryRecentActivity returns a feed of recent events.
 func QueryRecentActivity(ctx context.Context, db *sql.DB) []views.ActivityItem {
 	rows, err := db.QueryContext(ctx,
-		`SELECT * FROM (
-			SELECT id, 'model_call' AS type,
-			       COALESCE(model, 'unknown') || ' (' || CAST(input_tokens + output_tokens AS VARCHAR) || ' tok)' AS summary,
-			       COALESCE(session_id, '') AS session_id, created_at
-			FROM model_calls
-			UNION ALL
-			SELECT id, 'tool_call' AS type,
-			       COALESCE(tool_name, 'unknown') || CASE WHEN success THEN ' (ok)' ELSE ' (fail)' END AS summary,
-			       COALESCE(session_id, '') AS session_id, created_at
-			FROM tool_calls
-			UNION ALL
-			SELECT id, 'error' AS type,
-			       COALESCE(error_code, 'error') || ': ' || COALESCE(message, '') AS summary,
-			       COALESCE(session_id, '') AS session_id, created_at
-			FROM api_errors
-		) combined
-		ORDER BY created_at DESC
-		LIMIT 30`)
+		`SELECT event_uid,
+		        event_kind,
+		        CASE
+		            WHEN event_kind = 'tool_call' OR event_kind = 'tool_result' THEN COALESCE(tool_name, 'unknown')
+		            WHEN event_kind = 'message' THEN COALESCE(actor_role, '') || ': ' || COALESCE(text_preview, '')
+		            WHEN event_kind = 'error' THEN COALESCE(error_code, 'error') || ': ' || COALESCE(error_message, '')
+		            ELSE COALESCE(text_preview, event_kind)
+		        END AS summary,
+		        COALESCE(session_id, ''),
+		        timestamp
+		 FROM events
+		 ORDER BY timestamp DESC
+		 LIMIT 30`)
 	if err != nil {
 		return nil
 	}
@@ -117,7 +115,7 @@ func QueryChartData(ctx context.Context, db *sql.DB) (views.ChartData, views.Cha
 
 	rows, err := db.QueryContext(ctx,
 		`SELECT minute, total_tokens, total_cost
-		 FROM tokens_per_minute
+		 FROM v_tokens_per_minute
 		 ORDER BY minute ASC
 		 LIMIT 60`)
 	if err != nil {
@@ -146,98 +144,84 @@ func QueryChartData(ctx context.Context, db *sql.DB) (views.ChartData, views.Cha
 func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.SessionDetailData, error) {
 	var data views.SessionDetailData
 
-	// Session info
-	var source string
-	var startedAt time.Time
-	var endedAt sql.NullTime
+	// Session info from view
+	var source, model string
+	var startedAt, endedAt time.Time
 	err := db.QueryRowContext(ctx,
-		`SELECT id, source, started_at, ended_at, total_cost,
-		        COALESCE(turn_count, 0), COALESCE(total_tokens, 0)
-		 FROM session_summaries WHERE id = $1`, id,
+		`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
+		        total_cost, turn_count, total_tokens, COALESCE(last_model, '')
+		 FROM v_session_summary WHERE session_id = $1`, id,
 	).Scan(&data.Session.ID, &source, &startedAt, &endedAt, &data.Session.TotalCost,
-		&data.Session.TurnCount, &data.Session.TotalTokens)
+		&data.Session.TurnCount, &data.Session.TotalTokens, &model)
 	if err != nil {
 		return data, err
 	}
 	data.Session.Actor = source
+	data.Session.ActiveModel = model
 	data.Session.StartedAt = startedAt
-	if endedAt.Valid {
+	if !endedAt.IsZero() && endedAt.After(startedAt) {
 		data.Session.Status = "completed"
-		data.Session.Duration = endedAt.Time.Sub(startedAt).Truncate(time.Second).String()
+		data.Session.Duration = endedAt.Sub(startedAt).Truncate(time.Second).String()
 	} else {
 		data.Session.Status = "active"
 		data.Session.Duration = time.Since(startedAt).Truncate(time.Second).String()
 	}
 
-	// Turns
-	turnRows, err := db.QueryContext(ctx,
-		`SELECT id, turn_number, user_prompt, started_at,
-		        input_tokens, output_tokens, cost_usd
-		 FROM turns WHERE session_id = $1 ORDER BY turn_number`, id)
+	// Get events grouped by turn from v_conversation_trace
+	traceRows, err := db.QueryContext(ctx,
+		`SELECT event_uid, event_kind, COALESCE(actor_role, ''), COALESCE(text_preview, ''),
+		        COALESCE(tool_name, ''), COALESCE(model, ''),
+		        input_tokens + output_tokens, cost_usd, duration_ms, timestamp, turn_seq
+		 FROM v_conversation_trace
+		 WHERE session_id = $1
+		 ORDER BY event_order`, id)
 	if err == nil {
-		defer turnRows.Close()
-		for turnRows.Next() {
-			var td views.TurnDetail
-			var turnNum int
-			var inputTokens, outputTokens int64
-			if err := turnRows.Scan(&td.ID, &turnNum, &td.Content, &td.Timestamp,
-				&inputTokens, &outputTokens, &td.Cost); err != nil {
+		defer traceRows.Close()
+
+		turnMap := make(map[int]*views.TurnDetail)
+		var turnOrder []int
+
+		for traceRows.Next() {
+			var es views.EventSummary
+			var turnSeq int
+			if err := traceRows.Scan(&es.EventUID, &es.EventKind, &es.ActorRole, &es.TextPreview,
+				&es.ToolName, &es.Model, &es.Tokens, &es.Cost, &es.DurationMs, &es.Timestamp, &turnSeq); err != nil {
 				continue
 			}
-			td.Role = "user"
-			td.Tokens = inputTokens + outputTokens
 
-			// Get tool calls for this turn
-			tcRows, _ := db.QueryContext(ctx,
-				`SELECT tool_name, success, duration_ms FROM tool_calls WHERE turn_id = $1`, td.ID)
-			if tcRows != nil {
-				for tcRows.Next() {
-					var tc views.ToolCallInfo
-					var success bool
-					var durMs int64
-					tcRows.Scan(&tc.Name, &success, &durMs)
-					if success {
-						tc.Status = "success"
-					} else {
-						tc.Status = "error"
-					}
-					tc.Duration = fmt.Sprintf("%dms", durMs)
-					td.ToolCalls = append(td.ToolCalls, tc)
+			td, ok := turnMap[turnSeq]
+			if !ok {
+				td = &views.TurnDetail{
+					TurnSeq:   turnSeq,
+					StartedAt: es.Timestamp,
 				}
-				tcRows.Close()
+				turnMap[turnSeq] = td
+				turnOrder = append(turnOrder, turnSeq)
 			}
 
-			data.Turns = append(data.Turns, td)
+			td.Events = append(td.Events, es)
+			td.TotalTokens += es.Tokens
+			td.TotalCost += es.Cost
+		}
+
+		for _, seq := range turnOrder {
+			data.Turns = append(data.Turns, *turnMap[seq])
 		}
 	}
 
 	// Token chart data for session
 	mcRows, _ := db.QueryContext(ctx,
-		`SELECT created_at, input_tokens + output_tokens AS tokens
-		 FROM model_calls WHERE session_id = $1 ORDER BY created_at`, id)
+		`SELECT timestamp, input_tokens + output_tokens AS tokens
+		 FROM events WHERE session_id = $1 AND (input_tokens + output_tokens) > 0
+		 ORDER BY timestamp`, id)
 	if mcRows != nil {
 		defer mcRows.Close()
 		for mcRows.Next() {
 			var ts time.Time
 			var tokens int64
 			mcRows.Scan(&ts, &tokens)
-			data.TokensChart.Labels = append(data.TokensChart.Labels, ts.Format("15:04:05"))
+			data.TokensChart.Labels = append(data.TokensChart.Labels, ts.Format(time.RFC3339))
 			data.TokensChart.Values = append(data.TokensChart.Values, float64(tokens))
-		}
-	}
-
-	// Context chart data
-	csRows, _ := db.QueryContext(ctx,
-		`SELECT created_at, tokens_in_context FROM context_snapshots
-		 WHERE session_id = $1 ORDER BY created_at`, id)
-	if csRows != nil {
-		defer csRows.Close()
-		for csRows.Next() {
-			var ts time.Time
-			var tokens int64
-			csRows.Scan(&ts, &tokens)
-			data.ContextChart.Labels = append(data.ContextChart.Labels, ts.Format("15:04:05"))
-			data.ContextChart.Values = append(data.ContextChart.Values, float64(tokens))
 		}
 	}
 

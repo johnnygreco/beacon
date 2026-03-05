@@ -4,62 +4,44 @@ import "time"
 
 // NormalizedEvent is the common format that all source parsers produce.
 type NormalizedEvent struct {
-	// Identity
-	SessionID string
-	TurnID    string
-	EventID   string
-	Source    string // claude_code, codex, cursor
+	SessionID  string
+	SourceName string // "claude" or "codex"
+	Provider   string // "anthropic" or "openai"
 
-	// Event classification
-	EventType string // session_start, session_end, user_prompt, api_request, api_response, tool_use, tool_result, api_error, context_snapshot
+	EventKind   string // message, tool_call, tool_result, reasoning, session_meta, turn_context, event_msg, error, context_snapshot
+	PayloadType string // sub-type within event_kind
+	ActorRole   string // user, assistant, system, tool
 
-	// Timing
 	Timestamp time.Time
 
-	// Token data (for api_request/api_response)
-	Model        string
-	Provider     string
-	InputTokens  int64
-	OutputTokens int64
-	CacheRead    int64
-	CacheCreate  int64
-	DurationMs   int64
-	StatusCode   int
-	CostUSD      float64
+	TextContent string
+	ToolName    string
+	Model       string
 
-	// Tool data (for tool_use/tool_result)
-	ToolName   string
+	InputTokens       int64
+	OutputTokens      int64
+	CacheReadTokens   int64
+	CacheCreateTokens int64
+	DurationMs        int64
+	CostUSD           float64
+
+	ErrorCode    string
+	ErrorMessage string
+
+	// Tool I/O (only for tool_call/tool_result)
+	ToolPhase  string // "call" or "result"
 	ToolInput  string
 	ToolOutput string
-	ToolSuccess bool
 
-	// Prompt data
-	UserPrompt string
-	TurnNumber int
+	// Links
+	ParentUUID string
+	ToolUseID  string
 
-	// Error data
-	ErrorCode  string
-	ErrorClass string
-	ErrorMsg   string
-	RetryCount int
-
-	// Context data
-	TokensInContext int64
-	MaxTokens       int64
-	CompactionEvent bool
-
-	// Document content for search indexing
-	DocContent string
-	DocType    string
-
-	// Actor data
-	UserID    string
-	MachineID string
-	CWD       string
-	GitRepo   string
-
-	// Raw payload for archival
-	RawPayload string
+	// Source coordinates (set by watcher)
+	SourceFile   string
+	SourceLineNo int
+	SourceOffset int64
+	RawPayload   string
 }
 
 // InsertEvent is sent to the batcher for INSERT operations.
@@ -67,16 +49,7 @@ type InsertEvent struct {
 	Normalized NormalizedEvent
 }
 
-// UpdateEvent is sent to the batcher for UPDATE operations (e.g., embedding updates).
-type UpdateEvent struct {
-	Table string
-	ID    string
-	SQL   string
-	Args  []any
-}
-
-// BatchEvent wraps either an InsertEvent or UpdateEvent for the batcher channel.
+// BatchEvent wraps an InsertEvent for the batcher channel.
 type BatchEvent struct {
 	Insert *InsertEvent
-	Update *UpdateEvent
 }

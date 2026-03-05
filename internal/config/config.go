@@ -7,12 +7,13 @@ import (
 )
 
 type Config struct {
-	Server    ServerConfig
-	Database  DatabaseConfig
-	Ingestion IngestionConfig
-	SSE       SSEConfig
-	Search    SearchConfig
-	Pricing   PricingConfig
+	Server   ServerConfig
+	Database DatabaseConfig
+	Watch    WatchConfig
+	SSE      SSEConfig
+	Search   SearchConfig
+	Pricing  PricingConfig
+	MCP      MCPConfig
 }
 
 type ServerConfig struct {
@@ -25,10 +26,18 @@ type DatabaseConfig struct {
 	ReadPoolSize int `mapstructure:"read_pool_size"`
 }
 
-type IngestionConfig struct {
-	BatchSize    int           `mapstructure:"batch_size"`
-	FlushInterval time.Duration `mapstructure:"flush_interval"`
-	MaxBodyBytes  int64         `mapstructure:"max_body_bytes"`
+type WatchConfig struct {
+	Enabled            bool
+	DebounceMs         int           `mapstructure:"debounce_ms"`
+	ReconcileInterval  time.Duration `mapstructure:"reconcile_interval"`
+	BackfillOnStart    bool          `mapstructure:"backfill_on_start"`
+	Sources            []SourceConfig
+}
+
+type SourceConfig struct {
+	Name     string
+	Provider string
+	Glob     string
 }
 
 type SSEConfig struct {
@@ -36,26 +45,18 @@ type SSEConfig struct {
 }
 
 type SearchConfig struct {
-	Provider   string
-	Model      string
-	Dimensions int
-	Ollama     OllamaConfig
-	OpenAI     OpenAIConfig
-}
-
-type OllamaConfig struct {
-	URL string
-}
-
-type OpenAIConfig struct {
-	APIKey     string `mapstructure:"api_key"`
-	Model      string
-	Dimensions int
+	MaxResults      int           `mapstructure:"max_results"`
+	RebuildInterval time.Duration `mapstructure:"rebuild_interval"`
 }
 
 type PricingConfig struct {
 	DefaultInputCost  float64 `mapstructure:"default_input_cost"`
 	DefaultOutputCost float64 `mapstructure:"default_output_cost"`
+}
+
+type MCPConfig struct {
+	MaxResults    int `mapstructure:"max_results"`
+	ContextWindow int `mapstructure:"context_window"`
 }
 
 func Load(cfgFile string) (*Config, error) {
@@ -66,20 +67,24 @@ func Load(cfgFile string) (*Config, error) {
 		viper.SetConfigType("toml")
 		viper.AddConfigPath(".")
 		viper.AddConfigPath("$HOME/.config/technodrome")
+		viper.AddConfigPath("$HOME/.technodrome")
 	}
 
 	viper.SetDefault("server.host", "0.0.0.0")
 	viper.SetDefault("server.port", 4600)
-	viper.SetDefault("database.path", "technodrome.duckdb")
+	viper.SetDefault("database.path", "~/.technodrome/technodrome.duckdb")
 	viper.SetDefault("database.read_pool_size", 4)
-	viper.SetDefault("ingestion.batch_size", 500)
-	viper.SetDefault("ingestion.flush_interval", "2s")
-	viper.SetDefault("ingestion.max_body_bytes", 4194304)
+	viper.SetDefault("watch.enabled", true)
+	viper.SetDefault("watch.debounce_ms", 50)
+	viper.SetDefault("watch.reconcile_interval", "30s")
+	viper.SetDefault("watch.backfill_on_start", true)
 	viper.SetDefault("sse.subscriber_buffer", 64)
-	viper.SetDefault("search.provider", "ollama")
-	viper.SetDefault("search.model", "nomic-embed-text")
-	viper.SetDefault("search.dimensions", 768)
-	viper.SetDefault("search.ollama.url", "http://localhost:11434")
+	viper.SetDefault("search.max_results", 25)
+	viper.SetDefault("search.rebuild_interval", "5m")
+	viper.SetDefault("pricing.default_input_cost", 3.0)
+	viper.SetDefault("pricing.default_output_cost", 15.0)
+	viper.SetDefault("mcp.max_results", 25)
+	viper.SetDefault("mcp.context_window", 3)
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -90,6 +95,14 @@ func Load(cfgFile string) (*Config, error) {
 	var cfg Config
 	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, err
+	}
+
+	// Default watch sources if none configured
+	if len(cfg.Watch.Sources) == 0 {
+		cfg.Watch.Sources = []SourceConfig{
+			{Name: "claude", Provider: "anthropic", Glob: "~/.claude/projects/**/*.jsonl"},
+			{Name: "codex", Provider: "openai", Glob: "~/.codex/sessions/**/*.jsonl"},
+		}
 	}
 
 	return &cfg, nil

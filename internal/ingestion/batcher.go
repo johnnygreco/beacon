@@ -3,13 +3,17 @@ package ingestion
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/technodrome-ai/technodrome/internal/database"
 	"github.com/technodrome-ai/technodrome/internal/models"
 )
+
+const previewMaxLen = 320
 
 // Batcher accumulates events and flushes them to DuckDB in batches.
 type Batcher struct {
@@ -49,16 +53,13 @@ func (b *Batcher) Run(ctx context.Context) {
 	defer ticker.Stop()
 
 	var inserts []NormalizedEvent
-	var updates []UpdateEvent
 
 	flush := func() {
-		if len(inserts) == 0 && len(updates) == 0 {
+		if len(inserts) == 0 {
 			return
 		}
 		b.flushInserts(ctx, inserts)
-		b.flushUpdates(ctx, updates)
 		inserts = inserts[:0]
-		updates = updates[:0]
 
 		if b.notify != nil {
 			b.notify()
@@ -74,10 +75,7 @@ func (b *Batcher) Run(ctx context.Context) {
 			if evt.Insert != nil {
 				inserts = append(inserts, evt.Insert.Normalized)
 			}
-			if evt.Update != nil {
-				updates = append(updates, *evt.Update)
-			}
-			if len(inserts)+len(updates) >= b.batchSize {
+			if len(inserts) >= b.batchSize {
 				flush()
 			}
 		case <-ticker.C:
@@ -88,140 +86,85 @@ func (b *Batcher) Run(ctx context.Context) {
 
 func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 	for _, evt := range events {
-		id := genID()
-		switch evt.EventType {
-		case "user_prompt":
-			if evt.SessionID != "" {
-				database.InsertSession(ctx, b.db, &models.Session{
-					ID:        evt.SessionID,
-					Source:    evt.Source,
-					StartedAt: evt.Timestamp,
-					CWD:       evt.CWD,
-					GitRepo:   evt.GitRepo,
-				})
-			}
-			if evt.TurnID == "" {
-				evt.TurnID = id
-			}
-			database.InsertTurn(ctx, b.db, &models.Turn{
-				ID:         evt.TurnID,
-				SessionID:  evt.SessionID,
-				TurnNumber: evt.TurnNumber,
-				UserPrompt: evt.UserPrompt,
-				StartedAt:  evt.Timestamp,
-			})
-			if evt.DocContent != "" {
-				database.InsertDocument(ctx, b.db, &models.Document{
-					ID:        genID(),
-					SessionID: evt.SessionID,
-					TurnID:    evt.TurnID,
-					DocType:   evt.DocType,
-					Content:   evt.DocContent,
-					CreatedAt: evt.Timestamp,
-				})
-			}
+		uid := eventUID(evt.SourceFile, evt.SourceLineNo, evt.SourceOffset, evt.RawPayload)
 
-		case "api_request":
-			cost := evt.CostUSD
-			if cost == 0 {
-				cost = CalcCost(evt.Model, evt.InputTokens, evt.OutputTokens, b.defaultInput, b.defaultOutput)
+		// Calculate cost if not provided
+		cost := evt.CostUSD
+		if cost == 0 && (evt.InputTokens > 0 || evt.OutputTokens > 0) {
+			cost = CalcCost(evt.Model, evt.InputTokens, evt.OutputTokens, b.defaultInput, b.defaultOutput)
+		}
+
+		// Build text preview
+		preview := truncate(evt.TextContent, previewMaxLen)
+
+		event := &models.Event{
+			EventUID:          uid,
+			SessionID:         evt.SessionID,
+			SourceName:        evt.SourceName,
+			Provider:          evt.Provider,
+			EventKind:         evt.EventKind,
+			PayloadType:       evt.PayloadType,
+			ActorRole:         evt.ActorRole,
+			Timestamp:         evt.Timestamp,
+			TextContent:       evt.TextContent,
+			TextPreview:       preview,
+			ToolName:          evt.ToolName,
+			Model:             evt.Model,
+			InputTokens:       evt.InputTokens,
+			OutputTokens:      evt.OutputTokens,
+			CacheReadTokens:   evt.CacheReadTokens,
+			CacheCreateTokens: evt.CacheCreateTokens,
+			DurationMs:        evt.DurationMs,
+			CostUSD:           cost,
+			ErrorCode:         evt.ErrorCode,
+			ErrorMessage:      evt.ErrorMessage,
+			EventVersion:      1,
+			PayloadJSON:       evt.RawPayload,
+			SourceFile:        evt.SourceFile,
+			SourceLineNo:      evt.SourceLineNo,
+			SourceOffset:      evt.SourceOffset,
+		}
+
+		if err := database.InsertEvent(ctx, b.db, event); err != nil {
+			b.logger.Error("insert event failed", "uid", uid, "error", err)
+			continue
+		}
+
+		// Insert event links if parent UUID exists
+		if evt.ParentUUID != "" {
+			el := &models.EventLink{
+				EventUID:       uid,
+				LinkedEventUID: evt.ParentUUID,
+				LinkType:       "parent",
 			}
-			database.InsertModelCall(ctx, b.db, &models.ModelCall{
-				ID:           id,
-				SessionID:    evt.SessionID,
-				TurnID:       evt.TurnID,
-				Model:        evt.Model,
-				Provider:     evt.Provider,
-				InputTokens:  evt.InputTokens,
-				OutputTokens: evt.OutputTokens,
-				CacheRead:    evt.CacheRead,
-				CacheCreate:  evt.CacheCreate,
-				DurationMs:   evt.DurationMs,
-				StatusCode:   evt.StatusCode,
-				CostUSD:      cost,
-				CreatedAt:    evt.Timestamp,
-			})
-
-		case "tool_use":
-			database.InsertToolCall(ctx, b.db, &models.ToolCall{
-				ID:        id,
-				SessionID: evt.SessionID,
-				TurnID:    evt.TurnID,
-				ToolName:  evt.ToolName,
-				Input:     evt.ToolInput,
-				CreatedAt: evt.Timestamp,
-			})
-
-		case "tool_result":
-			database.InsertToolCall(ctx, b.db, &models.ToolCall{
-				ID:         id,
-				SessionID:  evt.SessionID,
-				TurnID:     evt.TurnID,
-				ToolName:   evt.ToolName,
-				Output:     evt.ToolOutput,
-				Success:    evt.ToolSuccess,
-				DurationMs: evt.DurationMs,
-				CreatedAt:  evt.Timestamp,
-			})
-			if evt.DocContent != "" {
-				database.InsertDocument(ctx, b.db, &models.Document{
-					ID:        genID(),
-					SessionID: evt.SessionID,
-					TurnID:    evt.TurnID,
-					DocType:   evt.DocType,
-					Content:   evt.DocContent,
-					CreatedAt: evt.Timestamp,
-				})
+			if err := database.InsertEventLink(ctx, b.db, el); err != nil {
+				b.logger.Error("insert event link failed", "error", err)
 			}
+		}
 
-		case "api_error":
-			database.InsertApiError(ctx, b.db, &models.ApiError{
-				ID:         id,
-				SessionID:  evt.SessionID,
-				TurnID:     evt.TurnID,
-				ErrorCode:  evt.ErrorCode,
-				ErrorClass: evt.ErrorClass,
-				Message:    evt.ErrorMsg,
-				Provider:   evt.Provider,
-				RetryCount: evt.RetryCount,
-				CreatedAt:  evt.Timestamp,
-			})
-
-		case "context_snapshot":
-			headroom := evt.MaxTokens - evt.TokensInContext
-			if headroom < 0 {
-				headroom = 0
+		// Insert tool I/O for tool_call/tool_result
+		if evt.ToolPhase != "" && (evt.ToolInput != "" || evt.ToolOutput != "") {
+			tio := &models.ToolIO{
+				EventUID:      uid,
+				ToolName:      evt.ToolName,
+				ToolPhase:     evt.ToolPhase,
+				InputJSON:     evt.ToolInput,
+				OutputJSON:    evt.ToolOutput,
+				InputPreview:  truncate(evt.ToolInput, previewMaxLen),
+				OutputPreview: truncate(evt.ToolOutput, previewMaxLen),
 			}
-			database.InsertContextSnapshot(ctx, b.db, &models.ContextSnapshot{
-				ID:              id,
-				SessionID:       evt.SessionID,
-				TurnID:          evt.TurnID,
-				TokensInContext: evt.TokensInContext,
-				MaxTokens:       evt.MaxTokens,
-				Headroom:        headroom,
-				CompactionEvent: evt.CompactionEvent,
-				CreatedAt:       evt.Timestamp,
-			})
-
-		default:
-			database.InsertRawEvent(ctx, b.db, &models.RawEvent{
-				ID:        id,
-				SessionID: evt.SessionID,
-				Source:    evt.Source,
-				EventType: evt.EventType,
-				Payload:   evt.RawPayload,
-				CreatedAt: evt.Timestamp,
-			})
+			if err := database.InsertToolIO(ctx, b.db, tio); err != nil {
+				b.logger.Error("insert tool io failed", "error", err)
+			}
 		}
 	}
 }
 
-func (b *Batcher) flushUpdates(ctx context.Context, updates []UpdateEvent) {
-	for _, u := range updates {
-		if _, err := b.db.WriteConn().ExecContext(ctx, u.SQL, u.Args...); err != nil {
-			b.logger.Error("update failed", "table", u.Table, "id", u.ID, "error", err)
-		}
-	}
+// eventUID generates a deterministic UID for idempotent replay.
+func eventUID(sourceFile string, lineNo int, offset int64, contentHash string) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s|%d|%d|%s", sourceFile, lineNo, offset, contentHash)
+	return hex.EncodeToString(h.Sum(nil))[:32]
 }
 
 func genID() string {

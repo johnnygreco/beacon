@@ -11,7 +11,6 @@ generate:
 
 clean:
 	rm -rf bin/
-	rm -f technodrome.duckdb technodrome.duckdb.wal
 
 simulator:
 	go run ./cmd/simulator

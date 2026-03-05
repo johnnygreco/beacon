@@ -4,166 +4,166 @@ import "context"
 
 func (db *DB) migrate() error {
 	ddl := []string{
-		// Core tables
-		`CREATE TABLE IF NOT EXISTS actors (
-			id VARCHAR PRIMARY KEY,
-			user_id VARCHAR,
-			org_team VARCHAR,
-			machine_id VARCHAR,
-			created_at TIMESTAMP DEFAULT current_timestamp
-		)`,
+		// Drop old tables and views from v1 schema
+		`DROP TABLE IF EXISTS actors`,
+		`DROP TABLE IF EXISTS sessions`,
+		`DROP TABLE IF EXISTS turns`,
+		`DROP TABLE IF EXISTS model_calls`,
+		`DROP TABLE IF EXISTS tool_calls`,
+		`DROP TABLE IF EXISTS api_errors`,
+		`DROP TABLE IF EXISTS context_snapshots`,
+		`DROP TABLE IF EXISTS documents`,
+		`DROP TABLE IF EXISTS raw_events`,
+		`DROP VIEW IF EXISTS tokens_per_minute`,
+		`DROP VIEW IF EXISTS tool_success_rates`,
+		`DROP VIEW IF EXISTS session_summaries`,
+		`DROP VIEW IF EXISTS hourly_costs`,
 
-		`CREATE TABLE IF NOT EXISTS sessions (
-			id VARCHAR PRIMARY KEY,
-			actor_id VARCHAR,
-			source VARCHAR,
-			started_at TIMESTAMP DEFAULT current_timestamp,
-			ended_at TIMESTAMP,
-			cwd VARCHAR,
-			git_repo VARCHAR,
-			total_cost DOUBLE DEFAULT 0.0
-		)`,
-
-		`CREATE TABLE IF NOT EXISTS turns (
-			id VARCHAR PRIMARY KEY,
-			session_id VARCHAR,
-			turn_number INTEGER,
-			user_prompt VARCHAR,
-			started_at TIMESTAMP DEFAULT current_timestamp,
-			ended_at TIMESTAMP,
-			input_tokens BIGINT DEFAULT 0,
-			output_tokens BIGINT DEFAULT 0,
-			cache_read BIGINT DEFAULT 0,
-			cache_create BIGINT DEFAULT 0,
-			cost_usd DOUBLE DEFAULT 0.0
-		)`,
-
-		`CREATE TABLE IF NOT EXISTS model_calls (
-			id VARCHAR PRIMARY KEY,
-			session_id VARCHAR,
-			turn_id VARCHAR,
-			model VARCHAR,
+		// Core event table
+		`CREATE TABLE IF NOT EXISTS events (
+			event_uid VARCHAR PRIMARY KEY,
+			session_id VARCHAR NOT NULL,
+			session_date DATE,
+			source_name VARCHAR,
 			provider VARCHAR,
-			input_tokens BIGINT DEFAULT 0,
-			output_tokens BIGINT DEFAULT 0,
-			cache_read BIGINT DEFAULT 0,
-			cache_create BIGINT DEFAULT 0,
-			duration_ms BIGINT DEFAULT 0,
-			status_code INTEGER DEFAULT 200,
-			cost_usd DOUBLE DEFAULT 0.0,
-			created_at TIMESTAMP DEFAULT current_timestamp
-		)`,
-
-		`CREATE TABLE IF NOT EXISTS tool_calls (
-			id VARCHAR PRIMARY KEY,
-			session_id VARCHAR,
-			turn_id VARCHAR,
+			event_kind VARCHAR NOT NULL,
+			payload_type VARCHAR,
+			actor_role VARCHAR,
+			timestamp TIMESTAMP NOT NULL,
+			text_content VARCHAR,
+			text_preview VARCHAR,
 			tool_name VARCHAR,
-			input VARCHAR,
-			output VARCHAR,
-			success BOOLEAN DEFAULT true,
+			model VARCHAR,
+			input_tokens BIGINT DEFAULT 0,
+			output_tokens BIGINT DEFAULT 0,
+			cache_read_tokens BIGINT DEFAULT 0,
+			cache_create_tokens BIGINT DEFAULT 0,
 			duration_ms BIGINT DEFAULT 0,
-			created_at TIMESTAMP DEFAULT current_timestamp
-		)`,
-
-		`CREATE TABLE IF NOT EXISTS api_errors (
-			id VARCHAR PRIMARY KEY,
-			session_id VARCHAR,
-			turn_id VARCHAR,
+			cost_usd DOUBLE DEFAULT 0.0,
 			error_code VARCHAR,
+			error_message VARCHAR,
+			event_version INTEGER DEFAULT 1,
+			payload_json VARCHAR,
+			source_file VARCHAR,
+			source_line_no INTEGER,
+			source_offset BIGINT,
+			created_at TIMESTAMP DEFAULT current_timestamp
+		)`,
+
+		`CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`,
+		`CREATE INDEX IF NOT EXISTS idx_events_kind ON events(event_kind)`,
+
+		// Parent-child relationships
+		`CREATE TABLE IF NOT EXISTS event_links (
+			event_uid VARCHAR NOT NULL,
+			linked_event_uid VARCHAR NOT NULL,
+			link_type VARCHAR NOT NULL,
+			PRIMARY KEY (event_uid, linked_event_uid, link_type)
+		)`,
+
+		// Separated tool I/O
+		`CREATE TABLE IF NOT EXISTS tool_io (
+			event_uid VARCHAR PRIMARY KEY,
+			tool_name VARCHAR,
+			tool_phase VARCHAR,
+			input_json VARCHAR,
+			output_json VARCHAR,
+			input_preview VARCHAR,
+			output_preview VARCHAR
+		)`,
+
+		// Ingest error tracking
+		`CREATE TABLE IF NOT EXISTS ingest_errors (
+			id VARCHAR PRIMARY KEY,
+			source_file VARCHAR,
+			source_line_no INTEGER,
 			error_class VARCHAR,
-			message VARCHAR,
-			provider VARCHAR,
-			retry_count INTEGER DEFAULT 0,
+			error_message VARCHAR,
+			context_fragment VARCHAR,
 			created_at TIMESTAMP DEFAULT current_timestamp
 		)`,
 
-		`CREATE TABLE IF NOT EXISTS context_snapshots (
-			id VARCHAR PRIMARY KEY,
-			session_id VARCHAR,
-			turn_id VARCHAR,
-			tokens_in_context BIGINT DEFAULT 0,
-			max_tokens BIGINT DEFAULT 0,
-			headroom BIGINT DEFAULT 0,
-			compaction_event BOOLEAN DEFAULT false,
-			created_at TIMESTAMP DEFAULT current_timestamp
+		// Checkpoint table for crash recovery
+		`CREATE TABLE IF NOT EXISTS ingest_checkpoints (
+			source_name VARCHAR,
+			source_file VARCHAR,
+			source_inode BIGINT,
+			source_generation INTEGER DEFAULT 0,
+			last_offset BIGINT DEFAULT 0,
+			last_line_no INTEGER DEFAULT 0,
+			updated_at TIMESTAMP DEFAULT current_timestamp,
+			PRIMARY KEY (source_name, source_file)
 		)`,
 
-		`CREATE TABLE IF NOT EXISTS documents (
-			id VARCHAR PRIMARY KEY,
-			session_id VARCHAR,
-			turn_id VARCHAR,
-			doc_type VARCHAR,
-			content VARCHAR,
-			embedding FLOAT[],
-			embedding_model VARCHAR,
-			created_at TIMESTAMP DEFAULT current_timestamp
-		)`,
-
-		`CREATE TABLE IF NOT EXISTS raw_events (
-			id VARCHAR PRIMARY KEY,
-			session_id VARCHAR,
-			source VARCHAR,
-			event_type VARCHAR,
-			payload VARCHAR,
-			created_at TIMESTAMP DEFAULT current_timestamp
-		)`,
-
-		// Analytical views
-		`CREATE OR REPLACE VIEW tokens_per_minute AS
+		// Session-level aggregates
+		`CREATE OR REPLACE VIEW v_session_summary AS
 		SELECT
-			time_bucket(INTERVAL '1 minute', created_at) AS minute,
+			session_id, source_name,
+			MIN(timestamp) AS started_at,
+			MAX(timestamp) AS ended_at,
+			COUNT(*) AS event_count,
+			COUNT(DISTINCT CASE WHEN event_kind = 'message' AND actor_role = 'user' THEN event_uid END) AS turn_count,
+			SUM(input_tokens) AS total_input_tokens,
+			SUM(output_tokens) AS total_output_tokens,
+			SUM(input_tokens + output_tokens) AS total_tokens,
+			SUM(cost_usd) AS total_cost,
+			COUNT(CASE WHEN event_kind = 'tool_call' THEN 1 END) AS tool_call_count,
+			COUNT(CASE WHEN event_kind = 'error' THEN 1 END) AS error_count,
+			MAX(model) AS last_model
+		FROM events GROUP BY session_id, source_name`,
+
+		// Conversation trace with turn sequencing
+		`CREATE OR REPLACE VIEW v_conversation_trace AS
+		SELECT
+			e.*,
+			ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY timestamp, event_uid) AS event_order,
+			SUM(CASE WHEN event_kind = 'message' AND actor_role = 'user' THEN 1 ELSE 0 END)
+				OVER (PARTITION BY session_id ORDER BY timestamp, event_uid) AS turn_seq
+		FROM events e`,
+
+		// Time-series token usage
+		`CREATE OR REPLACE VIEW v_tokens_per_minute AS
+		SELECT
+			time_bucket(INTERVAL '1 minute', timestamp) AS minute,
 			SUM(input_tokens) AS total_input,
 			SUM(output_tokens) AS total_output,
 			SUM(input_tokens + output_tokens) AS total_tokens,
 			SUM(cost_usd) AS total_cost,
-			COUNT(*) AS call_count
-		FROM model_calls
-		GROUP BY minute
-		ORDER BY minute DESC`,
+			COUNT(CASE WHEN input_tokens + output_tokens > 0 THEN 1 END) AS call_count
+		FROM events GROUP BY minute ORDER BY minute DESC`,
 
-		`CREATE OR REPLACE VIEW tool_success_rates AS
+		// Tool usage stats
+		`CREATE OR REPLACE VIEW v_tool_stats AS
 		SELECT
 			tool_name,
-			COUNT(*) AS total_calls,
-			SUM(CASE WHEN success THEN 1 ELSE 0 END) AS successes,
-			SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) AS failures,
-			ROUND(100.0 * SUM(CASE WHEN success THEN 1 ELSE 0 END) / COUNT(*), 2) AS success_rate,
+			COUNT(CASE WHEN event_kind = 'tool_call' THEN 1 END) AS calls,
+			COUNT(CASE WHEN event_kind = 'tool_result' THEN 1 END) AS results,
+			COUNT(*) AS total,
 			AVG(duration_ms) AS avg_duration_ms
-		FROM tool_calls
-		GROUP BY tool_name
-		ORDER BY total_calls DESC`,
+		FROM events
+		WHERE tool_name IS NOT NULL AND tool_name != ''
+		GROUP BY tool_name ORDER BY total DESC`,
 
-		`CREATE OR REPLACE VIEW session_summaries AS
+		// Hourly cost breakdown
+		`CREATE OR REPLACE VIEW v_hourly_costs AS
 		SELECT
-			s.id,
-			s.source,
-			s.started_at,
-			s.ended_at,
-			s.cwd,
-			s.git_repo,
-			s.total_cost,
-			COUNT(DISTINCT t.id) AS turn_count,
-			COALESCE(SUM(mc.input_tokens + mc.output_tokens), 0) AS total_tokens,
-			COALESCE(SUM(mc.cost_usd), 0) AS computed_cost,
-			(SELECT COUNT(*) FROM api_errors ae WHERE ae.session_id = s.id) AS error_count
-		FROM sessions s
-		LEFT JOIN turns t ON t.session_id = s.id
-		LEFT JOIN model_calls mc ON mc.session_id = s.id
-		GROUP BY s.id, s.source, s.started_at, s.ended_at, s.cwd, s.git_repo, s.total_cost`,
-
-		`CREATE OR REPLACE VIEW hourly_costs AS
-		SELECT
-			time_bucket(INTERVAL '1 hour', created_at) AS hour,
-			provider,
-			model,
+			time_bucket(INTERVAL '1 hour', timestamp) AS hour,
+			provider, model,
 			SUM(cost_usd) AS total_cost,
 			SUM(input_tokens) AS total_input,
 			SUM(output_tokens) AS total_output,
-			COUNT(*) AS call_count
-		FROM model_calls
-		GROUP BY hour, provider, model
-		ORDER BY hour DESC`,
+			COUNT(CASE WHEN input_tokens + output_tokens > 0 THEN 1 END) AS call_count
+		FROM events WHERE cost_usd > 0
+		GROUP BY hour, provider, model ORDER BY hour DESC`,
+	}
+
+	// Load FTS extension
+	if _, err := db.writeConn.ExecContext(context.Background(), "INSTALL fts"); err != nil {
+		// ignore install error if already installed
+	}
+	if _, err := db.writeConn.ExecContext(context.Background(), "LOAD fts"); err != nil {
+		// ignore load error
 	}
 
 	for _, stmt := range ddl {

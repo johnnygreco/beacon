@@ -5,13 +5,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/technodrome-ai/technodrome/internal/ingestion"
 	"github.com/technodrome-ai/technodrome/internal/sse"
 )
 
 // NewRouter creates the chi router with all routes registered.
 func NewRouter(
-	otlpHandler *ingestion.OTLPHandler,
 	broker *sse.Broker,
 	handlers *Handlers,
 	apiHandlers *APIHandlers,
@@ -33,10 +31,6 @@ func NewRouter(
 	r.Get("/search", handlers.Search)
 	r.Get("/search/results", handlers.SearchResults)
 
-	// OTLP ingestion endpoints
-	r.Post("/v1/logs", otlpHandler.HandleLogs)
-	r.Post("/v1/metrics", otlpHandler.HandleMetrics)
-
 	// SSE endpoints
 	r.Get("/sse/dashboard", broker.DashboardHandler)
 	r.Get("/sse/session/{id}", broker.SessionHandler)
@@ -46,7 +40,7 @@ func NewRouter(
 		r.Get("/metrics", apiHandlers.GetMetrics)
 		r.Get("/sessions", apiHandlers.GetSessions)
 		r.Get("/sessions/{id}", apiHandlers.GetSessionDetail)
-		r.Get("/search", apiHandlers.SearchDocuments)
+		r.Get("/search", apiHandlers.SearchEvents)
 		r.Get("/tokens-per-minute", apiHandlers.GetTokensPerMinute)
 		r.Get("/tool-stats", apiHandlers.GetToolStats)
 		r.Get("/hourly-costs", apiHandlers.GetHourlyCosts)

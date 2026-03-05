@@ -45,8 +45,8 @@ templ SessionDetail(data views.SessionDetailData) {
 
 			<!-- Charts -->
 			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-				@components.ChartContainer("sessionTokensChart", "250px")
-				@components.ChartContainer("sessionContextChart", "250px")
+				@components.ChartContainer("sessionTokensChart", "250px", "Tokens per Event")
+				@components.ChartContainer("sessionCostPerTurnChart", "250px", "Cost per Turn")
 			</div>
 
 			<!-- Turn Timeline -->
@@ -59,26 +59,8 @@ templ SessionDetail(data views.SessionDetailData) {
 			<script id="session-tokens-data" type="application/json">
 				{ chartDataToJSON(data.TokensChart) }
 			</script>
-			<script id="session-context-data" type="application/json">
-				{ chartDataToJSON(data.ContextChart) }
-			</script>
-			<script>
-				(function() {
-					function loadChart(chartName, dataId) {
-						var el = document.getElementById(dataId);
-						if (!el || !window[chartName]) return;
-						try {
-							var d = JSON.parse(el.textContent);
-							if (d.labels && d.labels.length > 0) {
-								window[chartName].data.labels = d.labels;
-								window[chartName].data.datasets[0].data = d.values;
-								window[chartName].update();
-							}
-						} catch(e) {}
-					}
-					loadChart('sessionTokensChart', 'session-tokens-data');
-					loadChart('sessionContextChart', 'session-context-data');
-				})();
+			<script id="session-cost-per-turn-data" type="application/json">
+				{ turnCostDataToJSON(data.Turns) }
 			</script>
 		</div>
 	}
@@ -86,6 +68,18 @@ templ SessionDetail(data views.SessionDetailData) {
 
 func chartDataToJSON(data views.ChartData) string {
 	m := map[string]any{"labels": data.Labels, "values": data.Values}
+	b, _ := json.Marshal(m)
+	return string(b)
+}
+
+func turnCostDataToJSON(turns []views.TurnDetail) string {
+	labels := make([]string, len(turns))
+	values := make([]float64, len(turns))
+	for i, t := range turns {
+		labels[i] = fmt.Sprintf("Turn %d", t.TurnSeq)
+		values[i] = t.TotalCost
+	}
+	m := map[string]any{"labels": labels, "values": values}
 	b, _ := json.Marshal(m)
 	return string(b)
 }

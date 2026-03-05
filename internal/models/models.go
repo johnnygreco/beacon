@@ -2,106 +2,67 @@ package models
 
 import "time"
 
-type Actor struct {
-	ID        string `json:"id"`
-	UserID    string `json:"user_id"`
-	OrgTeam   string `json:"org_team"`
-	MachineID string `json:"machine_id"`
-	CreatedAt time.Time `json:"created_at"`
+type Event struct {
+	EventUID          string     `json:"event_uid"`
+	SessionID         string     `json:"session_id"`
+	SessionDate       *time.Time `json:"session_date,omitempty"`
+	SourceName        string     `json:"source_name"`
+	Provider          string     `json:"provider"`
+	EventKind         string     `json:"event_kind"`
+	PayloadType       string     `json:"payload_type"`
+	ActorRole         string     `json:"actor_role"`
+	Timestamp         time.Time  `json:"timestamp"`
+	TextContent       string     `json:"text_content"`
+	TextPreview       string     `json:"text_preview"`
+	ToolName          string     `json:"tool_name"`
+	Model             string     `json:"model"`
+	InputTokens       int64      `json:"input_tokens"`
+	OutputTokens      int64      `json:"output_tokens"`
+	CacheReadTokens   int64      `json:"cache_read_tokens"`
+	CacheCreateTokens int64      `json:"cache_create_tokens"`
+	DurationMs        int64      `json:"duration_ms"`
+	CostUSD           float64    `json:"cost_usd"`
+	ErrorCode         string     `json:"error_code"`
+	ErrorMessage      string     `json:"error_message"`
+	EventVersion      int        `json:"event_version"`
+	PayloadJSON       string     `json:"payload_json"`
+	SourceFile        string     `json:"source_file"`
+	SourceLineNo      int        `json:"source_line_no"`
+	SourceOffset      int64      `json:"source_offset"`
+	CreatedAt         time.Time  `json:"created_at"`
 }
 
-type Session struct {
-	ID         string    `json:"id"`
-	ActorID    string    `json:"actor_id"`
-	Source     string    `json:"source"` // claude_code, codex, cursor
-	StartedAt  time.Time `json:"started_at"`
-	EndedAt    *time.Time `json:"ended_at,omitempty"`
-	CWD        string    `json:"cwd"`
-	GitRepo    string    `json:"git_repo"`
-	TotalCost  float64   `json:"total_cost"`
+type EventLink struct {
+	EventUID       string `json:"event_uid"`
+	LinkedEventUID string `json:"linked_event_uid"`
+	LinkType       string `json:"link_type"`
 }
 
-type Turn struct {
-	ID           string    `json:"id"`
-	SessionID    string    `json:"session_id"`
-	TurnNumber   int       `json:"turn_number"`
-	UserPrompt   string    `json:"user_prompt"`
-	StartedAt    time.Time `json:"started_at"`
-	EndedAt      *time.Time `json:"ended_at,omitempty"`
-	InputTokens  int64     `json:"input_tokens"`
-	OutputTokens int64     `json:"output_tokens"`
-	CacheRead    int64     `json:"cache_read"`
-	CacheCreate  int64     `json:"cache_create"`
-	CostUSD      float64   `json:"cost_usd"`
+type ToolIO struct {
+	EventUID      string `json:"event_uid"`
+	ToolName      string `json:"tool_name"`
+	ToolPhase     string `json:"tool_phase"`
+	InputJSON     string `json:"input_json"`
+	OutputJSON    string `json:"output_json"`
+	InputPreview  string `json:"input_preview"`
+	OutputPreview string `json:"output_preview"`
 }
 
-type ModelCall struct {
-	ID            string    `json:"id"`
-	SessionID     string    `json:"session_id"`
-	TurnID        string    `json:"turn_id"`
-	Model         string    `json:"model"`
-	Provider      string    `json:"provider"`
-	InputTokens   int64     `json:"input_tokens"`
-	OutputTokens  int64     `json:"output_tokens"`
-	CacheRead     int64     `json:"cache_read"`
-	CacheCreate   int64     `json:"cache_create"`
-	DurationMs    int64     `json:"duration_ms"`
-	StatusCode    int       `json:"status_code"`
-	CostUSD       float64   `json:"cost_usd"`
-	CreatedAt     time.Time `json:"created_at"`
-}
-
-type ToolCall struct {
-	ID         string    `json:"id"`
-	SessionID  string    `json:"session_id"`
-	TurnID     string    `json:"turn_id"`
-	ToolName   string    `json:"tool_name"`
-	Input      string    `json:"input"`
-	Output     string    `json:"output"`
-	Success    bool      `json:"success"`
-	DurationMs int64     `json:"duration_ms"`
-	CreatedAt  time.Time `json:"created_at"`
-}
-
-type ApiError struct {
-	ID          string    `json:"id"`
-	SessionID   string    `json:"session_id"`
-	TurnID      string    `json:"turn_id"`
-	ErrorCode   string    `json:"error_code"`
-	ErrorClass  string    `json:"error_class"`
-	Message     string    `json:"message"`
-	Provider    string    `json:"provider"`
-	RetryCount  int       `json:"retry_count"`
-	CreatedAt   time.Time `json:"created_at"`
-}
-
-type ContextSnapshot struct {
+type IngestError struct {
 	ID              string    `json:"id"`
-	SessionID       string    `json:"session_id"`
-	TurnID          string    `json:"turn_id"`
-	TokensInContext int64     `json:"tokens_in_context"`
-	MaxTokens       int64     `json:"max_tokens"`
-	Headroom        int64     `json:"headroom"`
-	CompactionEvent bool      `json:"compaction_event"`
+	SourceFile      string    `json:"source_file"`
+	SourceLineNo    int       `json:"source_line_no"`
+	ErrorClass      string    `json:"error_class"`
+	ErrorMessage    string    `json:"error_message"`
+	ContextFragment string    `json:"context_fragment"`
 	CreatedAt       time.Time `json:"created_at"`
 }
 
-type Document struct {
-	ID             string    `json:"id"`
-	SessionID      string    `json:"session_id"`
-	TurnID         string    `json:"turn_id"`
-	DocType        string    `json:"doc_type"` // prompt, summary, tool_output, note
-	Content        string    `json:"content"`
-	Embedding      []float32 `json:"embedding,omitempty"`
-	EmbeddingModel string    `json:"embedding_model,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-}
-
-type RawEvent struct {
-	ID        string    `json:"id"`
-	SessionID string    `json:"session_id"`
-	Source    string    `json:"source"`
-	EventType string    `json:"event_type"`
-	Payload   string    `json:"payload"` // JSON blob
-	CreatedAt time.Time `json:"created_at"`
+type Checkpoint struct {
+	SourceName       string `json:"source_name"`
+	SourceFile       string `json:"source_file"`
+	SourceInode      int64  `json:"source_inode"`
+	SourceGeneration int    `json:"source_generation"`
+	LastOffset       int64  `json:"last_offset"`
+	LastLineNo       int    `json:"last_line_no"`
 }

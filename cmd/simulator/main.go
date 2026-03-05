@@ -1,157 +1,152 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 )
 
-// Simulator sends fake OTLP log events to the Technodrome server for testing.
+// Simulator generates fake JSONL files that mimic Claude Code output.
+// This tests the JSONL watcher pipeline end-to-end.
 func main() {
-	target := "http://localhost:4600"
-	if v := os.Getenv("TECHNODROME_URL"); v != "" {
-		target = v
+	home, _ := os.UserHomeDir()
+	outDir := filepath.Join(home, ".claude", "projects", "simulator")
+	if v := os.Getenv("SIMULATOR_DIR"); v != "" {
+		outDir = v
 	}
 
-	fmt.Printf("Sending simulated events to %s/v1/logs\n", target)
+	os.MkdirAll(outDir, 0755)
 
-	sessionID := fmt.Sprintf("sim-session-%d", time.Now().Unix())
+	sessionID := fmt.Sprintf("sim-%d", time.Now().Unix())
+	outFile := filepath.Join(outDir, sessionID+".jsonl")
+
+	f, err := os.Create(outFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "create file: %v\n", err)
+		os.Exit(1)
+	}
+	defer f.Close()
+
+	fmt.Printf("Writing simulated JSONL to %s\n", outFile)
+
 	models := []string{"claude-sonnet-4", "claude-opus-4", "claude-haiku-4"}
 	tools := []string{"Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch"}
+	encoder := json.NewEncoder(f)
 
 	turnNum := 0
 	for {
 		turnNum++
-		turnID := fmt.Sprintf("turn-%s-%d", sessionID, turnNum)
+		parentUUID := fmt.Sprintf("uuid-turn-%d", turnNum)
+		ts := time.Now()
 
-		// User prompt event
-		sendEvent(target, sessionID, turnID, "user_prompt", map[string]any{
-			"prompt":      fmt.Sprintf("Simulated prompt #%d: Please help me with task %d", turnNum, turnNum),
-			"turn_number": turnNum,
+		// User message
+		writeLine(encoder, map[string]any{
+			"sessionId":  sessionID,
+			"uuid":       fmt.Sprintf("uuid-%d-user", turnNum),
+			"parentUuid": "",
+			"timestamp":  ts.Format(time.RFC3339Nano),
+			"type":       "human",
+			"message": map[string]any{
+				"role": "user",
+				"content": []map[string]any{
+					{"type": "text", "text": fmt.Sprintf("Simulated prompt #%d: Please help me with task %d", turnNum, turnNum)},
+				},
+			},
 		})
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond)
 
-		// API request event
+		// Assistant response with model call
 		model := models[rand.Intn(len(models))]
 		inputTokens := rand.Intn(50000) + 1000
 		outputTokens := rand.Intn(4000) + 100
 		cacheRead := rand.Intn(30000)
-		sendEvent(target, sessionID, turnID, "api_request", map[string]any{
-			"model":                      model,
-			"input_tokens":               inputTokens,
-			"output_tokens":              outputTokens,
-			"cache_read_input_tokens":    cacheRead,
-			"cache_creation_input_tokens": 0,
-			"duration_ms":                rand.Intn(5000) + 500,
-			"status_code":                200,
-		})
-		time.Sleep(300 * time.Millisecond)
 
-		// Tool calls (1-3 per turn)
+		contentBlocks := []map[string]any{
+			{"type": "text", "text": fmt.Sprintf("I'll help you with task %d. Let me work on that.", turnNum)},
+		}
+
+		// Add tool calls
 		numTools := rand.Intn(3) + 1
 		for i := 0; i < numTools; i++ {
 			tool := tools[rand.Intn(len(tools))]
-			sendEvent(target, sessionID, turnID, "tool_result", map[string]any{
-				"tool_name":   tool,
-				"tool_output": fmt.Sprintf("Output from %s for turn %d", tool, turnNum),
-				"success":     rand.Float32() > 0.05, // 95% success rate
-				"duration_ms": rand.Intn(2000) + 50,
-			})
-			time.Sleep(200 * time.Millisecond)
-		}
-
-		// Occasional errors (10% chance)
-		if rand.Float32() < 0.1 {
-			sendEvent(target, sessionID, turnID, "api_error", map[string]any{
-				"error_code":    "rate_limit_exceeded",
-				"error_class":   "rate_limit",
-				"error_message": "Too many requests",
-				"retry_count":   1,
+			toolUseID := fmt.Sprintf("toolu_%d_%d", turnNum, i)
+			contentBlocks = append(contentBlocks, map[string]any{
+				"type":  "tool_use",
+				"id":    toolUseID,
+				"name":  tool,
+				"input": map[string]any{"path": fmt.Sprintf("/src/file%d.go", i)},
 			})
 		}
 
-		// Context snapshot
-		contextTokens := rand.Intn(150000) + 10000
-		sendEvent(target, sessionID, turnID, "context_snapshot", map[string]any{
-			"tokens_in_context": contextTokens,
-			"max_tokens":        200000,
-			"compaction_event":  contextTokens > 180000,
+		writeLine(encoder, map[string]any{
+			"sessionId":  sessionID,
+			"uuid":       fmt.Sprintf("uuid-%d-assistant", turnNum),
+			"parentUuid": parentUUID,
+			"timestamp":  time.Now().Format(time.RFC3339Nano),
+			"type":       "assistant",
+			"message": map[string]any{
+				"role":    "assistant",
+				"model":   model,
+				"content": contentBlocks,
+				"usage": map[string]any{
+					"input_tokens":                inputTokens,
+					"output_tokens":               outputTokens,
+					"cache_read_input_tokens":      cacheRead,
+					"cache_creation_input_tokens":  0,
+				},
+			},
 		})
+		time.Sleep(200 * time.Millisecond)
+
+		// Tool results
+		for i := 0; i < numTools; i++ {
+			tool := tools[rand.Intn(len(tools))]
+			toolUseID := fmt.Sprintf("toolu_%d_%d", turnNum, i)
+			writeLine(encoder, map[string]any{
+				"sessionId":  sessionID,
+				"uuid":       fmt.Sprintf("uuid-%d-result-%d", turnNum, i),
+				"parentUuid": fmt.Sprintf("uuid-%d-assistant", turnNum),
+				"timestamp":  time.Now().Format(time.RFC3339Nano),
+				"type":       "tool_result",
+				"message": map[string]any{
+					"role": "tool",
+					"content": []map[string]any{
+						{
+							"type":        "tool_result",
+							"tool_use_id": toolUseID,
+							"name":        tool,
+							"content":     fmt.Sprintf("Output from %s for turn %d", tool, turnNum),
+						},
+					},
+				},
+			})
+			time.Sleep(100 * time.Millisecond)
+		}
+
+		// Occasional error
+		if rand.Float32() < 0.1 {
+			writeLine(encoder, map[string]any{
+				"sessionId": sessionID,
+				"uuid":      fmt.Sprintf("uuid-%d-error", turnNum),
+				"timestamp": time.Now().Format(time.RFC3339Nano),
+				"type":      "error",
+				"message": map[string]any{
+					"role": "system",
+					"content": []map[string]any{
+						{"type": "text", "text": "Rate limit exceeded"},
+					},
+				},
+			})
+		}
 
 		fmt.Printf("  Turn %d: model=%s input=%d output=%d tools=%d\n", turnNum, model, inputTokens, outputTokens, numTools)
 		time.Sleep(time.Duration(rand.Intn(3)+1) * time.Second)
 	}
 }
 
-func sendEvent(target, sessionID, turnID, eventName string, attrs map[string]any) {
-	// Build a simplified OTLP-like JSON payload
-	attrs["event.name"] = eventName
-	attrs["session_id"] = sessionID
-	attrs["turn_id"] = turnID
-
-	// Convert to OTLP JSON format
-	logRecord := map[string]any{
-		"timeUnixNano": fmt.Sprintf("%d", time.Now().UnixNano()),
-		"attributes":   toOTLPAttrs(attrs),
-		"body": map[string]any{
-			"stringValue": eventName,
-		},
-	}
-
-	payload := map[string]any{
-		"resourceLogs": []any{
-			map[string]any{
-				"resource": map[string]any{
-					"attributes": toOTLPAttrs(map[string]any{
-						"service.name": "claude_code",
-					}),
-				},
-				"scopeLogs": []any{
-					map[string]any{
-						"logRecords": []any{logRecord},
-					},
-				},
-			},
-		},
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "marshal error: %v\n", err)
-		return
-	}
-
-	resp, err := http.Post(target+"/v1/logs", "application/json", bytes.NewReader(data))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "send error: %v\n", err)
-		return
-	}
-	resp.Body.Close()
-}
-
-func toOTLPAttrs(m map[string]any) []map[string]any {
-	var attrs []map[string]any
-	for k, v := range m {
-		attr := map[string]any{"key": k}
-		switch val := v.(type) {
-		case string:
-			attr["value"] = map[string]any{"stringValue": val}
-		case int:
-			attr["value"] = map[string]any{"intValue": fmt.Sprintf("%d", val)}
-		case int64:
-			attr["value"] = map[string]any{"intValue": fmt.Sprintf("%d", val)}
-		case float64:
-			attr["value"] = map[string]any{"doubleValue": val}
-		case bool:
-			attr["value"] = map[string]any{"boolValue": val}
-		default:
-			attr["value"] = map[string]any{"stringValue": fmt.Sprintf("%v", val)}
-		}
-		attrs = append(attrs, attr)
-	}
-	return attrs
+func writeLine(enc *json.Encoder, data map[string]any) {
+	enc.Encode(data)
 }

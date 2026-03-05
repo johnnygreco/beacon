@@ -158,11 +158,11 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = components.ChartContainer("sessionTokensChart", "250px").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = components.ChartContainer("sessionTokensChart", "250px", "Tokens per Event").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = components.ChartContainer("sessionContextChart", "250px").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = components.ChartContainer("sessionCostPerTurnChart", "250px", "Cost per Turn").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -174,7 +174,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</div><!-- Initial chart data embedded as JSON for session charts --><script id=\"session-tokens-data\" type=\"application/json\">\n\t\t\t\t{ chartDataToJSON(data.TokensChart) }\n\t\t\t</script><script id=\"session-context-data\" type=\"application/json\">\n\t\t\t\t{ chartDataToJSON(data.ContextChart) }\n\t\t\t</script><script>\n\t\t\t\t(function() {\n\t\t\t\t\tfunction loadChart(chartName, dataId) {\n\t\t\t\t\t\tvar el = document.getElementById(dataId);\n\t\t\t\t\t\tif (!el || !window[chartName]) return;\n\t\t\t\t\t\ttry {\n\t\t\t\t\t\t\tvar d = JSON.parse(el.textContent);\n\t\t\t\t\t\t\tif (d.labels && d.labels.length > 0) {\n\t\t\t\t\t\t\t\twindow[chartName].data.labels = d.labels;\n\t\t\t\t\t\t\t\twindow[chartName].data.datasets[0].data = d.values;\n\t\t\t\t\t\t\t\twindow[chartName].update();\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t} catch(e) {}\n\t\t\t\t\t}\n\t\t\t\t\tloadChart('sessionTokensChart', 'session-tokens-data');\n\t\t\t\t\tloadChart('sessionContextChart', 'session-context-data');\n\t\t\t\t})();\n\t\t\t</script></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</div><!-- Initial chart data embedded as JSON for session charts --><script id=\"session-tokens-data\" type=\"application/json\">\n\t\t\t\t{ chartDataToJSON(data.TokensChart) }\n\t\t\t</script><script id=\"session-cost-per-turn-data\" type=\"application/json\">\n\t\t\t\t{ turnCostDataToJSON(data.Turns) }\n\t\t\t</script></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -190,6 +190,18 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 
 func chartDataToJSON(data views.ChartData) string {
 	m := map[string]any{"labels": data.Labels, "values": data.Values}
+	b, _ := json.Marshal(m)
+	return string(b)
+}
+
+func turnCostDataToJSON(turns []views.TurnDetail) string {
+	labels := make([]string, len(turns))
+	values := make([]float64, len(turns))
+	for i, t := range turns {
+		labels[i] = fmt.Sprintf("Turn %d", t.TurnSeq)
+		values[i] = t.TotalCost
+	}
+	m := map[string]any{"labels": labels, "values": values}
 	b, _ := json.Marshal(m)
 	return string(b)
 }

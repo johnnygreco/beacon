@@ -3,30 +3,36 @@ host = "0.0.0.0"
 port = 4600
 
 [database]
-path = "technodrome.duckdb"
+path = "~/.technodrome/technodrome.duckdb"
 read_pool_size = 4
 
-[ingestion]
-batch_size = 500
-flush_interval = "2s"
-max_body_bytes = 4194304
+[watch]
+enabled = true
+debounce_ms = 50
+reconcile_interval = "30s"
+backfill_on_start = true
+
+[[watch.sources]]
+name = "claude"
+provider = "anthropic"
+glob = "~/.claude/projects/**/*.jsonl"
+
+[[watch.sources]]
+name = "codex"
+provider = "openai"
+glob = "~/.codex/sessions/**/*.jsonl"
 
 [sse]
 subscriber_buffer = 64
 
 [search]
-provider = "ollama"
-model = "nomic-embed-text"
-dimensions = 768
-
-[search.ollama]
-url = "http://localhost:11434"
-
-[search.openai]
-api_key = ""
-model = "text-embedding-3-small"
-dimensions = 1536
+max_results = 25
+rebuild_interval = "5m"
 
 [pricing]
 default_input_cost = 3.00
 default_output_cost = 15.00
+
+[mcp]
+max_results = 25
+context_window = 3

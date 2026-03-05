@@ -13,23 +13,20 @@ templ FilterBar() {
 				class="bg-gray-700 text-gray-200 text-sm rounded px-2 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none"/>
 		</div>
 		<div>
-			<label class="text-xs text-gray-500 block mb-1" for="filter-actor">Actor</label>
-			<input type="text" id="filter-actor" name="actor" placeholder="All actors"
-				class="bg-gray-700 text-gray-200 text-sm rounded px-2 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none w-32"/>
-		</div>
-		<div>
 			<label class="text-xs text-gray-500 block mb-1" for="filter-session">Session</label>
 			<input type="text" id="filter-session" name="session_id" placeholder="All sessions"
 				class="bg-gray-700 text-gray-200 text-sm rounded px-2 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none w-32"/>
 		</div>
 		<div>
-			<label class="text-xs text-gray-500 block mb-1" for="filter-match-type">Match Type</label>
-			<select id="filter-match-type" name="match_type"
+			<label class="text-xs text-gray-500 block mb-1" for="filter-event-kind">Event Kind</label>
+			<select id="filter-event-kind" name="event_kind"
 				class="bg-gray-700 text-gray-200 text-sm rounded px-2 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none">
 				<option value="">All</option>
-				<option value="semantic">Semantic</option>
-				<option value="keyword">Keyword</option>
-				<option value="hybrid">Hybrid</option>
+				<option value="message">Message</option>
+				<option value="tool_call">Tool Call</option>
+				<option value="tool_result">Tool Result</option>
+				<option value="reasoning">Reasoning</option>
+				<option value="error">Error</option>
 			</select>
 		</div>
 	</div>

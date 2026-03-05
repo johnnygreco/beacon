@@ -59,11 +59,11 @@ func Dashboard(data views.DashboardData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = components.ChartContainer("tokensChart", "300px").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = components.ChartContainer("tokensChart", "300px", "Token Throughput (per minute)").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = components.ChartContainer("costChart", "300px").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = components.ChartContainer("costChart", "300px", "Cumulative Cost").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

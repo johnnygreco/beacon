@@ -4,224 +4,280 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math"
-	"sort"
+	"log/slog"
 	"strings"
+	"sync"
 	"time"
 )
 
-// Result is the output of a search query.
-type Result struct {
-	DocumentID string
-	SessionID  string
-	DocType    string
-	Content    string
-	Snippet    string
-	Score      float64
-	Source     string
-	CreatedAt  time.Time
+type SearchQuery struct {
+	Query          string
+	Limit          int
+	MinScore       float64
+	SessionID      string
+	EventKinds     []string
+	ExcludeMCPSelf bool
 }
 
-// Searcher performs keyword and semantic search with RRF ranking.
+type SearchResult struct {
+	EventUID    string    `json:"event_uid"`
+	SessionID   string    `json:"session_id"`
+	EventKind   string    `json:"event_kind"`
+	TextPreview string    `json:"text_preview"`
+	Score       float64   `json:"score"`
+	Timestamp   time.Time `json:"timestamp"`
+	ToolName    string    `json:"tool_name"`
+	Model       string    `json:"model"`
+}
+
 type Searcher struct {
-	db       *sql.DB
-	provider EmbeddingProvider
+	db              *sql.DB
+	logger          *slog.Logger
+	rebuildInterval time.Duration
+	maxResults      int
+	mu              sync.RWMutex
+	lastIndexBuild  time.Time
+	indexExists     bool
 }
 
-// NewSearcher creates a new searcher.
-func NewSearcher(db *sql.DB, provider EmbeddingProvider) *Searcher {
-	return &Searcher{db: db, provider: provider}
+func NewSearcher(db *sql.DB, logger *slog.Logger, maxResults int, rebuildInterval time.Duration) *Searcher {
+	return &Searcher{
+		db:              db,
+		logger:          logger,
+		maxResults:      maxResults,
+		rebuildInterval: rebuildInterval,
+	}
 }
 
-// Search performs combined keyword + semantic search with Reciprocal Rank Fusion.
-func (s *Searcher) Search(ctx context.Context, query string, limit int) ([]Result, error) {
-	if limit <= 0 {
-		limit = 20
+// RunIndexer rebuilds the FTS index periodically. Call from a goroutine.
+func (s *Searcher) RunIndexer(ctx context.Context) {
+	s.rebuildIndex()
+
+	if s.rebuildInterval <= 0 {
+		return
 	}
 
-	// Run keyword and semantic searches in parallel
-	type resultSet struct {
-		results []scoredDoc
-		err     error
+	ticker := time.NewTicker(s.rebuildInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.rebuildIndex()
+		}
+	}
+}
+
+func (s *Searcher) rebuildIndex() {
+	// Check if there are any rows
+	var count int64
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM events WHERE text_content IS NOT NULL AND text_content != ''").Scan(&count); err != nil {
+		s.logger.Error("FTS row count check failed", "error", err)
+		return
+	}
+	if count == 0 {
+		return
 	}
 
-	keywordCh := make(chan resultSet, 1)
-	semanticCh := make(chan resultSet, 1)
+	if _, err := s.db.Exec("INSTALL fts"); err != nil {
+		// ignore
+	}
+	if _, err := s.db.Exec("LOAD fts"); err != nil {
+		s.logger.Error("LOAD fts failed", "error", err)
+		return
+	}
 
-	go func() {
-		results, err := s.keywordSearch(ctx, query, limit*2)
-		keywordCh <- resultSet{results, err}
-	}()
+	_, err := s.db.Exec("PRAGMA create_fts_index('events', 'event_uid', 'text_content', overwrite=1)")
+	if err != nil {
+		s.logger.Error("FTS index rebuild failed", "error", err)
+		return
+	}
 
-	go func() {
-		results, err := s.semanticSearch(ctx, query, limit*2)
-		semanticCh <- resultSet{results, err}
-	}()
+	s.mu.Lock()
+	s.lastIndexBuild = time.Now()
+	s.indexExists = true
+	s.mu.Unlock()
 
-	keywordRes := <-keywordCh
-	semanticRes := <-semanticCh
-
-	// Combine results with RRF
-	return s.rrfMerge(keywordRes.results, keywordRes.err, semanticRes.results, semanticRes.err, limit)
+	s.logger.Info("FTS index rebuilt", "documents", count)
 }
 
-type scoredDoc struct {
-	ID        string
-	SessionID string
-	DocType   string
-	Content   string
-	Source    string
-	CreatedAt time.Time
-	Score     float64
+// ProbeIndex checks if an FTS index exists (for read-only connections).
+func (s *Searcher) ProbeIndex() {
+	row := s.db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fts_main_events'")
+	var count int
+	if err := row.Scan(&count); err == nil && count > 0 {
+		s.mu.Lock()
+		s.indexExists = true
+		s.mu.Unlock()
+	}
 }
 
-func (s *Searcher) keywordSearch(ctx context.Context, query string, limit int) ([]scoredDoc, error) {
-	// Use ILIKE for case-insensitive keyword search
-	pattern := "%" + strings.ReplaceAll(query, "%", "\\%") + "%"
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT d.id, d.session_id, d.doc_type, d.content, COALESCE(ses.source, ''), d.created_at
-		 FROM documents d
-		 LEFT JOIN sessions ses ON ses.id = d.session_id
-		 WHERE d.content ILIKE $1
-		 ORDER BY d.created_at DESC
+// Search performs BM25 + ILIKE recency search.
+func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
+	if q.Limit <= 0 {
+		q.Limit = s.maxResults
+	}
+	if q.Limit <= 0 {
+		q.Limit = 25
+	}
+
+	s.mu.RLock()
+	hasIndex := s.indexExists
+	lastBuild := s.lastIndexBuild
+	s.mu.RUnlock()
+
+	var bm25Results []SearchResult
+	var recencyResults []SearchResult
+
+	// BM25 path
+	if hasIndex {
+		results, err := s.bm25Search(ctx, q)
+		if err != nil {
+			s.logger.Warn("BM25 search failed, falling back to ILIKE", "error", err)
+		} else {
+			bm25Results = results
+		}
+	}
+
+	// Recency path: ILIKE for events newer than last index build
+	if !lastBuild.IsZero() || !hasIndex {
+		results, err := s.ilikeSearch(ctx, q, lastBuild)
+		if err != nil {
+			s.logger.Warn("ILIKE search failed", "error", err)
+		} else {
+			recencyResults = results
+		}
+	}
+
+	// Merge: BM25 first, then recency (deduped)
+	seen := make(map[string]bool)
+	var merged []SearchResult
+	for _, r := range bm25Results {
+		if !seen[r.EventUID] {
+			seen[r.EventUID] = true
+			merged = append(merged, r)
+		}
+	}
+	for _, r := range recencyResults {
+		if !seen[r.EventUID] {
+			seen[r.EventUID] = true
+			merged = append(merged, r)
+		}
+	}
+
+	if len(merged) > q.Limit {
+		merged = merged[:q.Limit]
+	}
+
+	return merged, nil
+}
+
+// LegacySearch provides a simple interface for web handlers.
+func (s *Searcher) LegacySearch(ctx context.Context, query string, limit int) ([]SearchResult, error) {
+	return s.Search(ctx, SearchQuery{Query: query, Limit: limit})
+}
+
+func (s *Searcher) bm25Search(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
+	query := fmt.Sprintf(
+		`SELECT e.event_uid, e.session_id, e.event_kind, e.text_preview,
+		        fts.score, e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, '')
+		 FROM (SELECT event_uid, fts_main_events.match_bm25(event_uid, $1, fields := 'text_content') AS score
+		       FROM fts_main_events) fts
+		 JOIN events e ON e.event_uid = fts.event_uid
+		 WHERE fts.score IS NOT NULL %s
+		 ORDER BY fts.score DESC
 		 LIMIT $2`,
-		pattern, limit,
+		s.buildFilters(q),
 	)
+
+	rows, err := s.db.QueryContext(ctx, query, q.Query, q.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var results []scoredDoc
-	rank := 1
-	for rows.Next() {
-		var d scoredDoc
-		if err := rows.Scan(&d.ID, &d.SessionID, &d.DocType, &d.Content, &d.Source, &d.CreatedAt); err != nil {
-			continue
-		}
-		d.Score = float64(rank)
-		rank++
-		results = append(results, d)
-	}
-	return results, nil
+	return scanResults(rows)
 }
 
-func (s *Searcher) semanticSearch(ctx context.Context, query string, limit int) ([]scoredDoc, error) {
-	if s.provider == nil {
-		return nil, nil
+func (s *Searcher) ilikeSearch(ctx context.Context, q SearchQuery, since time.Time) ([]SearchResult, error) {
+	pattern := "%" + strings.ReplaceAll(strings.ReplaceAll(q.Query, "%", "\\%"), "_", "\\_") + "%"
+
+	var whereExtra string
+	var args []any
+	args = append(args, pattern)
+
+	if !since.IsZero() {
+		whereExtra = " AND e.created_at > $2"
+		args = append(args, since)
 	}
+	whereExtra += " " + s.buildFilters(q)
 
-	embedding, err := s.provider.Embed(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("embedding query: %w", err)
-	}
-
-	// Format embedding as DuckDB array literal
-	embStr := formatEmbedding(embedding)
-
-	rows, err := s.db.QueryContext(ctx,
-		fmt.Sprintf(
-			`SELECT d.id, d.session_id, d.doc_type, d.content, COALESCE(ses.source, ''), d.created_at,
-			        list_cosine_similarity(d.embedding, %s::FLOAT[]) AS similarity
-			 FROM documents d
-			 LEFT JOIN sessions ses ON ses.id = d.session_id
-			 WHERE d.embedding IS NOT NULL
-			 ORDER BY similarity DESC
-			 LIMIT $1`, embStr),
-		limit,
+	query := fmt.Sprintf(
+		`SELECT e.event_uid, e.session_id, e.event_kind, e.text_preview,
+		        0.0 AS score, e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, '')
+		 FROM events e
+		 WHERE e.text_content ILIKE $1 %s
+		 ORDER BY e.timestamp DESC
+		 LIMIT %d`,
+		whereExtra, q.Limit,
 	)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var results []scoredDoc
-	rank := 1
+	return scanResults(rows)
+}
+
+func (s *Searcher) buildFilters(q SearchQuery) string {
+	var clauses []string
+
+	if q.SessionID != "" {
+		clauses = append(clauses, fmt.Sprintf("AND e.session_id = '%s'", strings.ReplaceAll(q.SessionID, "'", "''")))
+	}
+
+	if len(q.EventKinds) > 0 {
+		quoted := make([]string, len(q.EventKinds))
+		for i, k := range q.EventKinds {
+			quoted[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(k, "'", "''"))
+		}
+		clauses = append(clauses, fmt.Sprintf("AND e.event_kind IN (%s)", strings.Join(quoted, ",")))
+	}
+
+	if q.ExcludeMCPSelf {
+		clauses = append(clauses, "AND e.text_content NOT ILIKE '%technodrome%'")
+		clauses = append(clauses, "AND (e.tool_name IS NULL OR e.tool_name NOT IN ('search', 'open', 'list_sessions'))")
+	}
+
+	return strings.Join(clauses, " ")
+}
+
+func scanResults(rows *sql.Rows) ([]SearchResult, error) {
+	var results []SearchResult
 	for rows.Next() {
-		var d scoredDoc
-		var similarity float64
-		if err := rows.Scan(&d.ID, &d.SessionID, &d.DocType, &d.Content, &d.Source, &d.CreatedAt, &similarity); err != nil {
+		var r SearchResult
+		if err := rows.Scan(&r.EventUID, &r.SessionID, &r.EventKind, &r.TextPreview, &r.Score, &r.Timestamp, &r.ToolName, &r.Model); err != nil {
 			continue
 		}
-		d.Score = float64(rank)
-		rank++
-		results = append(results, d)
+		results = append(results, r)
 	}
-	return results, nil
+	return results, rows.Err()
 }
 
-// rrfMerge combines keyword and semantic results using Reciprocal Rank Fusion (k=60).
-func (s *Searcher) rrfMerge(keyword []scoredDoc, kwErr error, semantic []scoredDoc, semErr error, limit int) ([]Result, error) {
-	const k = 60.0
-	scores := make(map[string]float64)
-	docs := make(map[string]scoredDoc)
-
-	if kwErr == nil {
-		for i, d := range keyword {
-			scores[d.ID] += 1.0 / (k + float64(i+1))
-			docs[d.ID] = d
-		}
-	}
-	if semErr == nil {
-		for i, d := range semantic {
-			scores[d.ID] += 1.0 / (k + float64(i+1))
-			docs[d.ID] = d
-		}
-	}
-
-	if len(docs) == 0 {
-		if kwErr != nil {
-			return nil, kwErr
-		}
-		return nil, semErr
-	}
-
-	type ranked struct {
-		id    string
-		score float64
-	}
-	var ranked_list []ranked
-	for id, score := range scores {
-		ranked_list = append(ranked_list, ranked{id, score})
-	}
-	sort.Slice(ranked_list, func(i, j int) bool {
-		return ranked_list[i].score > ranked_list[j].score
-	})
-
-	if len(ranked_list) > limit {
-		ranked_list = ranked_list[:limit]
-	}
-
-	results := make([]Result, 0, len(ranked_list))
-	for _, r := range ranked_list {
-		d := docs[r.id]
-		snippet := d.Content
-		if len(snippet) > 200 {
-			snippet = snippet[:200] + "..."
-		}
-		results = append(results, Result{
-			DocumentID: d.ID,
-			SessionID:  d.SessionID,
-			DocType:    d.DocType,
-			Content:    d.Content,
-			Snippet:    snippet,
-			Score:      math.Round(r.score*10000) / 10000,
-			Source:     d.Source,
-			CreatedAt:  d.CreatedAt,
-		})
-	}
-	return results, nil
+// LastIndexBuild returns when the FTS index was last rebuilt.
+func (s *Searcher) LastIndexBuild() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastIndexBuild
 }
 
-func formatEmbedding(emb []float32) string {
-	var b strings.Builder
-	b.WriteString("[")
-	for i, v := range emb {
-		if i > 0 {
-			b.WriteString(",")
-		}
-		fmt.Fprintf(&b, "%f", v)
-	}
-	b.WriteString("]")
-	return b.String()
+// IndexExists returns whether an FTS index exists.
+func (s *Searcher) IndexExists() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.indexExists
 }

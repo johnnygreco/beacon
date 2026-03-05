@@ -3,7 +3,6 @@ package views
 import "time"
 
 // View model types for templates.
-// These mirror the types in internal/web/viewmodels.go.
 
 type MetricData struct {
 	Label    string
@@ -20,47 +19,47 @@ type SessionSummary struct {
 	Duration    string
 	TotalTokens int64
 	TotalCost   float64
-	TurnCount   int
+	TurnCount   int64
 	ActiveModel string
 }
 
 type SearchResult struct {
-	DocumentID string
-	SessionID  string
-	Content    string
-	Snippet    string
-	Score      float64
-	MatchType  string // "semantic", "keyword", "hybrid"
-	Timestamp  time.Time
+	EventUID  string
+	SessionID string
+	EventKind string
+	Snippet   string
+	Score     float64
+	MatchType string // "bm25", "keyword"
+	Timestamp time.Time
 }
 
 type ActivityItem struct {
 	ID        string
-	Type      string // "prompt", "response", "tool_call", "error"
+	Type      string // event_kind: "message", "tool_call", "tool_result", "error"
 	Summary   string
 	SessionID string
 	Timestamp time.Time
-	Actor     string
+}
+
+type EventSummary struct {
+	EventUID   string
+	EventKind  string // message, tool_call, tool_result, reasoning, etc.
+	ActorRole  string
+	TextPreview string
+	ToolName   string
+	Model      string
+	Tokens     int64
+	Cost       float64
+	DurationMs int64
+	Timestamp  time.Time
 }
 
 type TurnDetail struct {
-	ID         string
-	Role       string
-	Content    string
-	Tokens     int64
-	Cost       float64
-	Model      string
-	ToolCalls  []ToolCallInfo
-	Timestamp  time.Time
-	DurationMs int64
-}
-
-type ToolCallInfo struct {
-	Name     string
-	Status   string // "success", "error"
-	Duration string
-	Input    string
-	Output   string
+	TurnSeq     int
+	Events      []EventSummary
+	TotalTokens int64
+	TotalCost   float64
+	StartedAt   time.Time
 }
 
 type ChartData struct {
@@ -77,8 +76,7 @@ type DashboardData struct {
 }
 
 type SessionDetailData struct {
-	Session      SessionSummary
-	Turns        []TurnDetail
-	TokensChart  ChartData
-	ContextChart ChartData
+	Session     SessionSummary
+	Turns       []TurnDetail
+	TokensChart ChartData
 }

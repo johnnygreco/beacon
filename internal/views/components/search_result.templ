@@ -12,14 +12,10 @@ templ SearchResultCard(r views.SearchResult) {
 				Session { r.SessionID }
 			</a>
 			<div class="flex items-center gap-2">
-				if r.MatchType == "semantic" {
-					<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-purple-500/20 text-purple-400">Semantic</span>
-				} else if r.MatchType == "keyword" {
-					<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-blue-500/20 text-blue-400">Keyword</span>
-				} else {
-					<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-yellow-500/20 text-yellow-400">Hybrid</span>
+				<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">{ r.EventKind }</span>
+				if r.Score > 0 {
+					<span class="text-xs text-gray-500">{ fmt.Sprintf("%.2f", r.Score) }</span>
 				}
-				<span class="text-xs text-gray-500">{ fmt.Sprintf("%.1f%%", r.Score*100) }</span>
 			</div>
 		</div>
 		<p class="text-sm text-gray-300 leading-relaxed">{ r.Snippet }</p>

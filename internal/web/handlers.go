@@ -59,24 +59,22 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := h.searcher.Search(r.Context(), query, 20)
+	results, err := h.searcher.LegacySearch(r.Context(), query, 20)
 	if err != nil {
 		h.logger.Error("search failed", "error", err)
 		partials.SearchResults(nil).Render(r.Context(), w)
 		return
 	}
 
-	// Convert search.Result to views.SearchResult for templ rendering
 	var viewResults []views.SearchResult
 	for _, sr := range results {
 		viewResults = append(viewResults, views.SearchResult{
-			DocumentID: sr.DocumentID,
-			SessionID:  sr.SessionID,
-			Content:    sr.Content,
-			Snippet:    sr.Snippet,
-			Score:      sr.Score,
-			MatchType:  "hybrid",
-			Timestamp:  sr.CreatedAt,
+			EventUID:  sr.EventUID,
+			SessionID: sr.SessionID,
+			EventKind: sr.EventKind,
+			Snippet:   sr.TextPreview,
+			Score:     sr.Score,
+			Timestamp: sr.Timestamp,
 		})
 	}
 
