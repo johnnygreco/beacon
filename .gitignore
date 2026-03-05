@@ -1,0 +1,37 @@
+# Build output
+bin/
+dist/
+/technodrome
+/simulator
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test
+*.test
+*.out
+cover.html
+coverage.txt
+
+# Dependency
+vendor/
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+
+# Project-specific
+.scratch/
+*.duckdb
+*.duckdb.wal
