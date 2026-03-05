@@ -5,6 +5,8 @@ templ ChartContainer(id string, height string, title string) {
 		if title != "" {
 			<h3 class="text-sm font-medium text-gray-400 mb-2">{ title }</h3>
 		}
-		<canvas id={ id } style={ "height:" + height }></canvas>
+		<div style={ "position:relative;height:" + height }>
+			<canvas id={ id }></canvas>
+		</div>
 	</div>
 }
