@@ -1,5 +1,7 @@
 package views
 
+//go:generate go tool templ generate
+
 import "time"
 
 // View model types for templates.

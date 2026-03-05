@@ -7,7 +7,7 @@ run: generate
 	go run ./cmd/technodrome serve
 
 generate:
-	templ generate
+	go tool templ generate
 
 clean:
 	rm -rf bin/

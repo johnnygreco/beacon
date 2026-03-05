@@ -45,7 +45,7 @@ make build           # or: go build -o bin/technodrome ./cmd/technodrome
 make run             # or: go run ./cmd/technodrome serve
 
 # Generate templ files (required before build if .templ files changed)
-make generate        # or: templ generate
+make generate        # or: go tool templ generate
 
 # Simulator (generates fake JSONL)
 make simulator       # or: go run ./cmd/simulator
@@ -88,7 +88,7 @@ static/            — CSS and JS assets
 - **Event kinds:** `message`, `tool_call`, `tool_result`, `reasoning`, `session_meta`, `turn_context`, `event_msg`, `error`, `context_snapshot`
 - **Actor roles:** `user`, `assistant`, `system`, `tool`
 - **Cost calculation:** `internal/ingestion/pricing.go` has per-model pricing. Cost is calculated at ingest time if not provided.
-- **Templ workflow:** Edit `.templ` files, run `templ generate`, then `go build`. Generated `_templ.go` files should be committed.
+- **Templ workflow:** Edit `.templ` files, run `go tool templ generate` (or `make generate`), then `go build`. Generated `_templ.go` files should be committed. Templ is a Go 1.24 tool dependency — no separate install needed.
 
 ## Adding a New Ingestion Source
 
