@@ -17,7 +17,37 @@ func QueryDashboardData(ctx context.Context, db *sql.DB) views.DashboardData {
 		Metrics:        QueryDashboardMetrics(ctx, db),
 		ActiveSessions: QueryActiveSessions(ctx, db),
 		RecentActivity: QueryRecentActivity(ctx, db),
+		TokensByModel:  QueryTokensByModelSummary(ctx, db),
 	}
+}
+
+// QueryTokensByModelSummary returns token counts broken down by model.
+func QueryTokensByModelSummary(ctx context.Context, db *sql.DB) []views.ModelTokens {
+	rows, err := db.QueryContext(ctx,
+		`SELECT COALESCE(model, 'unknown'),
+		        COALESCE(SUM(input_tokens), 0),
+		        COALESCE(SUM(output_tokens), 0),
+		        COALESCE(SUM(cache_read_tokens), 0),
+		        COALESCE(SUM(input_tokens + output_tokens), 0)
+		 FROM events
+		 WHERE model IS NOT NULL AND model != ''
+		 GROUP BY model
+		 ORDER BY COALESCE(SUM(input_tokens + output_tokens), 0) DESC
+		 LIMIT 10`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var result []views.ModelTokens
+	for rows.Next() {
+		var m views.ModelTokens
+		if err := rows.Scan(&m.Model, &m.Input, &m.Output, &m.CacheRead, &m.Total); err != nil {
+			continue
+		}
+		result = append(result, m)
+	}
+	return result
 }
 
 // QueryDashboardMetrics returns the top-level metric cards.
@@ -42,8 +72,8 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 	return []views.MetricData{
 		{Label: "Total Sessions", Value: fmt.Sprintf("%d", totalSessions)},
 		{Label: "Active Sessions", Value: fmt.Sprintf("%d", activeSessions), Trend: "neutral"},
-		{Label: "Total Tokens", Value: formatTokens(totalTokens),
-			Sublabel: fmt.Sprintf("In: %s  Out: %s  Cache: %s", formatTokens(inputTokens), formatTokens(outputTokens), formatTokens(cacheReadTokens))},
+		{Label: "Total Tokens", Value: views.FormatTokens(totalTokens),
+			Sublabel: fmt.Sprintf("In: %s  Out: %s  Cache: %s", views.FormatTokens(inputTokens), views.FormatTokens(outputTokens), views.FormatTokens(cacheReadTokens))},
 		{Label: "Tool Calls", Value: fmt.Sprintf("%d", toolCalls),
 			Sublabel: fmt.Sprintf("%d MCP", mcpCalls)},
 	}
@@ -411,12 +441,3 @@ func setSessionTiming(s *views.SessionSummary, startedAt, endedAt time.Time) {
 	}
 }
 
-func formatTokens(n int64) string {
-	if n >= 1_000_000 {
-		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
-	}
-	if n >= 1_000 {
-		return fmt.Sprintf("%.1fK", float64(n)/1_000)
-	}
-	return fmt.Sprintf("%d", n)
-}

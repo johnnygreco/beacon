@@ -2,7 +2,21 @@ package views
 
 //go:generate go tool templ generate
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
+
+// FormatTokens formats a token count for display (e.g. 1500 -> "1.5K").
+func FormatTokens(n int64) string {
+	if n >= 1_000_000 {
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	}
+	if n >= 1_000 {
+		return fmt.Sprintf("%.1fK", float64(n)/1_000)
+	}
+	return fmt.Sprintf("%d", n)
+}
 
 // View model types for templates.
 
@@ -92,11 +106,20 @@ type ToolStat struct {
 	IsMCP       bool
 }
 
+type ModelTokens struct {
+	Model     string
+	Input     int64
+	Output    int64
+	CacheRead int64
+	Total     int64
+}
+
 type DashboardData struct {
 	Metrics        []MetricData
 	ActiveSessions []SessionSummary
 	RecentActivity []ActivityItem
 	TokensChart    MultiSeriesChart
+	TokensByModel  []ModelTokens
 }
 
 type SessionDetailData struct {
