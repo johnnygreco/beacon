@@ -85,18 +85,18 @@ type TurnDetail struct {
 }
 
 type ChartData struct {
-	Labels []string
-	Values []float64
+	Labels []string  `json:"labels"`
+	Values []float64 `json:"values"`
 }
 
 type MultiSeriesChart struct {
-	Labels   []string
-	Datasets []ChartDataset
+	Labels   []string       `json:"labels"`
+	Datasets []ChartDataset `json:"datasets"`
 }
 
 type ChartDataset struct {
-	Label  string
-	Values []float64
+	Label  string    `json:"label"`
+	Values []float64 `json:"values"`
 }
 
 type ToolStat struct {

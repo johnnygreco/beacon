@@ -364,3 +364,105 @@ func TestE2E_SessionDetailWithToolCalls(t *testing.T) {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}
 }
+
+func TestE2E_SessionDetailChartDataEmbedded(t *testing.T) {
+	server, db := setupTestServer(t)
+
+	// Insert events with token data to generate chart data
+	insertTestEvent(t, db, "e1", "sess1", "message", "user", "Hello", "claude-sonnet-4-20250514", 100, 0)
+	insertTestEvent(t, db, "e2", "sess1", "message", "assistant", "Hi!", "claude-sonnet-4-20250514", 50, 200)
+
+	resp, err := http.Get(server.URL + "/sessions/sess1")
+	if err != nil {
+		t.Fatalf("GET /sessions/sess1: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	// The chart data should be valid JSON embedded via templ.JSONScript,
+	// not literal Go expression text
+	if strings.Contains(html, "multiSeriesChartData") {
+		t.Error("chart data script contains literal Go function name instead of JSON data")
+	}
+	if strings.Contains(html, "multiSeriesChartToJSON") {
+		t.Error("chart data script contains old literal Go function name instead of JSON data")
+	}
+
+	// Should contain the session-tokens-data script with valid JSON
+	if !strings.Contains(html, `id="session-tokens-data"`) {
+		t.Error("expected session-tokens-data script element")
+	}
+
+	// The embedded JSON should contain the "labels" key (from json tags)
+	if !strings.Contains(html, `"labels"`) {
+		t.Error("expected JSON with 'labels' key in chart data")
+	}
+
+	// Should contain token data from the inserted events
+	if !strings.Contains(html, `"datasets"`) {
+		t.Error("expected JSON with 'datasets' key in chart data")
+	}
+}
+
+func TestE2E_SessionDetailChartDataByModel(t *testing.T) {
+	server, db := setupTestServer(t)
+
+	// Insert events with different models to generate by-model chart data
+	insertTestEvent(t, db, "e1", "sess1", "message", "user", "Hello", "claude-sonnet-4-20250514", 100, 0)
+	insertTestEvent(t, db, "e2", "sess1", "message", "assistant", "Hi!", "claude-sonnet-4-20250514", 50, 200)
+	insertTestEvent(t, db, "e3", "sess1", "message", "assistant", "More", "gpt-4o", 30, 150)
+
+	resp, err := http.Get(server.URL + "/sessions/sess1")
+	if err != nil {
+		t.Fatalf("GET /sessions/sess1: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	// Should contain by-model chart data with model names
+	if !strings.Contains(html, `id="session-tokens-by-model-data"`) {
+		t.Error("expected session-tokens-by-model-data script element for multi-model session")
+	}
+	if !strings.Contains(html, "claude-sonnet-4-20250514") {
+		t.Error("expected model name in by-model chart data")
+	}
+	if !strings.Contains(html, "gpt-4o") {
+		t.Error("expected second model name in by-model chart data")
+	}
+}
+
+func TestE2E_SessionDetailChatView(t *testing.T) {
+	server, db := setupTestServer(t)
+
+	insertTestEvent(t, db, "e1", "sess1", "message", "user", "What is 2+2?", "claude-sonnet-4-20250514", 100, 0)
+	insertTestEvent(t, db, "e2", "sess1", "message", "assistant", "The answer is 4.", "claude-sonnet-4-20250514", 0, 200)
+
+	resp, err := http.Get(server.URL + "/sessions/sess1")
+	if err != nil {
+		t.Fatalf("GET /sessions/sess1: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	html := string(body)
+
+	// Chat view should contain the actual message text
+	if !strings.Contains(html, "What is 2+2?") {
+		t.Error("expected user message text in chat view")
+	}
+	if !strings.Contains(html, "The answer is 4.") {
+		t.Error("expected assistant message text in chat view")
+	}
+
+	// Should have chat-view and timeline-view divs
+	if !strings.Contains(html, `id="chat-view"`) {
+		t.Error("expected chat-view div")
+	}
+	if !strings.Contains(html, `id="timeline-view"`) {
+		t.Error("expected timeline-view div")
+	}
+}

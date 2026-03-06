@@ -9,7 +9,6 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/technodrome-ai/technodrome/internal/views"
 	"github.com/technodrome-ai/technodrome/internal/views/components"
@@ -55,7 +54,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/sse/session/%s", data.Session.ID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 12, Col: 81}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 11, Col: 81}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -68,7 +67,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(data.Session.Actor)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 17, Col: 71}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 16, Col: 71}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -81,7 +80,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(data.Session.ID)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 18, Col: 69}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 17, Col: 69}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
@@ -109,7 +108,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(data.Session.Duration)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 29, Col: 66}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 28, Col: 66}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
@@ -122,7 +121,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.Session.TotalTokens))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 33, Col: 88}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 32, Col: 88}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
@@ -135,7 +134,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.Session.InputTokens))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 35, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 34, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
@@ -148,7 +147,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.Session.OutputTokens))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 35, Col: 112}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 34, Col: 112}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {
@@ -161,7 +160,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			var templ_7745c5c3_Var10 string
 			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.Session.CacheReadTokens))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 40, Col: 92}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 39, Col: 92}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 			if templ_7745c5c3_Err != nil {
@@ -174,7 +173,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			var templ_7745c5c3_Var11 string
 			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.Session.CacheCreateTokens))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 42, Col: 66}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 41, Col: 66}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {
@@ -187,7 +186,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.Session.TurnCount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 47, Col: 86}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 46, Col: 86}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -200,7 +199,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			var templ_7745c5c3_Var13 string
 			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.Session.ToolCallCount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 51, Col: 90}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 50, Col: 90}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 			if templ_7745c5c3_Err != nil {
@@ -218,7 +217,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 				var templ_7745c5c3_Var14 string
 				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d MCP", data.Session.MCPCallCount))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 54, Col: 58}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 53, Col: 58}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 				if templ_7745c5c3_Err != nil {
@@ -270,7 +269,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 					var templ_7745c5c3_Var15 string
 					templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(ts.Name)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 80, Col: 75}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 79, Col: 75}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 					if templ_7745c5c3_Err != nil {
@@ -283,7 +282,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 					var templ_7745c5c3_Var16 string
 					templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d calls", ts.Calls))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 83, Col: 44}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 82, Col: 44}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 					if templ_7745c5c3_Err != nil {
@@ -297,7 +296,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 						var templ_7745c5c3_Var17 string
 						templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf(" · %.0fms avg", ts.AvgDuration))
 						if templ_7745c5c3_Err != nil {
-							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 85, Col: 57}
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 84, Col: 57}
 						}
 						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
 						if templ_7745c5c3_Err != nil {
@@ -330,17 +329,21 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</div></div><!-- Initial chart data embedded as JSON --><script id=\"session-tokens-data\" type=\"application/json\">\n\t\t\t\t{ multiSeriesChartToJSON(data.TokensChart) }\n\t\t\t</script>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</div></div><!-- Initial chart data embedded as JSON -->")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templ.JSONScript("session-tokens-data", multiSeriesChartData(data.TokensChart)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if len(data.TokensByModel) > 0 {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<script id=\"session-tokens-by-model-data\" type=\"application/json\">\n\t\t\t\t\t{ tokensByModelToJSON(data.TokensByModel) }\n\t\t\t\t</script>")
+				templ_7745c5c3_Err = templ.JSONScript("session-tokens-by-model-data", tokensByModelData(data.TokensByModel)).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -354,20 +357,17 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 	})
 }
 
-func multiSeriesChartToJSON(data views.MultiSeriesChart) string {
-	m := map[string]any{"labels": data.Labels, "datasets": data.Datasets}
-	b, _ := json.Marshal(m)
-	return string(b)
+func multiSeriesChartData(data views.MultiSeriesChart) any {
+	return map[string]any{"labels": data.Labels, "datasets": data.Datasets}
 }
 
-func tokensByModelToJSON(models []views.ChartDataset) string {
+func tokensByModelData(models []views.ChartDataset) any {
 	labels := []string{"Input", "Output", "Cache Read"}
 	datasets := make([]map[string]any, len(models))
 	for i, m := range models {
 		datasets[i] = map[string]any{"label": m.Label, "data": m.Values}
 	}
-	b, _ := json.Marshal(map[string]any{"labels": labels, "datasets": datasets})
-	return string(b)
+	return map[string]any{"labels": labels, "datasets": datasets}
 }
 
 var _ = templruntime.GeneratedTemplate

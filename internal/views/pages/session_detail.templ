@@ -1,7 +1,6 @@
 package pages
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/technodrome-ai/technodrome/internal/views"
 	"github.com/technodrome-ai/technodrome/internal/views/components"
@@ -111,30 +110,23 @@ templ SessionDetail(data views.SessionDetailData) {
 			</div>
 
 			<!-- Initial chart data embedded as JSON -->
-			<script id="session-tokens-data" type="application/json">
-				{ multiSeriesChartToJSON(data.TokensChart) }
-			</script>
+			@templ.JSONScript("session-tokens-data", multiSeriesChartData(data.TokensChart))
 			if len(data.TokensByModel) > 0 {
-				<script id="session-tokens-by-model-data" type="application/json">
-					{ tokensByModelToJSON(data.TokensByModel) }
-				</script>
+				@templ.JSONScript("session-tokens-by-model-data", tokensByModelData(data.TokensByModel))
 			}
 		</div>
 	}
 }
 
-func multiSeriesChartToJSON(data views.MultiSeriesChart) string {
-	m := map[string]any{"labels": data.Labels, "datasets": data.Datasets}
-	b, _ := json.Marshal(m)
-	return string(b)
+func multiSeriesChartData(data views.MultiSeriesChart) any {
+	return map[string]any{"labels": data.Labels, "datasets": data.Datasets}
 }
 
-func tokensByModelToJSON(models []views.ChartDataset) string {
+func tokensByModelData(models []views.ChartDataset) any {
 	labels := []string{"Input", "Output", "Cache Read"}
 	datasets := make([]map[string]any, len(models))
 	for i, m := range models {
 		datasets[i] = map[string]any{"label": m.Label, "data": m.Values}
 	}
-	b, _ := json.Marshal(map[string]any{"labels": labels, "datasets": datasets})
-	return string(b)
+	return map[string]any{"labels": labels, "datasets": datasets}
 }
