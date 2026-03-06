@@ -39,11 +39,11 @@ templ chatUserMessage(e views.EventSummary) {
 	<div class="ml-auto max-w-[95%] sm:max-w-[85%] group">
 		<div class="bg-blue-600/15 border border-blue-500/30 rounded-2xl rounded-br-sm px-4 py-3">
 			if len(chatDisplayText(e)) > 2000 {
-				<div class="relative max-h-[300px] overflow-y-auto">
-					<p class="text-gray-100 whitespace-pre-wrap text-sm">{ chatDisplayText(e) }</p>
+				<div class="relative max-h-[400px] overflow-y-auto scrollbar-thin">
+					<p class="text-gray-100 whitespace-pre-wrap text-sm leading-relaxed break-words">{ chatDisplayText(e) }</p>
 				</div>
 			} else {
-				<p class="text-gray-100 whitespace-pre-wrap text-sm">{ chatDisplayText(e) }</p>
+				<p class="text-gray-100 whitespace-pre-wrap text-sm leading-relaxed break-words">{ chatDisplayText(e) }</p>
 			}
 		</div>
 		@chatMetaStrip(e)
@@ -58,11 +58,11 @@ templ chatAssistantMessage(e views.EventSummary) {
 		<div class="flex-1 min-w-0">
 			<div class="bg-gray-800 border border-gray-700 rounded-2xl rounded-bl-sm px-4 py-3">
 				if len(chatDisplayText(e)) > 2000 {
-					<div class="relative max-h-[300px] overflow-y-auto">
-						<p class="text-gray-200 whitespace-pre-wrap text-sm">{ chatDisplayText(e) }</p>
+					<div class="relative max-h-[500px] overflow-y-auto scrollbar-thin">
+						<p class="text-gray-200 whitespace-pre-wrap text-sm leading-relaxed break-words">{ chatDisplayText(e) }</p>
 					</div>
 				} else {
-					<p class="text-gray-200 whitespace-pre-wrap text-sm">{ chatDisplayText(e) }</p>
+					<p class="text-gray-200 whitespace-pre-wrap text-sm leading-relaxed break-words">{ chatDisplayText(e) }</p>
 				}
 			</div>
 			@chatMetaStrip(e)
@@ -87,34 +87,39 @@ templ chatReasoningBlock(e views.EventSummary) {
 }
 
 templ chatToolChain(items []views.ToolChainItem) {
-	<div class="mr-auto max-w-[85%] ml-10 border-l-2 border-yellow-500/30 pl-4 space-y-2 my-2">
+	<div class="mr-auto max-w-[95%] sm:max-w-[85%] ml-10 border-l-2 border-yellow-500/30 pl-4 space-y-1 my-2">
 		for _, item := range items {
-			<details>
-				<summary class="text-sm cursor-pointer flex items-center gap-2">
-					<svg class="w-3.5 h-3.5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+			<details class="group/tool">
+				<summary class="text-sm cursor-pointer flex items-center gap-2 py-1 hover:bg-gray-800/50 rounded px-2 -ml-2 transition-colors">
+					<svg class="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 transition-transform group-open/tool:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
 					</svg>
-					<span class="text-yellow-400 font-medium">{ item.ToolName }</span>
+					<span class="text-yellow-400 font-medium truncate">{ item.ToolName }</span>
 					if models.IsMCPTool(item.ToolName) {
-						<span class="px-1.5 py-0.5 text-xs rounded bg-cyan-500/20 text-cyan-400">MCP</span>
+						<span class="px-1.5 py-0.5 text-xs rounded bg-cyan-500/20 text-cyan-400 flex-shrink-0">MCP</span>
+					}
+					if item.ResultEvent != nil {
+						<span class="text-green-500/60 text-xs flex-shrink-0">&#x2713;</span>
 					}
 					if item.CallEvent.DurationMs > 0 {
-						<span class="text-gray-600 text-xs">{ fmt.Sprintf("%dms", item.CallEvent.DurationMs) }</span>
+						<span class="text-gray-600 text-xs flex-shrink-0">{ fmt.Sprintf("%dms", item.CallEvent.DurationMs) }</span>
 					}
 				</summary>
-				<div class="mt-2 space-y-2">
+				<div class="mt-2 space-y-2 ml-5">
 					if item.InputPreview != "" {
 						<div>
-							<p class="text-xs text-gray-500 mb-1">Input</p>
-							<pre class="bg-gray-900 rounded p-3 text-xs text-gray-300 font-mono overflow-x-auto max-h-64 overflow-y-auto">{ item.InputPreview }</pre>
+							<p class="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">Input</p>
+							<pre class="bg-gray-900 rounded-lg p-3 text-xs text-gray-300 font-mono overflow-x-auto max-h-64 overflow-y-auto border border-gray-800">{ item.InputPreview }</pre>
 						</div>
 					}
 					if item.OutputPreview != "" {
 						<div>
-							<p class="text-xs text-gray-500 mb-1">Output</p>
-							<pre class="bg-gray-900 rounded p-3 text-xs text-gray-300 font-mono overflow-x-auto max-h-64 overflow-y-auto">{ item.OutputPreview }</pre>
+							<p class="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">Output</p>
+							<pre class="bg-gray-900 rounded-lg p-3 text-xs text-gray-300 font-mono overflow-x-auto max-h-64 overflow-y-auto border border-gray-800">{ item.OutputPreview }</pre>
 						</div>
+					}
+					if item.InputPreview == "" && item.OutputPreview == "" {
+						<p class="text-xs text-gray-600 italic">No preview available</p>
 					}
 				</div>
 			</details>
@@ -129,23 +134,19 @@ templ chatErrorBlock(e views.EventSummary) {
 }
 
 templ chatMetaStrip(e views.EventSummary) {
-	<div class="text-xs text-gray-500 mt-1 flex items-center gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-		if e.Model != "" {
-			<span>{ e.Model }</span>
-		}
-		if e.Tokens > 0 {
+	if e.Model != "" || e.Tokens > 0 || e.DurationMs > 0 {
+		<div class="chat-meta-strip text-xs text-gray-500 mt-1.5 flex items-center gap-2">
 			if e.Model != "" {
-				<span>&middot;</span>
+				<span class="px-1.5 py-0.5 rounded bg-gray-800/50 text-gray-400">{ e.Model }</span>
 			}
-			<span>{ fmt.Sprintf("%d tok", e.Tokens) }</span>
-		}
-		if e.DurationMs > 0 {
-			if e.Model != "" || e.Tokens > 0 {
-				<span>&middot;</span>
+			if e.Tokens > 0 {
+				<span>{ fmt.Sprintf("%d tok", e.Tokens) }</span>
 			}
-			<span>{ fmt.Sprintf("%dms", e.DurationMs) }</span>
-		}
-	</div>
+			if e.DurationMs > 0 {
+				<span>{ fmt.Sprintf("%dms", e.DurationMs) }</span>
+			}
+		</div>
+	}
 }
 
 func chatDisplayText(e views.EventSummary) string {

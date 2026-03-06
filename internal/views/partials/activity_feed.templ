@@ -4,20 +4,14 @@ import "github.com/technodrome-ai/technodrome/internal/views"
 
 templ ActivityFeed(items []views.ActivityItem) {
 	for _, item := range items {
-		<div class="flex items-start gap-3 p-3 bg-gray-800 rounded-lg border border-gray-700">
-			<div class={
-				"w-2 h-2 rounded-full mt-1.5 flex-shrink-0",
-				templ.KV("bg-blue-400", item.Type == "prompt"),
-				templ.KV("bg-purple-400", item.Type == "response" || item.Type == "model_call"),
-				templ.KV("bg-yellow-400", item.Type == "tool_call"),
-				templ.KV("bg-red-400", item.Type == "error"),
-			}></div>
+		<div class="flex items-start gap-3 p-3 bg-gray-800 rounded-lg border border-gray-700 hover:border-gray-600 transition-colors">
+			<div class={ "w-2 h-2 rounded-full mt-1.5 flex-shrink-0", activityDotColor(item.Type) }></div>
 			<div class="flex-1 min-w-0">
 				<p class="text-sm text-gray-300 truncate">{ item.Summary }</p>
 				<div class="flex items-center gap-2 mt-1 text-xs text-gray-500">
 					if item.SessionID != "" {
-						<a href={ templ.SafeURL("/sessions/" + item.SessionID) } class="hover:text-blue-400">{ item.SessionID[:8] }</a>
-						<span>·</span>
+						<a href={ templ.SafeURL("/sessions/" + item.SessionID) } class="hover:text-blue-400 transition-colors">{ truncateID(item.SessionID) }</a>
+						<span>&middot;</span>
 					}
 					<span>{ item.Timestamp.Format("15:04:05") }</span>
 				</div>
@@ -26,5 +20,27 @@ templ ActivityFeed(items []views.ActivityItem) {
 	}
 	if len(items) == 0 {
 		<p class="text-sm text-gray-500 text-center py-4">No recent activity</p>
+	}
+}
+
+func truncateID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
+func activityDotColor(eventType string) string {
+	switch eventType {
+	case "message":
+		return "bg-blue-400"
+	case "response", "model_call":
+		return "bg-purple-400"
+	case "tool_call", "tool_result":
+		return "bg-yellow-400"
+	case "error":
+		return "bg-red-400"
+	default:
+		return "bg-gray-400"
 	}
 }

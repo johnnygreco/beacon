@@ -32,16 +32,11 @@ func ActivityFeed(items []views.ActivityItem) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		for _, item := range items {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"flex items-start gap-3 p-3 bg-gray-800 rounded-lg border border-gray-700\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"flex items-start gap-3 p-3 bg-gray-800 rounded-lg border border-gray-700 hover:border-gray-600 transition-colors\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var2 = []any{"w-2 h-2 rounded-full mt-1.5 flex-shrink-0",
-				templ.KV("bg-blue-400", item.Type == "prompt"),
-				templ.KV("bg-purple-400", item.Type == "response" || item.Type == "model_call"),
-				templ.KV("bg-yellow-400", item.Type == "tool_call"),
-				templ.KV("bg-red-400", item.Type == "error"),
-			}
+			var templ_7745c5c3_Var2 = []any{"w-2 h-2 rounded-full mt-1.5 flex-shrink-0", activityDotColor(item.Type)}
 			templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var2...)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -66,7 +61,7 @@ func ActivityFeed(items []views.ActivityItem) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(item.Summary)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/activity_feed.templ`, Line: 16, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/activity_feed.templ`, Line: 10, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -84,26 +79,26 @@ func ActivityFeed(items []views.ActivityItem) templ.Component {
 				var templ_7745c5c3_Var5 templ.SafeURL
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinURLErrs(templ.SafeURL("/sessions/" + item.SessionID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/activity_feed.templ`, Line: 19, Col: 60}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/activity_feed.templ`, Line: 13, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" class=\"hover:text-blue-400\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" class=\"hover:text-blue-400 transition-colors\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var6 string
-				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(item.SessionID[:8])
+				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(truncateID(item.SessionID))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/activity_feed.templ`, Line: 19, Col: 111}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/activity_feed.templ`, Line: 13, Col: 137}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</a> <span>·</span> ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</a> <span>&middot;</span> ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -115,7 +110,7 @@ func ActivityFeed(items []views.ActivityItem) templ.Component {
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(item.Timestamp.Format("15:04:05"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/activity_feed.templ`, Line: 22, Col: 46}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/activity_feed.templ`, Line: 16, Col: 46}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
@@ -134,6 +129,28 @@ func ActivityFeed(items []views.ActivityItem) templ.Component {
 		}
 		return nil
 	})
+}
+
+func truncateID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
+func activityDotColor(eventType string) string {
+	switch eventType {
+	case "message":
+		return "bg-blue-400"
+	case "response", "model_call":
+		return "bg-purple-400"
+	case "tool_call", "tool_result":
+		return "bg-yellow-400"
+	case "error":
+		return "bg-red-400"
+	default:
+		return "bg-gray-400"
+	}
 }
 
 var _ = templruntime.GeneratedTemplate
