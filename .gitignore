@@ -39,4 +39,5 @@ vendor/
 .claude/
 .ralphkit/
 .kraang/
-task.md
+task*.md
+plan.md
