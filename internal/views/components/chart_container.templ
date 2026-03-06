@@ -1,12 +1,53 @@
 package components
 
 templ ChartContainer(id string, height string, title string) {
+	@ChartContainerWithOptions(id, height, title, false)
+}
+
+templ ChartContainerWithOptions(id string, height string, title string, logToggle bool) {
 	<div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
-		if title != "" {
-			<h3 class="text-sm font-medium text-gray-400 mb-2">{ title }</h3>
-		}
+		<div class="flex items-center justify-between mb-2">
+			if title != "" {
+				<h3 class="text-sm font-medium text-gray-400">{ title }</h3>
+			}
+			if logToggle {
+				<button
+					type="button"
+					id={ id + "-log-toggle" }
+					onclick={ toggleLogScale(id) }
+					class="log-scale-toggle px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+					data-chart-id={ id }
+					data-log-active="false"
+				>
+					Log Scale
+				</button>
+			}
+		</div>
 		<div style={ "position:relative;height:" + height }>
 			<canvas id={ id }></canvas>
 		</div>
 	</div>
+}
+
+script toggleLogScale(chartId string) {
+	var chart = window[chartId];
+	if (!chart) return;
+	var btn = document.getElementById(chartId + '-log-toggle');
+	var isLog = btn.getAttribute('data-log-active') === 'true';
+	var newType = isLog ? 'linear' : 'logarithmic';
+	chart.options.scales.y.type = newType;
+	if (newType === 'logarithmic') {
+		chart.options.scales.y.min = 1;
+	} else {
+		delete chart.options.scales.y.min;
+	}
+	chart.update();
+	btn.setAttribute('data-log-active', String(!isLog));
+	if (!isLog) {
+		btn.classList.add('bg-blue-500/20', 'text-blue-400', 'border-blue-500/40');
+		btn.classList.remove('text-gray-400', 'border-gray-600');
+	} else {
+		btn.classList.remove('bg-blue-500/20', 'text-blue-400', 'border-blue-500/40');
+		btn.classList.add('text-gray-400', 'border-gray-600');
+	}
 }

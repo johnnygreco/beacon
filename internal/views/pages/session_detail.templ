@@ -60,9 +60,9 @@ templ SessionDetail(data views.SessionDetailData) {
 
 			<!-- Charts -->
 			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-				@components.ChartContainer("sessionTokensChart", "250px", "Tokens per Event (by type)")
+				@components.ChartContainerWithOptions("sessionTokensChart", "250px", "Tokens per Event (by type)", true)
 				if len(data.TokensByModel) > 0 {
-					@components.ChartContainer("sessionTokensByModelChart", "250px", "Tokens by Model")
+					@components.ChartContainerWithOptions("sessionTokensByModelChart", "250px", "Tokens by Model", true)
 				}
 			</div>
 

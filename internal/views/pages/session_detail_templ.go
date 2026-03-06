@@ -233,12 +233,12 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = components.ChartContainer("sessionTokensChart", "250px", "Tokens per Event (by type)").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = components.ChartContainerWithOptions("sessionTokensChart", "250px", "Tokens per Event (by type)", true).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if len(data.TokensByModel) > 0 {
-				templ_7745c5c3_Err = components.ChartContainer("sessionTokensByModelChart", "250px", "Tokens by Model").Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = components.ChartContainerWithOptions("sessionTokensByModelChart", "250px", "Tokens by Model", true).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
