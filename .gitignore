@@ -35,3 +35,9 @@ vendor/
 .scratch/
 *.duckdb
 *.duckdb.wal
+
+
+# Agent tools
+.claude/
+.ralphkit/
+.kraang/
