@@ -27,168 +27,146 @@ const yAxisOptions = {
   beginAtZero: true
 };
 
-// Shared tooltip formatters
+const seriesColors = [
+  { border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.15)' },   // blue - input
+  { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)' },   // amber - output
+  { border: '#10b981', bg: 'rgba(16, 185, 129, 0.15)' },    // green - cache read
+  { border: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.15)' },    // purple
+  { border: '#ef4444', bg: 'rgba(239, 68, 68, 0.15)' },     // red
+  { border: '#06b6d4', bg: 'rgba(6, 182, 212, 0.15)' },     // cyan
+];
+
 function tokenTooltip(ctx) {
-  return ctx.parsed.y.toLocaleString() + ' tokens';
+  return ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + ' tokens';
 }
 
-function costTooltip(ctx) {
-  return '$' + ctx.parsed.y.toFixed(4);
-}
+// Create a stacked area chart with multiple token series
+function createMultiSeriesChart(el, seriesLabels, yTitle, xScale) {
+  var datasets = seriesLabels.map(function(label, i) {
+    var c = seriesColors[i % seriesColors.length];
+    return {
+      label: label,
+      data: [],
+      borderColor: c.border,
+      backgroundColor: c.bg,
+      fill: true,
+      tension: 0.3,
+      pointRadius: 2
+    };
+  });
 
-// Factory for creating line charts with consistent config
-function createLineChart(el, label, borderColor, bgColor, yTitle, tooltipFn, xScale) {
   return new Chart(el, {
     type: 'line',
-    data: {
-      labels: [],
-      datasets: [{
-        label: label,
-        data: [],
-        borderColor: borderColor,
-        backgroundColor: bgColor,
-        fill: true,
-        tension: 0.3,
-        pointRadius: 2
-      }]
-    },
+    data: { labels: [], datasets: datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
       scales: {
         x: xScale || timeScaleOptions,
         y: {
           ...yAxisOptions,
+          stacked: false,
           title: { display: true, text: yTitle, color: '#9ca3af' }
         }
       },
       plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: tooltipFn } }
+        legend: { display: true, position: 'top', labels: { usePointStyle: true, boxWidth: 8 } },
+        tooltip: { callbacks: { label: tokenTooltip } }
       }
     }
   });
 }
 
-// Load chart data from an embedded JSON <script> element
-function loadChartFromJSON(chartName, dataId) {
+// Load multi-series chart data from embedded JSON
+function loadMultiSeriesFromJSON(chartName, dataId) {
   var el = document.getElementById(dataId);
   if (!el || !window[chartName]) return;
   try {
     var d = JSON.parse(el.textContent);
-    if (d.labels && d.labels.length > 0) {
-      window[chartName].data.labels = d.labels;
-      window[chartName].data.datasets[0].data = d.values;
-      window[chartName].update();
+    if (d.labels && d.labels.length > 0 && d.datasets) {
+      var chart = window[chartName];
+      chart.data.labels = d.labels;
+      d.datasets.forEach(function(ds, i) {
+        if (chart.data.datasets[i]) {
+          chart.data.datasets[i].data = ds.Values || ds.values || ds.data || [];
+        }
+      });
+      chart.update();
     }
   } catch(e) {}
 }
 
-// Dashboard charts
-const tokensChartEl = document.getElementById('tokensChart');
+// Dashboard token throughput chart (multi-series: input, output, cache read)
+var tokensChartEl = document.getElementById('tokensChart');
 if (tokensChartEl) {
-  window.tokensChart = createLineChart(
-    tokensChartEl, 'Tokens/min', '#3b82f6', 'rgba(59, 130, 246, 0.1)',
-    'Tokens', tokenTooltip
+  window.tokensChart = createMultiSeriesChart(
+    tokensChartEl, ['Input', 'Output', 'Cache Read'], 'Tokens'
   );
 
   fetch('/api/tokens-per-minute')
-    .then(r => r.json())
-    .then(data => {
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
       if (!data || !Array.isArray(data)) return;
       var chart = window.tokensChart;
-      data.forEach(d => {
+      data.forEach(function(d) {
         chart.data.labels.push(d.minute);
-        chart.data.datasets[0].data.push(d.total_tokens);
+        chart.data.datasets[0].data.push(d.input_tokens);
+        chart.data.datasets[1].data.push(d.output_tokens);
+        chart.data.datasets[2].data.push(d.cache_read_tokens);
       });
       chart.update();
     })
-    .catch(() => {});
+    .catch(function() {});
 }
 
-const costChartEl = document.getElementById('costChart');
-if (costChartEl) {
-  window.costChart = createLineChart(
-    costChartEl, 'Cumulative Cost ($)', '#10b981', 'rgba(16, 185, 129, 0.1)',
-    'Cost (USD)', costTooltip
-  );
-  // Override y-axis ticks to show $ prefix
-  window.costChart.options.scales.y.ticks = {
-    color: '#9ca3af',
-    callback: function(value) { return '$' + value.toFixed(2); }
-  };
-
-  fetch('/api/hourly-costs')
-    .then(r => r.json())
-    .then(data => {
-      if (!data || !Array.isArray(data)) return;
-      var chart = window.costChart;
-      var cumCost = 0;
-      data.forEach(d => {
-        cumCost += d.total_cost;
-        chart.data.labels.push(d.hour);
-        chart.data.datasets[0].data.push(cumCost);
-      });
-      chart.update();
-    })
-    .catch(() => {});
-}
-
-// Session detail charts
-const sessionTokensEl = document.getElementById('sessionTokensChart');
+// Session detail: tokens per event (multi-series)
+var sessionTokensEl = document.getElementById('sessionTokensChart');
 if (sessionTokensEl) {
-  window.sessionTokensChart = createLineChart(
-    sessionTokensEl, 'Tokens', '#3b82f6', 'rgba(59, 130, 246, 0.1)',
-    'Tokens', tokenTooltip
+  window.sessionTokensChart = createMultiSeriesChart(
+    sessionTokensEl, ['Input', 'Output', 'Cache Read'], 'Tokens'
   );
+  loadMultiSeriesFromJSON('sessionTokensChart', 'session-tokens-data');
 }
 
-const sessionContextEl = document.getElementById('sessionContextChart');
-if (sessionContextEl) {
-  window.sessionContextChart = createLineChart(
-    sessionContextEl, 'Context Usage', '#f59e0b', 'rgba(245, 158, 11, 0.1)',
-    'Tokens in Context', tokenTooltip
-  );
-}
-
-// Session cost-per-turn bar chart
-const sessionCostPerTurnEl = document.getElementById('sessionCostPerTurnChart');
-if (sessionCostPerTurnEl) {
-  window.sessionCostPerTurnChart = new Chart(sessionCostPerTurnEl, {
-    type: 'bar',
-    data: {
-      labels: [],
-      datasets: [{
-        label: 'Cost',
-        data: [],
-        backgroundColor: 'rgba(16, 185, 129, 0.6)',
-        borderColor: '#10b981',
-        borderWidth: 1
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        x: categoryScaleOptions,
-        y: {
-          ...yAxisOptions,
-          title: { display: true, text: 'Cost (USD)', color: '#9ca3af' },
-          ticks: {
-            color: '#9ca3af',
-            callback: function(value) { return '$' + value.toFixed(4); }
+// Session detail: tokens by model (grouped bar chart)
+var sessionTokensByModelEl = document.getElementById('sessionTokensByModelChart');
+if (sessionTokensByModelEl) {
+  var modelDataEl = document.getElementById('session-tokens-by-model-data');
+  if (modelDataEl) {
+    try {
+      var modelData = JSON.parse(modelDataEl.textContent);
+      if (modelData.labels && modelData.datasets) {
+        var datasets = modelData.datasets.map(function(ds, i) {
+          var c = seriesColors[i % seriesColors.length];
+          return {
+            label: ds.label,
+            data: ds.data,
+            backgroundColor: c.bg,
+            borderColor: c.border,
+            borderWidth: 1
+          };
+        });
+        window.sessionTokensByModelChart = new Chart(sessionTokensByModelEl, {
+          type: 'bar',
+          data: { labels: modelData.labels, datasets: datasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: categoryScaleOptions,
+              y: {
+                ...yAxisOptions,
+                title: { display: true, text: 'Tokens', color: '#9ca3af' }
+              }
+            },
+            plugins: {
+              legend: { display: true, position: 'top', labels: { usePointStyle: true, boxWidth: 8 } },
+              tooltip: { callbacks: { label: tokenTooltip } }
+            }
           }
-        }
-      },
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: costTooltip } }
+        });
       }
-    }
-  });
+    } catch(e) {}
+  }
 }
-
-// Load session chart data from embedded JSON blocks
-loadChartFromJSON('sessionTokensChart', 'session-tokens-data');
-loadChartFromJSON('sessionContextChart', 'session-context-data');
-loadChartFromJSON('sessionCostPerTurnChart', 'session-cost-per-turn-data');

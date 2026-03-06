@@ -108,8 +108,8 @@ type sessionInfo struct {
 	EventCount    int64
 	TurnCount     int64
 	TotalTokens   int64
-	TotalCost     float64
 	ToolCallCount int64
+	MCPCallCount  int64
 	ErrorCount    int64
 	LastModel     string
 }
@@ -135,8 +135,8 @@ func FormatSessionList(sessions []sessionInfo) string {
 		}
 
 		fmt.Fprintf(&b, "%d. [%s] %s  %s  dur:%s\n", i+1, s.SourceName, idPreview, s.StartedAt.Format(time.RFC3339), duration.Truncate(time.Second))
-		fmt.Fprintf(&b, "   events:%d  turns:%d  tokens:%d  cost:$%.4f  tools:%d  errors:%d\n",
-			s.EventCount, s.TurnCount, s.TotalTokens, s.TotalCost, s.ToolCallCount, s.ErrorCount)
+		fmt.Fprintf(&b, "   events:%d  turns:%d  tokens:%d  tools:%d  mcp:%d  errors:%d\n",
+			s.EventCount, s.TurnCount, s.TotalTokens, s.ToolCallCount, s.MCPCallCount, s.ErrorCount)
 		if s.LastModel != "" {
 			fmt.Fprintf(&b, "   model:%s\n", s.LastModel)
 		}

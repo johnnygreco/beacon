@@ -192,14 +192,14 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 		}
 		rows, err = s.db.QueryContext(ctx,
 			`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
-			        event_count, turn_count, total_tokens, total_cost, tool_call_count, error_count, COALESCE(last_model, '')
+			        event_count, turn_count, total_tokens, tool_call_count, mcp_call_count, error_count, COALESCE(last_model, '')
 			 FROM v_session_summary
 			 WHERE started_at >= $1
 			 ORDER BY started_at DESC LIMIT $2`, since, params.Limit)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
 			`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
-			        event_count, turn_count, total_tokens, total_cost, tool_call_count, error_count, COALESCE(last_model, '')
+			        event_count, turn_count, total_tokens, tool_call_count, mcp_call_count, error_count, COALESCE(last_model, '')
 			 FROM v_session_summary
 			 ORDER BY started_at DESC LIMIT $1`, params.Limit)
 	}
@@ -212,7 +212,7 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 	for rows.Next() {
 		var s sessionInfo
 		if err := rows.Scan(&s.SessionID, &s.SourceName, &s.StartedAt, &s.EndedAt,
-			&s.EventCount, &s.TurnCount, &s.TotalTokens, &s.TotalCost, &s.ToolCallCount, &s.ErrorCount, &s.LastModel); err != nil {
+			&s.EventCount, &s.TurnCount, &s.TotalTokens, &s.ToolCallCount, &s.MCPCallCount, &s.ErrorCount, &s.LastModel); err != nil {
 			continue
 		}
 		sessions = append(sessions, s)

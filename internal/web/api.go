@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/technodrome-ai/technodrome/internal/models"
 	"github.com/technodrome-ai/technodrome/internal/search"
 )
 
@@ -37,21 +38,26 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 
 // GetMetrics returns current dashboard metrics.
 func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
-	var totalSessions int
-	var totalTokens int64
-	var totalCost float64
-	var activeCount int
+	var totalSessions, activeCount, toolCalls, mcpCalls int
+	var inputTokens, outputTokens int64
 
-	a.db.QueryRowContext(r.Context(), `SELECT COUNT(DISTINCT session_id) FROM events`).Scan(&totalSessions)
-	a.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM events`).Scan(&totalTokens)
-	a.db.QueryRowContext(r.Context(), `SELECT COALESCE(SUM(cost_usd), 0) FROM events`).Scan(&totalCost)
-	a.db.QueryRowContext(r.Context(), `SELECT COUNT(DISTINCT session_id) FROM events WHERE timestamp > current_timestamp - INTERVAL '1 hour'`).Scan(&activeCount)
+	a.db.QueryRowContext(r.Context(),
+		`SELECT COUNT(DISTINCT session_id),
+		        COUNT(DISTINCT CASE WHEN timestamp > current_timestamp - INTERVAL '1 hour' THEN session_id END),
+		        COALESCE(SUM(input_tokens), 0),
+		        COALESCE(SUM(output_tokens), 0),
+		        COUNT(CASE WHEN event_kind = 'tool_call' THEN 1 END),
+		        COUNT(CASE WHEN event_kind = 'tool_call' AND tool_name LIKE 'mcp__%' THEN 1 END)
+		 FROM events`,
+	).Scan(&totalSessions, &activeCount, &inputTokens, &outputTokens, &toolCalls, &mcpCalls)
 
 	metrics := []APIMetricData{
 		{Label: "Total Sessions", Value: float64(totalSessions), Unit: "sessions"},
 		{Label: "Active Sessions", Value: float64(activeCount), Unit: "sessions"},
-		{Label: "Total Tokens", Value: float64(totalTokens), Unit: "tokens"},
-		{Label: "Total Cost", Value: totalCost, Unit: "USD"},
+		{Label: "Input Tokens", Value: float64(inputTokens), Unit: "tokens"},
+		{Label: "Output Tokens", Value: float64(outputTokens), Unit: "tokens"},
+		{Label: "Tool Calls", Value: float64(toolCalls), Unit: "calls"},
+		{Label: "MCP Calls", Value: float64(mcpCalls), Unit: "calls"},
 	}
 
 	jsonResponse(w, metrics)
@@ -66,7 +72,9 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := a.db.QueryContext(r.Context(),
 		`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
-		        total_cost, turn_count, total_tokens, error_count, COALESCE(last_model, '')
+		        turn_count, total_tokens, total_input_tokens, total_output_tokens,
+		        total_cache_read_tokens, total_cache_create_tokens,
+		        tool_call_count, mcp_call_count, error_count, COALESCE(last_model, '')
 		 FROM v_session_summary
 		 ORDER BY started_at DESC
 		 LIMIT $1`, limit)
@@ -80,7 +88,10 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var s APISessionSummary
 		var endedAt time.Time
-		if err := rows.Scan(&s.ID, &s.Source, &s.StartedAt, &endedAt, &s.TotalCost, &s.TurnCount, &s.TotalTokens, &s.ErrorCount, &s.LastModel); err != nil {
+		if err := rows.Scan(&s.ID, &s.Source, &s.StartedAt, &endedAt,
+			&s.TurnCount, &s.TotalTokens, &s.InputTokens, &s.OutputTokens,
+			&s.CacheReadTokens, &s.CacheCreateTokens,
+			&s.ToolCallCount, &s.MCPCallCount, &s.ErrorCount, &s.LastModel); err != nil {
 			continue
 		}
 		if !endedAt.IsZero() && endedAt.After(s.StartedAt) {
@@ -125,10 +136,10 @@ func (a *APIHandlers) SearchEvents(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, results)
 }
 
-// GetTokensPerMinute returns time-series token data.
+// GetTokensPerMinute returns time-series token data with breakdown.
 func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.QueryContext(r.Context(),
-		`SELECT minute, total_input, total_output, total_tokens, total_cost, call_count
+		`SELECT minute, total_input, total_output, total_cache_read, total_tokens, call_count
 		 FROM v_tokens_per_minute LIMIT 60`)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
@@ -140,15 +151,14 @@ func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request)
 	for rows.Next() {
 		m := make(map[string]any)
 		var minute string
-		var input, output, total int64
-		var cost float64
+		var input, output, cacheRead, total int64
 		var count int
-		rows.Scan(&minute, &input, &output, &total, &cost, &count)
+		rows.Scan(&minute, &input, &output, &cacheRead, &total, &count)
 		m["minute"] = minute
 		m["input_tokens"] = input
 		m["output_tokens"] = output
+		m["cache_read_tokens"] = cacheRead
 		m["total_tokens"] = total
-		m["cost"] = cost
 		m["call_count"] = count
 		points = append(points, m)
 	}
@@ -177,38 +187,38 @@ func (a *APIHandlers) GetToolStats(w http.ResponseWriter, r *http.Request) {
 		m["results"] = results
 		m["total"] = total
 		m["avg_duration_ms"] = avgDur
+		m["is_mcp"] = models.IsMCPTool(name)
 		stats = append(stats, m)
 	}
 	jsonResponse(w, stats)
 }
 
-// GetHourlyCosts returns hourly cost breakdown.
-func (a *APIHandlers) GetHourlyCosts(w http.ResponseWriter, r *http.Request) {
+// GetTokensByModel returns token usage broken down by model.
+func (a *APIHandlers) GetTokensByModel(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.QueryContext(r.Context(),
-		`SELECT hour, COALESCE(provider, ''), COALESCE(model, ''), total_cost, total_input, total_output, call_count
-		 FROM v_hourly_costs LIMIT 168`)
+		`SELECT model, total_input, total_output, total_cache_read, total_cache_create, total_tokens, call_count
+		 FROM v_tokens_by_model`)
 	if err != nil {
 		jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 
-	var costs []map[string]any
+	var items []map[string]any
 	for rows.Next() {
 		m := make(map[string]any)
-		var hour, provider, model string
-		var cost float64
-		var input, output int64
+		var model string
+		var input, output, cacheRead, cacheCreate, total int64
 		var count int
-		rows.Scan(&hour, &provider, &model, &cost, &input, &output, &count)
-		m["hour"] = hour
-		m["provider"] = provider
+		rows.Scan(&model, &input, &output, &cacheRead, &cacheCreate, &total, &count)
 		m["model"] = model
-		m["total_cost"] = cost
-		m["total_input"] = input
-		m["total_output"] = output
+		m["input_tokens"] = input
+		m["output_tokens"] = output
+		m["cache_read_tokens"] = cacheRead
+		m["cache_create_tokens"] = cacheCreate
+		m["total_tokens"] = total
 		m["call_count"] = count
-		costs = append(costs, m)
+		items = append(items, m)
 	}
-	jsonResponse(w, costs)
+	jsonResponse(w, items)
 }

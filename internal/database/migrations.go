@@ -106,9 +106,11 @@ func (db *DB) migrate() error {
 			COUNT(DISTINCT CASE WHEN event_kind = 'message' AND actor_role = 'user' THEN event_uid END) AS turn_count,
 			SUM(input_tokens) AS total_input_tokens,
 			SUM(output_tokens) AS total_output_tokens,
+			SUM(cache_read_tokens) AS total_cache_read_tokens,
+			SUM(cache_create_tokens) AS total_cache_create_tokens,
 			SUM(input_tokens + output_tokens) AS total_tokens,
-			SUM(cost_usd) AS total_cost,
 			COUNT(CASE WHEN event_kind = 'tool_call' THEN 1 END) AS tool_call_count,
+			COUNT(CASE WHEN event_kind = 'tool_call' AND tool_name LIKE 'mcp__%' THEN 1 END) AS mcp_call_count,
 			COUNT(CASE WHEN event_kind = 'error' THEN 1 END) AS error_count,
 			MAX(model) AS last_model
 		FROM events GROUP BY session_id, source_name`,
@@ -128,8 +130,9 @@ func (db *DB) migrate() error {
 			time_bucket(INTERVAL '1 minute', timestamp) AS minute,
 			SUM(input_tokens) AS total_input,
 			SUM(output_tokens) AS total_output,
+			SUM(cache_read_tokens) AS total_cache_read,
+			SUM(cache_create_tokens) AS total_cache_create,
 			SUM(input_tokens + output_tokens) AS total_tokens,
-			SUM(cost_usd) AS total_cost,
 			COUNT(CASE WHEN input_tokens + output_tokens > 0 THEN 1 END) AS call_count
 		FROM events GROUP BY minute ORDER BY minute DESC`,
 
@@ -145,17 +148,19 @@ func (db *DB) migrate() error {
 		WHERE tool_name IS NOT NULL AND tool_name != ''
 		GROUP BY tool_name ORDER BY total DESC`,
 
-		// Hourly cost breakdown
-		`CREATE OR REPLACE VIEW v_hourly_costs AS
+		// Token usage by model
+		`CREATE OR REPLACE VIEW v_tokens_by_model AS
 		SELECT
-			time_bucket(INTERVAL '1 hour', timestamp) AS hour,
-			provider, model,
-			SUM(cost_usd) AS total_cost,
+			COALESCE(model, 'unknown') AS model,
 			SUM(input_tokens) AS total_input,
 			SUM(output_tokens) AS total_output,
+			SUM(cache_read_tokens) AS total_cache_read,
+			SUM(cache_create_tokens) AS total_cache_create,
+			SUM(input_tokens + output_tokens) AS total_tokens,
 			COUNT(CASE WHEN input_tokens + output_tokens > 0 THEN 1 END) AS call_count
-		FROM events WHERE cost_usd > 0
-		GROUP BY hour, provider, model ORDER BY hour DESC`,
+		FROM events
+		WHERE model IS NOT NULL AND model != ''
+		GROUP BY model ORDER BY total_tokens DESC`,
 	}
 
 	// Load FTS extension

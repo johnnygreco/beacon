@@ -102,7 +102,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div><div class=\"grid grid-cols-2 md:grid-cols-4 gap-4 text-sm\"><div><span class=\"text-gray-500\">Duration</span><p class=\"text-gray-200 font-medium\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div><div class=\"grid grid-cols-2 md:grid-cols-5 gap-4 text-sm\"><div><span class=\"text-gray-500\">Duration</span><p class=\"text-gray-200 font-medium\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -128,45 +128,201 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</p></div><div><span class=\"text-gray-500\">Total Cost</span><p class=\"text-gray-200 font-medium\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</p><p class=\"text-xs text-gray-500 mt-0.5\">In: ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var8 string
-			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("$%.4f", data.Session.TotalCost))
+			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.Session.InputTokens))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 37, Col: 89}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 35, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</p></div><div><span class=\"text-gray-500\">Turns</span><p class=\"text-gray-200 font-medium\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, " / Out: ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var9 string
-			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.Session.TurnCount))
+			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.Session.OutputTokens))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 41, Col: 86}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 35, Col: 112}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</p></div></div></div><!-- Charts --><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</p></div><div><span class=\"text-gray-500\">Cache Tokens</span><p class=\"text-gray-200 font-medium\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = components.ChartContainer("sessionTokensChart", "250px", "Tokens per Event").Render(ctx, templ_7745c5c3_Buffer)
+			var templ_7745c5c3_Var10 string
+			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.Session.CacheReadTokens))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 40, Col: 92}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = components.ChartContainer("sessionCostPerTurnChart", "250px", "Cost per Turn").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</p><p class=\"text-xs text-gray-500 mt-0.5\">Create: ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</div><!-- Turn Timeline --><div><h2 class=\"text-lg font-semibold text-gray-200 mb-3\">Turn Timeline</h2>")
+			var templ_7745c5c3_Var11 string
+			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.Session.CacheCreateTokens))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 42, Col: 66}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</p></div><div><span class=\"text-gray-500\">Turns</span><p class=\"text-gray-200 font-medium\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var12 string
+			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.Session.TurnCount))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 47, Col: 86}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</p></div><div><span class=\"text-gray-500\">Tool Calls</span><p class=\"text-gray-200 font-medium\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var13 string
+			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", data.Session.ToolCallCount))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 51, Col: 90}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</p>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if data.Session.MCPCallCount > 0 {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<p class=\"text-xs text-gray-500 mt-0.5\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var14 string
+				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d MCP", data.Session.MCPCallCount))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 54, Col: 58}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</p>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</div></div></div><!-- Charts --><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = components.ChartContainer("sessionTokensChart", "250px", "Tokens per Event (by type)").Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if len(data.TokensByModel) > 0 {
+				templ_7745c5c3_Err = components.ChartContainer("sessionTokensByModelChart", "250px", "Tokens by Model").Render(ctx, templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</div><!-- Tool Stats -->")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if len(data.ToolStats) > 0 {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<div class=\"bg-gray-800 rounded-lg p-4 border border-gray-700\"><h2 class=\"text-lg font-semibold text-gray-200 mb-3\">Tool Usage</h2><div class=\"grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				for _, ts := range data.ToolStats {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<div class=\"bg-gray-900 rounded p-3 border border-gray-700\"><div class=\"flex items-center gap-1.5 mb-1\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					if ts.IsMCP {
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<span class=\"px-1.5 py-0.5 text-xs rounded bg-cyan-500/20 text-cyan-400\">MCP</span> ")
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<span class=\"text-sm text-gray-200 font-medium truncate\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var15 string
+					templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(ts.Name)
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 80, Col: 75}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</span></div><p class=\"text-xs text-gray-500\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var16 string
+					templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d calls", ts.Calls))
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 83, Col: 44}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, " ")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					if ts.AvgDuration > 0 {
+						var templ_7745c5c3_Var17 string
+						templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf(" · %.0fms avg", ts.AvgDuration))
+						if templ_7745c5c3_Err != nil {
+							return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 85, Col: 57}
+						}
+						_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
+						if templ_7745c5c3_Err != nil {
+							return templ_7745c5c3_Err
+						}
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</p></div>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "</div></div>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<!-- Conversation --><div><div class=\"flex items-center justify-between mb-4\"><h2 class=\"text-lg font-semibold text-gray-200\">Conversation</h2><div class=\"flex items-center gap-2\"><button onclick=\"document.getElementById('chat-view').classList.remove('hidden'); document.getElementById('timeline-view').classList.add('hidden'); this.classList.add('bg-blue-500/20','text-blue-400','border-blue-500/40'); this.classList.remove('bg-gray-800','text-gray-500','border-gray-700'); this.nextElementSibling.classList.remove('bg-blue-500/20','text-blue-400','border-blue-500/40'); this.nextElementSibling.classList.add('bg-gray-800','text-gray-500','border-gray-700')\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-blue-500/20 text-blue-400 border-blue-500/40\">Chat</button> <button onclick=\"document.getElementById('timeline-view').classList.remove('hidden'); document.getElementById('chat-view').classList.add('hidden'); this.classList.add('bg-blue-500/20','text-blue-400','border-blue-500/40'); this.classList.remove('bg-gray-800','text-gray-500','border-gray-700'); this.previousElementSibling.classList.remove('bg-blue-500/20','text-blue-400','border-blue-500/40'); this.previousElementSibling.classList.add('bg-gray-800','text-gray-500','border-gray-700')\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700\">Timeline</button></div></div><div id=\"chat-view\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = components.ChatView(data.ChatTurns).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "</div><div id=\"timeline-view\" class=\"hidden\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -174,7 +330,17 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</div><!-- Initial chart data embedded as JSON for session charts --><script id=\"session-tokens-data\" type=\"application/json\">\n\t\t\t\t{ chartDataToJSON(data.TokensChart) }\n\t\t\t</script><script id=\"session-cost-per-turn-data\" type=\"application/json\">\n\t\t\t\t{ turnCostDataToJSON(data.Turns) }\n\t\t\t</script></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</div></div><!-- Initial chart data embedded as JSON --><script id=\"session-tokens-data\" type=\"application/json\">\n\t\t\t\t{ multiSeriesChartToJSON(data.TokensChart) }\n\t\t\t</script>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if len(data.TokensByModel) > 0 {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<script id=\"session-tokens-by-model-data\" type=\"application/json\">\n\t\t\t\t\t{ tokensByModelToJSON(data.TokensByModel) }\n\t\t\t\t</script>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -188,21 +354,19 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 	})
 }
 
-func chartDataToJSON(data views.ChartData) string {
-	m := map[string]any{"labels": data.Labels, "values": data.Values}
+func multiSeriesChartToJSON(data views.MultiSeriesChart) string {
+	m := map[string]any{"labels": data.Labels, "datasets": data.Datasets}
 	b, _ := json.Marshal(m)
 	return string(b)
 }
 
-func turnCostDataToJSON(turns []views.TurnDetail) string {
-	labels := make([]string, len(turns))
-	values := make([]float64, len(turns))
-	for i, t := range turns {
-		labels[i] = fmt.Sprintf("Turn %d", t.TurnSeq)
-		values[i] = t.TotalCost
+func tokensByModelToJSON(models []views.ChartDataset) string {
+	labels := []string{"Input", "Output", "Cache Read"}
+	datasets := make([]map[string]any, len(models))
+	for i, m := range models {
+		datasets[i] = map[string]any{"label": m.Label, "data": m.Values}
 	}
-	m := map[string]any{"labels": labels, "values": values}
-	b, _ := json.Marshal(m)
+	b, _ := json.Marshal(map[string]any{"labels": labels, "datasets": datasets})
 	return string(b)
 }
 

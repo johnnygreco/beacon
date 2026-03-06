@@ -43,7 +43,7 @@ func NewRouter(
 		r.Get("/search", apiHandlers.SearchEvents)
 		r.Get("/tokens-per-minute", apiHandlers.GetTokensPerMinute)
 		r.Get("/tool-stats", apiHandlers.GetToolStats)
-		r.Get("/hourly-costs", apiHandlers.GetHourlyCosts)
+		r.Get("/tokens-by-model", apiHandlers.GetTokensByModel)
 	})
 
 	return r

@@ -34,21 +34,19 @@ func (u *Updater) NotifyDashboard() {
 
 	ctx := context.Background()
 
-	// Query all data in parallel
 	var metrics []views.MetricData
 	var sessions []views.SessionSummary
 	var activity []views.ActivityItem
-	var tokensChart, costChart views.ChartData
+	var tokensChart views.MultiSeriesChart
 
 	var wg sync.WaitGroup
 	wg.Add(4)
 	go func() { defer wg.Done(); metrics = QueryDashboardMetrics(ctx, u.db) }()
 	go func() { defer wg.Done(); sessions = QueryActiveSessions(ctx, u.db) }()
 	go func() { defer wg.Done(); activity = QueryRecentActivity(ctx, u.db) }()
-	go func() { defer wg.Done(); tokensChart, costChart = QueryChartData(ctx, u.db) }()
+	go func() { defer wg.Done(); tokensChart = QueryChartData(ctx, u.db) }()
 	wg.Wait()
 
-	// Render and broadcast metrics partial
 	var metricsBuf bytes.Buffer
 	if err := partials.DashboardMetrics(metrics).Render(ctx, &metricsBuf); err != nil {
 		u.logger.Error("render metrics partial", "error", err)
@@ -59,7 +57,6 @@ func (u *Updater) NotifyDashboard() {
 		})
 	}
 
-	// Render and broadcast sessions partial
 	var sessionsBuf bytes.Buffer
 	if err := partials.SessionList(sessions).Render(ctx, &sessionsBuf); err != nil {
 		u.logger.Error("render sessions partial", "error", err)
@@ -70,7 +67,6 @@ func (u *Updater) NotifyDashboard() {
 		})
 	}
 
-	// Render and broadcast activity partial
 	var activityBuf bytes.Buffer
 	if err := partials.ActivityFeed(activity).Render(ctx, &activityBuf); err != nil {
 		u.logger.Error("render activity partial", "error", err)
@@ -81,24 +77,11 @@ func (u *Updater) NotifyDashboard() {
 		})
 	}
 
-	// Send chart data as JSON events
 	if len(tokensChart.Labels) > 0 {
-		tokenData, _ := json.Marshal(map[string]any{
-			"labels": tokensChart.Labels,
-			"values": tokensChart.Values,
-		})
+		tokenData, _ := json.Marshal(tokensChart)
 		u.broker.Broadcast("dashboard", sse.SSEMessage{
 			Event: "token-data",
 			Data:  tokenData,
-		})
-
-		costData, _ := json.Marshal(map[string]any{
-			"labels": costChart.Labels,
-			"values": costChart.Values,
-		})
-		u.broker.Broadcast("dashboard", sse.SSEMessage{
-			Event: "cost-data",
-			Data:  costData,
 		})
 	}
 }

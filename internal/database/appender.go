@@ -89,7 +89,7 @@ func ResetSchema(ctx context.Context, db *DB) error {
 		`DROP VIEW IF EXISTS v_conversation_trace`,
 		`DROP VIEW IF EXISTS v_tokens_per_minute`,
 		`DROP VIEW IF EXISTS v_tool_stats`,
-		`DROP VIEW IF EXISTS v_hourly_costs`,
+		`DROP VIEW IF EXISTS v_tokens_by_model`,
 		`DROP TABLE IF EXISTS event_links`,
 		`DROP TABLE IF EXISTS tool_io`,
 		`DROP TABLE IF EXISTS ingest_errors`,

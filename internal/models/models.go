@@ -1,6 +1,16 @@
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
+
+const MCPToolPrefix = "mcp__"
+
+// IsMCPTool returns true if the tool name indicates an MCP tool.
+func IsMCPTool(name string) bool {
+	return strings.HasPrefix(name, MCPToolPrefix)
+}
 
 type Event struct {
 	EventUID          string     `json:"event_uid"`

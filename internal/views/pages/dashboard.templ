@@ -15,9 +15,8 @@ templ Dashboard(data views.DashboardData) {
 			</div>
 
 			<!-- Charts -->
-			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+			<div class="grid grid-cols-1 gap-6">
 				@components.ChartContainer("tokensChart", "300px", "Token Throughput (per minute)")
-				@components.ChartContainer("costChart", "300px", "Cumulative Cost")
 			</div>
 
 			<!-- Sessions + Activity -->

@@ -1,0 +1,157 @@
+package components
+
+import (
+	"fmt"
+	"github.com/technodrome-ai/technodrome/internal/models"
+	"github.com/technodrome-ai/technodrome/internal/views"
+)
+
+templ ChatView(chatTurns []views.ChatTurn) {
+	<div class="space-y-2">
+		for i, ct := range chatTurns {
+			if i > 0 {
+				<div class="flex items-center gap-3 my-6">
+					<div class="flex-1 h-px bg-gray-700"></div>
+					<span class="text-xs text-gray-500 whitespace-nowrap">
+						{ fmt.Sprintf("Turn %d — %d tok", ct.TurnSeq, ct.TotalTokens) }
+					</span>
+					<div class="flex-1 h-px bg-gray-700"></div>
+				</div>
+			}
+			for _, block := range ct.Blocks {
+				if block.Kind == views.ChatBlockUserMessage && block.Message != nil {
+					@chatUserMessage(*block.Message)
+				} else if block.Kind == views.ChatBlockAssistantMessage && block.Message != nil {
+					@chatAssistantMessage(*block.Message)
+				} else if block.Kind == views.ChatBlockReasoning && block.Message != nil {
+					@chatReasoningBlock(*block.Message)
+				} else if block.Kind == views.ChatBlockError && block.Message != nil {
+					@chatErrorBlock(*block.Message)
+				} else if block.Kind == views.ChatBlockToolChain {
+					@chatToolChain(block.ToolChain)
+				}
+			}
+		}
+	</div>
+}
+
+templ chatUserMessage(e views.EventSummary) {
+	<div class="ml-auto max-w-[95%] sm:max-w-[85%] group">
+		<div class="bg-blue-600/15 border border-blue-500/30 rounded-2xl rounded-br-sm px-4 py-3">
+			if len(chatDisplayText(e)) > 2000 {
+				<div class="relative max-h-[300px] overflow-y-auto">
+					<p class="text-gray-100 whitespace-pre-wrap text-sm">{ chatDisplayText(e) }</p>
+				</div>
+			} else {
+				<p class="text-gray-100 whitespace-pre-wrap text-sm">{ chatDisplayText(e) }</p>
+			}
+		</div>
+		@chatMetaStrip(e)
+	</div>
+}
+
+templ chatAssistantMessage(e views.EventSummary) {
+	<div class="mr-auto max-w-[95%] sm:max-w-[85%] flex gap-3 group">
+		<div class="w-7 h-7 rounded-full bg-purple-500/20 flex items-center justify-center flex-shrink-0 mt-1">
+			<span class="text-purple-400 text-xs font-bold">A</span>
+		</div>
+		<div class="flex-1 min-w-0">
+			<div class="bg-gray-800 border border-gray-700 rounded-2xl rounded-bl-sm px-4 py-3">
+				if len(chatDisplayText(e)) > 2000 {
+					<div class="relative max-h-[300px] overflow-y-auto">
+						<p class="text-gray-200 whitespace-pre-wrap text-sm">{ chatDisplayText(e) }</p>
+					</div>
+				} else {
+					<p class="text-gray-200 whitespace-pre-wrap text-sm">{ chatDisplayText(e) }</p>
+				}
+			</div>
+			@chatMetaStrip(e)
+		</div>
+	</div>
+}
+
+templ chatReasoningBlock(e views.EventSummary) {
+	<div class="mr-auto max-w-[85%] ml-10">
+		<details>
+			<summary class="text-gray-500 text-sm cursor-pointer flex items-center gap-2">
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+				</svg>
+				Thinking...
+			</summary>
+			<div class="text-gray-400 text-sm italic whitespace-pre-wrap mt-2">
+				{ chatDisplayText(e) }
+			</div>
+		</details>
+	</div>
+}
+
+templ chatToolChain(items []views.ToolChainItem) {
+	<div class="mr-auto max-w-[85%] ml-10 border-l-2 border-yellow-500/30 pl-4 space-y-2 my-2">
+		for _, item := range items {
+			<details>
+				<summary class="text-sm cursor-pointer flex items-center gap-2">
+					<svg class="w-3.5 h-3.5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+					</svg>
+					<span class="text-yellow-400 font-medium">{ item.ToolName }</span>
+					if models.IsMCPTool(item.ToolName) {
+						<span class="px-1.5 py-0.5 text-xs rounded bg-cyan-500/20 text-cyan-400">MCP</span>
+					}
+					if item.CallEvent.DurationMs > 0 {
+						<span class="text-gray-600 text-xs">{ fmt.Sprintf("%dms", item.CallEvent.DurationMs) }</span>
+					}
+				</summary>
+				<div class="mt-2 space-y-2">
+					if item.InputPreview != "" {
+						<div>
+							<p class="text-xs text-gray-500 mb-1">Input</p>
+							<pre class="bg-gray-900 rounded p-3 text-xs text-gray-300 font-mono overflow-x-auto max-h-64 overflow-y-auto">{ item.InputPreview }</pre>
+						</div>
+					}
+					if item.OutputPreview != "" {
+						<div>
+							<p class="text-xs text-gray-500 mb-1">Output</p>
+							<pre class="bg-gray-900 rounded p-3 text-xs text-gray-300 font-mono overflow-x-auto max-h-64 overflow-y-auto">{ item.OutputPreview }</pre>
+						</div>
+					}
+				</div>
+			</details>
+		}
+	</div>
+}
+
+templ chatErrorBlock(e views.EventSummary) {
+	<div class="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3 mr-auto max-w-[85%] ml-10">
+		<p class="text-red-300 text-sm">{ chatDisplayText(e) }</p>
+	</div>
+}
+
+templ chatMetaStrip(e views.EventSummary) {
+	<div class="text-xs text-gray-500 mt-1 flex items-center gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+		if e.Model != "" {
+			<span>{ e.Model }</span>
+		}
+		if e.Tokens > 0 {
+			if e.Model != "" {
+				<span>&middot;</span>
+			}
+			<span>{ fmt.Sprintf("%d tok", e.Tokens) }</span>
+		}
+		if e.DurationMs > 0 {
+			if e.Model != "" || e.Tokens > 0 {
+				<span>&middot;</span>
+			}
+			<span>{ fmt.Sprintf("%dms", e.DurationMs) }</span>
+		}
+	</div>
+}
+
+func chatDisplayText(e views.EventSummary) string {
+	if e.TextContent != "" {
+		return e.TextContent
+	}
+	return e.TextPreview
+}
+

@@ -25,12 +25,12 @@ templ SessionCard(s views.SessionSummary) {
 				<p class="text-gray-300">{ fmt.Sprintf("%d", s.TotalTokens) }</p>
 			</div>
 			<div>
-				<span class="text-gray-500">Cost</span>
-				<p class="text-gray-300">{ fmt.Sprintf("$%.4f", s.TotalCost) }</p>
-			</div>
-			<div>
 				<span class="text-gray-500">Turns</span>
 				<p class="text-gray-300">{ fmt.Sprintf("%d", s.TurnCount) }</p>
+			</div>
+			<div>
+				<span class="text-gray-500">Tool Calls</span>
+				<p class="text-gray-300">{ fmt.Sprintf("%d", s.ToolCallCount) }</p>
 			</div>
 		</div>
 	</a>

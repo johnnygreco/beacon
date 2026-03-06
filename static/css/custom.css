@@ -32,6 +32,10 @@
   transition: opacity 0.15s ease-in;
 }
 
+/* Details/summary reset */
+details summary { cursor: pointer; list-style: none; }
+details summary::-webkit-details-marker { display: none; }
+
 /* Active nav link */
 nav a.active {
   background-color: #374151;

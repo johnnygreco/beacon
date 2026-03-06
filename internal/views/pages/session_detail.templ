@@ -23,7 +23,7 @@ templ SessionDetail(data views.SessionDetailData) {
 						<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">Completed</span>
 					}
 				</div>
-				<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+				<div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
 					<div>
 						<span class="text-gray-500">Duration</span>
 						<p class="text-gray-200 font-medium">{ data.Session.Duration }</p>
@@ -31,55 +31,110 @@ templ SessionDetail(data views.SessionDetailData) {
 					<div>
 						<span class="text-gray-500">Total Tokens</span>
 						<p class="text-gray-200 font-medium">{ fmt.Sprintf("%d", data.Session.TotalTokens) }</p>
+						<p class="text-xs text-gray-500 mt-0.5">
+							In: { fmt.Sprintf("%d", data.Session.InputTokens) } / Out: { fmt.Sprintf("%d", data.Session.OutputTokens) }
+						</p>
 					</div>
 					<div>
-						<span class="text-gray-500">Total Cost</span>
-						<p class="text-gray-200 font-medium">{ fmt.Sprintf("$%.4f", data.Session.TotalCost) }</p>
+						<span class="text-gray-500">Cache Tokens</span>
+						<p class="text-gray-200 font-medium">{ fmt.Sprintf("%d", data.Session.CacheReadTokens) }</p>
+						<p class="text-xs text-gray-500 mt-0.5">
+							Create: { fmt.Sprintf("%d", data.Session.CacheCreateTokens) }
+						</p>
 					</div>
 					<div>
 						<span class="text-gray-500">Turns</span>
 						<p class="text-gray-200 font-medium">{ fmt.Sprintf("%d", data.Session.TurnCount) }</p>
+					</div>
+					<div>
+						<span class="text-gray-500">Tool Calls</span>
+						<p class="text-gray-200 font-medium">{ fmt.Sprintf("%d", data.Session.ToolCallCount) }</p>
+						if data.Session.MCPCallCount > 0 {
+							<p class="text-xs text-gray-500 mt-0.5">
+								{ fmt.Sprintf("%d MCP", data.Session.MCPCallCount) }
+							</p>
+						}
 					</div>
 				</div>
 			</div>
 
 			<!-- Charts -->
 			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-				@components.ChartContainer("sessionTokensChart", "250px", "Tokens per Event")
-				@components.ChartContainer("sessionCostPerTurnChart", "250px", "Cost per Turn")
+				@components.ChartContainer("sessionTokensChart", "250px", "Tokens per Event (by type)")
+				if len(data.TokensByModel) > 0 {
+					@components.ChartContainer("sessionTokensByModelChart", "250px", "Tokens by Model")
+				}
 			</div>
 
-			<!-- Turn Timeline -->
+			<!-- Tool Stats -->
+			if len(data.ToolStats) > 0 {
+				<div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+					<h2 class="text-lg font-semibold text-gray-200 mb-3">Tool Usage</h2>
+					<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+						for _, ts := range data.ToolStats {
+							<div class="bg-gray-900 rounded p-3 border border-gray-700">
+								<div class="flex items-center gap-1.5 mb-1">
+									if ts.IsMCP {
+										<span class="px-1.5 py-0.5 text-xs rounded bg-cyan-500/20 text-cyan-400">MCP</span>
+									}
+									<span class="text-sm text-gray-200 font-medium truncate">{ ts.Name }</span>
+								</div>
+								<p class="text-xs text-gray-500">
+									{ fmt.Sprintf("%d calls", ts.Calls) }
+									if ts.AvgDuration > 0 {
+										{ fmt.Sprintf(" · %.0fms avg", ts.AvgDuration) }
+									}
+								</p>
+							</div>
+						}
+					</div>
+				</div>
+			}
+
+			<!-- Conversation -->
 			<div>
-				<h2 class="text-lg font-semibold text-gray-200 mb-3">Turn Timeline</h2>
-				@components.TurnTimeline(data.Turns)
+				<div class="flex items-center justify-between mb-4">
+					<h2 class="text-lg font-semibold text-gray-200">Conversation</h2>
+					<div class="flex items-center gap-2">
+						<button onclick="document.getElementById('chat-view').classList.remove('hidden'); document.getElementById('timeline-view').classList.add('hidden'); this.classList.add('bg-blue-500/20','text-blue-400','border-blue-500/40'); this.classList.remove('bg-gray-800','text-gray-500','border-gray-700'); this.nextElementSibling.classList.remove('bg-blue-500/20','text-blue-400','border-blue-500/40'); this.nextElementSibling.classList.add('bg-gray-800','text-gray-500','border-gray-700')"
+							class="px-3 py-1.5 text-sm rounded-md font-medium border bg-blue-500/20 text-blue-400 border-blue-500/40">Chat</button>
+						<button onclick="document.getElementById('timeline-view').classList.remove('hidden'); document.getElementById('chat-view').classList.add('hidden'); this.classList.add('bg-blue-500/20','text-blue-400','border-blue-500/40'); this.classList.remove('bg-gray-800','text-gray-500','border-gray-700'); this.previousElementSibling.classList.remove('bg-blue-500/20','text-blue-400','border-blue-500/40'); this.previousElementSibling.classList.add('bg-gray-800','text-gray-500','border-gray-700')"
+							class="px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700">Timeline</button>
+					</div>
+				</div>
+				<div id="chat-view">
+					@components.ChatView(data.ChatTurns)
+				</div>
+				<div id="timeline-view" class="hidden">
+					@components.TurnTimeline(data.Turns)
+				</div>
 			</div>
 
-			<!-- Initial chart data embedded as JSON for session charts -->
+			<!-- Initial chart data embedded as JSON -->
 			<script id="session-tokens-data" type="application/json">
-				{ chartDataToJSON(data.TokensChart) }
+				{ multiSeriesChartToJSON(data.TokensChart) }
 			</script>
-			<script id="session-cost-per-turn-data" type="application/json">
-				{ turnCostDataToJSON(data.Turns) }
-			</script>
+			if len(data.TokensByModel) > 0 {
+				<script id="session-tokens-by-model-data" type="application/json">
+					{ tokensByModelToJSON(data.TokensByModel) }
+				</script>
+			}
 		</div>
 	}
 }
 
-func chartDataToJSON(data views.ChartData) string {
-	m := map[string]any{"labels": data.Labels, "values": data.Values}
+func multiSeriesChartToJSON(data views.MultiSeriesChart) string {
+	m := map[string]any{"labels": data.Labels, "datasets": data.Datasets}
 	b, _ := json.Marshal(m)
 	return string(b)
 }
 
-func turnCostDataToJSON(turns []views.TurnDetail) string {
-	labels := make([]string, len(turns))
-	values := make([]float64, len(turns))
-	for i, t := range turns {
-		labels[i] = fmt.Sprintf("Turn %d", t.TurnSeq)
-		values[i] = t.TotalCost
+func tokensByModelToJSON(models []views.ChartDataset) string {
+	labels := []string{"Input", "Output", "Cache Read"}
+	datasets := make([]map[string]any, len(models))
+	for i, m := range models {
+		datasets[i] = map[string]any{"label": m.Label, "data": m.Values}
 	}
-	m := map[string]any{"labels": labels, "values": values}
-	b, _ := json.Marshal(m)
+	b, _ := json.Marshal(map[string]any{"labels": labels, "datasets": datasets})
 	return string(b)
 }

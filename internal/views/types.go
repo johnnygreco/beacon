@@ -14,15 +14,20 @@ type MetricData struct {
 }
 
 type SessionSummary struct {
-	ID          string
-	Actor       string
-	Status      string // "active", "completed"
-	StartedAt   time.Time
-	Duration    string
-	TotalTokens int64
-	TotalCost   float64
-	TurnCount   int64
-	ActiveModel string
+	ID                string
+	Actor             string
+	Status            string // "active", "completed"
+	StartedAt         time.Time
+	Duration          string
+	TotalTokens       int64
+	InputTokens       int64
+	OutputTokens      int64
+	CacheReadTokens   int64
+	CacheCreateTokens int64
+	TurnCount         int64
+	ToolCallCount     int64
+	MCPCallCount      int64
+	ActiveModel       string
 }
 
 type SearchResult struct {
@@ -44,23 +49,24 @@ type ActivityItem struct {
 }
 
 type EventSummary struct {
-	EventUID   string
-	EventKind  string // message, tool_call, tool_result, reasoning, etc.
-	ActorRole  string
-	TextPreview string
-	ToolName   string
-	Model      string
-	Tokens     int64
-	Cost       float64
-	DurationMs int64
-	Timestamp  time.Time
+	EventUID      string
+	EventKind     string // message, tool_call, tool_result, reasoning, etc.
+	ActorRole     string
+	TextContent   string
+	TextPreview   string
+	ToolName      string
+	Model         string
+	Tokens        int64
+	DurationMs    int64
+	Timestamp     time.Time
+	InputPreview  string
+	OutputPreview string
 }
 
 type TurnDetail struct {
 	TurnSeq     int
 	Events      []EventSummary
 	TotalTokens int64
-	TotalCost   float64
 	StartedAt   time.Time
 }
 
@@ -69,16 +75,64 @@ type ChartData struct {
 	Values []float64
 }
 
+type MultiSeriesChart struct {
+	Labels   []string
+	Datasets []ChartDataset
+}
+
+type ChartDataset struct {
+	Label  string
+	Values []float64
+}
+
+type ToolStat struct {
+	Name        string
+	Calls       int
+	AvgDuration float64
+	IsMCP       bool
+}
+
 type DashboardData struct {
 	Metrics        []MetricData
 	ActiveSessions []SessionSummary
 	RecentActivity []ActivityItem
-	TokensChart    ChartData
-	CostChart      ChartData
+	TokensChart    MultiSeriesChart
 }
 
 type SessionDetailData struct {
-	Session     SessionSummary
-	Turns       []TurnDetail
-	TokensChart ChartData
+	Session        SessionSummary
+	Turns          []TurnDetail
+	ChatTurns      []ChatTurn
+	TokensChart    MultiSeriesChart
+	ToolStats      []ToolStat
+	TokensByModel  []ChartDataset
+}
+
+const (
+	ChatBlockUserMessage      = "user_message"
+	ChatBlockAssistantMessage = "assistant_message"
+	ChatBlockToolChain        = "tool_chain"
+	ChatBlockReasoning        = "reasoning"
+	ChatBlockError            = "error"
+)
+
+type ToolChainItem struct {
+	CallEvent     EventSummary
+	ResultEvent   *EventSummary
+	ToolName      string
+	InputPreview  string
+	OutputPreview string
+}
+
+type ChatBlock struct {
+	Kind      string // "user_message", "assistant_message", "tool_chain", "reasoning", "error"
+	Message   *EventSummary
+	ToolChain []ToolChainItem
+}
+
+type ChatTurn struct {
+	TurnSeq     int
+	Blocks      []ChatBlock
+	TotalTokens int64
+	StartedAt   time.Time
 }
