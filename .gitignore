@@ -1,8 +1,6 @@
 # Build output
 bin/
 dist/
-/technodrome
-/simulator
 *.exe
 *.exe~
 *.dll

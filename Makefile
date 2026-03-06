@@ -13,4 +13,4 @@ clean:
 	rm -rf bin/
 
 simulator:
-	go run ./cmd/simulator
+	go build -o bin/simulator ./cmd/simulator
