@@ -3,7 +3,9 @@ package web
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -210,7 +212,8 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 		        COALESCE(e.text_content, ''), COALESCE(e.text_preview, ''),
 		        COALESCE(e.tool_name, ''), COALESCE(e.model, ''),
 		        e.input_tokens + e.output_tokens, e.duration_ms, e.timestamp, turn_seq,
-		        COALESCE(tio.input_preview, ''), COALESCE(tio.output_preview, '')
+		        COALESCE(tio.input_preview, ''), COALESCE(tio.output_preview, ''),
+		        COALESCE(tio.input_json, '')
 		 FROM v_conversation_trace e
 		 LEFT JOIN tool_io tio ON e.event_uid = tio.event_uid
 		 WHERE e.session_id = $1
@@ -227,7 +230,7 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 			if err := traceRows.Scan(&es.EventUID, &es.EventKind, &es.ActorRole,
 				&es.TextContent, &es.TextPreview,
 				&es.ToolName, &es.Model, &es.Tokens, &es.DurationMs, &es.Timestamp, &turnSeq,
-				&es.InputPreview, &es.OutputPreview); err != nil {
+				&es.InputPreview, &es.OutputPreview, &es.InputJSON); err != nil {
 				continue
 			}
 
@@ -329,6 +332,19 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 	return data, nil
 }
 
+// parseToolParams extracts structured parameters from tool input JSON.
+// Returns nil if the JSON is empty or unparseable.
+func parseToolParams(toolName, inputJSON string) *views.ToolCallParams {
+	if inputJSON == "" {
+		return nil
+	}
+	var params views.ToolCallParams
+	if err := json.Unmarshal([]byte(inputJSON), &params); err != nil {
+		return nil
+	}
+	return &params
+}
+
 // buildChatTurns converts flat TurnDetail slices into structured ChatTurns
 // by grouping consecutive tool_call/tool_result events into tool chains.
 func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
@@ -361,7 +377,9 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 					CallEvent:    e,
 					ToolName:     e.ToolName,
 					InputPreview: e.InputPreview,
+					InputJSON:    e.InputJSON,
 				}
+				item.Params = parseToolParams(e.ToolName, e.InputJSON)
 				// Look ahead for a matching tool_result
 				if i+1 < len(t.Events) && t.Events[i+1].EventKind == "tool_result" {
 					i++
@@ -425,6 +443,30 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 		}
 
 		flushToolChain()
+
+		// Compute per-turn tool stats
+		statsMap := make(map[string]int)
+		for _, block := range ct.Blocks {
+			if block.Kind == views.ChatBlockToolChain {
+				for _, item := range block.ToolChain {
+					statsMap[item.ToolName]++
+				}
+			}
+		}
+		if len(statsMap) > 0 {
+			stats := make([]views.ToolStatEntry, 0, len(statsMap))
+			for name, count := range statsMap {
+				stats = append(stats, views.ToolStatEntry{Name: name, Count: count})
+			}
+			sort.Slice(stats, func(i, j int) bool {
+				if stats[i].Count != stats[j].Count {
+					return stats[i].Count > stats[j].Count
+				}
+				return stats[i].Name < stats[j].Name
+			})
+			ct.ToolStats = stats
+		}
+
 		chatTurns = append(chatTurns, ct)
 	}
 	return chatTurns

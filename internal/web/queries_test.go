@@ -201,6 +201,128 @@ func TestBuildChatTurns_MultipleTurns(t *testing.T) {
 	}
 }
 
+func TestParseToolParams_Empty(t *testing.T) {
+	result := parseToolParams("Bash", "")
+	if result != nil {
+		t.Error("expected nil for empty input")
+	}
+}
+
+func TestParseToolParams_InvalidJSON(t *testing.T) {
+	result := parseToolParams("Bash", "not json")
+	if result != nil {
+		t.Error("expected nil for invalid JSON")
+	}
+}
+
+func TestParseToolParams_BashCommand(t *testing.T) {
+	result := parseToolParams("Bash", `{"command":"ls -la","description":"list files"}`)
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.Command != "ls -la" {
+		t.Errorf("expected command 'ls -la', got '%s'", result.Command)
+	}
+	if result.Description != "list files" {
+		t.Errorf("expected description 'list files', got '%s'", result.Description)
+	}
+}
+
+func TestParseToolParams_EditTool(t *testing.T) {
+	result := parseToolParams("Edit", `{"file_path":"/tmp/test.go","old_string":"foo","new_string":"bar"}`)
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.FilePath != "/tmp/test.go" {
+		t.Errorf("expected file_path '/tmp/test.go', got '%s'", result.FilePath)
+	}
+	if result.OldString != "foo" {
+		t.Errorf("expected old_string 'foo', got '%s'", result.OldString)
+	}
+	if result.NewString != "bar" {
+		t.Errorf("expected new_string 'bar', got '%s'", result.NewString)
+	}
+}
+
+func TestParseToolParams_TodoWrite(t *testing.T) {
+	input := `{"todos":[{"content":"task 1","status":"completed"},{"content":"task 2","status":"pending"}]}`
+	result := parseToolParams("TodoWrite", input)
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if len(result.Todos) != 2 {
+		t.Fatalf("expected 2 todos, got %d", len(result.Todos))
+	}
+	if result.Todos[0].Content != "task 1" || result.Todos[0].Status != "completed" {
+		t.Errorf("unexpected first todo: %+v", result.Todos[0])
+	}
+}
+
+func TestParseToolParams_SearchTool(t *testing.T) {
+	result := parseToolParams("Grep", `{"pattern":"func.*Test","path":"./internal"}`)
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+	if result.Pattern != "func.*Test" {
+		t.Errorf("expected pattern 'func.*Test', got '%s'", result.Pattern)
+	}
+	if result.Path != "./internal" {
+		t.Errorf("expected path './internal', got '%s'", result.Path)
+	}
+}
+
+func TestBuildChatTurns_ToolStats(t *testing.T) {
+	turns := []views.TurnDetail{{
+		TurnSeq: 1,
+		Events: []views.EventSummary{
+			{EventKind: "tool_call", ToolName: "Read", InputPreview: "f1"},
+			{EventKind: "tool_result", ToolName: "Read", OutputPreview: "c1"},
+			{EventKind: "tool_call", ToolName: "Read", InputPreview: "f2"},
+			{EventKind: "tool_result", ToolName: "Read", OutputPreview: "c2"},
+			{EventKind: "tool_call", ToolName: "Edit", InputPreview: "e1"},
+			{EventKind: "tool_result", ToolName: "Edit", OutputPreview: "ok"},
+		},
+	}}
+
+	result := buildChatTurns(turns)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 turn, got %d", len(result))
+	}
+	stats := result[0].ToolStats
+	if len(stats) != 2 {
+		t.Fatalf("expected 2 tool stat entries, got %d", len(stats))
+	}
+	// Sorted by count descending, then name ascending
+	if stats[0].Name != "Read" || stats[0].Count != 2 {
+		t.Errorf("expected first stat Read:2, got %s:%d", stats[0].Name, stats[0].Count)
+	}
+	if stats[1].Name != "Edit" || stats[1].Count != 1 {
+		t.Errorf("expected second stat Edit:1, got %s:%d", stats[1].Name, stats[1].Count)
+	}
+}
+
+func TestBuildChatTurns_InputJSONAndParams(t *testing.T) {
+	turns := []views.TurnDetail{{
+		TurnSeq: 1,
+		Events: []views.EventSummary{
+			{EventKind: "tool_call", ToolName: "Bash", InputPreview: "ls", InputJSON: `{"command":"ls -la","description":"list files"}`},
+			{EventKind: "tool_result", ToolName: "Bash", OutputPreview: "file1\nfile2"},
+		},
+	}}
+
+	result := buildChatTurns(turns)
+	item := result[0].Blocks[0].ToolChain[0]
+	if item.InputJSON != `{"command":"ls -la","description":"list files"}` {
+		t.Errorf("InputJSON not preserved: %s", item.InputJSON)
+	}
+	if item.Params == nil {
+		t.Fatal("expected Params to be populated")
+	}
+	if item.Params.Command != "ls -la" {
+		t.Errorf("expected command 'ls -la', got '%s'", item.Params.Command)
+	}
+}
+
 func TestBuildChatTurns_UnknownEventKind(t *testing.T) {
 	turns := []views.TurnDetail{{
 		TurnSeq: 1,

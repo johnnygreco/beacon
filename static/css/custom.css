@@ -50,3 +50,69 @@ nav a.active {
 .group:hover .chat-meta-strip {
   opacity: 1;
 }
+
+/* --- Gradient-fade truncation --- */
+.truncatable {
+  position: relative;
+}
+.truncatable.truncated .truncatable-content {
+  max-height: 300px;
+  overflow: hidden;
+}
+.truncatable-fade {
+  display: none;
+}
+.truncatable.truncated .truncatable-fade {
+  display: block;
+  position: absolute;
+  bottom: 2rem;
+  left: 0;
+  right: 0;
+  height: 4rem;
+  background: linear-gradient(to bottom, transparent, var(--fade-bg, #111827));
+  pointer-events: none;
+}
+.truncate-toggle {
+  display: none;
+  width: 100%;
+  padding: 0.25rem 0;
+  text-align: center;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+.truncate-toggle:hover {
+  color: #d1d5db;
+}
+.truncatable.truncated .truncate-toggle,
+.truncatable.expanded .truncate-toggle {
+  display: block;
+}
+.truncatable.expanded .truncatable-fade {
+  display: none;
+}
+
+/* --- Deep-link anchor highlight --- */
+[id]:target {
+  animation: anchor-highlight 2s ease-out;
+}
+@keyframes anchor-highlight {
+  0% { background-color: rgba(59, 130, 246, 0.2); }
+  100% { background-color: transparent; }
+}
+
+/* --- Code container --- */
+.code-container {
+  position: relative;
+}
+
+/* --- highlight.js overrides --- */
+.hljs {
+  background: #0d1117 !important;
+  padding: 0 !important;
+}
+pre code.hljs {
+  background: transparent !important;
+}

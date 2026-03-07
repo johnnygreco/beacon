@@ -313,7 +313,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<!-- Conversation --><div><div class=\"flex items-center justify-between mb-4\"><h2 class=\"text-lg font-semibold text-gray-200\">Conversation</h2><div class=\"flex items-center gap-2\"><button onclick=\"document.getElementById('chat-view').classList.remove('hidden'); document.getElementById('timeline-view').classList.add('hidden'); this.classList.add('bg-blue-500/20','text-blue-400','border-blue-500/40'); this.classList.remove('bg-gray-800','text-gray-500','border-gray-700'); this.nextElementSibling.classList.remove('bg-blue-500/20','text-blue-400','border-blue-500/40'); this.nextElementSibling.classList.add('bg-gray-800','text-gray-500','border-gray-700')\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-blue-500/20 text-blue-400 border-blue-500/40\">Chat</button> <button onclick=\"document.getElementById('timeline-view').classList.remove('hidden'); document.getElementById('chat-view').classList.add('hidden'); this.classList.add('bg-blue-500/20','text-blue-400','border-blue-500/40'); this.classList.remove('bg-gray-800','text-gray-500','border-gray-700'); this.previousElementSibling.classList.remove('bg-blue-500/20','text-blue-400','border-blue-500/40'); this.previousElementSibling.classList.add('bg-gray-800','text-gray-500','border-gray-700')\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700\">Timeline</button></div></div><div id=\"chat-view\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<!-- Conversation --><div><div class=\"flex items-center justify-between mb-4\"><h2 class=\"text-lg font-semibold text-gray-200\">Conversation</h2><div class=\"flex items-center gap-2\"><button id=\"btn-expand-all\" onclick=\"expandAll()\" class=\"px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors\">Expand All</button> <button id=\"btn-collapse-all\" onclick=\"collapseAll()\" class=\"px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors\">Collapse All</button><div class=\"w-px h-5 bg-gray-700\"></div><button onclick=\"switchView('chat', this)\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-blue-500/20 text-blue-400 border-blue-500/40\">Chat</button> <button onclick=\"switchView('timeline', this)\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700\">Timeline</button></div></div><div id=\"chat-view\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -343,7 +343,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<script src=\"/static/js/transcript.js\"></script></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

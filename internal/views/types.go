@@ -75,6 +75,7 @@ type EventSummary struct {
 	Timestamp     time.Time
 	InputPreview  string
 	OutputPreview string
+	InputJSON     string
 }
 
 type TurnDetail struct {
@@ -139,12 +140,37 @@ const (
 	ChatBlockError            = "error"
 )
 
+// ToolCallParams holds parsed tool input for specialized rendering.
+type ToolCallParams struct {
+	Command     string     `json:"command"`
+	Description string     `json:"description"`
+	FilePath    string     `json:"file_path"`
+	OldString   string     `json:"old_string"`
+	NewString   string     `json:"new_string"`
+	Content     string     `json:"content"`
+	Pattern     string     `json:"pattern"`
+	Path        string     `json:"path"`
+	Todos       []TodoItem `json:"todos"`
+}
+
+type TodoItem struct {
+	Content string `json:"content"`
+	Status  string `json:"status"`
+}
+
+type ToolStatEntry struct {
+	Name  string
+	Count int
+}
+
 type ToolChainItem struct {
 	CallEvent     EventSummary
 	ResultEvent   *EventSummary
 	ToolName      string
 	InputPreview  string
 	OutputPreview string
+	InputJSON     string          // full JSON from tool_io.input_json
+	Params        *ToolCallParams // parsed tool input for specialized rendering
 }
 
 type ChatBlock struct {
@@ -158,4 +184,5 @@ type ChatTurn struct {
 	Blocks      []ChatBlock
 	TotalTokens int64
 	StartedAt   time.Time
+	ToolStats   []ToolStatEntry // tool name -> call count for turn separator
 }
