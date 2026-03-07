@@ -108,6 +108,75 @@ nav a.active {
   position: relative;
 }
 
+/* --- Prose styles for rendered markdown in assistant messages --- */
+.prose-chat p { margin-bottom: 0.5em; }
+.prose-chat p:last-child { margin-bottom: 0; }
+.prose-chat strong { color: #e5e7eb; font-weight: 600; }
+.prose-chat em { color: #d1d5db; }
+.prose-chat code {
+  background: rgba(110, 118, 129, 0.25);
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #e5e7eb;
+}
+.prose-chat pre { margin: 0.5em 0; }
+.prose-chat pre code {
+  background: #0d1117;
+  display: block;
+  padding: 0.75em;
+  border-radius: 6px;
+  border: 1px solid #374151;
+  overflow-x: auto;
+  white-space: pre;
+}
+.prose-chat ul, .prose-chat ol { margin: 0.4em 0; padding-left: 1.5em; }
+.prose-chat ul { list-style: disc; }
+.prose-chat ol { list-style: decimal; }
+.prose-chat li { margin-bottom: 0.2em; }
+.prose-chat h1, .prose-chat h2, .prose-chat h3 {
+  font-weight: 600;
+  color: #f3f4f6;
+  margin: 0.6em 0 0.3em;
+}
+.prose-chat h1 { font-size: 1.15em; }
+.prose-chat h2 { font-size: 1.05em; }
+.prose-chat h3 { font-size: 1em; }
+.prose-chat blockquote {
+  border-left: 3px solid #4b5563;
+  padding-left: 0.75em;
+  color: #9ca3af;
+  margin: 0.5em 0;
+}
+.prose-chat a { color: #60a5fa; text-decoration: underline; }
+.prose-chat hr { border-color: #374151; margin: 0.75em 0; }
+.prose-chat table { border-collapse: collapse; margin: 0.5em 0; width: 100%; }
+.prose-chat th, .prose-chat td {
+  border: 1px solid #374151;
+  padding: 0.3em 0.6em;
+  font-size: 0.9em;
+}
+.prose-chat th { background: #1f2937; font-weight: 600; }
+
+/* --- User message markdown overrides --- */
+.prose-chat-user code {
+  background: rgba(96, 165, 250, 0.15);
+}
+.prose-chat-user pre code {
+  background: rgba(0, 0, 0, 0.3);
+  border-color: rgba(96, 165, 250, 0.2);
+}
+.prose-chat-user a { color: #93c5fd; }
+
+/* --- Tool card file path truncation --- */
+.tool-filepath {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* --- highlight.js overrides --- */
 .hljs {
   background: #0d1117 !important;
