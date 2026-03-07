@@ -13,7 +13,7 @@ import (
 	"github.com/technodrome-ai/technodrome/internal/views/components"
 )
 
-func SessionList(sessions []views.SessionSummary) templ.Component {
+func ActiveSessionList(sessions []views.SessionSummary) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -35,13 +35,13 @@ func SessionList(sessions []views.SessionSummary) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		for _, s := range sessions {
-			templ_7745c5c3_Err = components.SessionCard(s).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = components.ActiveSessionCard(s).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		if len(sessions) == 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<p class=\"text-sm text-gray-500 text-center py-4\">No active sessions</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"text-center py-6\"><p class=\"text-sm text-gray-500\">No active sessions</p><p class=\"text-xs text-gray-600 mt-1\">Sessions appear here when agents are running</p></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

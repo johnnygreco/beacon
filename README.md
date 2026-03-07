@@ -40,7 +40,7 @@ make build        # builds to bin/technodrome
 ## Usage
 
 ```
-technodrome              # default: starts the web dashboard
+technodrome              # default: same as serve
 technodrome serve        # web dashboard + JSONL watcher
 technodrome watch        # headless watcher (no web server)
 technodrome mcp          # MCP server (stdin/stdout JSON-RPC)
@@ -49,10 +49,21 @@ technodrome db migrate   # run database migrations
 technodrome db reset     # drop and recreate all tables
 ```
 
+### Dashboard
+
+The web dashboard at `http://localhost:4600` shows:
+
+- **Active Sessions** — currently running agent sessions with live-updating stats
+- **Completed Sessions** — recent finished sessions in a compact list
+- **Activity Timeline** — a feed of recent events (messages, tool calls, errors) with links to session transcripts
+- **Metrics** — total sessions, tokens, and tool calls
+- **Charts** — token throughput over time and usage by model
+- **Session Detail** — full conversation transcript with specialized renderers for tool calls (Bash, Edit, Write, Read, Grep/Glob), syntax highlighting, and expand/collapse controls
+
 ### Generate Test Data
 
 ```bash
-make simulator    # or: go run ./cmd/simulator
+make simulator    # builds to bin/simulator; or: go run ./cmd/simulator
 ```
 
 ## Configuration
@@ -72,7 +83,6 @@ read_pool_size = 4
 enabled = true
 debounce_ms = 50
 reconcile_interval = "30s"
-backfill_on_start = true
 
 [[watch.sources]]
 name = "claude"
@@ -91,6 +101,9 @@ rebuild_interval = "5m"
 [pricing]
 default_input_cost = 3.00    # per 1M input tokens
 default_output_cost = 15.00  # per 1M output tokens
+
+[sse]
+subscriber_buffer = 64
 
 [mcp]
 max_results = 25

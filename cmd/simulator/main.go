@@ -42,18 +42,16 @@ func main() {
 		parentUUID := fmt.Sprintf("uuid-turn-%d", turnNum)
 		ts := time.Now()
 
-		// User message
+		// User message — real Claude Code uses a plain string for user content
 		writeLine(encoder, map[string]any{
 			"sessionId":  sessionID,
 			"uuid":       fmt.Sprintf("uuid-%d-user", turnNum),
 			"parentUuid": "",
 			"timestamp":  ts.Format(time.RFC3339Nano),
-			"type":       "human",
+			"type":       "user",
 			"message": map[string]any{
-				"role": "user",
-				"content": []map[string]any{
-					{"type": "text", "text": fmt.Sprintf("Simulated prompt #%d: Please help me with task %d", turnNum, turnNum)},
-				},
+				"role":    "user",
+				"content": fmt.Sprintf("Simulated prompt #%d: Please help me with task %d", turnNum, turnNum),
 			},
 		})
 		time.Sleep(300 * time.Millisecond)

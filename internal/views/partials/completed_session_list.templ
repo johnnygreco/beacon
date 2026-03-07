@@ -5,11 +5,11 @@ import (
 	"github.com/technodrome-ai/technodrome/internal/views/components"
 )
 
-templ SessionList(sessions []views.SessionSummary) {
+templ CompletedSessionList(sessions []views.SessionSummary) {
 	for _, s := range sessions {
-		@components.SessionCard(s)
+		@components.CompletedSessionRow(s)
 	}
 	if len(sessions) == 0 {
-		<p class="text-sm text-gray-500 text-center py-4">No active sessions</p>
+		<p class="text-sm text-gray-500 text-center py-4">No completed sessions</p>
 	}
 }

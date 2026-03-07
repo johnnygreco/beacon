@@ -1,0 +1,18 @@
+package partials
+
+import (
+	"github.com/technodrome-ai/technodrome/internal/views"
+	"github.com/technodrome-ai/technodrome/internal/views/components"
+)
+
+templ ActiveSessionList(sessions []views.SessionSummary) {
+	for _, s := range sessions {
+		@components.ActiveSessionCard(s)
+	}
+	if len(sessions) == 0 {
+		<div class="text-center py-6">
+			<p class="text-sm text-gray-500">No active sessions</p>
+			<p class="text-xs text-gray-600 mt-1">Sessions appear here when agents are running</p>
+		</div>
+	}
+}

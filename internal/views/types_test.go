@@ -3,6 +3,7 @@ package views
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestFormatTokens(t *testing.T) {
@@ -50,6 +51,48 @@ func TestChartDatasetJSONTags(t *testing.T) {
 	// Should NOT have uppercase keys
 	if _, ok := parsed["Label"]; ok {
 		t.Error("did not expect uppercase 'Label' key")
+	}
+}
+
+func TestRelativeTime(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    time.Time
+		expected string
+	}{
+		{"zero time", time.Time{}, ""},
+		{"just now", time.Now().Add(-10 * time.Second), "just now"},
+		{"minutes ago", time.Now().Add(-3 * time.Minute), "3m ago"},
+		{"hours ago", time.Now().Add(-2 * time.Hour), "2h ago"},
+		{"days ago", time.Now().Add(-48 * time.Hour), "2d ago"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := RelativeTime(tt.input)
+			if got != tt.expected {
+				t.Errorf("RelativeTime() = %q, want %q", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestTruncateID(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"abcdefghij", "abcdefgh"},
+		{"abcdefgh", "abcdefgh"},
+		{"abc", "abc"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		got := TruncateID(tt.input)
+		if got != tt.expected {
+			t.Errorf("TruncateID(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
 	}
 }
 

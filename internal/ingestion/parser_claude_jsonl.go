@@ -78,10 +78,32 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 			cacheCreate = jsonInt64(usage, "cache_creation_input_tokens")
 		}
 
-		// Parse content array
-		content, _ := msg["content"].([]any)
+		// Parse content — may be a plain string or an array of content blocks.
+		// Real Claude Code JSONL uses a string for user prompts and an array
+		// of content blocks for assistant / tool-result messages.
+		var content []any
+		switch c := msg["content"].(type) {
+		case []any:
+			content = c
+		case string:
+			// Plain-text content (common for user prompts)
+			if c != "" {
+				evt := base
+				evt.EventKind = "message"
+				evt.ActorRole = role
+				evt.Model = model
+				evt.TextContent = c
+				evt.InputTokens = inputTokens
+				evt.OutputTokens = outputTokens
+				evt.CacheReadTokens = cacheRead
+				evt.CacheCreateTokens = cacheCreate
+				events = append(events, evt)
+				return events, nil
+			}
+		}
+
 		if len(content) == 0 {
-			// Simple text message without content blocks
+			// No content at all — emit a bare message event
 			evt := base
 			evt.EventKind = "message"
 			evt.ActorRole = role

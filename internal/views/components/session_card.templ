@@ -7,17 +7,20 @@ import (
 
 templ SessionCard(s views.SessionSummary) {
 	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="block bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-blue-500/70 hover:shadow-lg hover:shadow-blue-500/5 transition-all cursor-pointer">
-		<div class="flex items-center justify-between mb-2">
-			<span class="font-medium text-gray-100 truncate">{ s.Actor }</span>
+		<div class="flex items-center justify-between mb-1">
+			<span class="font-medium text-gray-100 truncate">{ sessionTitle(s) }</span>
 			if s.Status == "active" {
 				<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-green-500/20 text-green-400">Active</span>
 			} else {
 				<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">Done</span>
 			}
 		</div>
-		if s.ActiveModel != "" {
-			<p class="text-xs text-gray-500 mb-2 truncate">{ s.ActiveModel }</p>
-		}
+		<div class="flex items-center gap-2 mb-2">
+			if s.ActiveModel != "" {
+				<span class="text-xs text-gray-500 truncate">{ s.ActiveModel }</span>
+			}
+			<span class="text-xs text-gray-600 font-mono">{ views.TruncateID(s.ID) }</span>
+		</div>
 		<div class="grid grid-cols-2 gap-2 text-xs text-gray-400 mt-2">
 			<div>
 				<span class="text-gray-500">Duration</span>
@@ -38,3 +41,65 @@ templ SessionCard(s views.SessionSummary) {
 		</div>
 	</a>
 }
+
+templ ActiveSessionCard(s views.SessionSummary) {
+	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="block bg-gray-800 rounded-xl p-5 border border-green-500/30 hover:border-green-400/60 hover:shadow-lg hover:shadow-green-500/10 transition-all cursor-pointer relative overflow-hidden">
+		<div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-green-500/50 via-green-400/30 to-transparent"></div>
+		<div class="flex items-center justify-between mb-1">
+			<div class="flex items-center gap-2">
+				<span class="relative flex h-2.5 w-2.5">
+					<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+					<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+				</span>
+				<span class="font-medium text-gray-100 truncate">{ sessionTitle(s) }</span>
+			</div>
+			<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-green-500/20 text-green-400">Live</span>
+		</div>
+		<div class="flex items-center gap-2 mb-3">
+			if s.ActiveModel != "" {
+				<span class="px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 text-xs">{ s.ActiveModel }</span>
+			}
+			<span class="text-xs text-gray-600 font-mono">{ views.TruncateID(s.ID) }</span>
+		</div>
+		<div class="grid grid-cols-4 gap-2 text-xs text-gray-400">
+			<div>
+				<span class="text-gray-500">Duration</span>
+				<p class="text-gray-300">{ s.Duration }</p>
+			</div>
+			<div>
+				<span class="text-gray-500">Tokens</span>
+				<p class="text-gray-300">{ views.FormatTokens(s.TotalTokens) }</p>
+			</div>
+			<div>
+				<span class="text-gray-500">Turns</span>
+				<p class="text-gray-300">{ fmt.Sprintf("%d", s.TurnCount) }</p>
+			</div>
+			<div>
+				<span class="text-gray-500">Tools</span>
+				<p class="text-gray-300">{ fmt.Sprintf("%d", s.ToolCallCount) }</p>
+			</div>
+		</div>
+	</a>
+}
+
+templ CompletedSessionRow(s views.SessionSummary) {
+	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="flex items-center gap-3 px-3 py-2 hover:bg-gray-800 rounded-lg transition-colors cursor-pointer group">
+		<span class="w-1.5 h-1.5 rounded-full bg-gray-600 flex-shrink-0"></span>
+		<span class="text-sm text-gray-300 truncate flex-1 group-hover:text-gray-100 transition-colors">{ sessionTitle(s) }</span>
+		<span class="text-xs text-gray-500 tabular-nums flex-shrink-0">{ views.FormatTokens(s.TotalTokens) }</span>
+		<span class="text-xs text-gray-500 tabular-nums flex-shrink-0">{ fmt.Sprintf("%dt", s.TurnCount) }</span>
+		<span class="text-xs text-gray-500 tabular-nums flex-shrink-0">{ s.Duration }</span>
+		<span class="text-xs text-gray-600 tabular-nums flex-shrink-0 w-14 text-right">{ views.RelativeTime(s.EndedAt) }</span>
+	</a>
+}
+
+func sessionTitle(s views.SessionSummary) string {
+	if s.Actor != "" && s.Actor != "claude" {
+		return s.Actor
+	}
+	if !s.StartedAt.IsZero() {
+		return s.StartedAt.Format("Jan 2 15:04")
+	}
+	return "Session"
+}
+

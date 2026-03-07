@@ -9,18 +9,26 @@ import (
 	"sync"
 	"time"
 
+	"strings"
+
 	"github.com/technodrome-ai/technodrome/internal/models"
 	"github.com/technodrome-ai/technodrome/internal/views"
 )
 
 // QueryDashboardData queries all data needed for the dashboard page.
 func QueryDashboardData(ctx context.Context, db *sql.DB) views.DashboardData {
-	return views.DashboardData{
-		Metrics:        QueryDashboardMetrics(ctx, db),
-		ActiveSessions: QueryActiveSessions(ctx, db),
-		RecentActivity: QueryRecentActivity(ctx, db),
-		TokensByModel:  QueryTokensByModelSummary(ctx, db),
-	}
+	var data views.DashboardData
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go func() { defer wg.Done(); data.Metrics = QueryDashboardMetrics(ctx, db) }()
+	go func() {
+		defer wg.Done()
+		data.ActiveSessions, data.CompletedSessions = QueryDashboardSessions(ctx, db)
+	}()
+	go func() { defer wg.Done(); data.RecentActivity = QueryRecentActivity(ctx, db) }()
+	go func() { defer wg.Done(); data.TokensByModel = QueryTokensByModelSummary(ctx, db) }()
+	wg.Wait()
+	return data
 }
 
 // QueryTokensByModelSummary returns token counts broken down by model.
@@ -60,7 +68,7 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 
 	db.QueryRowContext(ctx,
 		`SELECT COUNT(DISTINCT session_id),
-		        COUNT(DISTINCT CASE WHEN timestamp > current_timestamp - INTERVAL '1 hour' THEN session_id END),
+		        COUNT(DISTINCT CASE WHEN timestamp > current_timestamp - INTERVAL '24 hours' THEN session_id END),
 		        COALESCE(SUM(input_tokens), 0),
 		        COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_read_tokens), 0),
@@ -73,7 +81,7 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 
 	return []views.MetricData{
 		{Label: "Total Sessions", Value: fmt.Sprintf("%d", totalSessions)},
-		{Label: "Active Sessions", Value: fmt.Sprintf("%d", activeSessions), Trend: "neutral"},
+		{Label: "Sessions (24h)", Value: fmt.Sprintf("%d", activeSessions)},
 		{Label: "Total Tokens", Value: views.FormatTokens(totalTokens),
 			Sublabel: fmt.Sprintf("In: %s  Out: %s  Cache: %s", views.FormatTokens(inputTokens), views.FormatTokens(outputTokens), views.FormatTokens(cacheReadTokens))},
 		{Label: "Tool Calls", Value: fmt.Sprintf("%d", toolCalls),
@@ -81,22 +89,25 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 	}
 }
 
-// QueryActiveSessions returns session summaries ordered by most recent.
-func QueryActiveSessions(ctx context.Context, db *sql.DB) []views.SessionSummary {
+// QueryDashboardSessions returns session summaries split into active and completed.
+// A session is "active" if its last event was within 5 minutes.
+func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed []views.SessionSummary) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
-		        turn_count, total_tokens, total_input_tokens, total_output_tokens,
-		        total_cache_read_tokens, total_cache_create_tokens,
-		        tool_call_count, mcp_call_count, COALESCE(last_model, '')
+		        COALESCE(turn_count, 0), COALESCE(total_tokens, 0),
+		        COALESCE(total_input_tokens, 0), COALESCE(total_output_tokens, 0),
+		        COALESCE(total_cache_read_tokens, 0), COALESCE(total_cache_create_tokens, 0),
+		        COALESCE(tool_call_count, 0), COALESCE(mcp_call_count, 0),
+		        COALESCE(last_model, '')
 		 FROM v_session_summary
-		 ORDER BY started_at DESC
-		 LIMIT 20`)
+		 ORDER BY ended_at DESC
+		 LIMIT 30`)
 	if err != nil {
-		return nil
+		return nil, nil
 	}
 	defer rows.Close()
 
-	var sessions []views.SessionSummary
+	now := time.Now()
 	for rows.Next() {
 		var s views.SessionSummary
 		var source, model string
@@ -109,28 +120,36 @@ func QueryActiveSessions(ctx context.Context, db *sql.DB) []views.SessionSummary
 		}
 		s.Actor = source
 		s.ActiveModel = model
-		setSessionTiming(&s, startedAt, endedAt)
-		sessions = append(sessions, s)
+		setSessionTiming(&s, startedAt, endedAt, now)
+		if s.Status == "active" {
+			active = append(active, s)
+		} else {
+			completed = append(completed, s)
+		}
 	}
-	return sessions
+	return active, completed
 }
 
-// QueryRecentActivity returns a feed of recent events.
+// QueryRecentActivity returns a feed of recent events, filtered to meaningful entries.
 func QueryRecentActivity(ctx context.Context, db *sql.DB) []views.ActivityItem {
 	rows, err := db.QueryContext(ctx,
 		`SELECT event_uid,
 		        event_kind,
 		        CASE
-		            WHEN event_kind = 'tool_call' OR event_kind = 'tool_result' THEN COALESCE(tool_name, 'unknown')
-		            WHEN event_kind = 'message' THEN COALESCE(actor_role, '') || ': ' || COALESCE(text_preview, '')
-		            WHEN event_kind = 'error' THEN COALESCE(error_code, 'error') || ': ' || COALESCE(error_message, '')
-		            ELSE COALESCE(text_preview, event_kind)
+		            WHEN event_kind = 'tool_call' THEN 'Tool: ' || COALESCE(NULLIF(tool_name, ''), 'unknown')
+		            WHEN event_kind = 'message' AND actor_role = 'user' AND COALESCE(NULLIF(text_preview, ''), '') != '' THEN text_preview
+		            WHEN event_kind = 'message' AND actor_role = 'assistant' AND COALESCE(NULLIF(text_preview, ''), '') != '' THEN text_preview
+		            WHEN event_kind = 'message' THEN COALESCE(NULLIF(actor_role, ''), 'message') || ' message'
+		            WHEN event_kind = 'error' THEN COALESCE(NULLIF(error_code, ''), 'error') || ': ' || COALESCE(NULLIF(error_message, ''), NULLIF(text_preview, ''), 'unknown error')
+		            WHEN event_kind = 'session_meta' THEN 'Session started'
+		            ELSE event_kind
 		        END AS summary,
 		        COALESCE(session_id, ''),
 		        timestamp
 		 FROM events
+		 WHERE event_kind IN ('message', 'tool_call', 'error', 'session_meta')
 		 ORDER BY timestamp DESC
-		 LIMIT 30`)
+		 LIMIT 20`)
 	if err != nil {
 		return nil
 	}
@@ -142,6 +161,7 @@ func QueryRecentActivity(ctx context.Context, db *sql.DB) []views.ActivityItem {
 		if err := rows.Scan(&item.ID, &item.Type, &item.Summary, &item.SessionID, &item.Timestamp); err != nil {
 			continue
 		}
+		item.Summary = shortenActivitySummary(item.Summary)
 		items = append(items, item)
 	}
 	return items
@@ -190,9 +210,11 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 	var startedAt, endedAt time.Time
 	err := db.QueryRowContext(ctx,
 		`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
-		        turn_count, total_tokens, total_input_tokens, total_output_tokens,
-		        total_cache_read_tokens, total_cache_create_tokens,
-		        tool_call_count, mcp_call_count, COALESCE(last_model, '')
+		        COALESCE(turn_count, 0), COALESCE(total_tokens, 0),
+		        COALESCE(total_input_tokens, 0), COALESCE(total_output_tokens, 0),
+		        COALESCE(total_cache_read_tokens, 0), COALESCE(total_cache_create_tokens, 0),
+		        COALESCE(tool_call_count, 0), COALESCE(mcp_call_count, 0),
+		        COALESCE(last_model, '')
 		 FROM v_session_summary WHERE session_id = $1`, id,
 	).Scan(&data.Session.ID, &source, &startedAt, &endedAt,
 		&data.Session.TurnCount, &data.Session.TotalTokens,
@@ -204,7 +226,7 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 	}
 	data.Session.Actor = source
 	data.Session.ActiveModel = model
-	setSessionTiming(&data.Session, startedAt, endedAt)
+	setSessionTiming(&data.Session, startedAt, endedAt, time.Now())
 
 	// Get events grouped by turn from v_conversation_trace
 	traceRows, err := db.QueryContext(ctx,
@@ -252,7 +274,7 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 			data.Turns = append(data.Turns, *turnMap[seq])
 		}
 
-		data.ChatTurns = buildChatTurns(data.Turns)
+		data.ChatTurns = buildChatTurns(deduplicateTurns(data.Turns))
 	}
 
 	// Run remaining queries in parallel
@@ -277,7 +299,9 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 			for mcRows.Next() {
 				var ts time.Time
 				var input, output, cacheRead int64
-				mcRows.Scan(&ts, &input, &output, &cacheRead)
+				if err := mcRows.Scan(&ts, &input, &output, &cacheRead); err != nil {
+					continue
+				}
 				data.TokensChart.Labels = append(data.TokensChart.Labels, ts.Format(time.RFC3339))
 				data.TokensChart.Datasets[0].Values = append(data.TokensChart.Datasets[0].Values, float64(input))
 				data.TokensChart.Datasets[1].Values = append(data.TokensChart.Datasets[1].Values, float64(output))
@@ -291,7 +315,7 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 		toolRows, _ := db.QueryContext(ctx,
 			`SELECT tool_name,
 			        COUNT(*) AS calls,
-			        AVG(duration_ms) AS avg_duration
+			        COALESCE(AVG(duration_ms), 0) AS avg_duration
 			 FROM events
 			 WHERE session_id = $1 AND event_kind = 'tool_call' AND tool_name IS NOT NULL AND tool_name != ''
 			 GROUP BY tool_name ORDER BY calls DESC`, id)
@@ -299,7 +323,9 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 			defer toolRows.Close()
 			for toolRows.Next() {
 				var ts views.ToolStat
-				toolRows.Scan(&ts.Name, &ts.Calls, &ts.AvgDuration)
+				if err := toolRows.Scan(&ts.Name, &ts.Calls, &ts.AvgDuration); err != nil {
+					continue
+				}
 				ts.IsMCP = models.IsMCPTool(ts.Name)
 				data.ToolStats = append(data.ToolStats, ts)
 			}
@@ -310,9 +336,9 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 		defer wg.Done()
 		modelRows, _ := db.QueryContext(ctx,
 			`SELECT COALESCE(model, 'unknown'),
-			        SUM(input_tokens) AS input,
-			        SUM(output_tokens) AS output,
-			        SUM(cache_read_tokens) AS cache_read
+			        COALESCE(SUM(input_tokens), 0) AS input,
+			        COALESCE(SUM(output_tokens), 0) AS output,
+			        COALESCE(SUM(cache_read_tokens), 0) AS cache_read
 			 FROM events
 			 WHERE session_id = $1 AND model IS NOT NULL AND model != ''
 			 GROUP BY model ORDER BY (input + output) DESC`, id)
@@ -321,7 +347,9 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 			for modelRows.Next() {
 				var ds views.ChartDataset
 				var input, output, cacheRead float64
-				modelRows.Scan(&ds.Label, &input, &output, &cacheRead)
+				if err := modelRows.Scan(&ds.Label, &input, &output, &cacheRead); err != nil {
+					continue
+				}
 				ds.Values = []float64{input, output, cacheRead}
 				data.TokensByModel = append(data.TokensByModel, ds)
 			}
@@ -334,7 +362,7 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 
 // parseToolParams extracts structured parameters from tool input JSON.
 // Returns nil if the JSON is empty or unparseable.
-func parseToolParams(toolName, inputJSON string) *views.ToolCallParams {
+func parseToolParams(inputJSON string) *views.ToolCallParams {
 	if inputJSON == "" {
 		return nil
 	}
@@ -379,7 +407,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 					InputPreview: e.InputPreview,
 					InputJSON:    e.InputJSON,
 				}
-				item.Params = parseToolParams(e.ToolName, e.InputJSON)
+				item.Params = parseToolParams(e.InputJSON)
 				// Look ahead for a matching tool_result
 				if i+1 < len(t.Events) && t.Events[i+1].EventKind == "tool_result" {
 					i++
@@ -472,14 +500,85 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 	return chatTurns
 }
 
-func setSessionTiming(s *views.SessionSummary, startedAt, endedAt time.Time) {
+// deduplicateTurns removes duplicate events within and across turns.
+// Claude Code JSONL can log the same content twice (e.g. "human"+"result" entries).
+// This merges orphan turns (single user msg duplicated in the next turn) and
+// removes consecutive duplicate events within each turn.
+func deduplicateTurns(turns []views.TurnDetail) []views.TurnDetail {
+	if len(turns) <= 1 {
+		return turns
+	}
+
+	var result []views.TurnDetail
+	for i, t := range turns {
+		// Merge orphan turn: if this turn has a single user message that's
+		// identical to the first user message in the next turn, skip it.
+		if i+1 < len(turns) && len(t.Events) == 1 &&
+			t.Events[0].EventKind == "message" && t.Events[0].ActorRole == "user" {
+			nextTurn := turns[i+1]
+			if len(nextTurn.Events) > 0 && nextTurn.Events[0].EventKind == "message" &&
+				nextTurn.Events[0].ActorRole == "user" &&
+				nextTurn.Events[0].TextContent == t.Events[0].TextContent {
+				continue // skip this orphan turn
+			}
+		}
+
+		// Remove consecutive duplicate events within the turn
+		var deduped []views.EventSummary
+		seen := make(map[string]bool)
+		for _, e := range t.Events {
+			key := e.EventUID + "|" + e.EventKind + "|" + e.ActorRole + "|" + e.TextContent + "|" + e.ToolName + "|" + e.InputJSON
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			deduped = append(deduped, e)
+		}
+		t.Events = deduped
+		result = append(result, t)
+	}
+	return result
+}
+
+const activeSessionThreshold = 5 * time.Minute
+
+func setSessionTiming(s *views.SessionSummary, startedAt, endedAt, now time.Time) {
 	s.StartedAt = startedAt
-	if !endedAt.IsZero() && endedAt.After(startedAt) {
+	s.EndedAt = endedAt
+	if !endedAt.IsZero() && now.Sub(endedAt) < activeSessionThreshold {
+		s.Status = "active"
+		s.Duration = formatDuration(now.Sub(startedAt))
+	} else if !endedAt.IsZero() && endedAt.After(startedAt) {
 		s.Status = "completed"
-		s.Duration = endedAt.Sub(startedAt).Truncate(time.Second).String()
+		s.Duration = formatDuration(endedAt.Sub(startedAt))
 	} else {
 		s.Status = "active"
-		s.Duration = time.Since(startedAt).Truncate(time.Second).String()
+		s.Duration = formatDuration(now.Sub(startedAt))
 	}
+}
+
+func shortenActivitySummary(s string) string {
+	if strings.HasPrefix(s, "Tool: mcp__") {
+		name := strings.TrimPrefix(s, "Tool: ")
+		parts := strings.Split(name, "__")
+		if len(parts) >= 3 {
+			return "Tool: " + parts[len(parts)-1]
+		}
+	}
+	return s
+}
+
+func formatDuration(d time.Duration) string {
+	d = d.Truncate(time.Second)
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm %ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
 }
 

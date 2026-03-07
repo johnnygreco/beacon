@@ -35,14 +35,17 @@ func (u *Updater) NotifyDashboard() {
 	ctx := context.Background()
 
 	var metrics []views.MetricData
-	var sessions []views.SessionSummary
+	var activeSessions, completedSessions []views.SessionSummary
 	var activity []views.ActivityItem
 	var tokensChart views.MultiSeriesChart
 
 	var wg sync.WaitGroup
 	wg.Add(4)
 	go func() { defer wg.Done(); metrics = QueryDashboardMetrics(ctx, u.db) }()
-	go func() { defer wg.Done(); sessions = QueryActiveSessions(ctx, u.db) }()
+	go func() {
+		defer wg.Done()
+		activeSessions, completedSessions = QueryDashboardSessions(ctx, u.db)
+	}()
 	go func() { defer wg.Done(); activity = QueryRecentActivity(ctx, u.db) }()
 	go func() { defer wg.Done(); tokensChart = QueryChartData(ctx, u.db) }()
 	wg.Wait()
@@ -57,18 +60,28 @@ func (u *Updater) NotifyDashboard() {
 		})
 	}
 
-	var sessionsBuf bytes.Buffer
-	if err := partials.SessionList(sessions).Render(ctx, &sessionsBuf); err != nil {
-		u.logger.Error("render sessions partial", "error", err)
+	var activeBuf bytes.Buffer
+	if err := partials.ActiveSessionList(activeSessions).Render(ctx, &activeBuf); err != nil {
+		u.logger.Error("render active sessions partial", "error", err)
 	} else {
 		u.broker.Broadcast("dashboard", sse.SSEMessage{
-			Event: "sessions-update",
-			Data:  sessionsBuf.Bytes(),
+			Event: "active-sessions-update",
+			Data:  activeBuf.Bytes(),
+		})
+	}
+
+	var completedBuf bytes.Buffer
+	if err := partials.CompletedSessionList(completedSessions).Render(ctx, &completedBuf); err != nil {
+		u.logger.Error("render completed sessions partial", "error", err)
+	} else {
+		u.broker.Broadcast("dashboard", sse.SSEMessage{
+			Event: "completed-sessions-update",
+			Data:  completedBuf.Bytes(),
 		})
 	}
 
 	var activityBuf bytes.Buffer
-	if err := partials.ActivityFeed(activity).Render(ctx, &activityBuf); err != nil {
+	if err := partials.ActivityTimeline(activity).Render(ctx, &activityBuf); err != nil {
 		u.logger.Error("render activity partial", "error", err)
 	} else {
 		u.broker.Broadcast("dashboard", sse.SSEMessage{

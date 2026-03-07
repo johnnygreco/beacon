@@ -2,6 +2,7 @@ package pages
 
 import (
 	"fmt"
+	"strings"
 	"github.com/technodrome-ai/technodrome/internal/views"
 	"github.com/technodrome-ai/technodrome/internal/views/components"
 )
@@ -13,8 +14,8 @@ templ SessionDetail(data views.SessionDetailData) {
 			<div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
 				<div class="flex items-center justify-between mb-4">
 					<div>
-						<h1 class="text-2xl font-bold text-gray-100">{ data.Session.Actor }</h1>
-						<p class="text-sm text-gray-500 mt-1">Session { data.Session.ID }</p>
+						<h1 class="text-2xl font-bold text-gray-100">{ sessionDetailTitle(data.Session) }</h1>
+						<p class="text-sm text-gray-500 mt-1 font-mono">{ data.Session.ID }</p>
 					</div>
 					if data.Session.Status == "active" {
 						<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-green-500/20 text-green-400">Active</span>
@@ -29,16 +30,16 @@ templ SessionDetail(data views.SessionDetailData) {
 					</div>
 					<div>
 						<span class="text-gray-500">Total Tokens</span>
-						<p class="text-gray-200 font-medium">{ fmt.Sprintf("%d", data.Session.TotalTokens) }</p>
+						<p class="text-gray-200 font-medium">{ views.FormatTokens(data.Session.TotalTokens) }</p>
 						<p class="text-xs text-gray-500 mt-0.5">
-							In: { fmt.Sprintf("%d", data.Session.InputTokens) } / Out: { fmt.Sprintf("%d", data.Session.OutputTokens) }
+							In: { views.FormatTokens(data.Session.InputTokens) } / Out: { views.FormatTokens(data.Session.OutputTokens) }
 						</p>
 					</div>
 					<div>
 						<span class="text-gray-500">Cache Tokens</span>
-						<p class="text-gray-200 font-medium">{ fmt.Sprintf("%d", data.Session.CacheReadTokens) }</p>
+						<p class="text-gray-200 font-medium">{ views.FormatTokens(data.Session.CacheReadTokens) }</p>
 						<p class="text-xs text-gray-500 mt-0.5">
-							Create: { fmt.Sprintf("%d", data.Session.CacheCreateTokens) }
+							Create: { views.FormatTokens(data.Session.CacheCreateTokens) }
 						</p>
 					</div>
 					<div>
@@ -76,10 +77,10 @@ templ SessionDetail(data views.SessionDetailData) {
 									if ts.IsMCP {
 										<span class="px-1.5 py-0.5 text-xs rounded bg-cyan-500/20 text-cyan-400">MCP</span>
 									}
-									<span class="text-sm text-gray-200 font-medium truncate">{ ts.Name }</span>
+									<span class="text-sm text-gray-200 font-medium truncate" title={ ts.Name }>{ toolShortName(ts.Name) }</span>
 								</div>
 								<p class="text-xs text-gray-500">
-									{ fmt.Sprintf("%d calls", ts.Calls) }
+									{ pluralize(ts.Calls, "call") }
 									if ts.AvgDuration > 0 {
 										{ fmt.Sprintf(" · %.0fms avg", ts.AvgDuration) }
 									}
@@ -139,4 +140,30 @@ func tokensByModelData(models []views.ChartDataset) any {
 		datasets[i] = map[string]any{"label": m.Label, "data": m.Values}
 	}
 	return map[string]any{"labels": labels, "datasets": datasets}
+}
+
+func sessionDetailTitle(s views.SessionSummary) string {
+	if s.Actor != "" && s.Actor != "claude" {
+		return s.Actor
+	}
+	if !s.StartedAt.IsZero() {
+		return s.StartedAt.Format("Session — Jan 2, 15:04")
+	}
+	return "Session"
+}
+
+func toolShortName(name string) string {
+	// For MCP tools like "mcp__claude-in-chrome__computer", show "computer"
+	parts := strings.Split(name, "__")
+	if len(parts) >= 3 {
+		return parts[len(parts)-1]
+	}
+	return name
+}
+
+func pluralize(n int, singular string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %ss", n, singular)
 }

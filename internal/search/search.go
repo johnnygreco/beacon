@@ -209,7 +209,7 @@ func (s *Searcher) ilikeSearch(ctx context.Context, q SearchQuery, since time.Ti
 	args = append(args, pattern)
 
 	if !since.IsZero() {
-		whereExtra = " AND e.created_at > $2"
+		whereExtra = " AND e.timestamp > $2"
 		args = append(args, since)
 	}
 	whereExtra += " " + s.buildFilters(q)

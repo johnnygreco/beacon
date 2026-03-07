@@ -202,21 +202,21 @@ func TestBuildChatTurns_MultipleTurns(t *testing.T) {
 }
 
 func TestParseToolParams_Empty(t *testing.T) {
-	result := parseToolParams("Bash", "")
+	result := parseToolParams("")
 	if result != nil {
 		t.Error("expected nil for empty input")
 	}
 }
 
 func TestParseToolParams_InvalidJSON(t *testing.T) {
-	result := parseToolParams("Bash", "not json")
+	result := parseToolParams("not json")
 	if result != nil {
 		t.Error("expected nil for invalid JSON")
 	}
 }
 
 func TestParseToolParams_BashCommand(t *testing.T) {
-	result := parseToolParams("Bash", `{"command":"ls -la","description":"list files"}`)
+	result := parseToolParams(`{"command":"ls -la","description":"list files"}`)
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -229,7 +229,7 @@ func TestParseToolParams_BashCommand(t *testing.T) {
 }
 
 func TestParseToolParams_EditTool(t *testing.T) {
-	result := parseToolParams("Edit", `{"file_path":"/tmp/test.go","old_string":"foo","new_string":"bar"}`)
+	result := parseToolParams(`{"file_path":"/tmp/test.go","old_string":"foo","new_string":"bar"}`)
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -244,22 +244,8 @@ func TestParseToolParams_EditTool(t *testing.T) {
 	}
 }
 
-func TestParseToolParams_TodoWrite(t *testing.T) {
-	input := `{"todos":[{"content":"task 1","status":"completed"},{"content":"task 2","status":"pending"}]}`
-	result := parseToolParams("TodoWrite", input)
-	if result == nil {
-		t.Fatal("expected non-nil result")
-	}
-	if len(result.Todos) != 2 {
-		t.Fatalf("expected 2 todos, got %d", len(result.Todos))
-	}
-	if result.Todos[0].Content != "task 1" || result.Todos[0].Status != "completed" {
-		t.Errorf("unexpected first todo: %+v", result.Todos[0])
-	}
-}
-
 func TestParseToolParams_SearchTool(t *testing.T) {
-	result := parseToolParams("Grep", `{"pattern":"func.*Test","path":"./internal"}`)
+	result := parseToolParams(`{"pattern":"func.*Test","path":"./internal"}`)
 	if result == nil {
 		t.Fatal("expected non-nil result")
 	}
@@ -363,9 +349,9 @@ func TestBuildChatTurns_ToolCallWithoutResult(t *testing.T) {
 func TestSetSessionTiming_Active(t *testing.T) {
 	var s views.SessionSummary
 	start := time.Now().Add(-5 * time.Minute)
-	end := time.Time{} // zero time
+	end := time.Now().Add(-1 * time.Minute) // ended 1 min ago — still active
 
-	setSessionTiming(&s, start, end)
+	setSessionTiming(&s, start, end, time.Now())
 
 	if s.Status != "active" {
 		t.Errorf("expected status 'active', got '%s'", s.Status)
@@ -373,20 +359,111 @@ func TestSetSessionTiming_Active(t *testing.T) {
 	if s.Duration == "" {
 		t.Error("expected non-empty duration")
 	}
+	if s.EndedAt != end {
+		t.Errorf("expected EndedAt to be set")
+	}
 }
 
 func TestSetSessionTiming_Completed(t *testing.T) {
 	var s views.SessionSummary
-	start := time.Now().Add(-10 * time.Minute)
-	end := time.Now().Add(-5 * time.Minute)
+	start := time.Now().Add(-20 * time.Minute)
+	end := time.Now().Add(-10 * time.Minute) // ended 10 min ago — completed
 
-	setSessionTiming(&s, start, end)
+	setSessionTiming(&s, start, end, time.Now())
 
 	if s.Status != "completed" {
 		t.Errorf("expected status 'completed', got '%s'", s.Status)
 	}
-	if s.Duration != "5m0s" {
-		t.Errorf("expected duration '5m0s', got '%s'", s.Duration)
+	if s.Duration != "10m 0s" {
+		t.Errorf("expected duration '10m 0s', got '%s'", s.Duration)
+	}
+}
+
+func TestSetSessionTiming_RecentlyActive(t *testing.T) {
+	var s views.SessionSummary
+	start := time.Now().Add(-10 * time.Minute)
+	// Ended exactly at the 5-minute threshold boundary — just barely active
+	end := time.Now().Add(-4*time.Minute - 59*time.Second)
+
+	setSessionTiming(&s, start, end, time.Now())
+
+	if s.Status != "active" {
+		t.Errorf("expected status 'active' at threshold boundary, got '%s'", s.Status)
+	}
+
+	// Just past the threshold — completed
+	var s2 views.SessionSummary
+	end2 := time.Now().Add(-5*time.Minute - 1*time.Second)
+	setSessionTiming(&s2, start, end2, time.Now())
+
+	if s2.Status != "completed" {
+		t.Errorf("expected status 'completed' past threshold, got '%s'", s2.Status)
+	}
+}
+
+func TestSetSessionTiming_ZeroEndTime(t *testing.T) {
+	var s views.SessionSummary
+	start := time.Now().Add(-5 * time.Minute)
+	end := time.Time{} // zero time
+
+	setSessionTiming(&s, start, end, time.Now())
+
+	if s.Status != "active" {
+		t.Errorf("expected status 'active' for zero endedAt, got '%s'", s.Status)
+	}
+	if s.Duration == "" {
+		t.Error("expected non-empty duration")
+	}
+}
+
+func TestDeduplicateTurns_OrphanMerge(t *testing.T) {
+	turns := []views.TurnDetail{
+		{TurnSeq: 1, Events: []views.EventSummary{
+			{EventUID: "a1", EventKind: "message", ActorRole: "user", TextContent: "hello"},
+		}},
+		{TurnSeq: 2, Events: []views.EventSummary{
+			{EventUID: "a2", EventKind: "message", ActorRole: "user", TextContent: "hello"},
+			{EventUID: "b1", EventKind: "message", ActorRole: "assistant", TextContent: "hi"},
+		}},
+	}
+
+	result := deduplicateTurns(turns)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 turn after orphan merge, got %d", len(result))
+	}
+	if result[0].TurnSeq != 2 {
+		t.Errorf("expected turn 2 to remain, got turn %d", result[0].TurnSeq)
+	}
+}
+
+func TestDeduplicateTurns_LastSingleTurnKept(t *testing.T) {
+	turns := []views.TurnDetail{
+		{TurnSeq: 1, Events: []views.EventSummary{
+			{EventUID: "a1", EventKind: "message", ActorRole: "user", TextContent: "hello"},
+			{EventUID: "b1", EventKind: "message", ActorRole: "assistant", TextContent: "hi"},
+		}},
+		{TurnSeq: 2, Events: []views.EventSummary{
+			{EventUID: "a2", EventKind: "message", ActorRole: "user", TextContent: "bye"},
+		}},
+	}
+
+	result := deduplicateTurns(turns)
+	if len(result) != 2 {
+		t.Fatalf("expected 2 turns (last single turn kept), got %d", len(result))
+	}
+}
+
+func TestDeduplicateTurns_DifferentUIDsNotDeduped(t *testing.T) {
+	turns := []views.TurnDetail{
+		{TurnSeq: 1, Events: []views.EventSummary{
+			{EventUID: "uid-1", EventKind: "tool_call", ToolName: "Read", InputJSON: `{"file_path":"f.go"}`},
+			{EventUID: "uid-2", EventKind: "tool_call", ToolName: "Read", InputJSON: `{"file_path":"f.go"}`},
+		}},
+	}
+
+	result := deduplicateTurns(turns)
+	if len(result[0].Events) != 2 {
+		t.Errorf("expected 2 events (different UIDs), got %d", len(result[0].Events))
 	}
 }
 

@@ -7,6 +7,32 @@ import (
 	"time"
 )
 
+// RelativeTime formats a time as a human-friendly relative string (e.g. "3m ago").
+func RelativeTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
+}
+
+// TruncateID shortens an ID string to 8 characters for display.
+func TruncateID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
 // FormatTokens formats a token count for display (e.g. 1500 -> "1.5K").
 func FormatTokens(n int64) string {
 	if n >= 1_000_000 {
@@ -32,6 +58,7 @@ type SessionSummary struct {
 	Actor             string
 	Status            string // "active", "completed"
 	StartedAt         time.Time
+	EndedAt           time.Time
 	Duration          string
 	TotalTokens       int64
 	InputTokens       int64
@@ -116,11 +143,12 @@ type ModelTokens struct {
 }
 
 type DashboardData struct {
-	Metrics        []MetricData
-	ActiveSessions []SessionSummary
-	RecentActivity []ActivityItem
-	TokensChart    MultiSeriesChart
-	TokensByModel  []ModelTokens
+	Metrics           []MetricData
+	ActiveSessions    []SessionSummary
+	CompletedSessions []SessionSummary
+	RecentActivity    []ActivityItem
+	TokensChart       MultiSeriesChart
+	TokensByModel     []ModelTokens
 }
 
 type SessionDetailData struct {
@@ -148,14 +176,8 @@ type ToolCallParams struct {
 	OldString   string     `json:"old_string"`
 	NewString   string     `json:"new_string"`
 	Content     string     `json:"content"`
-	Pattern     string     `json:"pattern"`
-	Path        string     `json:"path"`
-	Todos       []TodoItem `json:"todos"`
-}
-
-type TodoItem struct {
-	Content string `json:"content"`
-	Status  string `json:"status"`
+	Pattern string `json:"pattern"`
+	Path    string `json:"path"`
 }
 
 type ToolStatEntry struct {

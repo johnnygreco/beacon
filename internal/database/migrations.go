@@ -104,15 +104,15 @@ func (db *DB) migrate() error {
 			MAX(timestamp) AS ended_at,
 			COUNT(*) AS event_count,
 			COUNT(DISTINCT CASE WHEN event_kind = 'message' AND actor_role = 'user' THEN event_uid END) AS turn_count,
-			SUM(input_tokens) AS total_input_tokens,
-			SUM(output_tokens) AS total_output_tokens,
-			SUM(cache_read_tokens) AS total_cache_read_tokens,
-			SUM(cache_create_tokens) AS total_cache_create_tokens,
-			SUM(input_tokens + output_tokens) AS total_tokens,
+			COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+			COALESCE(SUM(output_tokens), 0) AS total_output_tokens,
+			COALESCE(SUM(cache_read_tokens), 0) AS total_cache_read_tokens,
+			COALESCE(SUM(cache_create_tokens), 0) AS total_cache_create_tokens,
+			COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens,
 			COUNT(CASE WHEN event_kind = 'tool_call' THEN 1 END) AS tool_call_count,
 			COUNT(CASE WHEN event_kind = 'tool_call' AND tool_name LIKE 'mcp__%' THEN 1 END) AS mcp_call_count,
 			COUNT(CASE WHEN event_kind = 'error' THEN 1 END) AS error_count,
-			MAX(model) AS last_model
+			COALESCE(MAX(model), '') AS last_model
 		FROM events GROUP BY session_id, source_name`,
 
 		// Conversation trace with turn sequencing

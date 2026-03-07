@@ -9,13 +9,14 @@
     root = root || document;
     root.querySelectorAll('.truncatable').forEach(function(el) {
       var content = el.querySelector('.truncatable-content');
-      if (content && content.scrollHeight > 350) {
+      if (content && content.scrollHeight > 310) {
         el.classList.add('truncated');
       }
     });
   }
 
   window.toggleTruncation = function(el) {
+    if (!el) return;
     if (el.classList.contains('truncated')) {
       el.classList.remove('truncated');
       el.classList.add('expanded');
@@ -82,7 +83,7 @@
           checkIcon.classList.add('hidden');
         }, 1500);
       }
-    });
+    }).catch(function() {});
   };
 
   // --- View toggle (Chat/Timeline) ---
@@ -91,6 +92,8 @@
     var timelineView = document.getElementById('timeline-view');
     var expandBtn = document.getElementById('btn-expand-all');
     var collapseBtn = document.getElementById('btn-collapse-all');
+
+    if (!chatView || !timelineView) return;
 
     if (view === 'chat') {
       chatView.classList.remove('hidden');
