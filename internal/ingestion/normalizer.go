@@ -37,6 +37,9 @@ type NormalizedEvent struct {
 	ParentUUID string
 	ToolUseID  string
 
+	// Session context
+	CWD string // working directory of the session
+
 	// Source coordinates (set by watcher)
 	SourceFile   string
 	SourceLineNo int

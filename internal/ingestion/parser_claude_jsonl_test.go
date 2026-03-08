@@ -317,6 +317,51 @@ func TestParseClaudeJSONL_NoMessageField(t *testing.T) {
 	}
 }
 
+func TestParseClaudeJSONL_CWDExtracted(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"sessionId": "sess-1",
+		"timestamp": "2025-01-01T00:00:00Z",
+		"type":      "user",
+		"cwd":       "/Users/donnie/projects/code/technodrome",
+		"message": map[string]any{
+			"role":    "user",
+			"content": "hello",
+		},
+	})
+
+	events, err := ParseClaudeJSONL(line, "test.jsonl", 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].CWD != "/Users/donnie/projects/code/technodrome" {
+		t.Errorf("expected CWD to be set, got %q", events[0].CWD)
+	}
+}
+
+func TestParseClaudeJSONL_CWDEmpty(t *testing.T) {
+	// Lines without cwd should have empty CWD
+	line := toJSONL(t, map[string]any{
+		"sessionId": "sess-1",
+		"timestamp": "2025-01-01T00:00:00Z",
+		"type":      "user",
+		"message": map[string]any{
+			"role":    "user",
+			"content": "hello",
+		},
+	})
+
+	events, err := ParseClaudeJSONL(line, "test.jsonl", 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events[0].CWD != "" {
+		t.Errorf("expected empty CWD, got %q", events[0].CWD)
+	}
+}
+
 func TestParseClaudeJSONL_Summary(t *testing.T) {
 	line := toJSONL(t, map[string]any{
 		"sessionId": "sess-1",

@@ -29,12 +29,15 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 
 	eventType := jsonStr(raw, "type")
 
+	cwd := jsonStr(raw, "cwd")
+
 	base := NormalizedEvent{
 		SessionID:    sessionID,
 		SourceName:   "claude",
 		Provider:     "anthropic",
 		Timestamp:    ts,
 		ParentUUID:   parentUUID,
+		CWD:          cwd,
 		SourceFile:   file,
 		SourceLineNo: lineNo,
 		SourceOffset: offset,

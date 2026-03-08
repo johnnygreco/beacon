@@ -15,14 +15,14 @@ func InsertEvent(ctx context.Context, db *DB, e *models.Event) error {
 			text_content, text_preview, tool_name, model,
 			input_tokens, output_tokens, cache_read_tokens, cache_create_tokens,
 			duration_ms, cost_usd, error_code, error_message,
-			event_version, payload_json, source_file, source_line_no, source_offset
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			event_version, payload_json, cwd, source_file, source_line_no, source_offset
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.EventUID, e.SessionID, e.SessionDate, e.SourceName, e.Provider,
 		e.EventKind, e.PayloadType, e.ActorRole, e.Timestamp,
 		e.TextContent, e.TextPreview, e.ToolName, e.Model,
 		e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheCreateTokens,
 		e.DurationMs, e.CostUSD, e.ErrorCode, e.ErrorMessage,
-		e.EventVersion, e.PayloadJSON, e.SourceFile, e.SourceLineNo, e.SourceOffset,
+		e.EventVersion, e.PayloadJSON, e.CWD, e.SourceFile, e.SourceLineNo, e.SourceOffset,
 	)
 	return err
 }

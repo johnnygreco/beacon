@@ -44,11 +44,15 @@ func (db *DB) migrate() error {
 			error_message VARCHAR,
 			event_version INTEGER DEFAULT 1,
 			payload_json VARCHAR,
+			cwd VARCHAR,
 			source_file VARCHAR,
 			source_line_no INTEGER,
 			source_offset BIGINT,
 			created_at TIMESTAMP DEFAULT current_timestamp
 		)`,
+
+		// Add cwd column if not exists (for existing databases)
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS cwd VARCHAR`,
 
 		`CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`,
@@ -112,7 +116,8 @@ func (db *DB) migrate() error {
 			COUNT(CASE WHEN event_kind = 'tool_call' THEN 1 END) AS tool_call_count,
 			COUNT(CASE WHEN event_kind = 'tool_call' AND tool_name LIKE 'mcp__%' THEN 1 END) AS mcp_call_count,
 			COUNT(CASE WHEN event_kind = 'error' THEN 1 END) AS error_count,
-			COALESCE(MAX(model), '') AS last_model
+			COALESCE(MAX(model), '') AS last_model,
+			COALESCE(MAX(cwd), '') AS working_dir
 		FROM events GROUP BY session_id, source_name`,
 
 		// Conversation trace with turn sequencing

@@ -36,6 +36,7 @@ type Event struct {
 	ErrorMessage      string     `json:"error_message"`
 	EventVersion      int        `json:"event_version"`
 	PayloadJSON       string     `json:"payload_json"`
+	CWD               string     `json:"cwd"`
 	SourceFile        string     `json:"source_file"`
 	SourceLineNo      int        `json:"source_line_no"`
 	SourceOffset      int64      `json:"source_offset"`

@@ -120,6 +120,7 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 			ErrorMessage:      evt.ErrorMessage,
 			EventVersion:      1,
 			PayloadJSON:       evt.RawPayload,
+			CWD:              evt.CWD,
 			SourceFile:        evt.SourceFile,
 			SourceLineNo:      evt.SourceLineNo,
 			SourceOffset:      evt.SourceOffset,
