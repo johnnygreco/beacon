@@ -1,12 +1,28 @@
 package sse
 
 import (
-	"bytes"
-	"fmt"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 )
+
+// drainAndFlush writes msg and any queued messages, then flushes once.
+// Returns false if the channel was closed.
+func drainAndFlush(w http.ResponseWriter, flusher http.Flusher, ch <-chan SSEMessage, msg SSEMessage) bool {
+	w.Write(msg.Formatted)
+	for {
+		select {
+		case msg, ok := <-ch:
+			if !ok {
+				return false
+			}
+			w.Write(msg.Formatted)
+		default:
+			flusher.Flush()
+			return true
+		}
+	}
+}
 
 // DashboardHandler streams SSE events for the dashboard.
 func (b *Broker) DashboardHandler(w http.ResponseWriter, r *http.Request) {
@@ -25,7 +41,7 @@ func (b *Broker) DashboardHandler(w http.ResponseWriter, r *http.Request) {
 	defer b.Unsubscribe(sub)
 
 	// Send initial connection event
-	fmt.Fprintf(w, "event: connected\ndata: {}\n\n")
+	w.Write(FormatSSE("connected", []byte("{}")))
 	flusher.Flush()
 
 	for {
@@ -36,8 +52,9 @@ func (b *Broker) DashboardHandler(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			writeSSEMessage(w, msg)
-			flusher.Flush()
+			if !drainAndFlush(w, flusher, sub.Chan(), msg) {
+				return
+			}
 		}
 	}
 }
@@ -65,7 +82,7 @@ func (b *Broker) SessionHandler(w http.ResponseWriter, r *http.Request) {
 	sub := b.Subscribe(topic, "dashboard")
 	defer b.Unsubscribe(sub)
 
-	fmt.Fprintf(w, "event: connected\ndata: {}\n\n")
+	w.Write(FormatSSE("connected", []byte("{}")))
 	flusher.Flush()
 
 	for {
@@ -76,21 +93,9 @@ func (b *Broker) SessionHandler(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			writeSSEMessage(w, msg)
-			flusher.Flush()
+			if !drainAndFlush(w, flusher, sub.Chan(), msg) {
+				return
+			}
 		}
 	}
-}
-
-// writeSSEMessage writes a properly formatted SSE message.
-// Multi-line data is handled by prefixing each line with "data: ".
-func writeSSEMessage(w http.ResponseWriter, msg SSEMessage) {
-	if msg.Event != "" {
-		fmt.Fprintf(w, "event: %s\n", msg.Event)
-	}
-	lines := bytes.Split(msg.Data, []byte("\n"))
-	for _, line := range lines {
-		fmt.Fprintf(w, "data: %s\n", line)
-	}
-	fmt.Fprintf(w, "\n")
 }

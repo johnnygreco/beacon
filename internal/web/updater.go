@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"log/slog"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/johnnygreco/beacon/internal/sse"
 	"github.com/johnnygreco/beacon/internal/views"
@@ -16,9 +18,10 @@ import (
 // Updater queries fresh data and broadcasts rendered HTML partials via SSE
 // after each batcher flush.
 type Updater struct {
-	db     *sql.DB
-	broker *sse.Broker
-	logger *slog.Logger
+	db       *sql.DB
+	broker   *sse.Broker
+	logger   *slog.Logger
+	snapshot atomic.Pointer[views.DashboardData]
 }
 
 // NewUpdater creates a new dashboard updater.
@@ -26,21 +29,24 @@ func NewUpdater(db *sql.DB, broker *sse.Broker, logger *slog.Logger) *Updater {
 	return &Updater{db: db, broker: broker, logger: logger}
 }
 
+// Snapshot returns the latest cached dashboard data, or nil if not yet computed.
+func (u *Updater) Snapshot() *views.DashboardData {
+	return u.snapshot.Load()
+}
+
 // NotifyDashboard is the callback invoked after each batcher flush.
 func (u *Updater) NotifyDashboard() {
-	if u.broker.SubscriberCount() == 0 {
-		return
-	}
-
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
 	var metrics []views.MetricData
 	var activeSessions, completedSessions []views.SessionSummary
 	var activity []views.ActivityItem
 	var tokensChart views.MultiSeriesChart
+	var tokensByModel []views.ModelTokens
 
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(5)
 	go func() { defer wg.Done(); metrics = QueryDashboardMetrics(ctx, u.db) }()
 	go func() {
 		defer wg.Done()
@@ -48,7 +54,22 @@ func (u *Updater) NotifyDashboard() {
 	}()
 	go func() { defer wg.Done(); activity = QueryRecentActivity(ctx, u.db) }()
 	go func() { defer wg.Done(); tokensChart = QueryTotalTokensTimeSeries(ctx, u.db) }()
+	go func() { defer wg.Done(); tokensByModel = QueryTokensByModelSummary(ctx, u.db) }()
 	wg.Wait()
+
+	// Store snapshot for cache reads
+	u.snapshot.Store(&views.DashboardData{
+		Metrics:           metrics,
+		ActiveSessions:    activeSessions,
+		CompletedSessions: completedSessions,
+		RecentActivity:    activity,
+		TokensChart:       tokensChart,
+		TokensByModel:     tokensByModel,
+	})
+
+	if u.broker.SubscriberCount() == 0 {
+		return
+	}
 
 	// Render sidebar metrics wrapped in an OOB swap so the SSE update
 	// targets the nav sidebar from the dashboard SSE connection.
@@ -95,10 +116,14 @@ func (u *Updater) NotifyDashboard() {
 	}
 
 	if len(tokensChart.Labels) > 0 {
-		tokenData, _ := json.Marshal(tokensChart)
-		u.broker.Broadcast("dashboard", sse.SSEMessage{
-			Event: "token-data",
-			Data:  tokenData,
-		})
+		tokenData, err := json.Marshal(tokensChart)
+		if err != nil {
+			u.logger.Error("marshal token chart data", "error", err)
+		} else {
+			u.broker.Broadcast("dashboard", sse.SSEMessage{
+				Event: "token-data",
+				Data:  tokenData,
+			})
+		}
 	}
 }

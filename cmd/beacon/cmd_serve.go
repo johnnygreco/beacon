@@ -87,7 +87,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	go searcher.RunIndexer(ctx)
 
 	// Web server
-	handlers := web.NewHandlers(db.ReadPool, searcher, logger)
+	handlers := web.NewHandlers(db.ReadPool, searcher, logger, updater)
 	apiHandlers := web.NewAPIHandlers(db.ReadPool, searcher, logger)
 	router := web.NewRouter(broker, handlers, apiHandlers)
 

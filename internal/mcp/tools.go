@@ -162,6 +162,9 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 		}
 		window = append(window, e)
 	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("reading context events: %w", err)
+	}
 
 	if targetIdx == -1 {
 		return "", fmt.Errorf("event not found: %s", params.EventUID)
@@ -176,7 +179,9 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 		Since string `json:"since"`
 	}
 	if len(args) > 0 {
-		json.Unmarshal(args, &params)
+		if err := json.Unmarshal(args, &params); err != nil {
+			return "", fmt.Errorf("invalid arguments: %w", err)
+		}
 	}
 	if params.Limit <= 0 {
 		params.Limit = 20
@@ -216,6 +221,9 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 			continue
 		}
 		sessions = append(sessions, s)
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("reading sessions: %w", err)
 	}
 
 	return FormatSessionList(sessions), nil

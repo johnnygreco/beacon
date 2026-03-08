@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -38,9 +39,10 @@ type Searcher struct {
 	logger          *slog.Logger
 	rebuildInterval time.Duration
 	maxResults      int
-	mu              sync.RWMutex
-	lastIndexBuild  time.Time
-	indexExists     bool
+	mu             sync.RWMutex
+	lastIndexBuild time.Time
+	indexExists    bool
+	lastEventCount atomic.Int64
 }
 
 func NewSearcher(db *sql.DB, logger *slog.Logger, maxResults int, rebuildInterval time.Duration) *Searcher {
@@ -113,6 +115,9 @@ func (s *Searcher) rebuildIndex(ctx context.Context) {
 	if count == 0 {
 		return
 	}
+	if count == s.lastEventCount.Load() {
+		return
+	}
 
 	_, err := s.ftsConn.ExecContext(ctx, "PRAGMA create_fts_index('events', 'event_uid', 'text_content', overwrite=1)")
 	if err != nil {
@@ -124,6 +129,7 @@ func (s *Searcher) rebuildIndex(ctx context.Context) {
 	s.lastIndexBuild = time.Now()
 	s.indexExists = true
 	s.mu.Unlock()
+	s.lastEventCount.Store(count)
 
 	s.logger.Info("FTS index rebuilt", "documents", count)
 }

@@ -44,7 +44,8 @@ func setupTestServer(t *testing.T) (*httptest.Server, *database.DB) {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	broker := sse.NewBroker(16, logger)
 	searcher := search.NewSearcher(db.ReadPool, logger, 25, 0)
-	handlers := NewHandlers(db.ReadPool, searcher, logger)
+	updater := NewUpdater(db.ReadPool, broker, logger)
+	handlers := NewHandlers(db.ReadPool, searcher, logger, updater)
 	apiHandlers := NewAPIHandlers(db.ReadPool, searcher, logger)
 	router := NewRouter(broker, handlers, apiHandlers)
 

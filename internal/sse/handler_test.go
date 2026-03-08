@@ -1,47 +1,32 @@
 package sse
 
 import (
-	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-func TestWriteSSEMessage_SingleLine(t *testing.T) {
-	var buf bytes.Buffer
-	w := httptest.NewRecorder()
-
-	msg := SSEMessage{Event: "test", Data: []byte("hello")}
-	writeSSEMessage(w, msg)
-
-	buf.Write(w.Body.Bytes())
+func TestFormatSSE_SingleLine(t *testing.T) {
+	result := string(FormatSSE("test", []byte("hello")))
 	expected := "event: test\ndata: hello\n\n"
-	if buf.String() != expected {
-		t.Errorf("expected %q, got %q", expected, buf.String())
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
 	}
 }
 
-func TestWriteSSEMessage_MultiLine(t *testing.T) {
-	w := httptest.NewRecorder()
-
-	msg := SSEMessage{Event: "update", Data: []byte("line1\nline2\nline3")}
-	writeSSEMessage(w, msg)
-
+func TestFormatSSE_MultiLine(t *testing.T) {
+	result := string(FormatSSE("update", []byte("line1\nline2\nline3")))
 	expected := "event: update\ndata: line1\ndata: line2\ndata: line3\n\n"
-	if w.Body.String() != expected {
-		t.Errorf("expected %q, got %q", expected, w.Body.String())
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
 	}
 }
 
-func TestWriteSSEMessage_NoEvent(t *testing.T) {
-	w := httptest.NewRecorder()
-
-	msg := SSEMessage{Data: []byte("data only")}
-	writeSSEMessage(w, msg)
-
+func TestFormatSSE_NoEvent(t *testing.T) {
+	result := string(FormatSSE("", []byte("data only")))
 	expected := "data: data only\n\n"
-	if w.Body.String() != expected {
-		t.Errorf("expected %q, got %q", expected, w.Body.String())
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
 	}
 }
 

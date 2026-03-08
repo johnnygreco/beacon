@@ -1,14 +1,34 @@
 package sse
 
 import (
+	"bytes"
 	"log/slog"
 	"sync"
 )
 
 // SSEMessage is a named SSE event with data payload.
 type SSEMessage struct {
-	Event string // SSE event name (e.g., "metrics-update")
-	Data  []byte // SSE data payload (HTML or JSON)
+	Event     string // SSE event name (e.g., "metrics-update")
+	Data      []byte // SSE data payload (HTML or JSON)
+	Formatted []byte // Pre-formatted SSE wire bytes
+}
+
+// FormatSSE pre-formats an SSE event+data into wire bytes.
+func FormatSSE(event string, data []byte) []byte {
+	// Pre-size: "event: " + event + "\n" + per-line "data: " prefix + data + "\n\n"
+	buf := bytes.NewBuffer(make([]byte, 0, len(event)+len(data)+64))
+	if event != "" {
+		buf.WriteString("event: ")
+		buf.WriteString(event)
+		buf.WriteByte('\n')
+	}
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		buf.WriteString("data: ")
+		buf.Write(line)
+		buf.WriteByte('\n')
+	}
+	buf.WriteByte('\n')
+	return buf.Bytes()
 }
 
 // Subscriber is a channel that receives SSE messages.
@@ -67,7 +87,12 @@ func (s *Subscriber) Chan() <-chan SSEMessage {
 }
 
 // Broadcast sends a named SSE message to all subscribers matching the topic.
+// It pre-formats the wire bytes once before distributing to subscribers.
 func (b *Broker) Broadcast(topic string, msg SSEMessage) {
+	if msg.Formatted == nil {
+		msg.Formatted = FormatSSE(msg.Event, msg.Data)
+	}
+
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 

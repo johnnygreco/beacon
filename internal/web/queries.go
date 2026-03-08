@@ -57,6 +57,9 @@ func QueryTokensByModelSummary(ctx context.Context, db *sql.DB) []views.ModelTok
 		}
 		result = append(result, m)
 	}
+	if err := rows.Err(); err != nil {
+		return nil
+	}
 	return result
 }
 
@@ -66,7 +69,7 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 	var inputTokens, outputTokens, cacheReadTokens int64
 	var toolCalls, mcpCalls int
 
-	db.QueryRowContext(ctx,
+	if err := db.QueryRowContext(ctx,
 		`SELECT COUNT(DISTINCT session_id),
 		        COUNT(DISTINCT CASE WHEN timestamp > current_timestamp - INTERVAL '24 hours' THEN session_id END),
 		        COALESCE(SUM(input_tokens), 0),
@@ -75,7 +78,9 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 		        COUNT(CASE WHEN event_kind = 'tool_call' THEN 1 END),
 		        COUNT(CASE WHEN event_kind = 'tool_call' AND tool_name LIKE 'mcp__%' THEN 1 END)
 		 FROM events`,
-	).Scan(&totalSessions, &activeSessions, &inputTokens, &outputTokens, &cacheReadTokens, &toolCalls, &mcpCalls)
+	).Scan(&totalSessions, &activeSessions, &inputTokens, &outputTokens, &cacheReadTokens, &toolCalls, &mcpCalls); err != nil {
+		return nil
+	}
 
 	totalTokens := inputTokens + outputTokens
 
@@ -128,6 +133,9 @@ func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed 
 			completed = append(completed, s)
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, nil
+	}
 	return active, completed
 }
 
@@ -164,6 +172,9 @@ func QueryRecentActivity(ctx context.Context, db *sql.DB) []views.ActivityItem {
 		}
 		item.Summary = shortenActivitySummary(item.Summary)
 		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil
 	}
 	return items
 }
@@ -202,6 +213,9 @@ func QueryChartData(ctx context.Context, db *sql.DB) views.MultiSeriesChart {
 		chart.Datasets[1].Values = append(chart.Datasets[1].Values, float64(output))
 		chart.Datasets[2].Values = append(chart.Datasets[2].Values, float64(cacheRead))
 	}
+	if err := rows.Err(); err != nil {
+		return chart
+	}
 	return chart
 }
 
@@ -230,6 +244,9 @@ func QueryTotalTokensTimeSeries(ctx context.Context, db *sql.DB) views.MultiSeri
 		}
 		chart.Labels = append(chart.Labels, minute.Local().Format(time.RFC3339))
 		chart.Datasets[0].Values = append(chart.Datasets[0].Values, float64(total))
+	}
+	if err := rows.Err(); err != nil {
+		return chart
 	}
 	return chart
 }
@@ -263,80 +280,77 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 	data.Session.ActiveModel = model
 	setSessionTiming(&data.Session, startedAt, endedAt, time.Now())
 
-	// Run chart + tool queries in parallel
-	var wg sync.WaitGroup
-	wg.Add(3)
+	// Single CTE query for chart, tool stats, and model breakdown
+	data.TokensChart = views.MultiSeriesChart{
+		Datasets: []views.ChartDataset{{Label: "Total Tokens"}},
+	}
 
-	go func() {
-		defer wg.Done()
-		data.TokensChart = views.MultiSeriesChart{
-			Datasets: []views.ChartDataset{{Label: "Total Tokens"}},
+	rows, err := db.QueryContext(ctx,
+		`WITH session_events AS (
+			SELECT * FROM events WHERE session_id = $1
+		),
+		token_series AS (
+			SELECT timestamp, (input_tokens + output_tokens) AS total_tokens
+			FROM session_events
+			WHERE (input_tokens + output_tokens) > 0
+			ORDER BY timestamp
+		),
+		tool_stats AS (
+			SELECT tool_name, COUNT(*) AS calls, COALESCE(AVG(duration_ms), 0) AS avg_duration
+			FROM session_events
+			WHERE event_kind = 'tool_call' AND tool_name IS NOT NULL AND tool_name != ''
+			GROUP BY tool_name ORDER BY calls DESC
+		),
+		model_breakdown AS (
+			SELECT COALESCE(model, 'unknown') AS model,
+			       COALESCE(SUM(input_tokens), 0) AS input,
+			       COALESCE(SUM(output_tokens), 0) AS output,
+			       COALESCE(SUM(cache_read_tokens), 0) AS cache_read
+			FROM session_events
+			WHERE model IS NOT NULL AND model != ''
+			GROUP BY model ORDER BY (input + output) DESC
+		)
+		SELECT 'token' AS kind, timestamp, total_tokens, '' AS tool_name, 0 AS calls, 0 AS avg_dur, '' AS model, 0 AS input, 0 AS output, 0 AS cache_read FROM token_series
+		UNION ALL
+		SELECT 'tool', NULL, 0, tool_name, calls, avg_duration, '', 0, 0, 0 FROM tool_stats
+		UNION ALL
+		SELECT 'model', NULL, 0, '', 0, 0, model, input, output, cache_read FROM model_breakdown`, id)
+	if err != nil {
+		return data, nil // Return partial data on query error
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var kind string
+		var ts *time.Time
+		var totalTokens int64
+		var toolName string
+		var calls int
+		var avgDur float64
+		var model string
+		var input, output, cacheRead float64
+		if err := rows.Scan(&kind, &ts, &totalTokens, &toolName, &calls, &avgDur, &model, &input, &output, &cacheRead); err != nil {
+			continue
 		}
-		mcRows, _ := db.QueryContext(ctx,
-			`SELECT timestamp, (input_tokens + output_tokens) AS total_tokens
-			 FROM events WHERE session_id = $1 AND (input_tokens + output_tokens) > 0
-			 ORDER BY timestamp`, id)
-		if mcRows != nil {
-			defer mcRows.Close()
-			for mcRows.Next() {
-				var ts time.Time
-				var total int64
-				if err := mcRows.Scan(&ts, &total); err != nil {
-					continue
-				}
+		switch kind {
+		case "token":
+			if ts != nil {
 				data.TokensChart.Labels = append(data.TokensChart.Labels, ts.Local().Format(time.RFC3339))
-				data.TokensChart.Datasets[0].Values = append(data.TokensChart.Datasets[0].Values, float64(total))
+				data.TokensChart.Datasets[0].Values = append(data.TokensChart.Datasets[0].Values, float64(totalTokens))
 			}
+		case "tool":
+			stat := views.ToolStat{Name: toolName, Calls: calls, AvgDuration: avgDur}
+			stat.IsMCP = models.IsMCPTool(toolName)
+			data.ToolStats = append(data.ToolStats, stat)
+		case "model":
+			ds := views.ChartDataset{Label: model, Values: []float64{input, output, cacheRead}}
+			data.TokensByModel = append(data.TokensByModel, ds)
 		}
-	}()
+	}
+	if err := rows.Err(); err != nil {
+		return data, nil
+	}
 
-	go func() {
-		defer wg.Done()
-		toolRows, _ := db.QueryContext(ctx,
-			`SELECT tool_name,
-			        COUNT(*) AS calls,
-			        COALESCE(AVG(duration_ms), 0) AS avg_duration
-			 FROM events
-			 WHERE session_id = $1 AND event_kind = 'tool_call' AND tool_name IS NOT NULL AND tool_name != ''
-			 GROUP BY tool_name ORDER BY calls DESC`, id)
-		if toolRows != nil {
-			defer toolRows.Close()
-			for toolRows.Next() {
-				var ts views.ToolStat
-				if err := toolRows.Scan(&ts.Name, &ts.Calls, &ts.AvgDuration); err != nil {
-					continue
-				}
-				ts.IsMCP = models.IsMCPTool(ts.Name)
-				data.ToolStats = append(data.ToolStats, ts)
-			}
-		}
-	}()
-
-	go func() {
-		defer wg.Done()
-		modelRows, _ := db.QueryContext(ctx,
-			`SELECT COALESCE(model, 'unknown'),
-			        COALESCE(SUM(input_tokens), 0) AS input,
-			        COALESCE(SUM(output_tokens), 0) AS output,
-			        COALESCE(SUM(cache_read_tokens), 0) AS cache_read
-			 FROM events
-			 WHERE session_id = $1 AND model IS NOT NULL AND model != ''
-			 GROUP BY model ORDER BY (input + output) DESC`, id)
-		if modelRows != nil {
-			defer modelRows.Close()
-			for modelRows.Next() {
-				var ds views.ChartDataset
-				var input, output, cacheRead float64
-				if err := modelRows.Scan(&ds.Label, &input, &output, &cacheRead); err != nil {
-					continue
-				}
-				ds.Values = []float64{input, output, cacheRead}
-				data.TokensByModel = append(data.TokensByModel, ds)
-			}
-		}
-	}()
-
-	wg.Wait()
 	return data, nil
 }
 
@@ -383,6 +397,9 @@ func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]vie
 
 		td.Events = append(td.Events, es)
 		td.TotalTokens += es.Tokens
+	}
+	if err := traceRows.Err(); err != nil {
+		return nil, nil
 	}
 
 	var turns []views.TurnDetail

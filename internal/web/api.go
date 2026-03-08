@@ -41,7 +41,7 @@ func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 	var totalSessions, activeCount, toolCalls, mcpCalls int
 	var inputTokens, outputTokens int64
 
-	a.db.QueryRowContext(r.Context(),
+	if err := a.db.QueryRowContext(r.Context(),
 		`SELECT COUNT(DISTINCT session_id),
 		        COUNT(DISTINCT CASE WHEN timestamp > current_timestamp - INTERVAL '1 hour' THEN session_id END),
 		        COALESCE(SUM(input_tokens), 0),
@@ -49,7 +49,10 @@ func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 		        COUNT(CASE WHEN event_kind = 'tool_call' THEN 1 END),
 		        COUNT(CASE WHEN event_kind = 'tool_call' AND tool_name LIKE 'mcp__%' THEN 1 END)
 		 FROM events`,
-	).Scan(&totalSessions, &activeCount, &inputTokens, &outputTokens, &toolCalls, &mcpCalls)
+	).Scan(&totalSessions, &activeCount, &inputTokens, &outputTokens, &toolCalls, &mcpCalls); err != nil {
+		jsonError(w, "failed to query metrics", http.StatusInternalServerError)
+		return
+	}
 
 	metrics := []APIMetricData{
 		{Label: "Total Sessions", Value: float64(totalSessions), Unit: "sessions"},
@@ -101,6 +104,10 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		sessions = append(sessions, s)
 	}
+	if err := rows.Err(); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	jsonResponse(w, sessions)
 }
 
@@ -148,20 +155,17 @@ func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request)
 	}
 	defer rows.Close()
 
-	var points []map[string]any
+	points := make([]APITokensPerMinute, 0, 60)
 	for rows.Next() {
-		m := make(map[string]any)
-		var minute string
-		var input, output, cacheRead, total int64
-		var count int
-		rows.Scan(&minute, &input, &output, &cacheRead, &total, &count)
-		m["minute"] = minute
-		m["input_tokens"] = input
-		m["output_tokens"] = output
-		m["cache_read_tokens"] = cacheRead
-		m["total_tokens"] = total
-		m["call_count"] = count
-		points = append(points, m)
+		var p APITokensPerMinute
+		if err := rows.Scan(&p.Minute, &p.InputTokens, &p.OutputTokens, &p.CacheReadTokens, &p.TotalTokens, &p.CallCount); err != nil {
+			continue
+		}
+		points = append(points, p)
+	}
+	if err := rows.Err(); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	jsonResponse(w, points)
 }
@@ -176,20 +180,18 @@ func (a *APIHandlers) GetToolStats(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var stats []map[string]any
+	var stats []APIToolStats
 	for rows.Next() {
-		m := make(map[string]any)
-		var name string
-		var calls, results, total int
-		var avgDur float64
-		rows.Scan(&name, &calls, &results, &total, &avgDur)
-		m["tool_name"] = name
-		m["calls"] = calls
-		m["results"] = results
-		m["total"] = total
-		m["avg_duration_ms"] = avgDur
-		m["is_mcp"] = models.IsMCPTool(name)
-		stats = append(stats, m)
+		var s APIToolStats
+		if err := rows.Scan(&s.ToolName, &s.Calls, &s.Results, &s.Total, &s.AvgDurationMs); err != nil {
+			continue
+		}
+		s.IsMCP = models.IsMCPTool(s.ToolName)
+		stats = append(stats, s)
+	}
+	if err := rows.Err(); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	jsonResponse(w, stats)
 }
@@ -205,21 +207,17 @@ func (a *APIHandlers) GetTokensByModel(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var items []map[string]any
+	var items []APITokensByModel
 	for rows.Next() {
-		m := make(map[string]any)
-		var model string
-		var input, output, cacheRead, cacheCreate, total int64
-		var count int
-		rows.Scan(&model, &input, &output, &cacheRead, &cacheCreate, &total, &count)
-		m["model"] = model
-		m["input_tokens"] = input
-		m["output_tokens"] = output
-		m["cache_read_tokens"] = cacheRead
-		m["cache_create_tokens"] = cacheCreate
-		m["total_tokens"] = total
-		m["call_count"] = count
+		var m APITokensByModel
+		if err := rows.Scan(&m.Model, &m.InputTokens, &m.OutputTokens, &m.CacheReadTokens, &m.CacheCreateTokens, &m.TotalTokens, &m.CallCount); err != nil {
+			continue
+		}
 		items = append(items, m)
+	}
+	if err := rows.Err(); err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	jsonResponse(w, items)
 }

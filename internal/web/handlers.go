@@ -18,16 +18,22 @@ type Handlers struct {
 	db       *sql.DB
 	searcher *search.Searcher
 	logger   *slog.Logger
+	updater  *Updater
 }
 
 // NewHandlers creates page handlers.
-func NewHandlers(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) *Handlers {
-	return &Handlers{db: db, searcher: searcher, logger: logger}
+func NewHandlers(db *sql.DB, searcher *search.Searcher, logger *slog.Logger, updater *Updater) *Handlers {
+	return &Handlers{db: db, searcher: searcher, logger: logger, updater: updater}
 }
 
 // Dashboard renders the main dashboard page with live metrics.
 func (h *Handlers) Dashboard(w http.ResponseWriter, r *http.Request) {
-	data := QueryDashboardData(r.Context(), h.db)
+	var data views.DashboardData
+	if snap := h.updater.Snapshot(); snap != nil {
+		data = *snap
+	} else {
+		data = QueryDashboardData(r.Context(), h.db)
+	}
 	pages.Dashboard(data).Render(r.Context(), w)
 }
 
@@ -57,7 +63,12 @@ func (h *Handlers) SessionConversation(w http.ResponseWriter, r *http.Request) {
 
 // SidebarMetrics renders the compact metrics partial for the sidebar.
 func (h *Handlers) SidebarMetrics(w http.ResponseWriter, r *http.Request) {
-	metrics := QueryDashboardMetrics(r.Context(), h.db)
+	var metrics []views.MetricData
+	if snap := h.updater.Snapshot(); snap != nil {
+		metrics = snap.Metrics
+	} else {
+		metrics = QueryDashboardMetrics(r.Context(), h.db)
+	}
 	partials.SidebarMetrics(metrics).Render(r.Context(), w)
 }
 

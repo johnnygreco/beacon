@@ -57,6 +57,8 @@ func (db *DB) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_kind ON events(event_kind)`,
+		`CREATE INDEX IF NOT EXISTS idx_events_session_kind ON events(session_id, event_kind)`,
+		`CREATE INDEX IF NOT EXISTS idx_events_kind_ts ON events(event_kind, timestamp DESC)`,
 
 		// Parent-child relationships
 		`CREATE TABLE IF NOT EXISTS event_links (
