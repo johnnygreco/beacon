@@ -42,7 +42,7 @@ func Layout(title string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " | Technodrome</title><script src=\"https://cdn.tailwindcss.com\"></script><script src=\"/static/js/vendor/htmx.min.js\"></script><script src=\"/static/js/vendor/htmx-ext-sse.js\"></script><script src=\"/static/js/vendor/chart.umd.min.js\"></script><script src=\"/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js\"></script><link rel=\"stylesheet\" href=\"/static/css/custom.css\"><link rel=\"stylesheet\" href=\"/static/css/vendor/github-dark.min.css\"></head><body class=\"bg-gray-900 text-gray-100 min-h-screen flex\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " | Technodrome</title><script src=\"https://cdn.tailwindcss.com\"></script><script src=\"/static/js/vendor/htmx.min.js\"></script><script src=\"/static/js/vendor/htmx-ext-sse.js\"></script><script src=\"/static/js/vendor/chart.umd.min.js\"></script><script src=\"/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js\"></script><link rel=\"stylesheet\" href=\"/static/css/custom.css\"><link rel=\"stylesheet\" href=\"/static/css/vendor/github-dark.min.css\"></head><body class=\"bg-gray-900 text-gray-100 min-h-screen flex sidebar-collapsed\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

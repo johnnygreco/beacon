@@ -104,9 +104,9 @@ func TurnItem(t views.TurnDetail) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var5 string
-		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d tok", t.TotalTokens))
+		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(views.FormatTokens(t.TotalTokens) + " tokens")
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/turn_timeline.templ`, Line: 26, Col: 48}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/turn_timeline.templ`, Line: 26, Col: 57}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 		if templ_7745c5c3_Err != nil {
@@ -250,9 +250,9 @@ func EventItem(e views.EventSummary) templ.Component {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var11 string
-			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d tok", e.Tokens))
+			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(views.FormatTokens(e.Tokens) + " tokens")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/turn_timeline.templ`, Line: 57, Col: 65}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/turn_timeline.templ`, Line: 57, Col: 74}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {

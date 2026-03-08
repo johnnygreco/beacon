@@ -4,17 +4,7 @@
 (function() {
   'use strict';
 
-  // --- Gradient-fade truncation ---
-  function initTruncation(root) {
-    root = root || document;
-    root.querySelectorAll('.truncatable').forEach(function(el) {
-      var content = el.querySelector('.truncatable-content');
-      if (content && content.scrollHeight > 310) {
-        el.classList.add('truncated');
-      }
-    });
-  }
-
+  // --- Truncation toggle (initial state set server-side via class) ---
   window.toggleTruncation = function(el) {
     if (!el) return;
     if (el.classList.contains('truncated')) {
@@ -118,12 +108,10 @@
 
   // --- HTMX integration ---
   document.addEventListener('htmx:afterSwap', function(e) {
-    initTruncation(e.detail.target);
     initHighlighting(e.detail.target);
   });
 
-  // --- Init immediately (script loads inside HTMX swap, so DOMContentLoaded already fired) ---
-  initTruncation();
+  // --- Init highlighting ---
   initHighlighting();
 
 })();

@@ -23,7 +23,7 @@ templ TurnItem(t views.TurnDetail) {
 				<span class="text-xs text-gray-500">{ fmt.Sprintf("%d events", len(t.Events)) }</span>
 			</div>
 			<div class="flex items-center gap-3 text-xs text-gray-500">
-				<span>{ fmt.Sprintf("%d tok", t.TotalTokens) }</span>
+				<span>{ views.FormatTokens(t.TotalTokens) + " tokens" }</span>
 			</div>
 		</div>
 		<div class="space-y-2 mt-2">
@@ -54,7 +54,7 @@ templ EventItem(e views.EventSummary) {
 				<span class="text-gray-600">{ e.Model }</span>
 			}
 			if e.Tokens > 0 {
-				<span class="text-gray-600">{ fmt.Sprintf("%d tok", e.Tokens) }</span>
+				<span class="text-gray-600">{ views.FormatTokens(e.Tokens) + " tokens" }</span>
 			}
 			if e.DurationMs > 0 {
 				<span class="text-gray-600">{ fmt.Sprintf("%dms", e.DurationMs) }</span>
