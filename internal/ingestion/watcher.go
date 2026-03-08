@@ -250,6 +250,8 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 4<<20), 4<<20) // 4MB buffer
 
+	var allEvents []NormalizedEvent
+
 	for scanner.Scan() {
 		lineNo++
 		lineBytes := scanner.Bytes()
@@ -277,11 +279,16 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 			continue
 		}
 
-		for _, evt := range events {
-			w.eventCh <- BatchEvent{Insert: &InsertEvent{Normalized: evt}}
-		}
-
+		allEvents = append(allEvents, events...)
 		offset += lineLen
+	}
+
+	// Deduplicate tokens across JSONL lines from the same API call
+	// before sending to the batcher.
+	allEvents = DeduplicateTokens(allEvents)
+
+	for _, evt := range allEvents {
+		w.eventCh <- BatchEvent{Insert: &InsertEvent{Normalized: evt}}
 	}
 
 	// Save checkpoint after processing

@@ -386,3 +386,119 @@ func TestParseClaudeJSONL_Summary(t *testing.T) {
 		t.Errorf("expected summary text, got %q", evt.TextContent)
 	}
 }
+
+func TestParseClaudeJSONL_MessageUUIDPropagated(t *testing.T) {
+	// Verify that the uuid field is set as MessageUUID on all events.
+	line := toJSONL(t, map[string]any{
+		"sessionId":  "sess-1",
+		"uuid":       "msg-uuid-abc",
+		"parentUuid": "parent-uuid-xyz",
+		"timestamp":  "2025-01-01T00:00:01Z",
+		"type":       "assistant",
+		"message": map[string]any{
+			"role":  "assistant",
+			"model": "claude-sonnet-4-20250514",
+			"content": []map[string]any{
+				{"type": "thinking", "thinking": "Let me think..."},
+			},
+			"usage": map[string]any{
+				"input_tokens":  500,
+				"output_tokens": 100,
+			},
+		},
+	})
+
+	events, err := ParseClaudeJSONL(line, "test.jsonl", 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].MessageUUID != "msg-uuid-abc" {
+		t.Errorf("expected MessageUUID=msg-uuid-abc, got %q", events[0].MessageUUID)
+	}
+}
+
+func TestParseClaudeJSONL_DeduplicateTokensAcrossLines(t *testing.T) {
+	// Simulates two JSONL lines from the same API call (thinking + text)
+	// with identical usage values. After DeduplicateTokens, only the last
+	// event should retain token values.
+	thinkingLine := toJSONL(t, map[string]any{
+		"sessionId":  "sess-1",
+		"uuid":       "msg-uuid-same",
+		"parentUuid": "parent-1",
+		"timestamp":  "2025-01-01T00:00:01Z",
+		"type":       "assistant",
+		"message": map[string]any{
+			"role":  "assistant",
+			"model": "claude-sonnet-4-20250514",
+			"content": []map[string]any{
+				{"type": "thinking", "thinking": "This is a very long thinking block with lots of reasoning..."},
+			},
+			"usage": map[string]any{
+				"input_tokens":                 3,
+				"output_tokens":                8,
+				"cache_read_input_tokens":      5708,
+				"cache_creation_input_tokens":  3882,
+			},
+		},
+	})
+
+	textLine := toJSONL(t, map[string]any{
+		"sessionId":  "sess-1",
+		"uuid":       "msg-uuid-same",
+		"parentUuid": "parent-1",
+		"timestamp":  "2025-01-01T00:00:01Z",
+		"type":       "assistant",
+		"message": map[string]any{
+			"role":  "assistant",
+			"model": "claude-sonnet-4-20250514",
+			"content": []map[string]any{
+				{"type": "text", "text": "Here is my response."},
+			},
+			"usage": map[string]any{
+				"input_tokens":                 3,
+				"output_tokens":                8,
+				"cache_read_input_tokens":      5708,
+				"cache_creation_input_tokens":  3882,
+			},
+		},
+	})
+
+	// Parse both lines
+	events1, err := ParseClaudeJSONL(thinkingLine, "test.jsonl", 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	events2, err := ParseClaudeJSONL(textLine, "test.jsonl", 2, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Before dedup: both events have tokens
+	allEvents := append(events1, events2...)
+	if allEvents[0].InputTokens != 3 {
+		t.Errorf("before dedup: event[0] input should be 3, got %d", allEvents[0].InputTokens)
+	}
+	if allEvents[1].InputTokens != 3 {
+		t.Errorf("before dedup: event[1] input should be 3, got %d", allEvents[1].InputTokens)
+	}
+
+	// After dedup: only the last event keeps tokens
+	allEvents = DeduplicateTokens(allEvents)
+
+	if allEvents[0].InputTokens != 0 || allEvents[0].OutputTokens != 0 ||
+		allEvents[0].CacheReadTokens != 0 || allEvents[0].CacheCreateTokens != 0 {
+		t.Errorf("after dedup: thinking event should have zeroed tokens: input=%d output=%d cache_read=%d cache_create=%d",
+			allEvents[0].InputTokens, allEvents[0].OutputTokens,
+			allEvents[0].CacheReadTokens, allEvents[0].CacheCreateTokens)
+	}
+
+	if allEvents[1].InputTokens != 3 || allEvents[1].OutputTokens != 8 ||
+		allEvents[1].CacheReadTokens != 5708 || allEvents[1].CacheCreateTokens != 3882 {
+		t.Errorf("after dedup: text event should keep tokens: input=%d output=%d cache_read=%d cache_create=%d",
+			allEvents[1].InputTokens, allEvents[1].OutputTokens,
+			allEvents[1].CacheReadTokens, allEvents[1].CacheCreateTokens)
+	}
+}

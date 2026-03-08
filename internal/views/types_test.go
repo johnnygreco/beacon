@@ -29,6 +29,28 @@ func TestFormatTokens(t *testing.T) {
 	}
 }
 
+func TestSumTokens(t *testing.T) {
+	tests := []struct {
+		name     string
+		events   []EventSummary
+		expected int64
+	}{
+		{"nil slice", nil, 0},
+		{"empty slice", []EventSummary{}, 0},
+		{"single event", []EventSummary{{Tokens: 150}}, 150},
+		{"multiple events", []EventSummary{{Tokens: 100}, {Tokens: 250}, {Tokens: 50}}, 400},
+		{"zero tokens", []EventSummary{{Tokens: 0}, {Tokens: 0}}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SumTokens(tt.events)
+			if got != tt.expected {
+				t.Errorf("SumTokens() = %d, want %d", got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestChartDatasetJSONTags(t *testing.T) {
 	ds := ChartDataset{Label: "Input", Values: []float64{1, 2, 3}}
 	b, err := json.Marshal(ds)

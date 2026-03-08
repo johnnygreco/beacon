@@ -609,11 +609,7 @@ func deduplicateTurns(turns []views.TurnDetail) []views.TurnDetail {
 		}
 		t.Events = deduped
 		// Recompute total tokens after dedup
-		var totalTok int64
-		for _, e := range deduped {
-			totalTok += e.Tokens
-		}
-		t.TotalTokens = totalTok
+		t.TotalTokens = views.SumTokens(deduped)
 		result = append(result, t)
 	}
 	return result

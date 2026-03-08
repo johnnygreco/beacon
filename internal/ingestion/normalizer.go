@@ -40,6 +40,9 @@ type NormalizedEvent struct {
 	// Session context
 	CWD string // working directory of the session
 
+	// Message grouping (used to deduplicate tokens across JSONL lines from the same API call)
+	MessageUUID string
+
 	// Source coordinates (set by watcher)
 	SourceFile   string
 	SourceLineNo int

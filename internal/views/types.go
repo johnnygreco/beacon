@@ -43,6 +43,16 @@ func Pluralize(n int, singular string) string {
 	return fmt.Sprintf("%d %ss", n, singular)
 }
 
+// SumTokens returns the total tokens across a slice of EventSummary.
+// Used for reasoning block groups and anywhere a sub-group total is needed.
+func SumTokens(events []EventSummary) int64 {
+	var total int64
+	for _, e := range events {
+		total += e.Tokens
+	}
+	return total
+}
+
 // FormatTokens formats a token count for display (e.g. 1500 -> "1.5K").
 func FormatTokens(n int64) string {
 	if n >= 1_000_000 {

@@ -37,13 +37,13 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 		Provider:     "anthropic",
 		Timestamp:    ts,
 		ParentUUID:   parentUUID,
+		MessageUUID:  uuid,
 		CWD:          cwd,
 		SourceFile:   file,
 		SourceLineNo: lineNo,
 		SourceOffset: offset,
 		RawPayload:   string(line),
 	}
-	_ = uuid // uuid is used for linking, but event_uid is generated deterministically
 
 	var events []NormalizedEvent
 
