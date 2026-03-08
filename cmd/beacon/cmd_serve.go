@@ -11,12 +11,12 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/technodrome-ai/technodrome/internal/config"
-	"github.com/technodrome-ai/technodrome/internal/database"
-	"github.com/technodrome-ai/technodrome/internal/ingestion"
-	"github.com/technodrome-ai/technodrome/internal/search"
-	"github.com/technodrome-ai/technodrome/internal/sse"
-	"github.com/technodrome-ai/technodrome/internal/web"
+	"github.com/johnnygreco/beacon/internal/config"
+	"github.com/johnnygreco/beacon/internal/database"
+	"github.com/johnnygreco/beacon/internal/ingestion"
+	"github.com/johnnygreco/beacon/internal/search"
+	"github.com/johnnygreco/beacon/internal/sse"
+	"github.com/johnnygreco/beacon/internal/web"
 )
 
 func newServeCmd() *cobra.Command {
@@ -37,7 +37,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	dbPath := resolveDBPath(cfg)
 
-	logger.Info("starting technodrome",
+	logger.Info("starting beacon",
 		"host", cfg.Server.Host,
 		"port", cfg.Server.Port,
 		"db", dbPath,

@@ -6,7 +6,7 @@ templ Layout(title string) {
 	<head>
 		<meta charset="UTF-8"/>
 		<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-		<title>{ title } | Technodrome</title>
+		<title>{ title } | Beacon</title>
 		<script src="https://cdn.tailwindcss.com"></script>
 		<script src="/static/js/vendor/htmx.min.js"></script>
 		<script src="/static/js/vendor/htmx-ext-sse.js"></script>
@@ -57,7 +57,7 @@ templ Nav() {
 	<nav id="sidebar" class="fixed left-0 top-0 h-full w-64 bg-gray-800 border-r border-gray-700 flex flex-col z-50">
 		<div class="nav-header p-4 border-b border-gray-700 flex items-center">
 			<div class="nav-label flex-1 min-w-0 overflow-hidden">
-				<h1 class="text-xl font-bold text-blue-400 whitespace-nowrap">Technodrome</h1>
+				<h1 class="text-xl font-bold text-blue-400 whitespace-nowrap">Beacon</h1>
 				<p class="text-xs text-gray-500 mt-1 whitespace-nowrap">AI Agent Monitor</p>
 			</div>
 			<button onclick="toggleSidebar()"

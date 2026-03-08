@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/technodrome-ai/technodrome/internal/models"
+	"github.com/johnnygreco/beacon/internal/models"
 )
 
 func InsertEvent(ctx context.Context, db *DB, e *models.Event) error {

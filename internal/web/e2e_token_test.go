@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/technodrome-ai/technodrome/internal/database"
-	"github.com/technodrome-ai/technodrome/internal/ingestion"
-	"github.com/technodrome-ai/technodrome/internal/models"
-	"github.com/technodrome-ai/technodrome/internal/views"
+	"github.com/johnnygreco/beacon/internal/database"
+	"github.com/johnnygreco/beacon/internal/ingestion"
+	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/views"
 )
 
 // toJSONL marshals a map to a JSONL line for the parser.

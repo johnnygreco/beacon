@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/technodrome-ai/technodrome/internal/database"
-	"github.com/technodrome-ai/technodrome/internal/models"
+	"github.com/johnnygreco/beacon/internal/database"
+	"github.com/johnnygreco/beacon/internal/models"
 )
 
 const previewMaxLen = 320

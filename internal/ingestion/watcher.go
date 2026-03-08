@@ -11,8 +11,8 @@ import (
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/fsnotify/fsnotify"
-	"github.com/technodrome-ai/technodrome/internal/database"
-	"github.com/technodrome-ai/technodrome/internal/models"
+	"github.com/johnnygreco/beacon/internal/database"
+	"github.com/johnnygreco/beacon/internal/models"
 )
 
 // WatchSource defines a source to watch for JSONL files.

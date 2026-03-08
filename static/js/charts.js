@@ -1,4 +1,4 @@
-// Chart.js initialization with dark theme for Technodrome dashboard.
+// Chart.js initialization with dark theme for Beacon dashboard.
 
 const darkTheme = {
   color: '#9ca3af',          // gray-400

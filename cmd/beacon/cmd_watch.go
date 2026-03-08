@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/technodrome-ai/technodrome/internal/config"
-	"github.com/technodrome-ai/technodrome/internal/database"
-	"github.com/technodrome-ai/technodrome/internal/ingestion"
+	"github.com/johnnygreco/beacon/internal/config"
+	"github.com/johnnygreco/beacon/internal/database"
+	"github.com/johnnygreco/beacon/internal/ingestion"
 )
 
 func newWatchCmd() *cobra.Command {

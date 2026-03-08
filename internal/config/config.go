@@ -63,16 +63,16 @@ func Load(cfgFile string) (*Config, error) {
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 	} else {
-		viper.SetConfigName("technodrome")
+		viper.SetConfigName("beacon")
 		viper.SetConfigType("toml")
 		viper.AddConfigPath(".")
-		viper.AddConfigPath("$HOME/.config/technodrome")
-		viper.AddConfigPath("$HOME/.technodrome")
+		viper.AddConfigPath("$HOME/.config/beacon")
+		viper.AddConfigPath("$HOME/.beacon")
 	}
 
 	viper.SetDefault("server.host", "0.0.0.0")
 	viper.SetDefault("server.port", 4600)
-	viper.SetDefault("database.path", "~/.technodrome/technodrome.duckdb")
+	viper.SetDefault("database.path", "~/.beacon/beacon.duckdb")
 	viper.SetDefault("database.read_pool_size", 4)
 	viper.SetDefault("watch.enabled", true)
 	viper.SetDefault("watch.debounce_ms", 50)

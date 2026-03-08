@@ -9,8 +9,8 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
-	"github.com/technodrome-ai/technodrome/internal/views"
-	"github.com/technodrome-ai/technodrome/internal/views/components"
+	"github.com/johnnygreco/beacon/internal/views"
+	"github.com/johnnygreco/beacon/internal/views/components"
 )
 
 func SessionConversation(chatTurns []views.ChatTurn, turns []views.TurnDetail) templ.Component {

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/technodrome-ai/technodrome/internal/models"
-	"github.com/technodrome-ai/technodrome/internal/search"
+	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/search"
 )
 
 // APIHandlers serves JSON API endpoints.

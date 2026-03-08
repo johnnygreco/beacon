@@ -1,4 +1,4 @@
-module github.com/technodrome-ai/technodrome
+module github.com/johnnygreco/beacon
 
 go 1.24.0
 

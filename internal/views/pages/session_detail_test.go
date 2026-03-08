@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/technodrome-ai/technodrome/internal/views"
+	"github.com/johnnygreco/beacon/internal/views"
 )
 
 func TestMultiSeriesChartData(t *testing.T) {

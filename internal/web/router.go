@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/technodrome-ai/technodrome/internal/sse"
+	"github.com/johnnygreco/beacon/internal/sse"
 )
 
 // NewRouter creates the chi router with all routes registered.

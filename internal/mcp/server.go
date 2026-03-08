@@ -10,7 +10,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/technodrome-ai/technodrome/internal/search"
+	"github.com/johnnygreco/beacon/internal/search"
 )
 
 type Server struct {
@@ -118,7 +118,7 @@ func (s *Server) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
 				"tools": map[string]any{},
 			},
 			"serverInfo": map[string]any{
-				"name":    "technodrome",
+				"name":    "beacon",
 				"version": "2.0.0",
 			},
 		},

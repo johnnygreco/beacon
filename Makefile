@@ -1,10 +1,10 @@
 .PHONY: build run generate clean simulator
 
 build: generate
-	go build -o bin/technodrome ./cmd/technodrome
+	go build -o bin/beacon ./cmd/beacon
 
 run: generate
-	go run ./cmd/technodrome serve
+	go run ./cmd/beacon serve
 
 generate:
 	go tool templ generate

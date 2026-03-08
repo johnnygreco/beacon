@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/technodrome-ai/technodrome/internal/config"
-	"github.com/technodrome-ai/technodrome/internal/database"
+	"github.com/johnnygreco/beacon/internal/config"
+	"github.com/johnnygreco/beacon/internal/database"
 )
 
 func newDBCmd() *cobra.Command {

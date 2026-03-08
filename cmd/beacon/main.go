@@ -6,18 +6,18 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/technodrome-ai/technodrome/internal/config"
+	"github.com/johnnygreco/beacon/internal/config"
 )
 
 var cfgFile string
 
 func main() {
 	rootCmd := &cobra.Command{
-		Use:   "technodrome",
+		Use:   "beacon",
 		Short: "Real-time AI coding agent monitoring dashboard",
 	}
 
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: technodrome.toml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: beacon.toml)")
 
 	rootCmd.AddCommand(
 		newServeCmd(),
@@ -48,7 +48,7 @@ func expandHome(path string) string {
 func resolveDBPath(cfg *config.Config) string {
 	dbPath := cfg.Database.Path
 	if dbPath == "" {
-		dbPath = "~/.technodrome/technodrome.duckdb"
+		dbPath = "~/.beacon/beacon.duckdb"
 	}
 	dbPath = expandHome(dbPath)
 	os.MkdirAll(filepath.Dir(dbPath), 0755)

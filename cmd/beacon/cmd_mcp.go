@@ -10,9 +10,9 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/technodrome-ai/technodrome/internal/config"
-	"github.com/technodrome-ai/technodrome/internal/mcp"
-	"github.com/technodrome-ai/technodrome/internal/search"
+	"github.com/johnnygreco/beacon/internal/config"
+	"github.com/johnnygreco/beacon/internal/mcp"
+	"github.com/johnnygreco/beacon/internal/search"
 
 	_ "github.com/duckdb/duckdb-go/v2"
 )

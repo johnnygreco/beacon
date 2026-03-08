@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/technodrome-ai/technodrome/internal/search"
-	"github.com/technodrome-ai/technodrome/internal/views"
-	"github.com/technodrome-ai/technodrome/internal/views/pages"
-	"github.com/technodrome-ai/technodrome/internal/views/partials"
+	"github.com/johnnygreco/beacon/internal/search"
+	"github.com/johnnygreco/beacon/internal/views"
+	"github.com/johnnygreco/beacon/internal/views/pages"
+	"github.com/johnnygreco/beacon/internal/views/partials"
 )
 
 // Handlers serves HTML page routes rendered with templ.

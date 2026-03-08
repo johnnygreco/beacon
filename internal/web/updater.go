@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/technodrome-ai/technodrome/internal/sse"
-	"github.com/technodrome-ai/technodrome/internal/views"
-	"github.com/technodrome-ai/technodrome/internal/views/partials"
+	"github.com/johnnygreco/beacon/internal/sse"
+	"github.com/johnnygreco/beacon/internal/views"
+	"github.com/johnnygreco/beacon/internal/views/partials"
 )
 
 // Updater queries fresh data and broadcasts rendered HTML partials via SSE

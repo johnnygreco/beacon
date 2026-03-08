@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/technodrome-ai/technodrome/internal/views"
+	"github.com/johnnygreco/beacon/internal/views"
 )
 
 func TestBuildChatTurns_EmptyInput(t *testing.T) {

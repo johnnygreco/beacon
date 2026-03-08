@@ -11,8 +11,8 @@ import (
 
 	"strings"
 
-	"github.com/technodrome-ai/technodrome/internal/models"
-	"github.com/technodrome-ai/technodrome/internal/views"
+	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/views"
 )
 
 // QueryDashboardData queries all data needed for the dashboard page.

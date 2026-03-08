@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/technodrome-ai/technodrome/internal/search"
+	"github.com/johnnygreco/beacon/internal/search"
 )
 
 func toolDefinitions() []map[string]any {
@@ -22,7 +22,7 @@ func toolDefinitions() []map[string]any {
 					"limit":        map[string]any{"type": "integer", "description": "Max results (default 25)"},
 					"session_id":   map[string]any{"type": "string", "description": "Filter to a specific session"},
 					"event_kinds":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Filter by event kinds"},
-					"exclude_self": map[string]any{"type": "boolean", "description": "Exclude technodrome's own events (default true)"},
+					"exclude_self": map[string]any{"type": "boolean", "description": "Exclude beacon's own events (default true)"},
 				},
 				"required": []string{"query"},
 			},

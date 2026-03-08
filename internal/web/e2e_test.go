@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/technodrome-ai/technodrome/internal/database"
-	"github.com/technodrome-ai/technodrome/internal/search"
-	"github.com/technodrome-ai/technodrome/internal/sse"
+	"github.com/johnnygreco/beacon/internal/database"
+	"github.com/johnnygreco/beacon/internal/search"
+	"github.com/johnnygreco/beacon/internal/sse"
 )
 
 func setupTestDB(t *testing.T) *database.DB {

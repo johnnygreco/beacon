@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/technodrome-ai/technodrome/internal/search"
+	"github.com/johnnygreco/beacon/internal/search"
 )
 
 // FormatSearchResults formats search results as prose for agent consumption.

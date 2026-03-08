@@ -6,8 +6,8 @@ import (
 	"os"
 	"syscall"
 
-	"github.com/technodrome-ai/technodrome/internal/database"
-	"github.com/technodrome-ai/technodrome/internal/models"
+	"github.com/johnnygreco/beacon/internal/database"
+	"github.com/johnnygreco/beacon/internal/models"
 )
 
 // CheckpointManager loads and saves file processing checkpoints.

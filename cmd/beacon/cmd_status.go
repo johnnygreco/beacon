@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/technodrome-ai/technodrome/internal/config"
+	"github.com/johnnygreco/beacon/internal/config"
 
 	_ "github.com/duckdb/duckdb-go/v2"
 )
@@ -39,8 +39,8 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 	defer db.Close()
 
-	fmt.Println("Technodrome Status")
-	fmt.Println("==================")
+	fmt.Println("Beacon Status")
+	fmt.Println("=============")
 	fmt.Printf("Database: %s (%.1f MB)\n", dbPath, float64(fi.Size())/(1024*1024))
 
 	// Last event
@@ -89,7 +89,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if err == nil && ftsCount > 0 {
 		fmt.Println("FTS Index: available")
 	} else {
-		fmt.Println("FTS Index: not built (run 'technodrome serve' to build)")
+		fmt.Println("FTS Index: not built (run 'beacon serve' to build)")
 	}
 
 	return nil

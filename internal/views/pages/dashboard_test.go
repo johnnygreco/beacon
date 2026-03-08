@@ -3,7 +3,7 @@ package pages
 import (
 	"testing"
 
-	"github.com/technodrome-ai/technodrome/internal/views"
+	"github.com/johnnygreco/beacon/internal/views"
 )
 
 func TestDashboardTokensByModelData(t *testing.T) {
