@@ -94,7 +94,7 @@ templ SessionDetail(data views.SessionDetailData) {
 				</div>
 			}
 
-			<!-- Conversation -->
+			<!-- Conversation (lazy-loaded for fast initial render) -->
 			<div>
 				<div class="flex items-center justify-between mb-4">
 					<h2 class="text-lg font-semibold text-gray-200">Conversation</h2>
@@ -114,11 +114,17 @@ templ SessionDetail(data views.SessionDetailData) {
 								class="px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700">Timeline</button>
 					</div>
 				</div>
-				<div id="chat-view">
-					@components.ChatView(data.ChatTurns)
-				</div>
-				<div id="timeline-view" class="hidden">
-					@components.TurnTimeline(data.Turns)
+				<div id="conversation-container"
+					 hx-get={ fmt.Sprintf("/sessions/%s/conversation", data.Session.ID) }
+					 hx-trigger="load"
+					 hx-swap="innerHTML">
+					<div class="flex items-center justify-center py-12 text-gray-500">
+						<svg class="animate-spin h-5 w-5 mr-3" viewBox="0 0 24 24">
+							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none"></circle>
+							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+						</svg>
+						Loading conversation...
+					</div>
 				</div>
 			</div>
 
@@ -127,7 +133,6 @@ templ SessionDetail(data views.SessionDetailData) {
 			if len(data.TokensByModel) > 0 {
 				@templ.JSONScript("session-tokens-by-model-data", tokensByModelData(data.TokensByModel))
 			}
-			<script src="/static/js/transcript.js"></script>
 		</div>
 	}
 }
@@ -153,4 +158,3 @@ func toolShortName(name string) string {
 	}
 	return name
 }
-

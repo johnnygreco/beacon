@@ -46,7 +46,7 @@ func Search(results []views.SearchResult) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-6\"><h1 class=\"text-2xl font-bold text-gray-100\">Search Conversations</h1><!-- Search Input --><div><input type=\"text\" name=\"q\" placeholder=\"Search prompts, responses, and tool outputs...\" class=\"w-full bg-gray-800 text-gray-100 rounded-lg px-4 py-3 border border-gray-700 focus:border-blue-500 focus:outline-none text-lg placeholder-gray-500\" hx-get=\"/search/results\" hx-trigger=\"input changed delay:300ms\" hx-target=\"#search-results\" hx-include=\"#search-filters\"></div><!-- Filters --><div id=\"search-filters\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-6\"><h1 class=\"text-2xl font-bold text-gray-100\">Search Conversations</h1><!-- Search Input --><div><input type=\"text\" name=\"q\" autocomplete=\"off\" placeholder=\"Search prompts, responses, and tool outputs...\" class=\"w-full bg-gray-800 text-gray-100 rounded-lg px-4 py-3 border border-gray-700 focus:border-blue-500 focus:outline-none text-lg placeholder-gray-500\" hx-get=\"/search/results\" hx-trigger=\"input changed delay:300ms\" hx-target=\"#search-results\" hx-include=\"#search-filters\"></div><!-- Filters --><div id=\"search-filters\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

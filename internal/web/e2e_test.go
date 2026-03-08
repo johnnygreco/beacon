@@ -441,6 +441,7 @@ func TestE2E_SessionDetailChatView(t *testing.T) {
 	insertTestEvent(t, db, "e1", "sess1", "message", "user", "What is 2+2?", "claude-sonnet-4-20250514", 100, 0)
 	insertTestEvent(t, db, "e2", "sess1", "message", "assistant", "The answer is 4.", "claude-sonnet-4-20250514", 0, 200)
 
+	// Session detail page lazy-loads conversation; check initial page has the container
 	resp, err := http.Get(server.URL + "/sessions/sess1")
 	if err != nil {
 		t.Fatalf("GET /sessions/sess1: %v", err)
@@ -450,19 +451,33 @@ func TestE2E_SessionDetailChatView(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	html := string(body)
 
-	// Chat view should contain the actual message text
-	if !strings.Contains(html, "What is 2+2?") {
-		t.Error("expected user message text in chat view")
+	if !strings.Contains(html, `id="conversation-container"`) {
+		t.Error("expected conversation-container div for lazy loading")
 	}
-	if !strings.Contains(html, "The answer is 4.") {
-		t.Error("expected assistant message text in chat view")
+
+	// Fetch the lazy-loaded conversation partial
+	resp2, err := http.Get(server.URL + "/sessions/sess1/conversation")
+	if err != nil {
+		t.Fatalf("GET /sessions/sess1/conversation: %v", err)
+	}
+	defer resp2.Body.Close()
+
+	body2, _ := io.ReadAll(resp2.Body)
+	html2 := string(body2)
+
+	// Chat view should contain the actual message text
+	if !strings.Contains(html2, "What is 2+2?") {
+		t.Error("expected user message text in conversation partial")
+	}
+	if !strings.Contains(html2, "The answer is 4.") {
+		t.Error("expected assistant message text in conversation partial")
 	}
 
 	// Should have chat-view and timeline-view divs
-	if !strings.Contains(html, `id="chat-view"`) {
+	if !strings.Contains(html2, `id="chat-view"`) {
 		t.Error("expected chat-view div")
 	}
-	if !strings.Contains(html, `id="timeline-view"`) {
+	if !strings.Contains(html2, `id="timeline-view"`) {
 		t.Error("expected timeline-view div")
 	}
 }

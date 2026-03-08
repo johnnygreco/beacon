@@ -5,10 +5,6 @@
   var sseContainer = document.querySelector('[sse-connect]');
   if (!sseContainer) return;
 
-  // Show the SSE status bar only on pages that use SSE
-  var statusBar = document.getElementById('sse-status-bar');
-  if (statusBar) statusBar.classList.remove('hidden');
-
   var indicator = document.getElementById('sse-indicator');
   var statusEl = document.getElementById('sse-status');
 

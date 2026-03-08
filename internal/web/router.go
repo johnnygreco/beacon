@@ -28,6 +28,7 @@ func NewRouter(
 	r.Get("/", handlers.Dashboard)
 	r.Get("/sessions", handlers.Sessions)
 	r.Get("/sessions/{id}", handlers.SessionDetail)
+	r.Get("/sessions/{id}/conversation", handlers.SessionConversation)
 	r.Get("/search", handlers.Search)
 	r.Get("/search/results", handlers.SearchResults)
 	r.Get("/partials/sidebar-metrics", handlers.SidebarMetrics)

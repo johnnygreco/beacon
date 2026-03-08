@@ -403,7 +403,7 @@ func TestSetSessionTiming_RecentlyActive(t *testing.T) {
 
 func TestSetSessionTiming_ZeroEndTime(t *testing.T) {
 	var s views.SessionSummary
-	start := time.Now().Add(-5 * time.Minute)
+	start := time.Now().Add(-2 * time.Minute)
 	end := time.Time{} // zero time
 
 	setSessionTiming(&s, start, end, time.Now())

@@ -16,6 +16,8 @@ type SearchQuery struct {
 	MinScore       float64
 	SessionID      string
 	EventKinds     []string
+	FromTime       time.Time
+	ToTime         time.Time
 	ExcludeMCPSelf bool
 }
 
@@ -32,6 +34,7 @@ type SearchResult struct {
 
 type Searcher struct {
 	db              *sql.DB
+	ftsConn         *sql.Conn // dedicated connection for FTS operations
 	logger          *slog.Logger
 	rebuildInterval time.Duration
 	maxResults      int
@@ -49,9 +52,32 @@ func NewSearcher(db *sql.DB, logger *slog.Logger, maxResults int, rebuildInterva
 	}
 }
 
+// initFTSConn pins a dedicated connection and loads the FTS extension on it.
+// Both index rebuilds and BM25 queries use this same connection.
+func (s *Searcher) initFTSConn(ctx context.Context) error {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("pin FTS conn: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx, "INSTALL fts"); err != nil {
+		// ignore — may already be installed
+	}
+	if _, err := conn.ExecContext(ctx, "LOAD fts"); err != nil {
+		conn.Close()
+		return fmt.Errorf("LOAD fts: %w", err)
+	}
+	s.ftsConn = conn
+	return nil
+}
+
 // RunIndexer rebuilds the FTS index periodically. Call from a goroutine.
 func (s *Searcher) RunIndexer(ctx context.Context) {
-	s.rebuildIndex()
+	if err := s.initFTSConn(ctx); err != nil {
+		s.logger.Error("failed to init FTS connection", "error", err)
+		return
+	}
+
+	s.rebuildIndex(ctx)
 
 	if s.rebuildInterval <= 0 {
 		return
@@ -63,17 +89,24 @@ func (s *Searcher) RunIndexer(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			if s.ftsConn != nil {
+				s.ftsConn.Close()
+			}
 			return
 		case <-ticker.C:
-			s.rebuildIndex()
+			s.rebuildIndex(ctx)
 		}
 	}
 }
 
-func (s *Searcher) rebuildIndex() {
+func (s *Searcher) rebuildIndex(ctx context.Context) {
+	if s.ftsConn == nil {
+		return
+	}
+
 	// Check if there are any rows
 	var count int64
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM events WHERE text_content IS NOT NULL AND text_content != ''").Scan(&count); err != nil {
+	if err := s.ftsConn.QueryRowContext(ctx, "SELECT COUNT(*) FROM events WHERE text_content IS NOT NULL AND text_content != ''").Scan(&count); err != nil {
 		s.logger.Error("FTS row count check failed", "error", err)
 		return
 	}
@@ -81,15 +114,7 @@ func (s *Searcher) rebuildIndex() {
 		return
 	}
 
-	if _, err := s.db.Exec("INSTALL fts"); err != nil {
-		// ignore
-	}
-	if _, err := s.db.Exec("LOAD fts"); err != nil {
-		s.logger.Error("LOAD fts failed", "error", err)
-		return
-	}
-
-	_, err := s.db.Exec("PRAGMA create_fts_index('events', 'event_uid', 'text_content', overwrite=1)")
+	_, err := s.ftsConn.ExecContext(ctx, "PRAGMA create_fts_index('events', 'event_uid', 'text_content', overwrite=1)")
 	if err != nil {
 		s.logger.Error("FTS index rebuild failed", "error", err)
 		return
@@ -105,7 +130,7 @@ func (s *Searcher) rebuildIndex() {
 
 // ProbeIndex checks if an FTS index exists (for read-only connections).
 func (s *Searcher) ProbeIndex() {
-	row := s.db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fts_main_events'")
+	row := s.db.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = 'fts_main_events'")
 	var count int
 	if err := row.Scan(&count); err == nil && count > 0 {
 		s.mu.Lock()
@@ -130,20 +155,27 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 
 	var bm25Results []SearchResult
 	var recencyResults []SearchResult
+	bm25OK := false
 
 	// BM25 path
-	if hasIndex {
+	if hasIndex && s.ftsConn != nil {
 		results, err := s.bm25Search(ctx, q)
 		if err != nil {
 			s.logger.Warn("BM25 search failed, falling back to ILIKE", "error", err)
 		} else {
 			bm25Results = results
+			bm25OK = true
 		}
 	}
 
-	// Recency path: ILIKE for events newer than last index build
-	if !lastBuild.IsZero() || !hasIndex {
-		results, err := s.ilikeSearch(ctx, q, lastBuild)
+	// Recency path: ILIKE for events newer than last index build.
+	// If BM25 failed or no index, search everything (zero time).
+	ilikeTime := lastBuild
+	if !bm25OK {
+		ilikeTime = time.Time{}
+	}
+	if !ilikeTime.IsZero() || !bm25OK {
+		results, err := s.ilikeSearch(ctx, q, ilikeTime)
 		if err != nil {
 			s.logger.Warn("ILIKE search failed", "error", err)
 		} else {
@@ -180,19 +212,20 @@ func (s *Searcher) LegacySearch(ctx context.Context, query string, limit int) ([
 }
 
 func (s *Searcher) bm25Search(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
+	// DuckDB v1.4+ FTS creates a schema (not a table) named fts_main_events.
+	// Use fts_main_events.match_bm25() as a scalar function on the events table.
 	query := fmt.Sprintf(
 		`SELECT e.event_uid, e.session_id, e.event_kind, e.text_preview,
-		        fts.score, e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, '')
-		 FROM (SELECT event_uid, fts_main_events.match_bm25(event_uid, $1, fields := 'text_content') AS score
-		       FROM fts_main_events) fts
-		 JOIN events e ON e.event_uid = fts.event_uid
-		 WHERE fts.score IS NOT NULL %s
-		 ORDER BY fts.score DESC
+		        fts_main_events.match_bm25(e.event_uid, $1, fields := 'text_content') AS score,
+		        e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, '')
+		 FROM events e
+		 WHERE score IS NOT NULL %s
+		 ORDER BY score DESC
 		 LIMIT $2`,
 		s.buildFilters(q),
 	)
 
-	rows, err := s.db.QueryContext(ctx, query, q.Query, q.Limit)
+	rows, err := s.ftsConn.QueryContext(ctx, query, q.Query, q.Limit)
 	if err != nil {
 		return nil, err
 	}
@@ -246,6 +279,13 @@ func (s *Searcher) buildFilters(q SearchQuery) string {
 			quoted[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(k, "'", "''"))
 		}
 		clauses = append(clauses, fmt.Sprintf("AND e.event_kind IN (%s)", strings.Join(quoted, ",")))
+	}
+
+	if !q.FromTime.IsZero() {
+		clauses = append(clauses, fmt.Sprintf("AND e.timestamp >= '%s'", q.FromTime.UTC().Format(time.RFC3339)))
+	}
+	if !q.ToTime.IsZero() {
+		clauses = append(clauses, fmt.Sprintf("AND e.timestamp <= '%s'", q.ToTime.UTC().Format(time.RFC3339)))
 	}
 
 	if q.ExcludeMCPSelf {

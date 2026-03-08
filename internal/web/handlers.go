@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/technodrome-ai/technodrome/internal/search"
@@ -36,6 +37,7 @@ func (h *Handlers) Sessions(w http.ResponseWriter, r *http.Request) {
 }
 
 // SessionDetail renders a single session detail page.
+// The conversation trace is loaded lazily via SessionConversation.
 func (h *Handlers) SessionDetail(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	data, err := QuerySessionDetail(r.Context(), h.db, id)
@@ -44,6 +46,13 @@ func (h *Handlers) SessionDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pages.SessionDetail(data).Render(r.Context(), w)
+}
+
+// SessionConversation returns the conversation trace partial for lazy loading.
+func (h *Handlers) SessionConversation(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	chatTurns, turns := QuerySessionConversation(r.Context(), h.db, id)
+	partials.SessionConversation(chatTurns, turns).Render(r.Context(), w)
 }
 
 // SidebarMetrics renders the compact metrics partial for the sidebar.
@@ -65,7 +74,29 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := h.searcher.LegacySearch(r.Context(), query, 20)
+	sq := search.SearchQuery{
+		Query:     query,
+		Limit:     20,
+		SessionID: r.URL.Query().Get("session_id"),
+	}
+	if ek := r.URL.Query().Get("event_kind"); ek != "" {
+		sq.EventKinds = []string{ek}
+	}
+	if v := r.URL.Query().Get("range"); v != "" {
+		now := time.Now()
+		switch v {
+		case "1h":
+			sq.FromTime = now.Add(-1 * time.Hour)
+		case "24h":
+			sq.FromTime = now.Add(-24 * time.Hour)
+		case "7d":
+			sq.FromTime = now.Add(-7 * 24 * time.Hour)
+		case "30d":
+			sq.FromTime = now.Add(-30 * 24 * time.Hour)
+		}
+	}
+
+	results, err := h.searcher.Search(r.Context(), sq)
 	if err != nil {
 		h.logger.Error("search failed", "error", err)
 		partials.SearchResults(nil).Render(r.Context(), w)

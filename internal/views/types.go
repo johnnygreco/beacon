@@ -257,6 +257,7 @@ type ToolChainItem struct {
 type ChatBlock struct {
 	Kind      string // "user_message", "assistant_message", "tool_chain", "reasoning", "error"
 	Message   *EventSummary
+	Messages  []EventSummary  // for grouped reasoning blocks
 	ToolChain []ToolChainItem
 }
 

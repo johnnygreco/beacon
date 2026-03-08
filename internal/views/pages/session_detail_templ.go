@@ -363,23 +363,20 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<!-- Conversation --><div><div class=\"flex items-center justify-between mb-4\"><h2 class=\"text-lg font-semibold text-gray-200\">Conversation</h2><div class=\"flex items-center gap-2\"><button id=\"btn-expand-all\" onclick=\"expandAll()\" class=\"px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors\">Expand All</button> <button id=\"btn-collapse-all\" onclick=\"collapseAll()\" class=\"px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors\">Collapse All</button><div class=\"w-px h-5 bg-gray-700\"></div><button onclick=\"switchView('chat', this)\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-blue-500/20 text-blue-400 border-blue-500/40\">Chat</button> <button onclick=\"switchView('timeline', this)\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700\">Timeline</button></div></div><div id=\"chat-view\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<!-- Conversation (lazy-loaded for fast initial render) --><div><div class=\"flex items-center justify-between mb-4\"><h2 class=\"text-lg font-semibold text-gray-200\">Conversation</h2><div class=\"flex items-center gap-2\"><button id=\"btn-expand-all\" onclick=\"expandAll()\" class=\"px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors\">Expand All</button> <button id=\"btn-collapse-all\" onclick=\"collapseAll()\" class=\"px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors\">Collapse All</button><div class=\"w-px h-5 bg-gray-700\"></div><button onclick=\"switchView('chat', this)\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-blue-500/20 text-blue-400 border-blue-500/40\">Chat</button> <button onclick=\"switchView('timeline', this)\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700\">Timeline</button></div></div><div id=\"conversation-container\" hx-get=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = components.ChatView(data.ChatTurns).Render(ctx, templ_7745c5c3_Buffer)
+			var templ_7745c5c3_Var21 string
+			templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/sessions/%s/conversation", data.Session.ID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 118, Col: 72}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "</div><div id=\"timeline-view\" class=\"hidden\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = components.TurnTimeline(data.Turns).Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "</div></div><!-- Initial chart data embedded as JSON -->")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "\" hx-trigger=\"load\" hx-swap=\"innerHTML\"><div class=\"flex items-center justify-center py-12 text-gray-500\"><svg class=\"animate-spin h-5 w-5 mr-3\" viewBox=\"0 0 24 24\"><circle class=\"opacity-25\" cx=\"12\" cy=\"12\" r=\"10\" stroke=\"currentColor\" stroke-width=\"4\" fill=\"none\"></circle> <path class=\"opacity-75\" fill=\"currentColor\" d=\"M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z\"></path></svg> Loading conversation...</div></div></div><!-- Initial chart data embedded as JSON -->")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -393,7 +390,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "<script src=\"/static/js/transcript.js\"></script></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -1,0 +1,16 @@
+package partials
+
+import (
+	"github.com/technodrome-ai/technodrome/internal/views"
+	"github.com/technodrome-ai/technodrome/internal/views/components"
+)
+
+templ SessionConversation(chatTurns []views.ChatTurn, turns []views.TurnDetail) {
+	<div id="chat-view">
+		@components.ChatView(chatTurns)
+	</div>
+	<div id="timeline-view" class="hidden">
+		@components.TurnTimeline(turns)
+	</div>
+	<script src="/static/js/transcript.js"></script>
+}

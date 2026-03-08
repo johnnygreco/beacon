@@ -234,7 +234,8 @@ func QueryTotalTokensTimeSeries(ctx context.Context, db *sql.DB) views.MultiSeri
 	return chart
 }
 
-// QuerySessionDetail returns full detail for a single session.
+// QuerySessionDetail returns header, chart, and tool data for a session.
+// The conversation trace is loaded separately via QuerySessionConversation.
 func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.SessionDetailData, error) {
 	var data views.SessionDetailData
 
@@ -262,56 +263,7 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 	data.Session.ActiveModel = model
 	setSessionTiming(&data.Session, startedAt, endedAt, time.Now())
 
-	// Get events grouped by turn from v_conversation_trace
-	traceRows, err := db.QueryContext(ctx,
-		`SELECT e.event_uid, e.event_kind, COALESCE(e.actor_role, ''),
-		        COALESCE(e.text_content, ''), COALESCE(e.text_preview, ''),
-		        COALESCE(e.tool_name, ''), COALESCE(e.model, ''),
-		        e.input_tokens + e.output_tokens, e.duration_ms, e.timestamp, turn_seq,
-		        COALESCE(tio.input_preview, ''), COALESCE(tio.output_preview, ''),
-		        COALESCE(tio.input_json, '')
-		 FROM v_conversation_trace e
-		 LEFT JOIN tool_io tio ON e.event_uid = tio.event_uid
-		 WHERE e.session_id = $1
-		 ORDER BY event_order`, id)
-	if err == nil {
-		defer traceRows.Close()
-
-		turnMap := make(map[int]*views.TurnDetail)
-		var turnOrder []int
-
-		for traceRows.Next() {
-			var es views.EventSummary
-			var turnSeq int
-			if err := traceRows.Scan(&es.EventUID, &es.EventKind, &es.ActorRole,
-				&es.TextContent, &es.TextPreview,
-				&es.ToolName, &es.Model, &es.Tokens, &es.DurationMs, &es.Timestamp, &turnSeq,
-				&es.InputPreview, &es.OutputPreview, &es.InputJSON); err != nil {
-				continue
-			}
-
-			td, ok := turnMap[turnSeq]
-			if !ok {
-				td = &views.TurnDetail{
-					TurnSeq:   turnSeq,
-					StartedAt: es.Timestamp,
-				}
-				turnMap[turnSeq] = td
-				turnOrder = append(turnOrder, turnSeq)
-			}
-
-			td.Events = append(td.Events, es)
-			td.TotalTokens += es.Tokens
-		}
-
-		for _, seq := range turnOrder {
-			data.Turns = append(data.Turns, *turnMap[seq])
-		}
-
-		data.ChatTurns = buildChatTurns(deduplicateTurns(data.Turns))
-	}
-
-	// Run remaining queries in parallel
+	// Run chart + tool queries in parallel
 	var wg sync.WaitGroup
 	wg.Add(3)
 
@@ -388,6 +340,60 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 	return data, nil
 }
 
+// QuerySessionConversation returns the conversation trace for a session.
+func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]views.ChatTurn, []views.TurnDetail) {
+	traceRows, err := db.QueryContext(ctx,
+		`SELECT e.event_uid, e.event_kind, COALESCE(e.actor_role, ''),
+		        COALESCE(e.text_content, ''), COALESCE(e.text_preview, ''),
+		        COALESCE(e.tool_name, ''), COALESCE(e.model, ''),
+		        e.input_tokens + e.output_tokens, e.duration_ms, e.timestamp, turn_seq,
+		        COALESCE(tio.input_preview, ''), COALESCE(tio.output_preview, ''),
+		        COALESCE(tio.input_json, '')
+		 FROM v_conversation_trace e
+		 LEFT JOIN tool_io tio ON e.event_uid = tio.event_uid
+		 WHERE e.session_id = $1
+		 ORDER BY event_order`, id)
+	if err != nil {
+		return nil, nil
+	}
+	defer traceRows.Close()
+
+	turnMap := make(map[int]*views.TurnDetail)
+	var turnOrder []int
+
+	for traceRows.Next() {
+		var es views.EventSummary
+		var turnSeq int
+		if err := traceRows.Scan(&es.EventUID, &es.EventKind, &es.ActorRole,
+			&es.TextContent, &es.TextPreview,
+			&es.ToolName, &es.Model, &es.Tokens, &es.DurationMs, &es.Timestamp, &turnSeq,
+			&es.InputPreview, &es.OutputPreview, &es.InputJSON); err != nil {
+			continue
+		}
+
+		td, ok := turnMap[turnSeq]
+		if !ok {
+			td = &views.TurnDetail{
+				TurnSeq:   turnSeq,
+				StartedAt: es.Timestamp,
+			}
+			turnMap[turnSeq] = td
+			turnOrder = append(turnOrder, turnSeq)
+		}
+
+		td.Events = append(td.Events, es)
+		td.TotalTokens += es.Tokens
+	}
+
+	var turns []views.TurnDetail
+	for _, seq := range turnOrder {
+		turns = append(turns, *turnMap[seq])
+	}
+
+	chatTurns := buildChatTurns(deduplicateTurns(turns))
+	return chatTurns, turns
+}
+
 // parseToolParams extracts structured parameters from tool input JSON.
 // Returns nil if the JSON is empty or unparseable.
 func parseToolParams(inputJSON string) *views.ToolCallParams {
@@ -413,6 +419,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 		}
 
 		var pendingToolChain []views.ToolChainItem
+		var pendingReasoning []views.EventSummary
 
 		flushToolChain := func() {
 			if len(pendingToolChain) > 0 {
@@ -421,6 +428,16 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 					ToolChain: pendingToolChain,
 				})
 				pendingToolChain = nil
+			}
+		}
+
+		flushReasoning := func() {
+			if len(pendingReasoning) > 0 {
+				ct.Blocks = append(ct.Blocks, views.ChatBlock{
+					Kind:     views.ChatBlockReasoning,
+					Messages: pendingReasoning,
+				})
+				pendingReasoning = nil
 			}
 		}
 
@@ -474,6 +491,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 					text = e.TextPreview
 				}
 				if e.ActorRole == "user" || strings.TrimSpace(text) != "" {
+					flushReasoning()
 					flushToolChain()
 					eCopy := e
 					kind := views.ChatBlockAssistantMessage
@@ -487,15 +505,11 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 				}
 
 			case "reasoning":
-				// Reasoning doesn't break tool chains — show it inline
-				// but keep accumulating tools
-				eCopy := e
-				ct.Blocks = append(ct.Blocks, views.ChatBlock{
-					Kind:    views.ChatBlockReasoning,
-					Message: &eCopy,
-				})
+				// Accumulate consecutive reasoning events into a group
+				pendingReasoning = append(pendingReasoning, e)
 
 			case "error":
+				flushReasoning()
 				flushToolChain()
 				eCopy := e
 				ct.Blocks = append(ct.Blocks, views.ChatBlock{
@@ -507,6 +521,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 				// Intermediate log events — skip without breaking tool chains
 
 			default:
+				flushReasoning()
 				flushToolChain()
 				eCopy := e
 				ct.Blocks = append(ct.Blocks, views.ChatBlock{
@@ -516,6 +531,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 			}
 		}
 
+		flushReasoning()
 		flushToolChain()
 
 		// Compute per-turn tool stats
@@ -569,11 +585,22 @@ func deduplicateTurns(turns []views.TurnDetail) []views.TurnDetail {
 			}
 		}
 
-		// Remove consecutive duplicate events within the turn
+		// Remove duplicate events within the turn.
+		// Claude Code JSONL logs the same content in multiple line types
+		// with different UIDs. Deduplicate by content for reasoning and
+		// message events to avoid showing the same text twice.
 		var deduped []views.EventSummary
 		seen := make(map[string]bool)
 		for _, e := range t.Events {
-			key := e.EventUID + "|" + e.EventKind + "|" + e.ActorRole + "|" + e.TextContent + "|" + e.ToolName + "|" + e.InputJSON
+			var key string
+			switch {
+			case e.EventKind == "reasoning":
+				key = e.EventKind + "|" + e.TextContent
+			case e.EventKind == "message" && e.TextContent != "":
+				key = e.EventKind + "|" + e.ActorRole + "|" + e.TextContent
+			default:
+				key = e.EventUID + "|" + e.EventKind + "|" + e.ActorRole + "|" + e.TextContent + "|" + e.ToolName + "|" + e.InputJSON
+			}
 			if seen[key] {
 				continue
 			}
@@ -581,6 +608,12 @@ func deduplicateTurns(turns []views.TurnDetail) []views.TurnDetail {
 			deduped = append(deduped, e)
 		}
 		t.Events = deduped
+		// Recompute total tokens after dedup
+		var totalTok int64
+		for _, e := range deduped {
+			totalTok += e.Tokens
+		}
+		t.TotalTokens = totalTok
 		result = append(result, t)
 	}
 	return result

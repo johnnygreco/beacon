@@ -24,6 +24,27 @@ templ Layout(title string) {
 		function toggleSidebar() {
 			document.body.classList.toggle('sidebar-collapsed');
 		}
+
+		// Server connectivity check (works on all pages, not just SSE pages)
+		(function() {
+			var indicator = document.getElementById('sse-indicator');
+			var statusEl = document.getElementById('sse-status');
+			function setConnected(ok) {
+				if (indicator) indicator.className = ok
+					? 'w-2 h-2 rounded-full bg-green-500 flex-shrink-0 sse-glow'
+					: 'w-2 h-2 rounded-full bg-red-500 flex-shrink-0';
+				if (statusEl) statusEl.textContent = ok ? 'Connected' : 'Disconnected';
+			}
+			function check() {
+				var ctrl = new AbortController();
+				setTimeout(function(){ ctrl.abort(); }, 5000);
+				fetch('/partials/sidebar-metrics', {signal: ctrl.signal})
+					.then(function(r){ setConnected(r.ok); })
+					.catch(function(){ setConnected(false); });
+			}
+			check();
+			setInterval(check, 15000);
+		})();
 		</script>
 		<script src="/static/js/charts.js"></script>
 		<script src="/static/js/sse-chart-bridge.js"></script>
@@ -66,10 +87,10 @@ templ Nav() {
 			<div id="sidebar-metrics" hx-get="/partials/sidebar-metrics" hx-trigger="load">
 			</div>
 		</div>
-		<div id="sse-status-bar" class="nav-section-collapsible p-4 border-t border-gray-700 hidden">
+		<div id="sse-status-bar" class="sse-status-bar p-4 border-t border-gray-700">
 			<div class="flex items-center gap-3 text-xs text-gray-500">
 				<span id="sse-indicator" class="w-2 h-2 rounded-full bg-gray-600 flex-shrink-0"></span>
-				<span id="sse-status">Connecting...</span>
+				<span id="sse-status" class="nav-label">Connecting...</span>
 			</div>
 		</div>
 	</nav>

@@ -10,17 +10,12 @@ templ ChatView(chatTurns []views.ChatTurn) {
 	<div class="space-y-4">
 		for i, ct := range chatTurns {
 			if i > 0 {
-				<div id={ fmt.Sprintf("turn-%d", ct.TurnSeq) } class="flex items-center gap-3 my-6 flex-wrap">
+				<div id={ fmt.Sprintf("turn-%d", ct.TurnSeq) } class="flex items-center gap-3 my-6">
 					<div class="flex-1 min-w-[2rem] h-px bg-gray-700"></div>
 					<a href={ templ.SafeURL(fmt.Sprintf("#turn-%d", ct.TurnSeq)) }
 					   class="text-xs text-gray-500 whitespace-nowrap hover:text-gray-300 transition-colors">
-						{ fmt.Sprintf("Turn %d — %d tok", ct.TurnSeq, ct.TotalTokens) }
+						{ turnDividerText(ct) }
 					</a>
-					for _, stat := range ct.ToolStats {
-						<span class="px-1.5 py-0.5 text-xs rounded bg-gray-700/50 text-gray-400 whitespace-nowrap">
-							{ fmt.Sprintf("%d %s", stat.Count, toolDisplayName(stat.Name)) }
-						</span>
-					}
 					<div class="flex-1 min-w-[2rem] h-px bg-gray-700"></div>
 				</div>
 			}
@@ -29,8 +24,8 @@ templ ChatView(chatTurns []views.ChatTurn) {
 					@chatUserMessage(*block.Message)
 				} else if block.Kind == views.ChatBlockAssistantMessage && block.Message != nil && chatDisplayText(*block.Message) != "" {
 					@chatAssistantMessage(*block.Message)
-				} else if block.Kind == views.ChatBlockReasoning && block.Message != nil {
-					@chatReasoningBlock(*block.Message)
+				} else if block.Kind == views.ChatBlockReasoning && len(block.Messages) > 0 {
+					@chatReasoningGroup(block.Messages)
 				} else if block.Kind == views.ChatBlockError && block.Message != nil {
 					@chatErrorBlock(*block.Message)
 				} else if block.Kind == views.ChatBlockToolChain {
@@ -84,23 +79,33 @@ templ chatAssistantMessage(e views.EventSummary) {
 	</div>
 }
 
-templ chatReasoningBlock(e views.EventSummary) {
-	<div id={ e.EventUID } class="mr-auto max-w-[95%] sm:max-w-[85%] ml-8 border-l-4 border-amber-500/40">
-		<details>
-			<summary class="text-gray-500 text-sm cursor-pointer flex items-center gap-2 py-1.5 px-2 hover:bg-gray-800/30 rounded transition-colors">
+templ chatReasoningGroup(events []views.EventSummary) {
+	<div class="mr-auto max-w-[95%] sm:max-w-[85%] ml-8 my-2">
+		<details class="group/thinking border border-gray-700/50 rounded-lg bg-gray-800/30">
+			<summary class="text-sm cursor-pointer flex items-center gap-2 py-2 px-3 hover:bg-gray-800/50 rounded-lg transition-colors">
+				<svg class="w-3.5 h-3.5 text-amber-500 flex-shrink-0 transition-transform group-open/thinking:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+				</svg>
 				<svg class="w-4 h-4 flex-shrink-0 text-amber-500/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
 				</svg>
-				<span>Thinking</span>
-				if e.Tokens > 0 {
-					<span class="text-xs text-gray-600">{ fmt.Sprintf("%d tok", e.Tokens) }</span>
+				<span class="text-amber-500/80 font-medium">Thinking</span>
+				if reasoningTotalTokens(events) > 0 {
+					<span class="text-gray-500 text-xs">{ fmt.Sprintf("%d tok", reasoningTotalTokens(events)) }</span>
+				}
+				if len(events) > 1 {
+					<span class="text-gray-600 text-xs">{ fmt.Sprintf("%d blocks", len(events)) }</span>
 				}
 			</summary>
-			@truncatableBlock("#111827") {
-				<div class="text-gray-400 text-sm italic whitespace-pre-wrap mt-2 px-2 pb-1">
-					{ chatDisplayText(e) }
-				</div>
-			}
+			<div class="border-t border-gray-700/30 border-l-4 border-amber-500/40 ml-3 py-2">
+				@truncatableBlock("#111827") {
+					for _, e := range events {
+						<div class="text-gray-400 text-sm italic whitespace-pre-wrap px-3 py-1">
+							{ chatDisplayText(e) }
+						</div>
+					}
+				}
+			</div>
 		</details>
 	</div>
 }
@@ -118,7 +123,6 @@ templ chatToolChain(items []views.ToolChainItem) {
 				</svg>
 				<span class="text-yellow-400/80 font-medium">Tool Use</span>
 				<span class="text-gray-500 text-xs">{ views.Pluralize(len(items), "call") }</span>
-				@toolChainNameList(items)
 			</summary>
 			<div class="border-t border-gray-700/30 pl-4 border-l-4 border-yellow-400/40 ml-3 space-y-1 py-2">
 				for _, item := range items {
@@ -167,19 +171,7 @@ templ chatToolItem(item views.ToolChainItem) {
 }
 
 templ toolChainNameList(items []views.ToolChainItem) {
-	<span class="text-gray-600 text-xs truncate">
-		for i, item := range items {
-			if i > 0 {
-				{ ", " }
-			}
-			if i < 5 {
-				{ toolDisplayName(item.ToolName) }
-			}
-		}
-		if len(items) > 5 {
-			{ fmt.Sprintf(" +%d more", len(items)-5) }
-		}
-	</span>
+	// intentionally empty — count is shown via Pluralize in the summary
 }
 
 templ chatErrorBlock(e views.EventSummary) {
@@ -360,6 +352,18 @@ func toolDisplayName(name string) string {
 	return name
 }
 
+func turnDividerText(ct views.ChatTurn) string {
+	totalTools := 0
+	for _, s := range ct.ToolStats {
+		totalTools += s.Count
+	}
+	parts := fmt.Sprintf("Turn %d — %s", ct.TurnSeq, views.FormatTokens(ct.TotalTokens))
+	if totalTools > 0 {
+		parts += fmt.Sprintf(" — %s", views.Pluralize(totalTools, "tool call"))
+	}
+	return parts
+}
+
 func chatDisplayText(e views.EventSummary) string {
 	if e.TextContent != "" {
 		return e.TextContent
@@ -369,6 +373,14 @@ func chatDisplayText(e views.EventSummary) string {
 
 func chatCleanUserText(e views.EventSummary) string {
 	return views.CleanSystemTags(chatDisplayText(e))
+}
+
+func reasoningTotalTokens(events []views.EventSummary) int64 {
+	var total int64
+	for _, e := range events {
+		total += e.Tokens
+	}
+	return total
 }
 
 templ truncatableBlock(fadeBg string) {

@@ -122,10 +122,8 @@
     initHighlighting(e.detail.target);
   });
 
-  // --- Init on page load ---
-  document.addEventListener('DOMContentLoaded', function() {
-    initTruncation();
-    initHighlighting();
-  });
+  // --- Init immediately (script loads inside HTMX swap, so DOMContentLoaded already fired) ---
+  initTruncation();
+  initHighlighting();
 
 })();

@@ -113,6 +113,7 @@ func (a *APIHandlers) GetSessionDetail(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "session not found", http.StatusNotFound)
 		return
 	}
+	data.ChatTurns, data.Turns = QuerySessionConversation(r.Context(), a.db, id)
 	jsonResponse(w, data)
 }
 
