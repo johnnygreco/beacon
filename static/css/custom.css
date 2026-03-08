@@ -177,8 +177,6 @@ nav a.active {
   white-space: nowrap;
 }
 
-/* --- Sidebar --- */
-
 /* --- highlight.js overrides --- */
 .hljs {
   background: #0d1117 !important;

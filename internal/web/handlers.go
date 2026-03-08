@@ -61,15 +61,9 @@ func (h *Handlers) SessionConversation(w http.ResponseWriter, r *http.Request) {
 	partials.SessionConversation(chatTurns, turns).Render(r.Context(), w)
 }
 
-// SidebarMetrics renders the compact metrics partial for the sidebar.
-func (h *Handlers) SidebarMetrics(w http.ResponseWriter, r *http.Request) {
-	var metrics []views.MetricData
-	if snap := h.updater.Snapshot(); snap != nil {
-		metrics = snap.Metrics
-	} else {
-		metrics = QueryDashboardMetrics(r.Context(), h.db)
-	}
-	partials.SidebarMetrics(metrics).Render(r.Context(), w)
+// Health is a lightweight endpoint for connectivity checks.
+func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
 }
 
 // Search renders the search page (results load via HTMX).

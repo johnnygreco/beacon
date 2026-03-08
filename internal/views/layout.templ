@@ -35,7 +35,7 @@ templ Layout(title string) {
 			function check() {
 				var ctrl = new AbortController();
 				setTimeout(function(){ ctrl.abort(); }, 5000);
-				fetch('/partials/sidebar-metrics', {signal: ctrl.signal})
+				fetch('/health', {signal: ctrl.signal})
 					.then(function(r){ setConnected(r.ok); })
 					.catch(function(){ setConnected(false); });
 			}

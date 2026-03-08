@@ -39,15 +39,13 @@ func (u *Updater) NotifyDashboard() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	var metrics []views.MetricData
 	var activeSessions, completedSessions []views.SessionSummary
 	var activity []views.ActivityItem
 	var tokensChart views.MultiSeriesChart
 	var tokensByModel []views.ModelTokens
 
 	var wg sync.WaitGroup
-	wg.Add(5)
-	go func() { defer wg.Done(); metrics = QueryDashboardMetrics(ctx, u.db) }()
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		activeSessions, completedSessions = QueryDashboardSessions(ctx, u.db)
@@ -59,7 +57,6 @@ func (u *Updater) NotifyDashboard() {
 
 	// Store snapshot for cache reads
 	u.snapshot.Store(&views.DashboardData{
-		Metrics:           metrics,
 		ActiveSessions:    activeSessions,
 		CompletedSessions: completedSessions,
 		RecentActivity:    activity,
