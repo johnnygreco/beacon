@@ -330,9 +330,9 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 						return templ_7745c5c3_Err
 					}
 					var templ_7745c5c3_Var19 string
-					templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(pluralize(ts.Calls, "call"))
+					templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(views.Pluralize(ts.Calls, "call"))
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 86, Col: 38}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 86, Col: 44}
 					}
 					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
 					if templ_7745c5c3_Err != nil {
@@ -427,13 +427,6 @@ func toolShortName(name string) string {
 		return parts[len(parts)-1]
 	}
 	return name
-}
-
-func pluralize(n int, singular string) string {
-	if n == 1 {
-		return fmt.Sprintf("%d %s", n, singular)
-	}
-	return fmt.Sprintf("%d %ss", n, singular)
 }
 
 var _ = templruntime.GeneratedTemplate

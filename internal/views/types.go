@@ -35,6 +35,14 @@ func TruncateID(id string) string {
 	return id
 }
 
+// Pluralize returns "N singular" or "N singulars" based on count.
+func Pluralize(n int, singular string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %ss", n, singular)
+}
+
 // FormatTokens formats a token count for display (e.g. 1500 -> "1.5K").
 func FormatTokens(n int64) string {
 	if n >= 1_000_000 {

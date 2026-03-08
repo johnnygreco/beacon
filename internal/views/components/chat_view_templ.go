@@ -473,9 +473,9 @@ func chatToolChain(items []views.ToolChainItem) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var18 string
-		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d %s", len(items), toolCallPlural(len(items))))
+		templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(views.Pluralize(len(items), "call"))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/chat_view.templ`, Line: 120, Col: 102}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/chat_view.templ`, Line: 120, Col: 77}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
 		if templ_7745c5c3_Err != nil {
@@ -1548,13 +1548,6 @@ func toolDisplayName(name string) string {
 	return name
 }
 
-func toolCallPlural(n int) string {
-	if n == 1 {
-		return "call"
-	}
-	return "calls"
-}
-
 func chatDisplayText(e views.EventSummary) string {
 	if e.TextContent != "" {
 		return e.TextContent
@@ -1594,7 +1587,7 @@ func truncatableBlock(fadeBg string) templ.Component {
 		var templ_7745c5c3_Var65 string
 		templ_7745c5c3_Var65, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("--fade-bg: " + fadeBg)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/chat_view.templ`, Line: 382, Col: 56}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/chat_view.templ`, Line: 375, Col: 56}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var65))
 		if templ_7745c5c3_Err != nil {

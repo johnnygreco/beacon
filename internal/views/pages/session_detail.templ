@@ -83,7 +83,7 @@ templ SessionDetail(data views.SessionDetailData) {
 									<span class="text-sm text-gray-200 font-medium truncate" title={ ts.Name }>{ toolShortName(ts.Name) }</span>
 								</div>
 								<p class="text-xs text-gray-500">
-									{ pluralize(ts.Calls, "call") }
+									{ views.Pluralize(ts.Calls, "call") }
 									if ts.AvgDuration > 0 {
 										{ fmt.Sprintf(" · %.0fms avg", ts.AvgDuration) }
 									}
@@ -154,9 +154,3 @@ func toolShortName(name string) string {
 	return name
 }
 
-func pluralize(n int, singular string) string {
-	if n == 1 {
-		return fmt.Sprintf("%d %s", n, singular)
-	}
-	return fmt.Sprintf("%d %ss", n, singular)
-}

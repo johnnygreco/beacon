@@ -117,7 +117,7 @@ templ chatToolChain(items []views.ToolChainItem) {
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
 				</svg>
 				<span class="text-yellow-400/80 font-medium">Tool Use</span>
-				<span class="text-gray-500 text-xs">{ fmt.Sprintf("%d %s", len(items), toolCallPlural(len(items))) }</span>
+				<span class="text-gray-500 text-xs">{ views.Pluralize(len(items), "call") }</span>
 				@toolChainNameList(items)
 			</summary>
 			<div class="border-t border-gray-700/30 pl-4 border-l-4 border-yellow-400/40 ml-3 space-y-1 py-2">
@@ -358,13 +358,6 @@ func toolDisplayName(name string) string {
 		return "tool"
 	}
 	return name
-}
-
-func toolCallPlural(n int) string {
-	if n == 1 {
-		return "call"
-	}
-	return "calls"
 }
 
 func chatDisplayText(e views.EventSummary) string {
