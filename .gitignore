@@ -1,6 +1,8 @@
-# Build output
+# Build output — always use `make build` / `make simulator` so binaries go to bin/
 bin/
 dist/
+/technodrome
+/simulator
 *.exe
 *.exe~
 *.dll
