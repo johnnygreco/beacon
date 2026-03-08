@@ -574,15 +574,19 @@ const activeSessionThreshold = 5 * time.Minute
 func setSessionTiming(s *views.SessionSummary, startedAt, endedAt, now time.Time) {
 	s.StartedAt = startedAt
 	s.EndedAt = endedAt
-	if !endedAt.IsZero() && now.Sub(endedAt) < activeSessionThreshold {
+
+	// Use the most recent activity timestamp to determine if session is still active.
+	lastActivity := startedAt
+	if !endedAt.IsZero() && endedAt.After(startedAt) {
+		lastActivity = endedAt
+	}
+
+	if now.Sub(lastActivity) < activeSessionThreshold {
 		s.Status = "active"
 		s.Duration = formatDuration(now.Sub(startedAt))
-	} else if !endedAt.IsZero() && endedAt.After(startedAt) {
-		s.Status = "completed"
-		s.Duration = formatDuration(endedAt.Sub(startedAt))
 	} else {
-		s.Status = "active"
-		s.Duration = formatDuration(now.Sub(startedAt))
+		s.Status = "completed"
+		s.Duration = formatDuration(lastActivity.Sub(startedAt))
 	}
 }
 

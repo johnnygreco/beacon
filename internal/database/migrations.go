@@ -104,8 +104,8 @@ func (db *DB) migrate() error {
 		`CREATE OR REPLACE VIEW v_session_summary AS
 		SELECT
 			session_id, source_name,
-			MIN(timestamp) AS started_at,
-			MAX(timestamp) AS ended_at,
+			COALESCE(MIN(CASE WHEN timestamp > '2000-01-01' THEN timestamp END), MIN(timestamp)) AS started_at,
+			COALESCE(MAX(CASE WHEN timestamp > '2000-01-01' THEN timestamp END), MIN(timestamp)) AS ended_at,
 			COUNT(*) AS event_count,
 			COUNT(DISTINCT CASE WHEN event_kind = 'message' AND actor_role = 'user' THEN event_uid END) AS turn_count,
 			COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
@@ -129,7 +129,7 @@ func (db *DB) migrate() error {
 				OVER (PARTITION BY session_id ORDER BY timestamp, event_uid) AS turn_seq
 		FROM events e`,
 
-		// Time-series token usage
+		// Time-series token usage (excludes zero-timestamp events)
 		`CREATE OR REPLACE VIEW v_tokens_per_minute AS
 		SELECT
 			time_bucket(INTERVAL '1 minute', timestamp) AS minute,
@@ -139,7 +139,7 @@ func (db *DB) migrate() error {
 			SUM(cache_create_tokens) AS total_cache_create,
 			SUM(input_tokens + output_tokens) AS total_tokens,
 			COUNT(CASE WHEN input_tokens + output_tokens > 0 THEN 1 END) AS call_count
-		FROM events GROUP BY minute ORDER BY minute DESC`,
+		FROM events WHERE timestamp > '2000-01-01' GROUP BY minute ORDER BY minute DESC`,
 
 		// Tool usage stats
 		`CREATE OR REPLACE VIEW v_tool_stats AS

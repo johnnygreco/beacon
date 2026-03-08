@@ -47,15 +47,7 @@ func Dashboard(data views.DashboardData) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div hx-ext=\"sse\" sse-connect=\"/sse/dashboard\" class=\"space-y-6\"><!-- Hidden SSE receiver for sidebar metrics (OOB swap) --><div sse-swap=\"metrics-update\" class=\"hidden\"></div><!-- Active Sessions (hero, full width) --><div><h2 class=\"text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2\"><span class=\"relative flex h-2 w-2\"><span class=\"animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75\"></span> <span class=\"relative inline-flex rounded-full h-2 w-2 bg-green-500\"></span></span> Active Sessions</h2><div id=\"active-sessions\" sse-swap=\"active-sessions-update\" hx-swap=\"innerHTML\" class=\"grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = partials.ActiveSessionList(data.ActiveSessions).Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</div></div><!-- Charts: Total Tokens Over Time + Tokens by Model --><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div hx-ext=\"sse\" sse-connect=\"/sse/dashboard\" class=\"space-y-6\"><!-- Hidden SSE receiver for sidebar metrics (OOB swap) --><div sse-swap=\"metrics-update\" class=\"hidden\"></div><!-- Charts: Total Tokens Over Time + Tokens by Model --><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -69,7 +61,7 @@ func Dashboard(data views.DashboardData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -85,7 +77,15 @@ func Dashboard(data views.DashboardData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<!-- Completed Sessions + Activity Timeline (side by side) --><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6\"><div><h2 class=\"text-sm font-medium text-gray-400 uppercase tracking-wide mb-3\">Completed Sessions</h2><div id=\"completed-sessions\" sse-swap=\"completed-sessions-update\" hx-swap=\"innerHTML\" class=\"space-y-1 max-h-[500px] overflow-y-auto\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<!-- Active Sessions --><div><h2 class=\"text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2\"><span class=\"relative flex h-2 w-2\"><span class=\"animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75\"></span> <span class=\"relative inline-flex rounded-full h-2 w-2 bg-green-500\"></span></span> Active Sessions</h2><div id=\"active-sessions\" sse-swap=\"active-sessions-update\" hx-swap=\"innerHTML\" class=\"grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = partials.ActiveSessionList(data.ActiveSessions).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div></div><!-- Completed Sessions + Activity Timeline (side by side) --><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6\"><div><h2 class=\"text-sm font-medium text-gray-400 uppercase tracking-wide mb-3\">Completed Sessions</h2><div id=\"completed-sessions\" sse-swap=\"completed-sessions-update\" hx-swap=\"innerHTML\" class=\"space-y-1 max-h-[500px] overflow-y-auto\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

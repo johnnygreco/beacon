@@ -11,7 +11,7 @@ Chart.defaults.borderColor = darkTheme.borderColor;
 
 const timeScaleOptions = {
   type: 'time',
-  time: { unit: 'minute', displayFormats: { minute: 'HH:mm' } },
+  time: { unit: 'minute', displayFormats: { minute: 'h:mm a' } },
   grid: { color: '#374151' },
   ticks: { color: '#9ca3af' }
 };

@@ -19,6 +19,6 @@ templ SearchResultCard(r views.SearchResult) {
 			</div>
 		</div>
 		<p class="text-sm text-gray-300 leading-relaxed">{ r.Snippet }</p>
-		<p class="text-xs text-gray-500 mt-2">{ r.Timestamp.Format("Jan 2 15:04:05") }</p>
+		<p class="text-xs text-gray-500 mt-2">{ views.FormatTime(r.Timestamp) }</p>
 	</div>
 }

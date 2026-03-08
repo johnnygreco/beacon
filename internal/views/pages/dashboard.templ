@@ -12,21 +12,6 @@ templ Dashboard(data views.DashboardData) {
 			<!-- Hidden SSE receiver for sidebar metrics (OOB swap) -->
 			<div sse-swap="metrics-update" class="hidden"></div>
 
-			<!-- Active Sessions (hero, full width) -->
-			<div>
-				<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
-					<span class="relative flex h-2 w-2">
-						<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-						<span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-					</span>
-					Active Sessions
-				</h2>
-				<div id="active-sessions" sse-swap="active-sessions-update" hx-swap="innerHTML"
-				     class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-					@partials.ActiveSessionList(data.ActiveSessions)
-				</div>
-			</div>
-
 			<!-- Charts: Total Tokens Over Time + Tokens by Model -->
 			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 				@components.ChartContainerWithOptions("dashboardTotalTokensChart", "300px", "Total Tokens Over Time", true, false)
@@ -40,6 +25,21 @@ templ Dashboard(data views.DashboardData) {
 			if len(data.TokensByModel) > 0 {
 				@templ.JSONScript("dashboard-tokens-by-model-data", dashboardTokensByModelData(data.TokensByModel))
 			}
+
+			<!-- Active Sessions -->
+			<div>
+				<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
+					<span class="relative flex h-2 w-2">
+						<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+						<span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+					</span>
+					Active Sessions
+				</h2>
+				<div id="active-sessions" sse-swap="active-sessions-update" hx-swap="innerHTML"
+				     class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+					@partials.ActiveSessionList(data.ActiveSessions)
+				</div>
+			</div>
 
 			<!-- Completed Sessions + Activity Timeline (side by side) -->
 			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -15,8 +15,8 @@
   function setConnected(connected) {
     if (indicator) {
       indicator.className = connected
-        ? 'w-2 h-2 rounded-full bg-green-500 sse-glow'
-        : 'w-2 h-2 rounded-full bg-red-500';
+        ? 'w-2 h-2 rounded-full bg-green-500 flex-shrink-0 sse-glow'
+        : 'w-2 h-2 rounded-full bg-red-500 flex-shrink-0';
     }
     if (statusEl) {
       statusEl.textContent = connected ? 'Connected' : 'Disconnected';

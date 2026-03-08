@@ -5,6 +5,7 @@ package views
 import (
 	"fmt"
 	"path"
+	"strings"
 	"time"
 )
 
@@ -73,13 +74,39 @@ type SessionSummary struct {
 	WorkingDir        string // full working directory path from cwd field
 }
 
+// projectName extracts the project name from a working directory path.
+// For worktree paths like "/code/myproject/.claude/worktrees/funny-name",
+// it returns the project name ("myproject") instead of the worktree name.
+func projectName(dir string) string {
+	if idx := strings.Index(dir, "/.claude/worktrees/"); idx >= 0 {
+		return path.Base(dir[:idx])
+	}
+	return path.Base(dir)
+}
+
+// FormatTime formats a time in 12-hour clock with numeric date (e.g. "3/7/2026 3:04 PM").
+func FormatTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("1/2/2006 3:04 PM")
+}
+
+// FormatTimeShort formats a time in short 12-hour format (e.g. "3/7 3:04 PM").
+func FormatTimeShort(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format("1/2 3:04 PM")
+}
+
 // SessionTitle returns a display title for a session.
 // When detailed is true, date info is appended to the project name.
 func SessionTitle(s SessionSummary, detailed bool) string {
 	if s.WorkingDir != "" {
-		name := path.Base(s.WorkingDir)
+		name := projectName(s.WorkingDir)
 		if detailed && !s.StartedAt.IsZero() {
-			return name + " — " + s.StartedAt.Format("Jan 2, 15:04")
+			return name + " — " + FormatTimeShort(s.StartedAt)
 		}
 		return name
 	}
@@ -88,9 +115,9 @@ func SessionTitle(s SessionSummary, detailed bool) string {
 	}
 	if !s.StartedAt.IsZero() {
 		if detailed {
-			return "Session — " + s.StartedAt.Format("Jan 2, 15:04")
+			return "Session — " + FormatTimeShort(s.StartedAt)
 		}
-		return s.StartedAt.Format("Jan 2 15:04")
+		return FormatTimeShort(s.StartedAt)
 	}
 	return "Session"
 }

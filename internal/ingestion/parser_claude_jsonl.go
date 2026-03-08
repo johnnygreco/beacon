@@ -199,7 +199,7 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 
 func parseTimestamp(s string) time.Time {
 	if s == "" {
-		return time.Now()
+		return time.Time{} // zero value — filtered out by views
 	}
 	// Try RFC3339 first
 	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
@@ -215,7 +215,7 @@ func parseTimestamp(s string) time.Time {
 	if t, err := time.Parse("2006-01-02T15:04:05", s); err == nil {
 		return t
 	}
-	return time.Now()
+	return time.Time{} // zero value — filtered out by views
 }
 
 func jsonStr(m map[string]any, key string) string {
