@@ -41,6 +41,7 @@ vendor/
 .kraang/
 task*.md
 plan.md
+plans/
 
 # Python venv
 .venv/
