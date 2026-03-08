@@ -71,20 +71,6 @@ func (u *Updater) NotifyDashboard() {
 		return
 	}
 
-	// Render sidebar metrics wrapped in an OOB swap so the SSE update
-	// targets the nav sidebar from the dashboard SSE connection.
-	var metricsBuf bytes.Buffer
-	metricsBuf.WriteString(`<div id="sidebar-metrics" hx-swap-oob="innerHTML">`)
-	if err := partials.SidebarMetrics(metrics).Render(ctx, &metricsBuf); err != nil {
-		u.logger.Error("render metrics partial", "error", err)
-	} else {
-		metricsBuf.WriteString(`</div>`)
-		u.broker.Broadcast("dashboard", sse.SSEMessage{
-			Event: "metrics-update",
-			Data:  metricsBuf.Bytes(),
-		})
-	}
-
 	var activeBuf bytes.Buffer
 	if err := partials.ActiveSessionList(activeSessions).Render(ctx, &activeBuf); err != nil {
 		u.logger.Error("render active sessions partial", "error", err)
