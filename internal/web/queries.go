@@ -179,22 +179,25 @@ func QueryChartData(ctx context.Context, db *sql.DB) views.MultiSeriesChart {
 	}
 
 	rows, err := db.QueryContext(ctx,
-		`SELECT minute, total_input, total_output, total_cache_read
-		 FROM v_tokens_per_minute
-		 ORDER BY minute ASC
-		 LIMIT 60`)
+		`SELECT minute, total_input, total_output, total_cache_read FROM (
+		   SELECT minute, total_input, total_output, total_cache_read
+		   FROM v_tokens_per_minute
+		   ORDER BY minute DESC
+		   LIMIT 60
+		 ) sub ORDER BY minute ASC`)
 	if err != nil {
 		return chart
 	}
 	defer rows.Close()
 
 	for rows.Next() {
-		var minute string
+		var minute time.Time
 		var input, output, cacheRead int64
 		if err := rows.Scan(&minute, &input, &output, &cacheRead); err != nil {
 			continue
 		}
-		chart.Labels = append(chart.Labels, minute)
+		label := minute.Local().Format(time.RFC3339)
+		chart.Labels = append(chart.Labels, label)
 		chart.Datasets[0].Values = append(chart.Datasets[0].Values, float64(input))
 		chart.Datasets[1].Values = append(chart.Datasets[1].Values, float64(output))
 		chart.Datasets[2].Values = append(chart.Datasets[2].Values, float64(cacheRead))
@@ -209,21 +212,23 @@ func QueryTotalTokensTimeSeries(ctx context.Context, db *sql.DB) views.MultiSeri
 		Datasets: []views.ChartDataset{{Label: "Total Tokens"}},
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT minute, total_tokens
-		 FROM v_tokens_per_minute
-		 ORDER BY minute ASC
-		 LIMIT 60`)
+		`SELECT minute, total_tokens FROM (
+		   SELECT minute, total_tokens
+		   FROM v_tokens_per_minute
+		   ORDER BY minute DESC
+		   LIMIT 60
+		 ) sub ORDER BY minute ASC`)
 	if err != nil {
 		return chart
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var minute string
+		var minute time.Time
 		var total int64
 		if err := rows.Scan(&minute, &total); err != nil {
 			continue
 		}
-		chart.Labels = append(chart.Labels, minute)
+		chart.Labels = append(chart.Labels, minute.Local().Format(time.RFC3339))
 		chart.Datasets[0].Values = append(chart.Datasets[0].Values, float64(total))
 	}
 	return chart
@@ -331,7 +336,7 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 				if err := mcRows.Scan(&ts, &input, &output, &cacheRead); err != nil {
 					continue
 				}
-				data.TokensChart.Labels = append(data.TokensChart.Labels, ts.Format(time.RFC3339))
+				data.TokensChart.Labels = append(data.TokensChart.Labels, ts.Local().Format(time.RFC3339))
 				data.TokensChart.Datasets[0].Values = append(data.TokensChart.Datasets[0].Values, float64(input))
 				data.TokensChart.Datasets[1].Values = append(data.TokensChart.Datasets[1].Values, float64(output))
 				data.TokensChart.Datasets[2].Values = append(data.TokensChart.Datasets[2].Values, float64(cacheRead))

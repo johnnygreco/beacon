@@ -177,6 +177,26 @@ nav a.active {
   white-space: nowrap;
 }
 
+/* --- Sidebar toggle --- */
+nav.fixed {
+  transition: transform 0.2s ease;
+}
+body.sidebar-collapsed nav.fixed {
+  transform: translateX(-100%);
+}
+body.sidebar-collapsed #main-content {
+  margin-left: 0;
+}
+body.sidebar-collapsed #sidebar-toggle {
+  left: 1rem;
+}
+#sidebar-toggle svg {
+  transition: transform 0.2s ease;
+}
+body.sidebar-collapsed #sidebar-toggle svg {
+  transform: rotate(180deg);
+}
+
 /* --- highlight.js overrides --- */
 .hljs {
   background: #0d1117 !important;

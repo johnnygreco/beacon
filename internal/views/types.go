@@ -89,7 +89,7 @@ func FormatTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return t.Format("1/2/2006 3:04 PM")
+	return t.Local().Format("1/2/2006 3:04 PM")
 }
 
 // FormatTimeShort formats a time in short 12-hour format (e.g. "3/7 3:04 PM").
@@ -97,7 +97,7 @@ func FormatTimeShort(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return t.Format("1/2 3:04 PM")
+	return t.Local().Format("1/2 3:04 PM")
 }
 
 // SessionTitle returns a display title for a session.

@@ -17,9 +17,21 @@ templ Layout(title string) {
 	</head>
 	<body class="bg-gray-900 text-gray-100 min-h-screen flex">
 		@Nav()
-		<main class="flex-1 ml-64 p-6 overflow-y-auto">
+		<main id="main-content" class="flex-1 ml-64 p-6 overflow-y-auto transition-[margin] duration-200">
+			<button id="sidebar-toggle" onclick="toggleSidebar()"
+				class="fixed top-4 left-[17rem] z-50 p-1.5 rounded-md bg-gray-700/80 hover:bg-gray-600 text-gray-400 hover:text-gray-200 transition-all duration-200"
+				title="Toggle sidebar">
+				<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path>
+				</svg>
+			</button>
 			{ children... }
 		</main>
+		<script>
+		function toggleSidebar() {
+			document.body.classList.toggle('sidebar-collapsed');
+		}
+		</script>
 		<script src="/static/js/charts.js"></script>
 		<script src="/static/js/sse-chart-bridge.js"></script>
 		<script src="/static/js/vendor/highlight.min.js"></script>

@@ -153,6 +153,8 @@ if (dashboardTotalEl) {
   window.dashboardTotalTokensChart = createMultiSeriesChart(
     dashboardTotalEl, ['Total Tokens'], 'Tokens'
   );
+  // Hide legend — title already describes the single series
+  window.dashboardTotalTokensChart.options.plugins.legend.display = false;
   applyDefaultLog(window.dashboardTotalTokensChart, dashboardTotalEl);
   loadMultiSeriesFromJSON('dashboardTotalTokensChart', 'dashboard-total-tokens-data');
 }
@@ -188,6 +190,10 @@ if (sessionTokensByModelEl) {
   if (sessionModelDataEl) {
     try {
       window.sessionTokensByModelChart = createTokensByModelChart(sessionTokensByModelEl, sessionModelDataEl);
+      if (window.sessionTokensByModelChart) {
+        applyDefaultLog(window.sessionTokensByModelChart, sessionTokensByModelEl);
+        window.sessionTokensByModelChart.update();
+      }
     } catch(e) {}
   }
 }

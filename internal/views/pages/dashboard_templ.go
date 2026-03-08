@@ -51,12 +51,12 @@ func Dashboard(data views.DashboardData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = components.ChartContainerWithOptions("dashboardTotalTokensChart", "300px", "Total Tokens Over Time", true, false).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = components.ChartContainerWithOptions("dashboardTotalTokensChart", "200px", "Total Tokens Over Time", true, false).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if len(data.TokensByModel) > 0 {
-				templ_7745c5c3_Err = components.ChartContainerWithOptions("dashboardTokensByModelChart", "300px", "Tokens by Model", true, true).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = components.ChartContainerWithOptions("dashboardTokensByModelChart", "200px", "Tokens by Model", true, true).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -85,7 +85,7 @@ func Dashboard(data views.DashboardData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div></div><!-- Completed Sessions + Activity Timeline (side by side) --><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6\"><div><h2 class=\"text-sm font-medium text-gray-400 uppercase tracking-wide mb-3\">Completed Sessions</h2><div id=\"completed-sessions\" sse-swap=\"completed-sessions-update\" hx-swap=\"innerHTML\" class=\"space-y-1 max-h-[500px] overflow-y-auto\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div></div><!-- Divider --><div class=\"border-t border-gray-700/50\"></div><!-- Completed Sessions + Activity Timeline (side by side) --><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6\"><div><h2 class=\"text-sm font-medium text-gray-400 uppercase tracking-wide mb-3\">Completed Sessions</h2><div id=\"completed-sessions\" sse-swap=\"completed-sessions-update\" hx-swap=\"innerHTML\" class=\"space-y-1 max-h-[500px] overflow-y-auto\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

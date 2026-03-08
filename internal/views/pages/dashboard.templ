@@ -14,9 +14,9 @@ templ Dashboard(data views.DashboardData) {
 
 			<!-- Charts: Total Tokens Over Time + Tokens by Model -->
 			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-				@components.ChartContainerWithOptions("dashboardTotalTokensChart", "300px", "Total Tokens Over Time", true, false)
+				@components.ChartContainerWithOptions("dashboardTotalTokensChart", "200px", "Total Tokens Over Time", true, false)
 				if len(data.TokensByModel) > 0 {
-					@components.ChartContainerWithOptions("dashboardTokensByModelChart", "300px", "Tokens by Model", true, true)
+					@components.ChartContainerWithOptions("dashboardTokensByModelChart", "200px", "Tokens by Model", true, true)
 				}
 			</div>
 			if len(data.TokensChart.Labels) > 0 {
@@ -40,6 +40,9 @@ templ Dashboard(data views.DashboardData) {
 					@partials.ActiveSessionList(data.ActiveSessions)
 				</div>
 			</div>
+
+			<!-- Divider -->
+			<div class="border-t border-gray-700/50"></div>
 
 			<!-- Completed Sessions + Activity Timeline (side by side) -->
 			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
