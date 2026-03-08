@@ -318,28 +318,22 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 	go func() {
 		defer wg.Done()
 		data.TokensChart = views.MultiSeriesChart{
-			Datasets: []views.ChartDataset{
-				{Label: "Input"},
-				{Label: "Output"},
-				{Label: "Cache Read"},
-			},
+			Datasets: []views.ChartDataset{{Label: "Total Tokens"}},
 		}
 		mcRows, _ := db.QueryContext(ctx,
-			`SELECT timestamp, input_tokens, output_tokens, cache_read_tokens
+			`SELECT timestamp, (input_tokens + output_tokens) AS total_tokens
 			 FROM events WHERE session_id = $1 AND (input_tokens + output_tokens) > 0
 			 ORDER BY timestamp`, id)
 		if mcRows != nil {
 			defer mcRows.Close()
 			for mcRows.Next() {
 				var ts time.Time
-				var input, output, cacheRead int64
-				if err := mcRows.Scan(&ts, &input, &output, &cacheRead); err != nil {
+				var total int64
+				if err := mcRows.Scan(&ts, &total); err != nil {
 					continue
 				}
 				data.TokensChart.Labels = append(data.TokensChart.Labels, ts.Local().Format(time.RFC3339))
-				data.TokensChart.Datasets[0].Values = append(data.TokensChart.Datasets[0].Values, float64(input))
-				data.TokensChart.Datasets[1].Values = append(data.TokensChart.Datasets[1].Values, float64(output))
-				data.TokensChart.Datasets[2].Values = append(data.TokensChart.Datasets[2].Values, float64(cacheRead))
+				data.TokensChart.Datasets[0].Values = append(data.TokensChart.Datasets[0].Values, float64(total))
 			}
 		}
 	}()
@@ -442,14 +436,21 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 					InputJSON:    e.InputJSON,
 				}
 				item.Params = parseToolParams(e.InputJSON)
-				// Look ahead for a matching tool_result
-				if i+1 < len(t.Events) && t.Events[i+1].EventKind == "tool_result" {
-					i++
-					result := t.Events[i]
-					item.ResultEvent = &result
-					item.OutputPreview = result.OutputPreview
-					if item.OutputPreview == "" {
-						item.OutputPreview = result.TextPreview
+				// Look ahead for a matching tool_result, skipping event_msg
+				for j := i + 1; j < len(t.Events); j++ {
+					if t.Events[j].EventKind == "tool_result" {
+						i = j
+						result := t.Events[j]
+						item.ResultEvent = &result
+						item.OutputPreview = result.OutputPreview
+						if item.OutputPreview == "" {
+							item.OutputPreview = result.TextPreview
+						}
+						break
+					} else if t.Events[j].EventKind == "event_msg" {
+						continue // skip intermediate log events
+					} else {
+						break // something else — don't consume it
 					}
 				}
 				pendingToolChain = append(pendingToolChain, item)
@@ -467,19 +468,27 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 				pendingToolChain = append(pendingToolChain, item)
 
 			case "message":
-				flushToolChain()
-				eCopy := e
-				kind := views.ChatBlockAssistantMessage
-				if e.ActorRole == "user" {
-					kind = views.ChatBlockUserMessage
+				// Don't let empty assistant messages break a tool chain
+				text := e.TextContent
+				if text == "" {
+					text = e.TextPreview
 				}
-				ct.Blocks = append(ct.Blocks, views.ChatBlock{
-					Kind:    kind,
-					Message: &eCopy,
-				})
+				if e.ActorRole == "user" || strings.TrimSpace(text) != "" {
+					flushToolChain()
+					eCopy := e
+					kind := views.ChatBlockAssistantMessage
+					if e.ActorRole == "user" {
+						kind = views.ChatBlockUserMessage
+					}
+					ct.Blocks = append(ct.Blocks, views.ChatBlock{
+						Kind:    kind,
+						Message: &eCopy,
+					})
+				}
 
 			case "reasoning":
-				flushToolChain()
+				// Reasoning doesn't break tool chains — show it inline
+				// but keep accumulating tools
 				eCopy := e
 				ct.Blocks = append(ct.Blocks, views.ChatBlock{
 					Kind:    views.ChatBlockReasoning,
@@ -493,6 +502,9 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 					Kind:    views.ChatBlockError,
 					Message: &eCopy,
 				})
+
+			case "event_msg":
+				// Intermediate log events — skip without breaking tool chains
 
 			default:
 				flushToolChain()

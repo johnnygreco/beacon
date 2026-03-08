@@ -106,38 +106,26 @@ templ chatReasoningBlock(e views.EventSummary) {
 }
 
 templ chatToolChain(items []views.ToolChainItem) {
-	if len(items) == 1 {
-		// Single tool call — render directly without wrapper
-		@chatSingleToolItem(items[0])
-	} else {
-		// Multiple tool calls — wrap in collapsible "Tool Use" group
-		<div class="mr-auto max-w-[95%] sm:max-w-[85%] ml-8 my-2">
-			<details class="group/chain border border-gray-700/50 rounded-lg bg-gray-800/30" open>
-				<summary class="text-sm cursor-pointer flex items-center gap-2 py-2 px-3 hover:bg-gray-800/50 rounded-lg transition-colors">
-					<svg class="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 transition-transform group-open/chain:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-					</svg>
-					<svg class="w-4 h-4 text-yellow-400/70 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-					</svg>
-					<span class="text-yellow-400/80 font-medium">Tool Use</span>
-					<span class="text-gray-500 text-xs">{ fmt.Sprintf("%d calls", len(items)) }</span>
-					@toolChainNameList(items)
-				</summary>
-				<div class="border-t border-gray-700/30 pl-4 border-l-4 border-yellow-400/40 ml-3 space-y-1 py-2">
-					for _, item := range items {
-						@chatToolItem(item)
-					}
-				</div>
-			</details>
-		</div>
-	}
-}
-
-templ chatSingleToolItem(item views.ToolChainItem) {
-	<div class="mr-auto max-w-[95%] sm:max-w-[85%] ml-8 border-l-4 border-yellow-400/40 pl-4 my-2">
-		@chatToolItem(item)
+	<div class="mr-auto max-w-[95%] sm:max-w-[85%] ml-8 my-2">
+		<details class="group/chain border border-gray-700/50 rounded-lg bg-gray-800/30">
+			<summary class="text-sm cursor-pointer flex items-center gap-2 py-2 px-3 hover:bg-gray-800/50 rounded-lg transition-colors">
+				<svg class="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 transition-transform group-open/chain:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+				</svg>
+				<svg class="w-4 h-4 text-yellow-400/70 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+				</svg>
+				<span class="text-yellow-400/80 font-medium">Tool Use</span>
+				<span class="text-gray-500 text-xs">{ fmt.Sprintf("%d %s", len(items), toolCallPlural(len(items))) }</span>
+				@toolChainNameList(items)
+			</summary>
+			<div class="border-t border-gray-700/30 pl-4 border-l-4 border-yellow-400/40 ml-3 space-y-1 py-2">
+				for _, item := range items {
+					@chatToolItem(item)
+				}
+			</div>
+		</details>
 	</div>
 }
 

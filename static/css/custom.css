@@ -177,23 +177,37 @@ nav a.active {
   white-space: nowrap;
 }
 
-/* --- Sidebar toggle --- */
-nav.fixed {
-  transition: transform 0.2s ease;
+/* --- Sidebar collapse --- */
+#sidebar {
+  transition: width 0.2s ease;
 }
-body.sidebar-collapsed nav.fixed {
-  transform: translateX(-100%);
+body.sidebar-collapsed #sidebar {
+  width: 3.5rem;
 }
 body.sidebar-collapsed #main-content {
-  margin-left: 0;
+  margin-left: 3.5rem;
 }
-body.sidebar-collapsed #sidebar-toggle {
-  left: 1rem;
+/* Hide text labels and non-essential sections */
+body.sidebar-collapsed .nav-label,
+body.sidebar-collapsed .nav-section-collapsible {
+  display: none;
 }
-#sidebar-toggle svg {
+/* Center nav links (icon only) */
+body.sidebar-collapsed .nav-link {
+  padding-left: 0;
+  padding-right: 0;
+  justify-content: center;
+}
+/* Compact header */
+body.sidebar-collapsed .nav-header {
+  padding: 0.75rem;
+  justify-content: center;
+}
+/* Rotate chevron to point right (expand) */
+.sidebar-toggle svg {
   transition: transform 0.2s ease;
 }
-body.sidebar-collapsed #sidebar-toggle svg {
+body.sidebar-collapsed .sidebar-toggle svg {
   transform: rotate(180deg);
 }
 

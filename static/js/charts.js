@@ -174,12 +174,14 @@ if (dashboardByModelEl) {
   }
 }
 
-// Session detail: tokens per event (multi-series)
+// Session detail: Total Tokens Over Time (single-curve, matching dashboard)
 var sessionTokensEl = document.getElementById('sessionTokensChart');
 if (sessionTokensEl) {
   window.sessionTokensChart = createMultiSeriesChart(
-    sessionTokensEl, ['Input', 'Output', 'Cache Read'], 'Tokens'
+    sessionTokensEl, ['Total Tokens'], 'Tokens'
   );
+  window.sessionTokensChart.options.plugins.legend.display = false;
+  applyDefaultLog(window.sessionTokensChart, sessionTokensEl);
   loadMultiSeriesFromJSON('sessionTokensChart', 'session-tokens-data');
 }
 
