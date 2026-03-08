@@ -20,6 +20,15 @@ if [ "$BRANCH" != "main" ]; then
     exit 1
 fi
 
+# Ensure local main is synced with remote
+git fetch origin main --quiet
+LOCAL="$(git rev-parse HEAD)"
+REMOTE="$(git rev-parse origin/main)"
+if [ "$LOCAL" != "$REMOTE" ]; then
+    echo "Error: local main ($LOCAL) differs from origin/main ($REMOTE). Pull or push first."
+    exit 1
+fi
+
 # Check tag doesn't already exist
 if git rev-parse "$TAG" >/dev/null 2>&1; then
     echo "Error: tag $TAG already exists."

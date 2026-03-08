@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	beacon "github.com/johnnygreco/beacon"
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/database"
 	"github.com/johnnygreco/beacon/internal/ingestion"
@@ -89,7 +91,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Web server
 	handlers := web.NewHandlers(db.ReadPool, searcher, logger, updater)
 	apiHandlers := web.NewAPIHandlers(db.ReadPool, searcher, logger)
-	router := web.NewRouter(broker, handlers, apiHandlers)
+	staticFS, err := fs.Sub(beacon.StaticFS, "static")
+	if err != nil {
+		return fmt.Errorf("preparing static filesystem: %w", err)
+	}
+	router := web.NewRouter(staticFS, broker, handlers, apiHandlers)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{

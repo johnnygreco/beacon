@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Usage: curl -sSfL https://raw.githubusercontent.com/johnnygreco/beacon/main/install.sh | sh
+# Usage:
+#   Latest:  curl -sSfL https://raw.githubusercontent.com/johnnygreco/beacon/main/install.sh | sh
+#   Pinned:  curl -sSfL https://raw.githubusercontent.com/johnnygreco/beacon/main/install.sh | VERSION=v0.1.0 sh
 set -euo pipefail
 
 REPO="johnnygreco/beacon"
@@ -21,11 +23,16 @@ case "$ARCH" in
     *)             echo "Error: unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
-# Get latest version
-VERSION="$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)"
-if [ -z "$VERSION" ]; then
-    echo "Error: could not determine latest version."
-    exit 1
+# Use provided version or fetch latest
+if [ -z "${VERSION:-}" ]; then
+    VERSION="$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)"
+    if [ -z "$VERSION" ]; then
+        echo "Error: could not determine latest version."
+        exit 1
+    fi
+else
+    # Normalize: ensure leading 'v'
+    VERSION="v${VERSION#v}"
 fi
 
 ARCHIVE="beacon_${OS}_${ARCH}.tar.gz"
@@ -34,18 +41,18 @@ URL="https://github.com/${REPO}/releases/download/${VERSION}/${ARCHIVE}"
 echo "Installing beacon ${VERSION} (${OS}/${ARCH})..."
 
 # Download and extract
-TMPDIR="$(mktemp -d)"
-trap 'rm -rf "$TMPDIR"' EXIT
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
 
-curl -sSfL "$URL" -o "${TMPDIR}/${ARCHIVE}"
-tar -xzf "${TMPDIR}/${ARCHIVE}" -C "$TMPDIR"
+curl -sSfL "$URL" -o "${tmp_dir}/${ARCHIVE}"
+tar -xzf "${tmp_dir}/${ARCHIVE}" -C "$tmp_dir"
 
 # Install binary
 if [ -w "$INSTALL_DIR" ]; then
-    mv "${TMPDIR}/beacon" "${INSTALL_DIR}/beacon"
+    mv "${tmp_dir}/beacon" "${INSTALL_DIR}/beacon"
 else
     echo "Installing to ${INSTALL_DIR} (requires sudo)..."
-    sudo mv "${TMPDIR}/beacon" "${INSTALL_DIR}/beacon"
+    sudo mv "${tmp_dir}/beacon" "${INSTALL_DIR}/beacon"
 fi
 
 echo "beacon ${VERSION} installed to ${INSTALL_DIR}/beacon"

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	beacon "github.com/johnnygreco/beacon"
 	"github.com/johnnygreco/beacon/internal/database"
 	"github.com/johnnygreco/beacon/internal/search"
 	"github.com/johnnygreco/beacon/internal/sse"
@@ -47,7 +49,11 @@ func setupTestServer(t *testing.T) (*httptest.Server, *database.DB) {
 	updater := NewUpdater(db.ReadPool, broker, logger)
 	handlers := NewHandlers(db.ReadPool, searcher, logger, updater)
 	apiHandlers := NewAPIHandlers(db.ReadPool, searcher, logger)
-	router := NewRouter(broker, handlers, apiHandlers)
+	staticFS, err := fs.Sub(beacon.StaticFS, "static")
+	if err != nil {
+		t.Fatalf("preparing static filesystem: %v", err)
+	}
+	router := NewRouter(staticFS, broker, handlers, apiHandlers)
 
 	server := httptest.NewServer(router)
 	t.Cleanup(func() { server.Close() })

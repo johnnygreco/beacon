@@ -1,6 +1,7 @@
 package web
 
 import (
+	"io/fs"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -10,6 +11,7 @@ import (
 
 // NewRouter creates the chi router with all routes registered.
 func NewRouter(
+	staticFS fs.FS,
 	broker *sse.Broker,
 	handlers *Handlers,
 	apiHandlers *APIHandlers,
@@ -21,8 +23,8 @@ func NewRouter(
 	r.Use(middleware.Compress(5))
 
 	// Static files
-	fs := http.FileServer(http.Dir("static"))
-	r.Handle("/static/*", http.StripPrefix("/static/", fs))
+	fileServer := http.FileServer(http.FS(staticFS))
+	r.Handle("/static/*", http.StripPrefix("/static/", fileServer))
 
 	// Page routes (templ rendered)
 	r.Get("/", handlers.Dashboard)
