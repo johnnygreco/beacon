@@ -72,8 +72,8 @@ func TestE2E_DashboardPage(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	html := string(body)
 
-	if !strings.Contains(html, "tokensChart-log-toggle") {
-		t.Error("expected log-scale toggle button on dashboard token chart")
+	if !strings.Contains(html, "dashboardTotalTokensChart-log-toggle") {
+		t.Error("expected log-scale toggle button on dashboard total tokens chart")
 	}
 	if !strings.Contains(html, "Log Scale") {
 		t.Error("expected 'Log Scale' button text on dashboard")

@@ -1,10 +1,12 @@
 package components
 
+import "strconv"
+
 templ ChartContainer(id string, height string, title string) {
-	@ChartContainerWithOptions(id, height, title, false)
+	@ChartContainerWithOptions(id, height, title, false, false)
 }
 
-templ ChartContainerWithOptions(id string, height string, title string, logToggle bool) {
+templ ChartContainerWithOptions(id string, height string, title string, logToggle bool, defaultLog bool) {
 	<div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
 		<div class="flex items-center justify-between mb-2">
 			if title != "" {
@@ -15,18 +17,25 @@ templ ChartContainerWithOptions(id string, height string, title string, logToggl
 					type="button"
 					id={ id + "-log-toggle" }
 					onclick={ toggleLogScale(id) }
-					class="log-scale-toggle px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+					class={ logToggleClass(defaultLog) }
 					data-chart-id={ id }
-					data-log-active="false"
+					data-log-active={ strconv.FormatBool(defaultLog) }
 				>
 					Log Scale
 				</button>
 			}
 		</div>
 		<div style={ "position:relative;height:" + height }>
-			<canvas id={ id }></canvas>
+			<canvas id={ id } data-default-log={ strconv.FormatBool(defaultLog) }></canvas>
 		</div>
 	</div>
+}
+
+func logToggleClass(active bool) string {
+	if active {
+		return "log-scale-toggle px-2 py-1 text-xs rounded border bg-blue-500/20 text-blue-400 border-blue-500/40 hover:text-blue-300 transition-colors"
+	}
+	return "log-scale-toggle px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
 }
 
 script toggleLogScale(chartId string) {

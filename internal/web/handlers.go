@@ -46,6 +46,12 @@ func (h *Handlers) SessionDetail(w http.ResponseWriter, r *http.Request) {
 	pages.SessionDetail(data).Render(r.Context(), w)
 }
 
+// SidebarMetrics renders the compact metrics partial for the sidebar.
+func (h *Handlers) SidebarMetrics(w http.ResponseWriter, r *http.Request) {
+	metrics := QueryDashboardMetrics(r.Context(), h.db)
+	partials.SidebarMetrics(metrics).Render(r.Context(), w)
+}
+
 // Search renders the search page (results load via HTMX).
 func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 	pages.Search(nil).Render(r.Context(), w)

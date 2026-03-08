@@ -8,13 +8,16 @@ import (
 templ SessionCard(s views.SessionSummary) {
 	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="block bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-blue-500/70 hover:shadow-lg hover:shadow-blue-500/5 transition-all cursor-pointer">
 		<div class="flex items-center justify-between mb-1">
-			<span class="font-medium text-gray-100 truncate">{ sessionTitle(s) }</span>
+			<span class="font-medium text-gray-100 truncate">{ views.SessionTitle(s, false) }</span>
 			if s.Status == "active" {
 				<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-green-500/20 text-green-400">Active</span>
 			} else {
 				<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">Done</span>
 			}
 		</div>
+		if s.WorkingDir != "" {
+			<p class="text-xs text-gray-500 truncate" title={ s.WorkingDir }>{ s.WorkingDir }</p>
+		}
 		<div class="flex items-center gap-2 mb-2">
 			if s.ActiveModel != "" {
 				<span class="text-xs text-gray-500 truncate">{ s.ActiveModel }</span>
@@ -51,13 +54,19 @@ templ ActiveSessionCard(s views.SessionSummary) {
 					<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
 					<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
 				</span>
-				<span class="font-medium text-gray-100 truncate">{ sessionTitle(s) }</span>
+				<span class="font-medium text-gray-100 truncate">{ views.SessionTitle(s, false) }</span>
 			</div>
 			<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-green-500/20 text-green-400">Live</span>
 		</div>
+		if s.WorkingDir != "" {
+			<p class="text-xs text-gray-500 truncate ml-5" title={ s.WorkingDir }>{ s.WorkingDir }</p>
+		}
 		<div class="flex items-center gap-2 mb-3">
 			if s.ActiveModel != "" {
 				<span class="px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 text-xs">{ s.ActiveModel }</span>
+			}
+			if !s.StartedAt.IsZero() {
+				<span class="text-xs text-gray-500">{ s.StartedAt.Format("Jan 2 15:04") }</span>
 			}
 			<span class="text-xs text-gray-600 font-mono">{ views.TruncateID(s.ID) }</span>
 		</div>
@@ -85,7 +94,7 @@ templ ActiveSessionCard(s views.SessionSummary) {
 templ CompletedSessionRow(s views.SessionSummary) {
 	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="flex items-center gap-3 px-3 py-2 hover:bg-gray-800 rounded-lg transition-colors cursor-pointer group">
 		<span class="w-1.5 h-1.5 rounded-full bg-gray-600 flex-shrink-0"></span>
-		<span class="text-sm text-gray-300 truncate flex-1 group-hover:text-gray-100 transition-colors">{ sessionTitle(s) }</span>
+		<span class="text-sm text-gray-300 truncate flex-1 group-hover:text-gray-100 transition-colors">{ views.SessionTitle(s, false) }</span>
 		<span class="text-xs text-gray-500 tabular-nums flex-shrink-0">{ views.FormatTokens(s.TotalTokens) }</span>
 		<span class="text-xs text-gray-500 tabular-nums flex-shrink-0">{ fmt.Sprintf("%dt", s.TurnCount) }</span>
 		<span class="text-xs text-gray-500 tabular-nums flex-shrink-0">{ s.Duration }</span>
@@ -93,13 +102,5 @@ templ CompletedSessionRow(s views.SessionSummary) {
 	</a>
 }
 
-func sessionTitle(s views.SessionSummary) string {
-	if s.Actor != "" && s.Actor != "claude" {
-		return s.Actor
-	}
-	if !s.StartedAt.IsZero() {
-		return s.StartedAt.Format("Jan 2 15:04")
-	}
-	return "Session"
-}
+
 

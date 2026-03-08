@@ -1,7 +1,6 @@
 package pages
 
 import (
-	"fmt"
 	"github.com/technodrome-ai/technodrome/internal/views"
 	"github.com/technodrome-ai/technodrome/internal/views/components"
 	"github.com/technodrome-ai/technodrome/internal/views/partials"
@@ -10,10 +9,8 @@ import (
 templ Dashboard(data views.DashboardData) {
 	@views.Layout("Dashboard") {
 		<div hx-ext="sse" sse-connect="/sse/dashboard" class="space-y-6">
-			<!-- Metric Cards -->
-			<div id="metrics" sse-swap="metrics-update" hx-swap="innerHTML">
-				@partials.DashboardMetrics(data.Metrics)
-			</div>
+			<!-- Hidden SSE receiver for sidebar metrics (OOB swap) -->
+			<div sse-swap="metrics-update" class="hidden"></div>
 
 			<!-- Active Sessions (hero, full width) -->
 			<div>
@@ -30,22 +27,19 @@ templ Dashboard(data views.DashboardData) {
 				</div>
 			</div>
 
-			<!-- Token by Model -->
-			if len(data.TokensByModel) > 0 {
-				<div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
-					<h3 class="text-sm font-medium text-gray-400 mb-3">Tokens by Model</h3>
-					<div class="space-y-2">
-						for _, m := range data.TokensByModel {
-							@modelTokenRow(m, data.TokensByModel[0].Total)
-						}
-					</div>
-				</div>
-			}
-
-			<!-- Charts -->
-			<div class="grid grid-cols-1 gap-6">
-				@components.ChartContainerWithOptions("tokensChart", "300px", "Token Throughput (per minute)", true)
+			<!-- Charts: Total Tokens Over Time + Tokens by Model -->
+			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+				@components.ChartContainerWithOptions("dashboardTotalTokensChart", "300px", "Total Tokens Over Time", true, false)
+				if len(data.TokensByModel) > 0 {
+					@components.ChartContainerWithOptions("dashboardTokensByModelChart", "300px", "Tokens by Model", true, true)
+				}
 			</div>
+			if len(data.TokensChart.Labels) > 0 {
+				@templ.JSONScript("dashboard-total-tokens-data", data.TokensChart)
+			}
+			if len(data.TokensByModel) > 0 {
+				@templ.JSONScript("dashboard-tokens-by-model-data", dashboardTokensByModelData(data.TokensByModel))
+			}
 
 			<!-- Completed Sessions + Activity Timeline (side by side) -->
 			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -68,27 +62,23 @@ templ Dashboard(data views.DashboardData) {
 	}
 }
 
-templ modelTokenRow(m views.ModelTokens, maxTotal int64) {
-	<div class="flex items-center gap-3">
-		<span class="text-sm text-gray-300 w-48 truncate font-medium" title={ m.Model }>{ m.Model }</span>
-		<div class="flex-1 bg-gray-900 rounded-full h-3 overflow-hidden">
-			if maxTotal > 0 {
-				<div class="h-full bg-blue-500/60 rounded-full transition-all" style={ fmt.Sprintf("width: %d%%", percent(m.Total, maxTotal)) }></div>
-			}
-		</div>
-		<span class="text-xs text-gray-400 w-24 text-right" title={ fmt.Sprintf("In: %s  Out: %s  Cache: %s", views.FormatTokens(m.Input), views.FormatTokens(m.Output), views.FormatTokens(m.CacheRead)) }>
-			{ views.FormatTokens(m.Total) }
-		</span>
-	</div>
-}
-
-func percent(value, max int64) int {
-	if max == 0 {
-		return 0
+func dashboardTokensByModelData(models []views.ModelTokens) any {
+	labels := make([]string, len(models))
+	inputData := make([]int64, len(models))
+	outputData := make([]int64, len(models))
+	cacheData := make([]int64, len(models))
+	for i, m := range models {
+		labels[i] = m.Model
+		inputData[i] = m.Input
+		outputData[i] = m.Output
+		cacheData[i] = m.CacheRead
 	}
-	p := int(float64(value) / float64(max) * 100)
-	if p < 1 && value > 0 {
-		return 1
+	return map[string]any{
+		"labels": labels,
+		"datasets": []map[string]any{
+			{"label": "Input", "data": inputData},
+			{"label": "Output", "data": outputData},
+			{"label": "Cache Read", "data": cacheData},
+		},
 	}
-	return p
 }

@@ -44,7 +44,7 @@
 
     if (type === 'token-data' && data) {
       try {
-        handleMultiSeriesEvent(window.tokensChart, JSON.parse(data));
+        handleMultiSeriesEvent(window.dashboardTotalTokensChart, JSON.parse(data));
       } catch(e) {}
       evt.preventDefault();
       return;

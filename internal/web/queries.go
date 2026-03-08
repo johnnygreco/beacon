@@ -20,13 +20,13 @@ func QueryDashboardData(ctx context.Context, db *sql.DB) views.DashboardData {
 	var data views.DashboardData
 	var wg sync.WaitGroup
 	wg.Add(4)
-	go func() { defer wg.Done(); data.Metrics = QueryDashboardMetrics(ctx, db) }()
 	go func() {
 		defer wg.Done()
 		data.ActiveSessions, data.CompletedSessions = QueryDashboardSessions(ctx, db)
 	}()
 	go func() { defer wg.Done(); data.RecentActivity = QueryRecentActivity(ctx, db) }()
 	go func() { defer wg.Done(); data.TokensByModel = QueryTokensByModelSummary(ctx, db) }()
+	go func() { defer wg.Done(); data.TokensChart = QueryTotalTokensTimeSeries(ctx, db) }()
 	wg.Wait()
 	return data
 }
@@ -98,7 +98,8 @@ func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed 
 		        COALESCE(total_input_tokens, 0), COALESCE(total_output_tokens, 0),
 		        COALESCE(total_cache_read_tokens, 0), COALESCE(total_cache_create_tokens, 0),
 		        COALESCE(tool_call_count, 0), COALESCE(mcp_call_count, 0),
-		        COALESCE(last_model, '')
+		        COALESCE(last_model, ''),
+		        COALESCE(working_dir, '')
 		 FROM v_session_summary
 		 ORDER BY ended_at DESC
 		 LIMIT 30`)
@@ -115,7 +116,7 @@ func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed 
 		if err := rows.Scan(&s.ID, &source, &startedAt, &endedAt,
 			&s.TurnCount, &s.TotalTokens, &s.InputTokens, &s.OutputTokens,
 			&s.CacheReadTokens, &s.CacheCreateTokens,
-			&s.ToolCallCount, &s.MCPCallCount, &model); err != nil {
+			&s.ToolCallCount, &s.MCPCallCount, &model, &s.WorkingDir); err != nil {
 			continue
 		}
 		s.Actor = source
@@ -201,6 +202,33 @@ func QueryChartData(ctx context.Context, db *sql.DB) views.MultiSeriesChart {
 	return chart
 }
 
+// QueryTotalTokensTimeSeries returns a single-curve time series of total tokens
+// (all models combined) for the dashboard line chart.
+func QueryTotalTokensTimeSeries(ctx context.Context, db *sql.DB) views.MultiSeriesChart {
+	chart := views.MultiSeriesChart{
+		Datasets: []views.ChartDataset{{Label: "Total Tokens"}},
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT minute, total_tokens
+		 FROM v_tokens_per_minute
+		 ORDER BY minute ASC
+		 LIMIT 60`)
+	if err != nil {
+		return chart
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var minute string
+		var total int64
+		if err := rows.Scan(&minute, &total); err != nil {
+			continue
+		}
+		chart.Labels = append(chart.Labels, minute)
+		chart.Datasets[0].Values = append(chart.Datasets[0].Values, float64(total))
+	}
+	return chart
+}
+
 // QuerySessionDetail returns full detail for a single session.
 func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.SessionDetailData, error) {
 	var data views.SessionDetailData
@@ -214,13 +242,14 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 		        COALESCE(total_input_tokens, 0), COALESCE(total_output_tokens, 0),
 		        COALESCE(total_cache_read_tokens, 0), COALESCE(total_cache_create_tokens, 0),
 		        COALESCE(tool_call_count, 0), COALESCE(mcp_call_count, 0),
-		        COALESCE(last_model, '')
+		        COALESCE(last_model, ''),
+		        COALESCE(working_dir, '')
 		 FROM v_session_summary WHERE session_id = $1`, id,
 	).Scan(&data.Session.ID, &source, &startedAt, &endedAt,
 		&data.Session.TurnCount, &data.Session.TotalTokens,
 		&data.Session.InputTokens, &data.Session.OutputTokens,
 		&data.Session.CacheReadTokens, &data.Session.CacheCreateTokens,
-		&data.Session.ToolCallCount, &data.Session.MCPCallCount, &model)
+		&data.Session.ToolCallCount, &data.Session.MCPCallCount, &model, &data.Session.WorkingDir)
 	if err != nil {
 		return data, err
 	}

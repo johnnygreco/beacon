@@ -36,7 +36,7 @@ func TestChartContainer_NoToggle(t *testing.T) {
 }
 
 func TestChartContainerWithOptions_LogToggleEnabled(t *testing.T) {
-	html := renderToString(t, ChartContainerWithOptions("tokensChart", "250px", "Token Throughput", true))
+	html := renderToString(t, ChartContainerWithOptions("tokensChart", "250px", "Token Throughput", true, false))
 
 	if !strings.Contains(html, `id="tokensChart"`) {
 		t.Error("expected canvas with id=tokensChart")
@@ -59,7 +59,7 @@ func TestChartContainerWithOptions_LogToggleEnabled(t *testing.T) {
 }
 
 func TestChartContainerWithOptions_LogToggleDisabled(t *testing.T) {
-	html := renderToString(t, ChartContainerWithOptions("chart1", "200px", "Title", false))
+	html := renderToString(t, ChartContainerWithOptions("chart1", "200px", "Title", false, false))
 
 	if !strings.Contains(html, `id="chart1"`) {
 		t.Error("expected canvas with id=chart1")
@@ -70,7 +70,7 @@ func TestChartContainerWithOptions_LogToggleDisabled(t *testing.T) {
 }
 
 func TestChartContainerWithOptions_EmptyTitle(t *testing.T) {
-	html := renderToString(t, ChartContainerWithOptions("chart2", "150px", "", true))
+	html := renderToString(t, ChartContainerWithOptions("chart2", "150px", "", true, false))
 
 	if !strings.Contains(html, `id="chart2"`) {
 		t.Error("expected canvas with id=chart2")
@@ -82,7 +82,7 @@ func TestChartContainerWithOptions_EmptyTitle(t *testing.T) {
 }
 
 func TestChartContainerWithOptions_ToggleScriptGenerated(t *testing.T) {
-	html := renderToString(t, ChartContainerWithOptions("myChart", "300px", "Test", true))
+	html := renderToString(t, ChartContainerWithOptions("myChart", "300px", "Test", true, false))
 
 	// The templ script component should generate JS for toggling
 	if !strings.Contains(html, "onclick") {
@@ -93,9 +93,23 @@ func TestChartContainerWithOptions_ToggleScriptGenerated(t *testing.T) {
 func TestChartContainer_DelegatesToWithOptions(t *testing.T) {
 	// ChartContainer should produce the same output as ChartContainerWithOptions with logToggle=false
 	html1 := renderToString(t, ChartContainer("chart", "300px", "Title"))
-	html2 := renderToString(t, ChartContainerWithOptions("chart", "300px", "Title", false))
+	html2 := renderToString(t, ChartContainerWithOptions("chart", "300px", "Title", false, false))
 
 	if html1 != html2 {
 		t.Error("ChartContainer should delegate to ChartContainerWithOptions with logToggle=false")
+	}
+}
+
+func TestChartContainerWithOptions_DefaultLogScale(t *testing.T) {
+	html := renderToString(t, ChartContainerWithOptions("logChart", "250px", "Log Default", true, true))
+
+	if !strings.Contains(html, `data-log-active="true"`) {
+		t.Error("expected data-log-active=true when defaultLog is true")
+	}
+	if !strings.Contains(html, `data-default-log="true"`) {
+		t.Error("expected data-default-log=true on canvas when defaultLog is true")
+	}
+	if !strings.Contains(html, "bg-blue-500/20") {
+		t.Error("expected active blue styling on log toggle button when defaultLog is true")
 	}
 }

@@ -103,27 +103,73 @@ function loadMultiSeriesFromJSON(chartName, dataId) {
   } catch(e) {}
 }
 
-// Dashboard token throughput chart (multi-series: input, output, cache read)
-var tokensChartEl = document.getElementById('tokensChart');
-if (tokensChartEl) {
-  window.tokensChart = createMultiSeriesChart(
-    tokensChartEl, ['Input', 'Output', 'Cache Read'], 'Tokens'
-  );
+// Apply default log scale if the canvas has data-default-log="true".
+// Does NOT call chart.update() — caller is responsible for triggering a render.
+function applyDefaultLog(chart, el) {
+  if (el.getAttribute('data-default-log') === 'true') {
+    chart.options.scales.y.type = 'logarithmic';
+    chart.options.scales.y.min = 1;
+  }
+}
 
-  fetch('/api/tokens-per-minute')
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (!data || !Array.isArray(data)) return;
-      var chart = window.tokensChart;
-      data.forEach(function(d) {
-        chart.data.labels.push(d.minute);
-        chart.data.datasets[0].data.push(d.input_tokens);
-        chart.data.datasets[1].data.push(d.output_tokens);
-        chart.data.datasets[2].data.push(d.cache_read_tokens);
-      });
-      chart.update();
-    })
-    .catch(function() {});
+// Create a grouped bar chart for tokens by model
+function createTokensByModelChart(el, dataEl) {
+  var modelData = JSON.parse(dataEl.textContent);
+  if (!modelData.labels || !modelData.datasets) return null;
+  var datasets = modelData.datasets.map(function(ds, i) {
+    var c = seriesColors[i % seriesColors.length];
+    return {
+      label: ds.label,
+      data: ds.data,
+      backgroundColor: c.bg,
+      borderColor: c.border,
+      borderWidth: 1
+    };
+  });
+  return new Chart(el, {
+    type: 'bar',
+    data: { labels: modelData.labels, datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: categoryScaleOptions,
+        y: {
+          ...yAxisOptions,
+          title: { display: true, text: 'Tokens', color: '#9ca3af' }
+        }
+      },
+      plugins: {
+        legend: { display: true, position: 'top', labels: { usePointStyle: true, boxWidth: 8 } },
+        tooltip: { callbacks: { label: tokenTooltip } }
+      }
+    }
+  });
+}
+
+// Dashboard: Total Tokens Over Time (single-curve line chart)
+var dashboardTotalEl = document.getElementById('dashboardTotalTokensChart');
+if (dashboardTotalEl) {
+  window.dashboardTotalTokensChart = createMultiSeriesChart(
+    dashboardTotalEl, ['Total Tokens'], 'Tokens'
+  );
+  applyDefaultLog(window.dashboardTotalTokensChart, dashboardTotalEl);
+  loadMultiSeriesFromJSON('dashboardTotalTokensChart', 'dashboard-total-tokens-data');
+}
+
+// Dashboard: Tokens by Model (grouped bar chart)
+var dashboardByModelEl = document.getElementById('dashboardTokensByModelChart');
+if (dashboardByModelEl) {
+  var dashboardModelDataEl = document.getElementById('dashboard-tokens-by-model-data');
+  if (dashboardModelDataEl) {
+    try {
+      window.dashboardTokensByModelChart = createTokensByModelChart(dashboardByModelEl, dashboardModelDataEl);
+      if (window.dashboardTokensByModelChart) {
+        applyDefaultLog(window.dashboardTokensByModelChart, dashboardByModelEl);
+        window.dashboardTokensByModelChart.update();
+      }
+    } catch(e) {}
+  }
 }
 
 // Session detail: tokens per event (multi-series)
@@ -138,41 +184,10 @@ if (sessionTokensEl) {
 // Session detail: tokens by model (grouped bar chart)
 var sessionTokensByModelEl = document.getElementById('sessionTokensByModelChart');
 if (sessionTokensByModelEl) {
-  var modelDataEl = document.getElementById('session-tokens-by-model-data');
-  if (modelDataEl) {
+  var sessionModelDataEl = document.getElementById('session-tokens-by-model-data');
+  if (sessionModelDataEl) {
     try {
-      var modelData = JSON.parse(modelDataEl.textContent);
-      if (modelData.labels && modelData.datasets) {
-        var datasets = modelData.datasets.map(function(ds, i) {
-          var c = seriesColors[i % seriesColors.length];
-          return {
-            label: ds.label,
-            data: ds.data,
-            backgroundColor: c.bg,
-            borderColor: c.border,
-            borderWidth: 1
-          };
-        });
-        window.sessionTokensByModelChart = new Chart(sessionTokensByModelEl, {
-          type: 'bar',
-          data: { labels: modelData.labels, datasets: datasets },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-              x: categoryScaleOptions,
-              y: {
-                ...yAxisOptions,
-                title: { display: true, text: 'Tokens', color: '#9ca3af' }
-              }
-            },
-            plugins: {
-              legend: { display: true, position: 'top', labels: { usePointStyle: true, boxWidth: 8 } },
-              tooltip: { callbacks: { label: tokenTooltip } }
-            }
-          }
-        });
-      }
+      window.sessionTokensByModelChart = createTokensByModelChart(sessionTokensByModelEl, sessionModelDataEl);
     } catch(e) {}
   }
 }

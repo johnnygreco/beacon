@@ -14,7 +14,10 @@ templ SessionDetail(data views.SessionDetailData) {
 			<div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
 				<div class="flex items-center justify-between mb-4">
 					<div>
-						<h1 class="text-2xl font-bold text-gray-100">{ sessionDetailTitle(data.Session) }</h1>
+						<h1 class="text-2xl font-bold text-gray-100">{ views.SessionTitle(data.Session, true) }</h1>
+						if data.Session.WorkingDir != "" {
+							<p class="text-sm text-gray-500 mt-1 truncate" title={ data.Session.WorkingDir }>{ data.Session.WorkingDir }</p>
+						}
 						<p class="text-sm text-gray-500 mt-1 font-mono">{ data.Session.ID }</p>
 					</div>
 					if data.Session.Status == "active" {
@@ -60,9 +63,9 @@ templ SessionDetail(data views.SessionDetailData) {
 
 			<!-- Charts -->
 			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-				@components.ChartContainerWithOptions("sessionTokensChart", "250px", "Tokens per Event (by type)", true)
+				@components.ChartContainerWithOptions("sessionTokensChart", "250px", "Tokens per Event (by type)", true, false)
 				if len(data.TokensByModel) > 0 {
-					@components.ChartContainerWithOptions("sessionTokensByModelChart", "250px", "Tokens by Model", true)
+					@components.ChartContainerWithOptions("sessionTokensByModelChart", "250px", "Tokens by Model", true, false)
 				}
 			</div>
 
@@ -140,16 +143,6 @@ func tokensByModelData(models []views.ChartDataset) any {
 		datasets[i] = map[string]any{"label": m.Label, "data": m.Values}
 	}
 	return map[string]any{"labels": labels, "datasets": datasets}
-}
-
-func sessionDetailTitle(s views.SessionSummary) string {
-	if s.Actor != "" && s.Actor != "claude" {
-		return s.Actor
-	}
-	if !s.StartedAt.IsZero() {
-		return s.StartedAt.Format("Session — Jan 2, 15:04")
-	}
-	return "Session"
 }
 
 func toolShortName(name string) string {

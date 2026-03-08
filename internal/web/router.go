@@ -30,6 +30,7 @@ func NewRouter(
 	r.Get("/sessions/{id}", handlers.SessionDetail)
 	r.Get("/search", handlers.Search)
 	r.Get("/search/results", handlers.SearchResults)
+	r.Get("/partials/sidebar-metrics", handlers.SidebarMetrics)
 
 	// SSE endpoints
 	r.Get("/sse/dashboard", broker.DashboardHandler)

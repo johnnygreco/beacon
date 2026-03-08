@@ -4,6 +4,7 @@ package views
 
 import (
 	"fmt"
+	"path"
 	"time"
 )
 
@@ -69,6 +70,29 @@ type SessionSummary struct {
 	ToolCallCount     int64
 	MCPCallCount      int64
 	ActiveModel       string
+	WorkingDir        string // full working directory path from cwd field
+}
+
+// SessionTitle returns a display title for a session.
+// When detailed is true, date info is appended to the project name.
+func SessionTitle(s SessionSummary, detailed bool) string {
+	if s.WorkingDir != "" {
+		name := path.Base(s.WorkingDir)
+		if detailed && !s.StartedAt.IsZero() {
+			return name + " — " + s.StartedAt.Format("Jan 2, 15:04")
+		}
+		return name
+	}
+	if s.Actor != "" && s.Actor != "claude" {
+		return s.Actor
+	}
+	if !s.StartedAt.IsZero() {
+		if detailed {
+			return "Session — " + s.StartedAt.Format("Jan 2, 15:04")
+		}
+		return s.StartedAt.Format("Jan 2 15:04")
+	}
+	return "Session"
 }
 
 type SearchResult struct {

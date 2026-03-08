@@ -1,25 +1,36 @@
 package pages
 
-import "testing"
+import (
+	"testing"
 
-func TestPercent(t *testing.T) {
-	tests := []struct {
-		value, max int64
-		expected   int
-	}{
-		{0, 0, 0},
-		{0, 100, 0},
-		{50, 100, 50},
-		{100, 100, 100},
-		{1, 100, 1},
-		{1, 10000, 1}, // rounds to 0 but value > 0, so min 1
-		{200, 100, 200},
+	"github.com/technodrome-ai/technodrome/internal/views"
+)
+
+func TestDashboardTokensByModelData(t *testing.T) {
+	models := []views.ModelTokens{
+		{Model: "claude-3", Input: 100, Output: 200, CacheRead: 300, Total: 600},
+		{Model: "claude-4", Input: 400, Output: 500, CacheRead: 600, Total: 1500},
 	}
 
-	for _, tt := range tests {
-		got := percent(tt.value, tt.max)
-		if got != tt.expected {
-			t.Errorf("percent(%d, %d) = %d, want %d", tt.value, tt.max, got, tt.expected)
-		}
+	result := dashboardTokensByModelData(models)
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatal("expected map[string]any")
+	}
+
+	labels, ok := m["labels"].([]string)
+	if !ok || len(labels) != 2 {
+		t.Fatal("expected 2 labels")
+	}
+	if labels[0] != "claude-3" || labels[1] != "claude-4" {
+		t.Errorf("unexpected labels: %v", labels)
+	}
+
+	datasets, ok := m["datasets"].([]map[string]any)
+	if !ok || len(datasets) != 3 {
+		t.Fatal("expected 3 datasets (Input, Output, Cache Read)")
+	}
+	if datasets[0]["label"] != "Input" {
+		t.Errorf("expected first dataset label 'Input', got %v", datasets[0]["label"])
 	}
 }

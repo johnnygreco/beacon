@@ -47,13 +47,17 @@ func (u *Updater) NotifyDashboard() {
 		activeSessions, completedSessions = QueryDashboardSessions(ctx, u.db)
 	}()
 	go func() { defer wg.Done(); activity = QueryRecentActivity(ctx, u.db) }()
-	go func() { defer wg.Done(); tokensChart = QueryChartData(ctx, u.db) }()
+	go func() { defer wg.Done(); tokensChart = QueryTotalTokensTimeSeries(ctx, u.db) }()
 	wg.Wait()
 
+	// Render sidebar metrics wrapped in an OOB swap so the SSE update
+	// targets the nav sidebar from the dashboard SSE connection.
 	var metricsBuf bytes.Buffer
-	if err := partials.DashboardMetrics(metrics).Render(ctx, &metricsBuf); err != nil {
+	metricsBuf.WriteString(`<div id="sidebar-metrics" hx-swap-oob="innerHTML">`)
+	if err := partials.SidebarMetrics(metrics).Render(ctx, &metricsBuf); err != nil {
 		u.logger.Error("render metrics partial", "error", err)
 	} else {
+		metricsBuf.WriteString(`</div>`)
 		u.broker.Broadcast("dashboard", sse.SSEMessage{
 			Event: "metrics-update",
 			Data:  metricsBuf.Bytes(),
