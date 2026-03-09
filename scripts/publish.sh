@@ -32,6 +32,11 @@ fi
 # Check tag doesn't already exist
 if git rev-parse "$TAG" >/dev/null 2>&1; then
     echo "Error: tag $TAG already exists."
+    echo ""
+    echo "To delete the tag and retry:"
+    echo "  git tag -d $TAG              # delete local tag"
+    echo "  git push origin :refs/tags/$TAG   # delete remote tag"
+    echo "  make publish VERSION=${VERSION}"
     exit 1
 fi
 
