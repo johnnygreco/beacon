@@ -16,15 +16,15 @@ builds:
       - arm64
 
 archives:
-  - format: tar.gz
-    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+  - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
 
-brews:
-  - repository:
-      owner: johnnygreco
-      name: homebrew-tap
-    homepage: https://github.com/johnnygreco/beacon
-    description: A dashboard for monitoring Claude Code usage and costs
+# TODO: uncomment once johnnygreco/homebrew-tap repo exists
+# brews:
+#   - repository:
+#       owner: johnnygreco
+#       name: homebrew-tap
+#     homepage: https://github.com/johnnygreco/beacon
+#     description: A dashboard for monitoring Claude Code usage and costs
 
 checksum:
   name_template: "checksums.txt"
