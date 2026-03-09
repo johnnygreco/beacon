@@ -9,13 +9,11 @@ builds:
     main: ./cmd/beacon
     binary: beacon
     env:
-      - CGO_ENABLED=0
+      - CGO_ENABLED=1
     goos:
-      - linux
-      - darwin
+      - '{{ .Runtime.Goos }}'
     goarch:
-      - amd64
-      - arm64
+      - '{{ .Runtime.Goarch }}'
 
 archives:
   - format: tar.gz
