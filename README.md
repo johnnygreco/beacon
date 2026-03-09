@@ -1,4 +1,6 @@
-# Beacon
+<p align="center">
+  <img src="assets/beacon.png" alt="Beacon" width="800" />
+</p>
 
 Real-time monitoring dashboard for AI coding agents. Beacon watches conversation logs from [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex](https://github.com/openai/codex), ingests them into [DuckDB](https://duckdb.org/), and serves a live web UI with full-text search and session analytics.
 
