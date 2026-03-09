@@ -6,7 +6,7 @@
 set -euo pipefail
 
 REPO="johnnygreco/beacon"
-INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
 
 # Uninstall
 if [ "${UNINSTALL:-}" = "1" ]; then
@@ -65,11 +65,13 @@ curl -sSfL "$URL" -o "${tmp_dir}/${ARCHIVE}"
 tar -xzf "${tmp_dir}/${ARCHIVE}" -C "$tmp_dir"
 
 # Install binary
-if [ -w "$INSTALL_DIR" ]; then
-    mv "${tmp_dir}/beacon" "${INSTALL_DIR}/beacon"
-else
-    echo "Installing to ${INSTALL_DIR} (requires sudo)..."
-    sudo mv "${tmp_dir}/beacon" "${INSTALL_DIR}/beacon"
-fi
+mkdir -p "$INSTALL_DIR"
+mv "${tmp_dir}/beacon" "${INSTALL_DIR}/beacon"
 
 echo "beacon ${VERSION} installed to ${INSTALL_DIR}/beacon"
+
+# Check if INSTALL_DIR is in PATH
+case ":$PATH:" in
+    *":${INSTALL_DIR}:"*) ;;
+    *) echo "Add ${INSTALL_DIR} to your PATH: export PATH=\"${INSTALL_DIR}:\$PATH\"" ;;
+esac
