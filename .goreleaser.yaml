@@ -11,9 +11,11 @@ builds:
     env:
       - CGO_ENABLED=1
     goos:
-      - '{{ .Runtime.Goos }}'
+      - linux
+      - darwin
     goarch:
-      - '{{ .Runtime.Goarch }}'
+      - amd64
+      - arm64
 
 archives:
   - format: tar.gz

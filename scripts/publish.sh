@@ -59,7 +59,7 @@ echo "Publishing beacon $TAG..."
 git tag -a "$TAG" -m "Release $TAG"
 git push origin "$TAG"
 
-goreleaser release --clean
+goreleaser release --clean --single-target
 
 echo ""
 echo "Released beacon $TAG"
