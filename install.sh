@@ -1,11 +1,28 @@
 #!/usr/bin/env bash
 # Usage:
-#   Latest:  curl -sSfL https://raw.githubusercontent.com/johnnygreco/beacon/main/install.sh | sh
-#   Pinned:  curl -sSfL https://raw.githubusercontent.com/johnnygreco/beacon/main/install.sh | VERSION=v0.1.0 sh
+#   Latest:     curl -sSfL https://johnnygreco.dev/beacon/install.sh | sh
+#   Pinned:     curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=0.1.0 sh
+#   Uninstall:  curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
 set -euo pipefail
 
 REPO="johnnygreco/beacon"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
+
+# Uninstall
+if [ "${UNINSTALL:-}" = "1" ]; then
+    if [ ! -f "${INSTALL_DIR}/beacon" ]; then
+        echo "beacon not found in ${INSTALL_DIR}"
+        exit 1
+    fi
+    if [ -w "${INSTALL_DIR}/beacon" ]; then
+        rm "${INSTALL_DIR}/beacon"
+    else
+        echo "Removing ${INSTALL_DIR}/beacon (requires sudo)..."
+        sudo rm "${INSTALL_DIR}/beacon"
+    fi
+    echo "beacon uninstalled from ${INSTALL_DIR}"
+    exit 0
+fi
 
 # Detect OS
 OS="$(uname -s)"
