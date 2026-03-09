@@ -3,6 +3,20 @@ set -euo pipefail
 
 VERSION="${1:?Usage: $0 <version> (e.g. 0.1.0)}"
 
+# Use gh CLI token if GITHUB_TOKEN is not set
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+    if command -v gh &>/dev/null; then
+        GITHUB_TOKEN="$(gh auth token 2>/dev/null)" || true
+    fi
+    if [ -z "${GITHUB_TOKEN:-}" ]; then
+        echo "Error: GITHUB_TOKEN is not set and gh CLI is not authenticated."
+        echo "Either: export GITHUB_TOKEN=<token>"
+        echo "    or: gh auth login"
+        exit 1
+    fi
+    export GITHUB_TOKEN
+fi
+
 # Normalize: strip leading 'v' if provided, we'll add it
 VERSION="${VERSION#v}"
 TAG="v${VERSION}"
