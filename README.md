@@ -14,6 +14,32 @@ It also ships an [MCP](https://modelcontextprotocol.io/) server so your agents c
 - **Token tracking** — input, output, and cache-read token counts per session
 - **Checkpoint recovery** — tracks file offsets so restarts don't reprocess data
 
+## Install
+
+```bash
+curl -sSfL https://johnnygreco.dev/beacon/install.sh | sh
+```
+
+To install a specific version:
+
+```bash
+curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=0.1.0 sh
+```
+
+By default the binary is placed in `~/.local/bin`. Set `INSTALL_DIR` to change it:
+
+```bash
+curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_DIR=/usr/local/bin sh
+```
+
+## Uninstall
+
+```bash
+curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
+```
+
+This removes the `beacon` binary and the `~/.beacon` data directory.
+
 ## Quick start
 
 ### Prerequisites
