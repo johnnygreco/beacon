@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -107,6 +109,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Handler: router,
 	}
 
+	// Write pidfile
+	pidPath := pidfilePath()
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		logger.Warn("failed to write pidfile", "path", pidPath, "error", err)
+	} else {
+		defer os.Remove(pidPath)
+	}
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
@@ -128,6 +138,15 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	logger.Info("server stopped")
 	return nil
+}
+
+// pidfilePath returns the path to the beacon pidfile.
+func pidfilePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "/tmp/beacon.pid"
+	}
+	return filepath.Join(home, ".beacon", "beacon.pid")
 }
 
 func buildSources(cfg *config.Config) []ingestion.WatchSource {

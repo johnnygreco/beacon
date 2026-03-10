@@ -25,6 +25,7 @@ func main() {
 		newWatchCmd(),
 		newMCPCmd(),
 		newStatusCmd(),
+		newStopCmd(),
 		newDBCmd(),
 	)
 

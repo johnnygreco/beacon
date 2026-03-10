@@ -3,7 +3,11 @@ package main
 import (
 	"database/sql"
 	"fmt"
+	"net/http"
 	"os"
+	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -15,7 +19,7 @@ import (
 func newStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show database statistics",
+		Short: "Check if the beacon server is running and show database statistics",
 		RunE:  runStatus,
 	}
 }
@@ -26,21 +30,45 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		cfg = &config.Config{}
 	}
 
-	dbPath := resolveDBPath(cfg)
+	// Server status
+	fmt.Println("Beacon Status")
+	fmt.Println("=============")
 
+	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	serverUp := checkServer(cfg.Server.Port)
+	if serverUp {
+		pid := readPid()
+		if pid > 0 {
+			fmt.Printf("Server:  running at %s (pid %d)\n", addr, pid)
+		} else {
+			fmt.Printf("Server:  running at %s\n", addr)
+		}
+	} else {
+		fmt.Printf("Server:  not running (expected at %s)\n", addr)
+	}
+	fmt.Println()
+
+	// Database stats
+	dbPath := resolveDBPath(cfg)
 	fi, err := os.Stat(dbPath)
 	if err != nil {
-		return fmt.Errorf("database not found at %s", dbPath)
+		fmt.Printf("Database: not found at %s\n", dbPath)
+		return nil
 	}
 
 	db, err := sql.Open("duckdb", dbPath+"?access_mode=read_only")
 	if err != nil {
-		return fmt.Errorf("opening database: %w", err)
+		fmt.Printf("Database: %s (%.1f MB, locked by server)\n", dbPath, float64(fi.Size())/(1024*1024))
+		return nil
+	}
+	// Verify the connection works (Open may succeed but queries fail due to lock)
+	if err := db.Ping(); err != nil {
+		db.Close()
+		fmt.Printf("Database: %s (%.1f MB, locked by server)\n", dbPath, float64(fi.Size())/(1024*1024))
+		return nil
 	}
 	defer db.Close()
 
-	fmt.Println("Beacon Status")
-	fmt.Println("=============")
 	fmt.Printf("Database: %s (%.1f MB)\n", dbPath, float64(fi.Size())/(1024*1024))
 
 	// Last event
@@ -107,4 +135,36 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// checkServer returns true if the beacon server responds on the given port.
+func checkServer(port int) bool {
+	client := http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// readPid reads the PID from the pidfile. Returns 0 if not available or stale.
+func readPid() int {
+	data, err := os.ReadFile(pidfilePath())
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	// Check if process is alive
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return 0
+	}
+	if err := proc.Signal(syscall.Signal(0)); err != nil {
+		return 0
+	}
+	return pid
 }
