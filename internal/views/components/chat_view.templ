@@ -174,17 +174,9 @@ templ chatErrorBlock(e views.EventSummary) {
 }
 
 templ chatMetaStrip(e views.EventSummary) {
-	if e.Model != "" || views.DisplayTokensSingle(e) > 0 || e.DurationMs > 0 {
+	if e.Model != "" {
 		<div class="chat-meta-strip text-xs text-gray-500 mt-1.5 flex items-center gap-2">
-			if e.Model != "" {
-				<span class="px-1.5 py-0.5 rounded bg-gray-800/50 text-gray-400">{ e.Model }</span>
-			}
-			if views.DisplayTokensSingle(e) > 0 {
-				<span>{ views.FormatTokens(views.DisplayTokensSingle(e)) + " tokens" }</span>
-			}
-			if e.DurationMs > 0 {
-				<span>{ fmt.Sprintf("%dms", e.DurationMs) }</span>
-			}
+			<span class="px-1.5 py-0.5 rounded bg-gray-800/50 text-gray-400">{ e.Model }</span>
 		</div>
 	}
 }
