@@ -160,7 +160,7 @@ func TestE2E_TokenAccuracy_SingleTextResponse(t *testing.T) {
 	}
 
 	// Step 5: Query — session summary
-	active, completed := QueryDashboardSessions(ctx, db.ReadPool)
+	active, completed, _ := QueryDashboardSessions(ctx, db.ReadPool)
 	allSessions := append(active, completed...)
 	if len(allSessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(allSessions))
@@ -310,7 +310,7 @@ func TestE2E_TokenAccuracy_ThinkingPlusText(t *testing.T) {
 	insertNormalizedEvents(t, db, allEvents)
 
 	// Step 4: Verify session summary — tokens counted ONCE, not doubled
-	active, completed := QueryDashboardSessions(ctx, db.ReadPool)
+	active, completed, _ := QueryDashboardSessions(ctx, db.ReadPool)
 	allSessions := append(active, completed...)
 	if len(allSessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(allSessions))
@@ -481,7 +481,7 @@ func TestE2E_TokenAccuracy_ToolUseWithResults(t *testing.T) {
 	insertNormalizedEvents(t, db, allEvents)
 
 	// Verify session totals: 800+50 (tool call) + 1200+300 (response) = 2350
-	active, completed := QueryDashboardSessions(ctx, db.ReadPool)
+	active, completed, _ := QueryDashboardSessions(ctx, db.ReadPool)
 	allSessions := append(active, completed...)
 	if len(allSessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(allSessions))
@@ -566,7 +566,7 @@ func TestE2E_TokenAccuracy_CacheTokens(t *testing.T) {
 	insertNormalizedEvents(t, db, events)
 
 	// Verify cache tokens in session summary
-	active, completed := QueryDashboardSessions(ctx, db.ReadPool)
+	active, completed, _ := QueryDashboardSessions(ctx, db.ReadPool)
 	allSessions := append(active, completed...)
 	if len(allSessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(allSessions))
@@ -644,7 +644,7 @@ func TestE2E_TokenAccuracy_ZeroTokens(t *testing.T) {
 	insertNormalizedEvents(t, db, allEvents)
 
 	// All token aggregations should be zero
-	active, completed := QueryDashboardSessions(ctx, db.ReadPool)
+	active, completed, _ := QueryDashboardSessions(ctx, db.ReadPool)
 	allSessions := append(active, completed...)
 	if len(allSessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(allSessions))
@@ -698,7 +698,7 @@ func TestE2E_TokenAccuracy_MissingUsageField(t *testing.T) {
 
 	insertNormalizedEvents(t, db, events)
 
-	active, completed := QueryDashboardSessions(ctx, db.ReadPool)
+	active, completed, _ := QueryDashboardSessions(ctx, db.ReadPool)
 	allSessions := append(active, completed...)
 	if len(allSessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(allSessions))
@@ -821,7 +821,7 @@ func TestE2E_TokenAccuracy_MultipleAPICalls(t *testing.T) {
 	// Call 1: input=100, output=10, cache_read=5000
 	// Call 2: input=200, output=20, cache_read=8000, cache_create=1000
 	// Totals: input=300, output=30, total=330, cache_read=13000, cache_create=1000
-	active, completed := QueryDashboardSessions(ctx, db.ReadPool)
+	active, completed, _ := QueryDashboardSessions(ctx, db.ReadPool)
 	allSessions := append(active, completed...)
 	if len(allSessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(allSessions))
@@ -951,7 +951,7 @@ func TestE2E_TokenAccuracy_ThreeContentBlocks(t *testing.T) {
 	insertNormalizedEvents(t, db, allEvents)
 
 	// Session should have tokens counted exactly once
-	active, completed := QueryDashboardSessions(ctx, db.ReadPool)
+	active, completed, _ := QueryDashboardSessions(ctx, db.ReadPool)
 	allSessions := append(active, completed...)
 	if len(allSessions) != 1 {
 		t.Fatalf("expected 1 session, got %d", len(allSessions))

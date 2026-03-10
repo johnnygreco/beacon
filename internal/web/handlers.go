@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
-	"time"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/johnnygreco/beacon/internal/search"
@@ -99,18 +99,8 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 	if ek := r.URL.Query().Get("event_kind"); ek != "" {
 		sq.EventKinds = []string{ek}
 	}
-	if v := r.URL.Query().Get("range"); v != "" {
-		now := time.Now()
-		switch v {
-		case "1h":
-			sq.FromTime = now.Add(-1 * time.Hour)
-		case "24h":
-			sq.FromTime = now.Add(-24 * time.Hour)
-		case "7d":
-			sq.FromTime = now.Add(-7 * 24 * time.Hour)
-		case "30d":
-			sq.FromTime = now.Add(-30 * 24 * time.Hour)
-		}
+	if t := parseRange(r.URL.Query().Get("range")); t != nil {
+		sq.FromTime = *t
 	}
 
 	results, err := h.searcher.Search(r.Context(), sq)
@@ -136,5 +126,45 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 
 	if err := partials.SearchResults(viewResults).Render(r.Context(), w); err != nil {
 		h.logger.Debug("render search results failed", "error", err)
+	}
+}
+
+// DashboardSessions returns paginated completed sessions as an HTMX partial.
+func (h *Handlers) DashboardSessions(w http.ResponseWriter, r *http.Request) {
+	rangeVal := r.URL.Query().Get("range")
+	since := parseRange(rangeVal)
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+
+	sessions, hasMore := QueryCompletedSessions(r.Context(), h.db, since, offset, defaultSessionPageSize)
+	nextOffset := offset + len(sessions)
+
+	if err := partials.CompletedSessionListWithMore(sessions, hasMore, rangeVal, nextOffset).Render(r.Context(), w); err != nil {
+		h.logger.Debug("render dashboard sessions failed", "error", err)
+	}
+}
+
+// DashboardActivity returns paginated activity items as an HTMX partial.
+func (h *Handlers) DashboardActivity(w http.ResponseWriter, r *http.Request) {
+	rangeVal := r.URL.Query().Get("range")
+	since := parseRange(rangeVal)
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+
+	items, hasMore := QueryRecentActivityFiltered(r.Context(), h.db, since, offset, defaultActivityPageSize)
+	nextOffset := offset + len(items)
+
+	if offset == 0 {
+		if err := partials.ActivityTimelineFull(items, hasMore, rangeVal, nextOffset).Render(r.Context(), w); err != nil {
+			h.logger.Debug("render dashboard activity failed", "error", err)
+		}
+	} else {
+		if err := partials.ActivityTimelineWithMore(items, hasMore, rangeVal, nextOffset).Render(r.Context(), w); err != nil {
+			h.logger.Debug("render dashboard activity failed", "error", err)
+		}
 	}
 }

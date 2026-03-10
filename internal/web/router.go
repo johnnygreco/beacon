@@ -33,6 +33,8 @@ func NewRouter(
 	r.Get("/sessions/{id}/conversation", handlers.SessionConversation)
 	r.Get("/search", handlers.Search)
 	r.Get("/search/results", handlers.SearchResults)
+	r.Get("/dashboard/sessions", handlers.DashboardSessions)
+	r.Get("/dashboard/activity", handlers.DashboardActivity)
 	r.Get("/health", handlers.Health)
 
 	// SSE endpoints

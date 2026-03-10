@@ -40,6 +40,7 @@ func (u *Updater) NotifyDashboard() {
 	defer cancel()
 
 	var activeSessions, completedSessions []views.SessionSummary
+	var hasMoreSessions, hasMoreActivity bool
 	var activity []views.ActivityItem
 	var tokensChart views.MultiSeriesChart
 	var tokensByModel []views.ModelTokens
@@ -48,9 +49,12 @@ func (u *Updater) NotifyDashboard() {
 	wg.Add(4)
 	go func() {
 		defer wg.Done()
-		activeSessions, completedSessions = QueryDashboardSessions(ctx, u.db)
+		activeSessions, completedSessions, hasMoreSessions = QueryDashboardSessions(ctx, u.db)
 	}()
-	go func() { defer wg.Done(); activity = QueryRecentActivity(ctx, u.db) }()
+	go func() {
+		defer wg.Done()
+		activity, hasMoreActivity = QueryRecentActivity(ctx, u.db)
+	}()
 	go func() { defer wg.Done(); tokensChart = QueryTotalTokensTimeSeries(ctx, u.db) }()
 	go func() { defer wg.Done(); tokensByModel = QueryTokensByModelSummary(ctx, u.db) }()
 	wg.Wait()
@@ -62,6 +66,8 @@ func (u *Updater) NotifyDashboard() {
 		RecentActivity:    activity,
 		TokensChart:       tokensChart,
 		TokensByModel:     tokensByModel,
+		HasMoreSessions:   hasMoreSessions,
+		HasMoreActivity:   hasMoreActivity,
 	})
 
 	if u.broker.SubscriberCount() == 0 {
@@ -79,7 +85,7 @@ func (u *Updater) NotifyDashboard() {
 	}
 
 	var completedBuf bytes.Buffer
-	if err := partials.CompletedSessionList(completedSessions).Render(ctx, &completedBuf); err != nil {
+	if err := partials.CompletedSessionListWithMore(completedSessions, hasMoreSessions, "", len(completedSessions)).Render(ctx, &completedBuf); err != nil {
 		u.logger.Error("render completed sessions partial", "error", err)
 	} else {
 		u.broker.Broadcast("dashboard", sse.SSEMessage{
@@ -89,7 +95,7 @@ func (u *Updater) NotifyDashboard() {
 	}
 
 	var activityBuf bytes.Buffer
-	if err := partials.ActivityTimeline(activity).Render(ctx, &activityBuf); err != nil {
+	if err := partials.ActivityTimelineFull(activity, hasMoreActivity, "", len(activity)).Render(ctx, &activityBuf); err != nil {
 		u.logger.Error("render activity partial", "error", err)
 	} else {
 		u.broker.Broadcast("dashboard", sse.SSEMessage{

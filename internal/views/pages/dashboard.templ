@@ -8,60 +8,85 @@ import (
 
 templ Dashboard(data views.DashboardData) {
 	@views.Layout("Dashboard") {
-		<div hx-ext="sse" sse-connect="/sse/dashboard" class="space-y-6">
+		<div hx-ext="sse" sse-connect="/sse/dashboard" class="flex flex-col gap-6 min-h-[calc(100vh-3rem)]">
 			<!-- Hidden SSE receiver for sidebar metrics (OOB swap) -->
 			<div sse-swap="metrics-update" class="hidden"></div>
 
-			<!-- Charts: Total Tokens Over Time + Tokens by Model -->
-			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-				@components.ChartContainerWithOptions("dashboardTotalTokensChart", "200px", "Total Tokens Over Time", true, false)
-				if len(data.TokensByModel) > 0 {
-					@components.ChartContainerWithOptions("dashboardTokensByModelChart", "200px", "Tokens by Model", true, true)
-				}
-			</div>
-			if len(data.TokensChart.Labels) > 0 {
-				@templ.JSONScript("dashboard-total-tokens-data", data.TokensChart)
-			}
-			if len(data.TokensByModel) > 0 {
-				@templ.JSONScript("dashboard-tokens-by-model-data", dashboardTokensByModelData(data.TokensByModel))
-			}
-
-			<!-- Active Sessions -->
-			<div>
-				<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
-					<span class="relative flex h-2 w-2">
-						<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-						<span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-					</span>
-					Active Sessions
-				</h2>
-				<div id="active-sessions" sse-swap="active-sessions-update" hx-swap="innerHTML"
-				     class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-					@partials.ActiveSessionList(data.ActiveSessions)
+			<div class="space-y-6 flex-shrink-0">
+				<!-- Charts: Total Tokens Over Time + Tokens by Model -->
+				<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+					@components.ChartContainerWithOptions("dashboardTotalTokensChart", "200px", "Total Tokens Over Time", true, false)
+					if len(data.TokensByModel) > 0 {
+						@components.ChartContainerWithOptions("dashboardTokensByModelChart", "200px", "Tokens by Model", true, true)
+					}
 				</div>
-			</div>
+				if len(data.TokensChart.Labels) > 0 {
+					@templ.JSONScript("dashboard-total-tokens-data", data.TokensChart)
+				}
+				if len(data.TokensByModel) > 0 {
+					@templ.JSONScript("dashboard-tokens-by-model-data", dashboardTokensByModelData(data.TokensByModel))
+				}
 
-			<!-- Divider -->
-			<div class="border-t border-gray-700/50"></div>
-
-			<!-- Completed Sessions + Activity Timeline (side by side) -->
-			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+				<!-- Active Sessions -->
 				<div>
-					<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide mb-3">Completed Sessions</h2>
-					<div id="completed-sessions" sse-swap="completed-sessions-update" hx-swap="innerHTML"
-					     class="space-y-1 max-h-[500px] overflow-y-auto">
-						@partials.CompletedSessionList(data.CompletedSessions)
+					<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
+						<span class="relative flex h-2 w-2">
+							<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+							<span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+						</span>
+						Active Sessions
+					</h2>
+					<div id="active-sessions" sse-swap="active-sessions-update" hx-swap="innerHTML"
+					     class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+						@partials.ActiveSessionList(data.ActiveSessions)
 					</div>
 				</div>
-				<div>
+
+				<!-- Timeframe Filter -->
+				<div class="border-t border-gray-700/50 pt-4">
+					<div class="flex items-center gap-2">
+						<span class="text-xs text-gray-500">Time Range</span>
+						<button type="button" onclick="setDashboardRange(this, '')" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
+						<button type="button" onclick="setDashboardRange(this, '24h')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">24h</button>
+						<button type="button" onclick="setDashboardRange(this, '7d')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">7d</button>
+						<button type="button" onclick="setDashboardRange(this, '30d')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">30d</button>
+					</div>
+				</div>
+			</div>
+
+			<!-- Completed Sessions + Activity Timeline (side by side) -->
+			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-[300px]">
+				<div class="flex flex-col min-h-0">
+					<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide mb-3">Completed Sessions</h2>
+					<div id="completed-sessions" sse-swap="completed-sessions-update" hx-swap="innerHTML"
+					     class="space-y-1 overflow-y-auto flex-1 min-h-0">
+						@partials.CompletedSessionListWithMore(data.CompletedSessions, data.HasMoreSessions, "", len(data.CompletedSessions))
+					</div>
+				</div>
+				<div class="flex flex-col min-h-0">
 					<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide mb-3">Activity Timeline</h2>
 					<div id="activity-feed" sse-swap="activity-update" hx-swap="innerHTML"
-					     class="max-h-[500px] overflow-y-auto">
-						@partials.ActivityTimeline(data.RecentActivity)
+					     class="overflow-y-auto flex-1 min-h-0">
+						@partials.ActivityTimelineFull(data.RecentActivity, data.HasMoreActivity, "", len(data.RecentActivity))
 					</div>
 				</div>
 			</div>
 		</div>
+		<script>
+		function setDashboardRange(btn, value) {
+			// Highlight active button
+			btn.closest('.flex').querySelectorAll('.dash-range-btn').forEach(function(b) {
+				b.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
+			});
+			btn.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';
+			// Disable SSE swap for both containers
+			document.getElementById('completed-sessions').removeAttribute('sse-swap');
+			document.getElementById('activity-feed').removeAttribute('sse-swap');
+			// Fetch filtered data
+			htmx.ajax('GET', '/dashboard/sessions?range=' + encodeURIComponent(value), {target: '#completed-sessions', swap: 'innerHTML'});
+			htmx.ajax('GET', '/dashboard/activity?range=' + encodeURIComponent(value), {target: '#activity-feed', swap: 'innerHTML'});
+		}
+		</script>
 	}
 }
 

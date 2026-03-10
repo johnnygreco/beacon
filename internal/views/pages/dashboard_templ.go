@@ -47,7 +47,7 @@ func Dashboard(data views.DashboardData) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div hx-ext=\"sse\" sse-connect=\"/sse/dashboard\" class=\"space-y-6\"><!-- Hidden SSE receiver for sidebar metrics (OOB swap) --><div sse-swap=\"metrics-update\" class=\"hidden\"></div><!-- Charts: Total Tokens Over Time + Tokens by Model --><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div hx-ext=\"sse\" sse-connect=\"/sse/dashboard\" class=\"flex flex-col gap-6 min-h-[calc(100vh-3rem)]\"><!-- Hidden SSE receiver for sidebar metrics (OOB swap) --><div sse-swap=\"metrics-update\" class=\"hidden\"></div><div class=\"space-y-6 flex-shrink-0\"><!-- Charts: Total Tokens Over Time + Tokens by Model --><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -85,23 +85,23 @@ func Dashboard(data views.DashboardData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div></div><!-- Divider --><div class=\"border-t border-gray-700/50\"></div><!-- Completed Sessions + Activity Timeline (side by side) --><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6\"><div><h2 class=\"text-sm font-medium text-gray-400 uppercase tracking-wide mb-3\">Completed Sessions</h2><div id=\"completed-sessions\" sse-swap=\"completed-sessions-update\" hx-swap=\"innerHTML\" class=\"space-y-1 max-h-[500px] overflow-y-auto\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div></div><!-- Timeframe Filter --><div class=\"border-t border-gray-700/50 pt-4\"><div class=\"flex items-center gap-2\"><span class=\"text-xs text-gray-500\">Time Range</span> <button type=\"button\" onclick=\"setDashboardRange(this, '')\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors\">All</button> <button type=\"button\" onclick=\"setDashboardRange(this, '24h')\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">24h</button> <button type=\"button\" onclick=\"setDashboardRange(this, '7d')\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">7d</button> <button type=\"button\" onclick=\"setDashboardRange(this, '30d')\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">30d</button></div></div></div><!-- Completed Sessions + Activity Timeline (side by side) --><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-[300px]\"><div class=\"flex flex-col min-h-0\"><h2 class=\"text-sm font-medium text-gray-400 uppercase tracking-wide mb-3\">Completed Sessions</h2><div id=\"completed-sessions\" sse-swap=\"completed-sessions-update\" hx-swap=\"innerHTML\" class=\"space-y-1 overflow-y-auto flex-1 min-h-0\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = partials.CompletedSessionList(data.CompletedSessions).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = partials.CompletedSessionListWithMore(data.CompletedSessions, data.HasMoreSessions, "", len(data.CompletedSessions)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div></div><div><h2 class=\"text-sm font-medium text-gray-400 uppercase tracking-wide mb-3\">Activity Timeline</h2><div id=\"activity-feed\" sse-swap=\"activity-update\" hx-swap=\"innerHTML\" class=\"max-h-[500px] overflow-y-auto\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div></div><div class=\"flex flex-col min-h-0\"><h2 class=\"text-sm font-medium text-gray-400 uppercase tracking-wide mb-3\">Activity Timeline</h2><div id=\"activity-feed\" sse-swap=\"activity-update\" hx-swap=\"innerHTML\" class=\"overflow-y-auto flex-1 min-h-0\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = partials.ActivityTimeline(data.RecentActivity).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = partials.ActivityTimelineFull(data.RecentActivity, data.HasMoreActivity, "", len(data.RecentActivity)).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div></div></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div></div></div></div><script>\n\t\tfunction setDashboardRange(btn, value) {\n\t\t\t// Highlight active button\n\t\t\tbtn.closest('.flex').querySelectorAll('.dash-range-btn').forEach(function(b) {\n\t\t\t\tb.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';\n\t\t\t});\n\t\t\tbtn.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';\n\t\t\t// Disable SSE swap for both containers\n\t\t\tdocument.getElementById('completed-sessions').removeAttribute('sse-swap');\n\t\t\tdocument.getElementById('activity-feed').removeAttribute('sse-swap');\n\t\t\t// Fetch filtered data\n\t\t\thtmx.ajax('GET', '/dashboard/sessions?range=' + encodeURIComponent(value), {target: '#completed-sessions', swap: 'innerHTML'});\n\t\t\thtmx.ajax('GET', '/dashboard/activity?range=' + encodeURIComponent(value), {target: '#activity-feed', swap: 'innerHTML'});\n\t\t}\n\t\t</script>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

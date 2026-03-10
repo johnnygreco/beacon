@@ -9,11 +9,13 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
+	"fmt"
 	"github.com/johnnygreco/beacon/internal/views"
 	"github.com/johnnygreco/beacon/internal/views/components"
+	"net/url"
 )
 
-func CompletedSessionList(sessions []views.SessionSummary) templ.Component {
+func CompletedSessionListWithMore(sessions []views.SessionSummary, hasMore bool, rangeVal string, nextOffset int) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -40,8 +42,27 @@ func CompletedSessionList(sessions []views.SessionSummary) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		if len(sessions) == 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<p class=\"text-sm text-gray-500 text-center py-4\">No completed sessions</p>")
+		if hasMore {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div hx-get=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var2 string
+			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/dashboard/sessions?range=%s&offset=%d", url.QueryEscape(rangeVal), nextOffset))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/completed_session_list.templ`, Line: 15, Col: 108}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" hx-trigger=\"revealed\" hx-swap=\"outerHTML\" hx-on::before-request=\"this.closest('[id]').removeAttribute('sse-swap')\" class=\"text-center py-3\"><span class=\"text-xs text-gray-500\">Loading more...</span></div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		if len(sessions) == 0 && !hasMore {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<p class=\"text-sm text-gray-500 text-center py-4\">No completed sessions</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

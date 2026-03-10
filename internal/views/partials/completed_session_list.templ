@@ -1,15 +1,26 @@
 package partials
 
 import (
+	"fmt"
+	"net/url"
 	"github.com/johnnygreco/beacon/internal/views"
 	"github.com/johnnygreco/beacon/internal/views/components"
 )
 
-templ CompletedSessionList(sessions []views.SessionSummary) {
+templ CompletedSessionListWithMore(sessions []views.SessionSummary, hasMore bool, rangeVal string, nextOffset int) {
 	for _, s := range sessions {
 		@components.CompletedSessionRow(s)
 	}
-	if len(sessions) == 0 {
+	if hasMore {
+		<div hx-get={ fmt.Sprintf("/dashboard/sessions?range=%s&offset=%d", url.QueryEscape(rangeVal), nextOffset) }
+		     hx-trigger="revealed"
+		     hx-swap="outerHTML"
+		     hx-on::before-request="this.closest('[id]').removeAttribute('sse-swap')"
+		     class="text-center py-3">
+			<span class="text-xs text-gray-500">Loading more...</span>
+		</div>
+	}
+	if len(sessions) == 0 && !hasMore {
 		<p class="text-sm text-gray-500 text-center py-4">No completed sessions</p>
 	}
 }

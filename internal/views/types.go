@@ -273,6 +273,8 @@ type DashboardData struct {
 	RecentActivity    []ActivityItem
 	TokensChart       MultiSeriesChart
 	TokensByModel     []ModelTokens
+	HasMoreSessions   bool
+	HasMoreActivity   bool
 }
 
 type SessionDetailData struct {

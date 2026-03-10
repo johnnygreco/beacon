@@ -15,6 +15,31 @@ import (
 	"github.com/johnnygreco/beacon/internal/views"
 )
 
+const (
+	defaultSessionPageSize  = 30
+	defaultActivityPageSize = 30
+)
+
+// parseRange converts a range string ("1h", "24h", "7d", "30d") to a *time.Time cutoff.
+func parseRange(v string) *time.Time {
+	now := time.Now()
+	switch v {
+	case "1h":
+		t := now.Add(-time.Hour)
+		return &t
+	case "24h":
+		t := now.Add(-24 * time.Hour)
+		return &t
+	case "7d":
+		t := now.Add(-7 * 24 * time.Hour)
+		return &t
+	case "30d":
+		t := now.Add(-30 * 24 * time.Hour)
+		return &t
+	}
+	return nil
+}
+
 // QueryDashboardData queries all data needed for the dashboard page.
 func QueryDashboardData(ctx context.Context, db *sql.DB) views.DashboardData {
 	var data views.DashboardData
@@ -22,9 +47,12 @@ func QueryDashboardData(ctx context.Context, db *sql.DB) views.DashboardData {
 	wg.Add(4)
 	go func() {
 		defer wg.Done()
-		data.ActiveSessions, data.CompletedSessions = QueryDashboardSessions(ctx, db)
+		data.ActiveSessions, data.CompletedSessions, data.HasMoreSessions = QueryDashboardSessions(ctx, db)
 	}()
-	go func() { defer wg.Done(); data.RecentActivity = QueryRecentActivity(ctx, db) }()
+	go func() {
+		defer wg.Done()
+		data.RecentActivity, data.HasMoreActivity = QueryRecentActivity(ctx, db)
+	}()
 	go func() { defer wg.Done(); data.TokensByModel = QueryTokensByModelSummary(ctx, db) }()
 	go func() { defer wg.Done(); data.TokensChart = QueryTotalTokensTimeSeries(ctx, db) }()
 	wg.Wait()
@@ -95,42 +123,39 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 }
 
 // QueryDashboardSessions returns session summaries split into active and completed.
-// A session is "active" if its last event was within 5 minutes.
-func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed []views.SessionSummary) {
-	rows, err := db.QueryContext(ctx,
+// Active sessions are those with last activity within activeSessionThreshold.
+// Completed sessions are fetched separately with LIMIT+1 to determine hasMore.
+func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed []views.SessionSummary, hasMore bool) {
+	// Fetch active sessions (recent activity, no limit — expected to be few)
+	activeRows, err := db.QueryContext(ctx,
 		`SELECT `+sessionSummaryColumns+`
 		 FROM v_session_summary
-		 ORDER BY ended_at DESC
-		 LIMIT 30`)
+		 WHERE ended_at >= current_timestamp - INTERVAL '5 minutes'
+		 ORDER BY ended_at DESC`)
 	if err != nil {
-		return nil, nil
+		return nil, nil, false
 	}
-	defer rows.Close()
+	defer activeRows.Close()
 
 	now := time.Now()
-	for rows.Next() {
-		s, err := scanSessionSummary(rows, now)
+	for activeRows.Next() {
+		s, err := scanSessionSummary(activeRows, now)
 		if err != nil {
 			continue
 		}
-		if s.Status == "active" {
-			active = append(active, s)
-		} else {
-			completed = append(completed, s)
-		}
+		active = append(active, s)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, nil
+	if err := activeRows.Err(); err != nil {
+		return nil, nil, false
 	}
-	return active, completed
+
+	// Fetch completed sessions with LIMIT+1 for hasMore detection
+	completed, hasMore = QueryCompletedSessions(ctx, db, nil, 0, defaultSessionPageSize)
+	return active, completed, hasMore
 }
 
-// QueryRecentActivity returns a feed of recent events, filtered to meaningful entries.
-func QueryRecentActivity(ctx context.Context, db *sql.DB) []views.ActivityItem {
-	rows, err := db.QueryContext(ctx,
-		`SELECT event_uid,
-		        event_kind,
-		        CASE
+// activitySummaryExpr is the SQL CASE expression for activity item summaries.
+const activitySummaryExpr = `CASE
 		            WHEN event_kind = 'tool_call' THEN 'Tool: ' || COALESCE(NULLIF(tool_name, ''), 'unknown')
 		            WHEN event_kind = 'message' AND actor_role = 'user' AND COALESCE(NULLIF(text_preview, ''), '') != '' THEN text_preview
 		            WHEN event_kind = 'message' AND actor_role = 'assistant' AND COALESCE(NULLIF(text_preview, ''), '') != '' THEN text_preview
@@ -138,15 +163,71 @@ func QueryRecentActivity(ctx context.Context, db *sql.DB) []views.ActivityItem {
 		            WHEN event_kind = 'error' THEN COALESCE(NULLIF(error_code, ''), 'error') || ': ' || COALESCE(NULLIF(error_message, ''), NULLIF(text_preview, ''), 'unknown error')
 		            WHEN event_kind = 'session_meta' THEN 'Session started'
 		            ELSE event_kind
-		        END AS summary,
+		        END`
+
+// QueryRecentActivity returns a feed of recent events, filtered to meaningful entries.
+func QueryRecentActivity(ctx context.Context, db *sql.DB) ([]views.ActivityItem, bool) {
+	return QueryRecentActivityFiltered(ctx, db, nil, 0, defaultActivityPageSize)
+}
+
+// QueryCompletedSessions returns paginated completed sessions with optional time filter.
+func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int) ([]views.SessionSummary, bool) {
+	query := `SELECT ` + sessionSummaryColumns + `
+		 FROM v_session_summary
+		 WHERE ended_at < current_timestamp - INTERVAL '5 minutes'`
+	var args []any
+	if since != nil {
+		query += " AND ended_at >= $1"
+		args = append(args, *since)
+	}
+	query += ` ORDER BY ended_at DESC`
+	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit+1, offset)
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, false
+	}
+	defer rows.Close()
+
+	now := time.Now()
+	var sessions []views.SessionSummary
+	for rows.Next() {
+		s, err := scanSessionSummary(rows, now)
+		if err != nil {
+			continue
+		}
+		sessions = append(sessions, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false
+	}
+	hasMore := len(sessions) > limit
+	if hasMore {
+		sessions = sessions[:limit]
+	}
+	return sessions, hasMore
+}
+
+// QueryRecentActivityFiltered returns paginated activity items with optional time filter.
+func QueryRecentActivityFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int) ([]views.ActivityItem, bool) {
+	query := `SELECT event_uid,
+		        event_kind,
+		        ` + activitySummaryExpr + ` AS summary,
 		        COALESCE(session_id, ''),
 		        timestamp
 		 FROM events
-		 WHERE event_kind IN ('message', 'tool_call', 'error', 'session_meta')
-		 ORDER BY timestamp DESC
-		 LIMIT 20`)
+		 WHERE event_kind IN ('message', 'tool_call', 'error', 'session_meta')`
+	var args []any
+	if since != nil {
+		query += " AND timestamp >= $1"
+		args = append(args, *since)
+	}
+	query += ` ORDER BY timestamp DESC`
+	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit+1, offset)
+
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	defer rows.Close()
 
@@ -160,9 +241,13 @@ func QueryRecentActivity(ctx context.Context, db *sql.DB) []views.ActivityItem {
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil
+		return nil, false
 	}
-	return items
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+	return items, hasMore
 }
 
 // QueryChartData returns token time-series data with breakdown by type.
