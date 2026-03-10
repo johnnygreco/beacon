@@ -170,13 +170,9 @@ func (db *DB) migrate() error {
 		GROUP BY model ORDER BY total_tokens DESC`,
 	}
 
-	// Load FTS extension
-	if _, err := db.writeConn.ExecContext(context.Background(), "INSTALL fts"); err != nil {
-		// ignore install error if already installed
-	}
-	if _, err := db.writeConn.ExecContext(context.Background(), "LOAD fts"); err != nil {
-		// ignore load error
-	}
+	// Load FTS extension (errors ignored — may already be installed/loaded)
+	db.writeConn.ExecContext(context.Background(), "INSTALL fts") //nolint:errcheck
+	db.writeConn.ExecContext(context.Background(), "LOAD fts")    //nolint:errcheck
 
 	for _, stmt := range ddl {
 		if _, err := db.writeConn.ExecContext(context.Background(), stmt); err != nil {

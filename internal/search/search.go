@@ -61,9 +61,7 @@ func (s *Searcher) initFTSConn(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("pin FTS conn: %w", err)
 	}
-	if _, err := conn.ExecContext(ctx, "INSTALL fts"); err != nil {
-		// ignore — may already be installed
-	}
+	conn.ExecContext(ctx, "INSTALL fts") //nolint:errcheck // may already be installed
 	if _, err := conn.ExecContext(ctx, "LOAD fts"); err != nil {
 		conn.Close()
 		return fmt.Errorf("LOAD fts: %w", err)
