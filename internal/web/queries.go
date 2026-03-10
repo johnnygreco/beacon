@@ -611,8 +611,11 @@ func deduplicateTurns(turns []views.TurnDetail) []views.TurnDetail {
 		for _, e := range t.Events {
 			var key string
 			switch {
-			case e.EventKind == "reasoning":
+			case e.EventKind == "reasoning" && e.TextContent != "":
 				key = e.EventKind + "|" + e.TextContent
+			case e.EventKind == "reasoning":
+				// Empty reasoning (redacted thinking) — use UID to preserve each block
+				key = e.EventUID
 			case e.EventKind == "message" && e.TextContent != "":
 				key = e.EventKind + "|" + e.ActorRole + "|" + e.TextContent
 			default:
