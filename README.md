@@ -84,6 +84,10 @@ Add Beacon to your agent's MCP config to give it access to its own conversation 
 
 Available tools: **search**, **open** (retrieve context around an event), and **list_sessions**.
 
+## Acknowledgements
+
+This project was inspired by the awesome work of Wes McKinney ([agentsview](https://github.com/wesm/agentsview) — browsing and analyzing agent coding sessions), Eric Tramel ([moraine](https://github.com/eric-tramel/moraine) — real-time indexing of agent traces into a searchable database), and Simon Willison ([claude-code-transcripts](https://github.com/simonw/claude-code-transcripts) — turning raw session files into readable transcripts).
+
 ## License
 
 [Apache License 2.0](LICENSE)
