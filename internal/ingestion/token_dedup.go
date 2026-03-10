@@ -1,42 +1,115 @@
 package ingestion
 
-// DeduplicateTokens removes duplicate token counts from events that share
-// the same MessageUUID. Claude Code writes one JSONL line per content block,
-// so a single API call producing [thinking, text] generates two lines with
-// identical token values. Without deduplication, SUM() aggregation counts
-// tokens N times (N = number of content blocks per API call).
+// DeduplicateTokens removes duplicate token counts that arise from
+// Claude Code writing multiple JSONL lines for the same API response.
 //
-// For each group of events sharing a MessageUUID, only the LAST event keeps
-// its token values — the last content block has the most accurate output_tokens
-// (thinking blocks get artificially low values during streaming). All earlier
-// events in the group have their token fields zeroed out.
+// Claude Code writes each content block as a separate JSONL line, connected
+// via parentUuid chains (e.g. thinking → text → tool_use). Each line carries
+// the API's usage object, but only the LAST line in the chain has the
+// cumulative output_tokens total. Earlier lines carry partial/misleading
+// counts. Without dedup, SUM() aggregation over-counts both input and output.
 //
-// Events with an empty MessageUUID are left unchanged.
+// This function handles two dedup patterns:
+//
+//  1. Parent chains: Assistant-role lines linked via ParentUUID → MessageUUID.
+//     All tokens are kept only on the last event in each chain.
+//
+//  2. Shared MessageUUID: Multiple events from the same JSONL line (e.g. a
+//     line with [thinking, text] content). Tokens kept on the last event.
 func DeduplicateTokens(events []NormalizedEvent) []NormalizedEvent {
 	if len(events) <= 1 {
 		return events
 	}
 
-	// Find the last index for each MessageUUID
-	lastIndex := make(map[string]int)
+	// --- Phase 1: Parent-chain dedup ---
+	// Only consider assistant-role events for chaining (reasoning, message,
+	// tool_call). User messages and tool results are separate API
+	// interactions and must not be chained together.
+	assistantUUIDs := make(map[string]int, len(events))
+	for i, evt := range events {
+		if evt.MessageUUID == "" {
+			continue
+		}
+		if evt.ActorRole == "assistant" {
+			assistantUUIDs[evt.MessageUUID] = i
+		}
+	}
+
+	// Build a child map among assistant events only.
+	childOf := make(map[string]int, len(events))
+	for i, evt := range events {
+		if evt.ParentUUID == "" || evt.ActorRole != "assistant" {
+			continue
+		}
+		if _, parentIsAssistant := assistantUUIDs[evt.ParentUUID]; parentIsAssistant {
+			childOf[evt.ParentUUID] = i
+		}
+	}
+
+	// Walk chains from roots. A root is an assistant event whose parent is
+	// either absent from the batch or not an assistant event.
+	inChain := make(map[int]bool, len(events))
+	for i, evt := range events {
+		if inChain[i] || evt.ActorRole != "assistant" || evt.MessageUUID == "" {
+			continue
+		}
+		// Skip non-roots.
+		if evt.ParentUUID != "" {
+			if _, parentIsAssistant := assistantUUIDs[evt.ParentUUID]; parentIsAssistant {
+				continue
+			}
+		}
+		// Must have at least one child to form a chain.
+		if _, hasChild := childOf[evt.MessageUUID]; !hasChild {
+			continue
+		}
+
+		// Walk forward.
+		var chain []int
+		chain = append(chain, i)
+		inChain[i] = true
+		cur := evt.MessageUUID
+		for {
+			childIdx, ok := childOf[cur]
+			if !ok {
+				break
+			}
+			chain = append(chain, childIdx)
+			inChain[childIdx] = true
+			cur = events[childIdx].MessageUUID
+		}
+		if len(chain) <= 1 {
+			continue
+		}
+
+		// Zero tokens on all but the last event.
+		for _, idx := range chain[:len(chain)-1] {
+			zeroTokens(&events[idx])
+		}
+	}
+
+	// --- Phase 2: Shared-UUID dedup (original behavior) ---
+	lastIndex := make(map[string]int, len(events))
 	for i, evt := range events {
 		if evt.MessageUUID != "" {
 			lastIndex[evt.MessageUUID] = i
 		}
 	}
-
-	// Zero out tokens on non-last events within each UUID group
 	for i := range events {
 		if events[i].MessageUUID == "" {
 			continue
 		}
 		if i != lastIndex[events[i].MessageUUID] {
-			events[i].InputTokens = 0
-			events[i].OutputTokens = 0
-			events[i].CacheReadTokens = 0
-			events[i].CacheCreateTokens = 0
+			zeroTokens(&events[i])
 		}
 	}
 
 	return events
+}
+
+func zeroTokens(evt *NormalizedEvent) {
+	evt.InputTokens = 0
+	evt.OutputTokens = 0
+	evt.CacheReadTokens = 0
+	evt.CacheCreateTokens = 0
 }

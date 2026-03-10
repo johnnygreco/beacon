@@ -757,10 +757,13 @@ func TestE2E_TokenAccuracy_MultipleAPICalls(t *testing.T) {
 	})
 
 	// Second API call: thinking + text (different UUID)
+	// In real Claude Code data, cross-API-call parentUuid goes through
+	// user/tool events (not assistant), so separate API calls don't form
+	// assistant parent chains. Use a non-assistant parent UUID here.
 	thinking2 := toJSONL(t, map[string]any{
 		"sessionId":  "tok-sess-7",
 		"uuid":       "uuid-call-2",
-		"parentUuid": "uuid-call-1",
+		"parentUuid": "uuid-user-msg",
 		"timestamp":  ts.Add(5 * time.Second).Format(time.RFC3339),
 		"type":       "assistant",
 		"message": map[string]any{
@@ -780,7 +783,7 @@ func TestE2E_TokenAccuracy_MultipleAPICalls(t *testing.T) {
 	text2 := toJSONL(t, map[string]any{
 		"sessionId":  "tok-sess-7",
 		"uuid":       "uuid-call-2",
-		"parentUuid": "uuid-call-1",
+		"parentUuid": "uuid-user-msg",
 		"timestamp":  ts.Add(5 * time.Second).Format(time.RFC3339),
 		"type":       "assistant",
 		"message": map[string]any{

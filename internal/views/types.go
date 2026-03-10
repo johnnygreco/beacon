@@ -53,6 +53,54 @@ func SumTokens(events []EventSummary) int64 {
 	return total
 }
 
+// EstimateTokens estimates the number of tokens in a text string.
+// Uses ~4 characters per token as a rough heuristic for English/code text.
+func EstimateTokens(text string) int64 {
+	n := len(text)
+	if n == 0 {
+		return 0
+	}
+	return int64(n+3) / 4
+}
+
+// EstimateTokensMulti estimates total tokens across multiple EventSummary
+// text contents. Used when API-reported token counts are unavailable or
+// unreliable (e.g. thinking blocks where output_tokens is partial).
+func EstimateTokensMulti(events []EventSummary) int64 {
+	var total int64
+	for _, e := range events {
+		total += EstimateTokens(e.TextContent)
+	}
+	return total
+}
+
+// DisplayTokens returns the best available token count for a slice of events.
+// If the API-reported sum is meaningful (> 0 and at least half the text-based
+// estimate), it is used directly. Otherwise the text estimate is returned.
+func DisplayTokens(events []EventSummary) int64 {
+	apiTotal := SumTokens(events)
+	estimated := EstimateTokensMulti(events)
+	if apiTotal > 0 && (estimated == 0 || apiTotal >= estimated/2) {
+		return apiTotal
+	}
+	if estimated > 0 {
+		return estimated
+	}
+	return apiTotal
+}
+
+// DisplayTokensSingle returns the best available token count for a single event.
+func DisplayTokensSingle(e EventSummary) int64 {
+	if e.Tokens > 0 {
+		estimated := EstimateTokens(e.TextContent)
+		if estimated == 0 || e.Tokens >= estimated/2 {
+			return e.Tokens
+		}
+		return estimated
+	}
+	return EstimateTokens(e.TextContent)
+}
+
 // FormatTokens formats a token count for display (e.g. 1500 -> "1.5K").
 func FormatTokens(n int64) string {
 	if n >= 1_000_000 {
