@@ -7,6 +7,3 @@ linters:
     - govet
     - staticcheck
     - unused
-
-issues:
-  exclude-generated-files: true
