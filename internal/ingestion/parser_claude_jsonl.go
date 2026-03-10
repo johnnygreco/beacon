@@ -70,6 +70,14 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 		evt.TextContent = jsonStr(raw, "summary")
 		events = append(events, evt)
 
+	case "last-prompt":
+		// Definitive session-end signal emitted when Claude Code exits.
+		evt := base
+		evt.EventKind = "session_end"
+		evt.PayloadType = "last-prompt"
+		evt.ActorRole = "system"
+		events = append(events, evt)
+
 	default:
 		// Most Claude Code lines have a "message" field with role and content
 		msg, _ := raw["message"].(map[string]any)

@@ -126,11 +126,12 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 // Active sessions are those with last activity within activeSessionThreshold.
 // Completed sessions are fetched separately with LIMIT+1 to determine hasMore.
 func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed []views.SessionSummary, hasMore bool) {
-	// Fetch active sessions (recent activity, no limit — expected to be few)
+	// Fetch active sessions: recent activity AND not explicitly ended.
 	activeRows, err := db.QueryContext(ctx,
 		`SELECT `+sessionSummaryColumns+`
 		 FROM v_session_summary
 		 WHERE ended_at >= current_timestamp - INTERVAL '5 minutes'
+		   AND COALESCE(has_session_end, 0) = 0
 		 ORDER BY ended_at DESC`)
 	if err != nil {
 		return nil, nil, false
@@ -177,7 +178,8 @@ func QueryRecentActivity(ctx context.Context, db *sql.DB) ([]views.ActivityItem,
 func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int) ([]views.SessionSummary, bool) {
 	query := `SELECT ` + sessionSummaryColumns + `
 		 FROM v_session_summary
-		 WHERE ended_at < current_timestamp - INTERVAL '5 minutes'`
+		 WHERE ended_at < current_timestamp - INTERVAL '5 minutes'
+		    OR COALESCE(has_session_end, 0) = 1`
 	var args []any
 	if since != nil {
 		query += " AND ended_at >= $1"
@@ -755,43 +757,64 @@ const sessionSummaryColumns = `session_id, COALESCE(source_name, ''), started_at
 		COALESCE(tool_call_count, 0), COALESCE(mcp_call_count, 0),
 		COALESCE(last_model, ''),
 		COALESCE(working_dir, ''),
-		COALESCE(parent_session_id, '')`
+		COALESCE(parent_session_id, ''),
+		COALESCE(has_session_end, 0)`
 
 // scanSessionSummary scans a row from v_session_summary into a SessionSummary.
 func scanSessionSummary(scanner interface{ Scan(dest ...any) error }, now time.Time) (views.SessionSummary, error) {
 	var s views.SessionSummary
 	var source, model string
 	var startedAt, endedAt time.Time
+	var hasSessionEnd int
 	err := scanner.Scan(&s.ID, &source, &startedAt, &endedAt,
 		&s.TurnCount, &s.TotalTokens, &s.InputTokens, &s.OutputTokens,
 		&s.CacheReadTokens, &s.CacheCreateTokens,
 		&s.ToolCallCount, &s.MCPCallCount, &model, &s.WorkingDir,
-		&s.ParentSessionID)
+		&s.ParentSessionID, &hasSessionEnd)
 	if err != nil {
 		return s, err
 	}
 	s.Actor = source
 	s.ActiveModel = model
+	s.HasSessionEnd = hasSessionEnd > 0
 	setSessionTiming(&s, startedAt, endedAt, now)
 	return s, nil
 }
 
-const activeSessionThreshold = 5 * time.Minute
+const (
+	// activeThreshold: session is "active" (green Live badge) if last event within this window.
+	activeThreshold = 90 * time.Second
+	// idleThreshold: session is "idle" (amber badge) between activeThreshold and this.
+	// Beyond this, or if has_session_end is true, session is "completed".
+	idleThreshold = 5 * time.Minute
+)
 
 func setSessionTiming(s *views.SessionSummary, startedAt, endedAt, now time.Time) {
 	s.StartedAt = startedAt
 	s.EndedAt = endedAt
 
-	// Use the most recent activity timestamp to determine if session is still active.
+	// Use the most recent activity timestamp to determine session state.
 	lastActivity := startedAt
 	if !endedAt.IsZero() && endedAt.After(startedAt) {
 		lastActivity = endedAt
 	}
 
-	if now.Sub(lastActivity) < activeSessionThreshold {
+	elapsed := now.Sub(lastActivity)
+
+	if s.HasSessionEnd {
+		// Definitive end signal (last-prompt) — always completed.
+		s.Status = "completed"
+		s.Duration = formatDuration(lastActivity.Sub(startedAt))
+	} else if elapsed < activeThreshold {
+		// Actively producing events.
 		s.Status = "active"
 		s.Duration = formatDuration(now.Sub(startedAt))
+	} else if elapsed < idleThreshold {
+		// No recent events but hasn't timed out — waiting for user input.
+		s.Status = "idle"
+		s.Duration = formatDuration(now.Sub(startedAt))
 	} else {
+		// Timed out without explicit end signal.
 		s.Status = "completed"
 		s.Duration = formatDuration(lastActivity.Sub(startedAt))
 	}

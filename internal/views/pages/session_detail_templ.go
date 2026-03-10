@@ -191,20 +191,20 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if data.Session.IsSubagent() {
-				if data.Session.Status == "active" {
+			if data.Session.Status == "active" {
+				if data.Session.IsSubagent() {
 					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<span class=\"px-3 py-1 text-sm font-semibold uppercase rounded-full bg-blue-500/20 text-blue-400\">Active</span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				} else {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<span class=\"px-3 py-1 text-sm font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400\">Completed</span>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<span class=\"px-3 py-1 text-sm font-semibold uppercase rounded-full bg-green-500/20 text-green-400\">Active</span>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-			} else if data.Session.Status == "active" {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<span class=\"px-3 py-1 text-sm font-semibold uppercase rounded-full bg-green-500/20 text-green-400\">Active</span>")
+			} else if data.Session.Status == "idle" {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<span class=\"px-3 py-1 text-sm font-semibold uppercase rounded-full bg-amber-500/20 text-amber-400\">Idle</span>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

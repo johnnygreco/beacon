@@ -34,14 +34,14 @@ templ SessionDetail(data views.SessionDetailData) {
 						}
 						<p class="text-sm text-gray-500 mt-1 font-mono">{ data.Session.ID }</p>
 					</div>
-					if data.Session.IsSubagent() {
-						if data.Session.Status == "active" {
+					if data.Session.Status == "active" {
+						if data.Session.IsSubagent() {
 							<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-blue-500/20 text-blue-400">Active</span>
 						} else {
-							<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">Completed</span>
+							<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-green-500/20 text-green-400">Active</span>
 						}
-					} else if data.Session.Status == "active" {
-						<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-green-500/20 text-green-400">Active</span>
+					} else if data.Session.Status == "idle" {
+						<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-amber-500/20 text-amber-400">Idle</span>
 					} else {
 						<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">Completed</span>
 					}

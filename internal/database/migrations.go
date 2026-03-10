@@ -124,7 +124,8 @@ func (db *DB) migrate() error {
 			COUNT(CASE WHEN event_kind = 'error' THEN 1 END) AS error_count,
 			COALESCE(MAX(model), '') AS last_model,
 			COALESCE(MAX(cwd), '') AS working_dir,
-			COALESCE(MAX(parent_session_id), '') AS parent_session_id
+			COALESCE(MAX(parent_session_id), '') AS parent_session_id,
+			MAX(CASE WHEN event_kind = 'session_end' OR (event_kind = 'event_msg' AND payload_type = 'last-prompt') THEN 1 ELSE 0 END) AS has_session_end
 		FROM events GROUP BY session_id, source_name`,
 
 		// Conversation trace with turn sequencing

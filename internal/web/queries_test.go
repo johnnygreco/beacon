@@ -382,37 +382,59 @@ func TestSetSessionTiming_Completed(t *testing.T) {
 func TestSetSessionTiming_RecentlyActive(t *testing.T) {
 	var s views.SessionSummary
 	start := time.Now().Add(-10 * time.Minute)
-	// Ended exactly at the 5-minute threshold boundary — just barely active
-	end := time.Now().Add(-4*time.Minute - 59*time.Second)
+	// Ended within active threshold (90s) — active
+	end := time.Now().Add(-30 * time.Second)
 
 	setSessionTiming(&s, start, end, time.Now())
 
 	if s.Status != "active" {
-		t.Errorf("expected status 'active' at threshold boundary, got '%s'", s.Status)
+		t.Errorf("expected status 'active' within 90s, got '%s'", s.Status)
 	}
 
-	// Just past the threshold — completed
+	// Between active (90s) and idle (5m) threshold — idle
 	var s2 views.SessionSummary
-	end2 := time.Now().Add(-5*time.Minute - 1*time.Second)
+	end2 := time.Now().Add(-2 * time.Minute)
 	setSessionTiming(&s2, start, end2, time.Now())
 
-	if s2.Status != "completed" {
-		t.Errorf("expected status 'completed' past threshold, got '%s'", s2.Status)
+	if s2.Status != "idle" {
+		t.Errorf("expected status 'idle' at 2 minutes, got '%s'", s2.Status)
+	}
+
+	// Past idle threshold — completed
+	var s3 views.SessionSummary
+	end3 := time.Now().Add(-5*time.Minute - 1*time.Second)
+	setSessionTiming(&s3, start, end3, time.Now())
+
+	if s3.Status != "completed" {
+		t.Errorf("expected status 'completed' past 5 minutes, got '%s'", s3.Status)
 	}
 }
 
 func TestSetSessionTiming_ZeroEndTime(t *testing.T) {
 	var s views.SessionSummary
 	start := time.Now().Add(-2 * time.Minute)
-	end := time.Time{} // zero time
+	end := time.Time{} // zero time — lastActivity falls back to startedAt (2m ago → idle)
 
 	setSessionTiming(&s, start, end, time.Now())
 
-	if s.Status != "active" {
-		t.Errorf("expected status 'active' for zero endedAt, got '%s'", s.Status)
+	if s.Status != "idle" {
+		t.Errorf("expected status 'idle' for zero endedAt with 2m start, got '%s'", s.Status)
 	}
 	if s.Duration == "" {
 		t.Error("expected non-empty duration")
+	}
+}
+
+func TestSetSessionTiming_HasSessionEnd(t *testing.T) {
+	var s views.SessionSummary
+	s.HasSessionEnd = true
+	start := time.Now().Add(-1 * time.Minute)
+	end := time.Now().Add(-30 * time.Second) // recent activity, but has session_end
+
+	setSessionTiming(&s, start, end, time.Now())
+
+	if s.Status != "completed" {
+		t.Errorf("expected status 'completed' with session_end signal, got '%s'", s.Status)
 	}
 }
 

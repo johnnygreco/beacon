@@ -124,7 +124,7 @@ type MetricData struct {
 type SessionSummary struct {
 	ID                string
 	Actor             string
-	Status            string // "active", "completed"
+	Status            string // "active", "idle", "completed"
 	StartedAt         time.Time
 	EndedAt           time.Time
 	Duration          string
@@ -140,6 +140,7 @@ type SessionSummary struct {
 	WorkingDir        string // full working directory path from cwd field
 	ParentSessionID   string // non-empty if this is a subagent session
 	ChildSessions     []SessionSummary // subagent sessions spawned from this session
+	HasSessionEnd     bool   // true if session has a definitive end signal (last-prompt)
 }
 
 // IsSubagent returns true if this session is a subagent of another session.
