@@ -2,30 +2,21 @@
   <img src="assets/beacon.png" alt="Beacon" width="800" />
 </p>
 
-Real-time monitoring dashboard for AI coding agents. Beacon watches conversation logs from [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Codex](https://github.com/openai/codex), ingests them into [DuckDB](https://duckdb.org/), and serves a live web UI with full-text search and session analytics.
-
-It also ships an [MCP](https://modelcontextprotocol.io/) server so your agents can query their own history.
+Keep a signal on your long-running AI coding agents. Beacon gives you a live dashboard to see what your agents are doing, search through their conversations, and review session history — so you're never in the dark about what's happening in the background.
 
 ## Features
 
-- **Live dashboard** — active sessions, token usage charts, and activity feed updated via SSE
-- **Session replay** — full conversation view with turn timeline and tool call details
-- **Full-text search** — BM25-ranked search across all monitored conversations
-- **MCP server** — expose `search`, `open`, and `list_sessions` tools over JSON-RPC
-- **Multi-source** — watches Claude Code and OpenAI Codex JSONL logs out of the box
-- **Token tracking** — input, output, and cache-read token counts per session
-- **Checkpoint recovery** — tracks file offsets so restarts don't reprocess data
+- **Live dashboard** — see active sessions, token usage, and a real-time activity feed
+- **Session replay** — review full conversations with turn timelines and tool call details
+- **Full-text search** — find anything across all your agent conversations
+- **Multi-agent support** — monitors Claude Code and OpenAI Codex sessions
+- **Token & cost tracking** — input, output, and cache token counts per session
+- **MCP server** — give your agents access to search and review their own history
 
 ## Install
 
 ```bash
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | sh
-```
-
-To install a specific version:
-
-```bash
-curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=0.1.0 sh
 ```
 
 By default the binary is placed in `~/.local/bin`. Set `INSTALL_DIR` to change it:
@@ -34,21 +25,23 @@ By default the binary is placed in `~/.local/bin`. Set `INSTALL_DIR` to change i
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_DIR=/usr/local/bin sh
 ```
 
-## Uninstall
+To uninstall:
 
 ```bash
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
 ```
 
-This removes the `beacon` binary and the `~/.beacon` data directory.
-
 ## Quick start
 
-### Prerequisites
+```bash
+beacon serve
+```
 
-- Go 1.24+
+The dashboard opens at [http://localhost:4600](http://localhost:4600). Beacon picks up Claude Code and Codex sessions automatically — no configuration needed.
 
-### Build and run
+### Build from source
+
+Requires Go 1.24+.
 
 ```bash
 git clone https://github.com/johnnygreco/beacon.git
@@ -57,72 +50,26 @@ make build
 ./bin/beacon serve
 ```
 
-The dashboard is available at [http://localhost:4600](http://localhost:4600).
-
-On first run, Beacon creates its database at `~/.beacon/beacon.duckdb` and begins watching for JSONL files.
-
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `beacon serve` | Start the web server, file watcher, and FTS indexer |
-| `beacon watch` | Headless mode — ingest only, no web server |
-| `beacon mcp` | Start the MCP server on stdin/stdout |
-| `beacon status` | Show database stats and FTS index status |
+| `beacon serve` | Start the dashboard and begin monitoring |
+| `beacon watch` | Monitor without the dashboard (headless) |
+| `beacon mcp` | Start the MCP server (stdin/stdout) |
+| `beacon status` | Show database and index stats |
 | `beacon db migrate` | Run schema migrations |
-| `beacon db reset --force` | Drop and recreate all tables |
+| `beacon db reset --force` | Reset the database |
 
 ## Configuration
 
-Beacon looks for a config file in this order:
+Beacon works out of the box with sensible defaults. To customize, create `~/.beacon/beacon.toml` or pass `--config <path>`.
 
-1. `--config` flag
-2. `./beacon.toml`
-3. `$HOME/.config/beacon/beacon.toml`
-4. `$HOME/.beacon/beacon.toml`
-
-Default `beacon.toml`:
-
-```toml
-[server]
-host = "0.0.0.0"
-port = 4600
-
-[database]
-path = "~/.beacon/beacon.duckdb"
-read_pool_size = 4
-
-[watch]
-enabled = true
-debounce_ms = 50
-reconcile_interval = "30s"
-backfill_on_start = true
-
-[[watch.sources]]
-name = "claude"
-provider = "anthropic"
-glob = "~/.claude/projects/**/*.jsonl"
-
-[[watch.sources]]
-name = "codex"
-provider = "openai"
-glob = "~/.codex/sessions/**/*.jsonl"
-
-[search]
-max_results = 25
-rebuild_interval = "5m"
-
-[sse]
-subscriber_buffer = 64
-
-[mcp]
-max_results = 25
-context_window = 3
-```
+See [`beacon.toml`](beacon.toml) for all available options.
 
 ## MCP integration
 
-Add Beacon's MCP server to your Claude Code config:
+Add Beacon to your agent's MCP config to give it access to its own conversation history:
 
 ```json
 {
@@ -135,15 +82,7 @@ Add Beacon's MCP server to your Claude Code config:
 }
 ```
 
-This gives your agent access to three tools:
-
-- **search** — full-text search across conversations
-- **open** — retrieve context around a specific event
-- **list_sessions** — list recent sessions with summary stats
-
-## Tech stack
-
-[DuckDB](https://duckdb.org/) &middot; [Templ](https://templ.guide/) &middot; [HTMX](https://htmx.org/) &middot; [Chart.js](https://www.chartjs.org/) &middot; [Chi](https://github.com/go-chi/chi) &middot; [Cobra](https://github.com/spf13/cobra)
+Available tools: **search**, **open** (retrieve context around an event), and **list_sessions**.
 
 ## License
 

@@ -65,8 +65,6 @@ func Load(cfgFile string) (*Config, error) {
 	} else {
 		viper.SetConfigName("beacon")
 		viper.SetConfigType("toml")
-		viper.AddConfigPath(".")
-		viper.AddConfigPath("$HOME/.config/beacon")
 		viper.AddConfigPath("$HOME/.beacon")
 	}
 
