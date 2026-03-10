@@ -15,12 +15,6 @@ func newDBCmd() *cobra.Command {
 		Short: "Database management commands",
 	}
 
-	migrateCmd := &cobra.Command{
-		Use:   "migrate",
-		Short: "Run database migrations",
-		RunE:  runDBMigrate,
-	}
-
 	resetCmd := &cobra.Command{
 		Use:   "reset",
 		Short: "Drop and recreate all tables (destructive)",
@@ -28,26 +22,8 @@ func newDBCmd() *cobra.Command {
 	}
 	resetCmd.Flags().Bool("force", false, "Skip confirmation")
 
-	dbCmd.AddCommand(migrateCmd, resetCmd)
+	dbCmd.AddCommand(resetCmd)
 	return dbCmd
-}
-
-func runDBMigrate(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load(cfgFile)
-	if err != nil {
-		cfg = &config.Config{}
-	}
-
-	dbPath := resolveDBPath(cfg)
-
-	db, err := database.Open(dbPath, 1)
-	if err != nil {
-		return fmt.Errorf("opening database: %w", err)
-	}
-	defer db.Close()
-
-	fmt.Println("Migrations applied successfully.")
-	return nil
 }
 
 func runDBReset(cmd *cobra.Command, args []string) error {

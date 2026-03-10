@@ -58,7 +58,6 @@ make build
 | `beacon watch` | Monitor without the dashboard (headless) |
 | `beacon mcp` | Start the MCP server (stdin/stdout) |
 | `beacon status` | Show database and index stats |
-| `beacon db migrate` | Run schema migrations |
 | `beacon db reset --force` | Reset the database |
 
 ## Configuration
