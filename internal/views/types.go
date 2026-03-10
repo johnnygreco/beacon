@@ -147,6 +147,45 @@ func (s SessionSummary) IsSubagent() bool {
 	return s.ParentSessionID != ""
 }
 
+// ShortModelName returns a shortened model name for compact display.
+// "claude-opus-4-6" → "opus-4-6", "claude-haiku-4-5-20251001" → "haiku-4-5"
+func ShortModelName(model string) string {
+	model = strings.TrimPrefix(model, "claude-")
+	if idx := strings.Index(model, "-202"); idx > 0 {
+		model = model[:idx]
+	}
+	return model
+}
+
+// GroupActiveSessions groups subagent sessions under their parent sessions.
+// Returns only top-level sessions (parents with ChildSessions populated,
+// plus orphan subagents whose parent is not in the list).
+func GroupActiveSessions(sessions []SessionSummary) []SessionSummary {
+	parentIDs := make(map[string]bool)
+	for _, s := range sessions {
+		if s.ParentSessionID == "" {
+			parentIDs[s.ID] = true
+		}
+	}
+
+	children := make(map[string][]SessionSummary)
+	for _, s := range sessions {
+		if s.ParentSessionID != "" && parentIDs[s.ParentSessionID] {
+			children[s.ParentSessionID] = append(children[s.ParentSessionID], s)
+		}
+	}
+
+	var result []SessionSummary
+	for _, s := range sessions {
+		if s.ParentSessionID != "" && parentIDs[s.ParentSessionID] {
+			continue
+		}
+		s.ChildSessions = children[s.ID]
+		result = append(result, s)
+	}
+	return result
+}
+
 // projectName extracts the project name from a working directory path.
 // For worktree paths like "/code/myproject/.claude/worktrees/funny-name",
 // it returns the project name ("myproject") instead of the worktree name.

@@ -9,6 +9,7 @@ import "github.com/a-h/templ"
 import templruntime "github.com/a-h/templ/runtime"
 
 import (
+	"fmt"
 	"github.com/johnnygreco/beacon/internal/views"
 	"github.com/johnnygreco/beacon/internal/views/components"
 	"github.com/johnnygreco/beacon/internal/views/partials"
@@ -77,7 +78,30 @@ func Dashboard(data views.DashboardData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<!-- Active Sessions --><div><h2 class=\"text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2\"><span class=\"relative flex h-2 w-2\"><span class=\"animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75\"></span> <span class=\"relative inline-flex rounded-full h-2 w-2 bg-green-500\"></span></span> Active Sessions</h2><div id=\"active-sessions\" sse-swap=\"active-sessions-update\" hx-swap=\"innerHTML\" class=\"grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<!-- Active Sessions --><div><h2 class=\"text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2\"><span class=\"relative flex h-2 w-2\"><span class=\"animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75\"></span> <span class=\"relative inline-flex rounded-full h-2 w-2 bg-green-500\"></span></span> Active Sessions ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if len(data.ActiveSessions) > 0 {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<span class=\"text-xs font-normal text-gray-500\">(")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var3 string
+				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", len(data.ActiveSessions)))
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 40, Col: 101}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, ")</span>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</h2><div id=\"active-sessions\" sse-swap=\"active-sessions-update\" hx-swap=\"innerHTML\" class=\"grid grid-cols-1 lg:grid-cols-2 gap-3\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -85,7 +109,7 @@ func Dashboard(data views.DashboardData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div></div><!-- Timeframe Filter --><div class=\"border-t border-gray-700/50 pt-4\"><div class=\"flex items-center gap-2\"><span class=\"text-xs text-gray-500\">Time Range</span> <button type=\"button\" onclick=\"setDashboardRange(this, '')\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors\">All</button> <button type=\"button\" onclick=\"setDashboardRange(this, '24h')\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">24h</button> <button type=\"button\" onclick=\"setDashboardRange(this, '7d')\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">7d</button> <button type=\"button\" onclick=\"setDashboardRange(this, '30d')\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">30d</button></div></div></div><!-- Completed Sessions + Activity Timeline (side by side) --><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-[300px]\"><div class=\"flex flex-col min-h-0\"><h2 class=\"text-sm font-medium text-gray-400 uppercase tracking-wide mb-3\">Completed Sessions</h2><div id=\"completed-sessions\" sse-swap=\"completed-sessions-update\" hx-swap=\"innerHTML\" class=\"space-y-1 overflow-y-auto flex-1 min-h-0\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div></div><!-- Timeframe Filter --><div class=\"border-t border-gray-700/50 pt-4\"><div class=\"flex items-center gap-2\"><span class=\"text-xs text-gray-500\">Time Range</span> <button type=\"button\" onclick=\"setDashboardRange(this, '')\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors\">All</button> <button type=\"button\" onclick=\"setDashboardRange(this, '24h')\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">24h</button> <button type=\"button\" onclick=\"setDashboardRange(this, '7d')\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">7d</button> <button type=\"button\" onclick=\"setDashboardRange(this, '30d')\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">30d</button></div></div></div><!-- Completed Sessions + Activity Timeline (side by side) --><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-[300px]\"><div class=\"flex flex-col min-h-0\"><h2 class=\"text-sm font-medium text-gray-400 uppercase tracking-wide mb-3\">Completed Sessions</h2><div id=\"completed-sessions\" sse-swap=\"completed-sessions-update\" hx-swap=\"innerHTML\" class=\"space-y-1 overflow-y-auto flex-1 min-h-0\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -93,7 +117,7 @@ func Dashboard(data views.DashboardData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</div></div><div class=\"flex flex-col min-h-0\"><h2 class=\"text-sm font-medium text-gray-400 uppercase tracking-wide mb-3\">Activity Timeline</h2><div id=\"activity-feed\" sse-swap=\"activity-update\" hx-swap=\"innerHTML\" class=\"overflow-y-auto flex-1 min-h-0\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div></div><div class=\"flex flex-col min-h-0\"><h2 class=\"text-sm font-medium text-gray-400 uppercase tracking-wide mb-3\">Activity Timeline</h2><div id=\"activity-feed\" sse-swap=\"activity-update\" hx-swap=\"innerHTML\" class=\"overflow-y-auto flex-1 min-h-0\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -101,7 +125,7 @@ func Dashboard(data views.DashboardData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</div></div></div></div><script>\n\t\tfunction setDashboardRange(btn, value) {\n\t\t\t// Highlight active button\n\t\t\tbtn.closest('.flex').querySelectorAll('.dash-range-btn').forEach(function(b) {\n\t\t\t\tb.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';\n\t\t\t});\n\t\t\tbtn.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';\n\t\t\t// Disable SSE swap for both containers\n\t\t\tdocument.getElementById('completed-sessions').removeAttribute('sse-swap');\n\t\t\tdocument.getElementById('activity-feed').removeAttribute('sse-swap');\n\t\t\t// Fetch filtered data\n\t\t\thtmx.ajax('GET', '/dashboard/sessions?range=' + encodeURIComponent(value), {target: '#completed-sessions', swap: 'innerHTML'});\n\t\t\thtmx.ajax('GET', '/dashboard/activity?range=' + encodeURIComponent(value), {target: '#activity-feed', swap: 'innerHTML'});\n\t\t}\n\t\t</script>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div></div></div></div><script>\n\t\tfunction setDashboardRange(btn, value) {\n\t\t\t// Highlight active button\n\t\t\tbtn.closest('.flex').querySelectorAll('.dash-range-btn').forEach(function(b) {\n\t\t\t\tb.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';\n\t\t\t});\n\t\t\tbtn.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';\n\t\t\t// Disable SSE swap for both containers\n\t\t\tdocument.getElementById('completed-sessions').removeAttribute('sse-swap');\n\t\t\tdocument.getElementById('activity-feed').removeAttribute('sse-swap');\n\t\t\t// Fetch filtered data\n\t\t\thtmx.ajax('GET', '/dashboard/sessions?range=' + encodeURIComponent(value), {target: '#completed-sessions', swap: 'innerHTML'});\n\t\t\thtmx.ajax('GET', '/dashboard/activity?range=' + encodeURIComponent(value), {target: '#activity-feed', swap: 'innerHTML'});\n\t\t}\n\t\t</script>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

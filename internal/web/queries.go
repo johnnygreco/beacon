@@ -149,6 +149,9 @@ func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed 
 		return nil, nil, false
 	}
 
+	// Group subagents under their parent sessions
+	active = views.GroupActiveSessions(active)
+
 	// Fetch completed sessions with LIMIT+1 for hasMore detection
 	completed, hasMore = QueryCompletedSessions(ctx, db, nil, 0, defaultSessionPageSize)
 	return active, completed, hasMore
