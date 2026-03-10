@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build run generate clean simulator publish
+.PHONY: help build run generate clean simulator publish test test-race test-cover lint
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -18,6 +18,19 @@ clean: ## Remove build artifacts
 
 simulator: ## Build the simulator binary
 	go build -o bin/simulator ./cmd/simulator
+
+test: generate ## Run all tests
+	go test ./...
+
+test-race: generate ## Run tests with race detector
+	go test -race ./...
+
+test-cover: generate ## Run tests with coverage report
+	go test -race -coverprofile=coverage.txt ./...
+	go tool cover -func=coverage.txt | tail -1
+
+lint: ## Run linter
+	golangci-lint run ./...
 
 publish: ## Publish a release (usage: make publish VERSION=x.y.z)
 	./scripts/publish.sh $(VERSION)

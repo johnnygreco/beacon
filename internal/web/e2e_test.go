@@ -488,3 +488,121 @@ func TestE2E_SessionDetailChatView(t *testing.T) {
 		t.Error("expected timeline-view div")
 	}
 }
+
+func TestE2E_HealthEndpoint(t *testing.T) {
+	server, _ := setupTestServer(t)
+
+	resp, err := http.Get(server.URL + "/health")
+	if err != nil {
+		t.Fatalf("GET /health: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestE2E_SSESession(t *testing.T) {
+	server, db := setupTestServer(t)
+
+	// Insert an event so the session exists
+	insertTestEvent(t, db, "e1", "sess1", "message", "user", "Hello", "claude-sonnet-4-20250514", 100, 0)
+
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	resp, err := client.Get(server.URL + "/sse/session/sess1")
+	if err != nil {
+		// Timeout is expected since SSE streams indefinitely
+		return
+	}
+	defer resp.Body.Close()
+
+	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
+		t.Errorf("expected text/event-stream, got %s", ct)
+	}
+}
+
+func TestE2E_APISearchWithQuery(t *testing.T) {
+	server, db := setupTestServer(t)
+
+	insertTestEvent(t, db, "e1", "sess1", "message", "user", "the quick brown fox jumps", "claude-sonnet-4-20250514", 100, 0)
+	insertTestEvent(t, db, "e2", "sess1", "message", "assistant", "lazy dog response", "claude-sonnet-4-20250514", 0, 200)
+
+	resp, err := http.Get(server.URL + "/api/search?q=quick")
+	if err != nil {
+		t.Fatalf("GET /api/search?q=quick: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var results []map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(results) == 0 {
+		t.Error("expected at least one search result for 'quick'")
+	}
+}
+
+func TestE2E_APISessionsInvalidLimit(t *testing.T) {
+	server, db := setupTestServer(t)
+
+	insertTestEvent(t, db, "e1", "sess1", "message", "user", "Hello", "claude-sonnet-4-20250514", 100, 0)
+
+	resp, err := http.Get(server.URL + "/api/sessions?limit=invalid")
+	if err != nil {
+		t.Fatalf("GET /api/sessions?limit=invalid: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var sessions []APISessionSummary
+	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Errorf("expected 1 session (limit defaults to 50), got %d", len(sessions))
+	}
+}
+
+func TestE2E_APIMetricsEmptyDB(t *testing.T) {
+	server, _ := setupTestServer(t)
+
+	resp, err := http.Get(server.URL + "/api/metrics")
+	if err != nil {
+		t.Fatalf("GET /api/metrics: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var metrics []APIMetricData
+	if err := json.NewDecoder(resp.Body).Decode(&metrics); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(metrics) == 0 {
+		t.Error("expected metrics array even on empty DB")
+	}
+}
+
+func TestE2E_DashboardEmptyDB(t *testing.T) {
+	server, _ := setupTestServer(t)
+
+	resp, err := http.Get(server.URL + "/")
+	if err != nil {
+		t.Fatalf("GET /: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
