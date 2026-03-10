@@ -2,11 +2,16 @@ package components
 
 import (
 	"fmt"
+	"strings"
 	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/views"
 )
 
 templ ChatView(chatTurns []views.ChatTurn) {
+	@ChatViewWithContext(chatTurns, views.ChatContext{})
+}
+
+templ ChatViewWithContext(chatTurns []views.ChatTurn, chatCtx views.ChatContext) {
 	<div class="space-y-4">
 		for i, ct := range chatTurns {
 			if i > 0 {
@@ -28,8 +33,12 @@ templ ChatView(chatTurns []views.ChatTurn) {
 					@chatReasoningGroup(block.Messages)
 				} else if block.Kind == views.ChatBlockError && block.Message != nil {
 					@chatErrorBlock(*block.Message)
+				} else if block.Kind == views.ChatBlockSubagentDispatch && len(block.ToolChain) > 0 {
+					<div class="mr-auto max-w-[95%] sm:max-w-[85%] ml-8 my-2">
+						@chatSubagentDispatch(block.ToolChain[0], chatCtx)
+					</div>
 				} else if block.Kind == views.ChatBlockToolChain {
-					@chatToolChain(block.ToolChain)
+					@chatToolChainWithContext(block.ToolChain, chatCtx)
 				}
 			}
 		}
@@ -111,6 +120,10 @@ templ chatReasoningGroup(events []views.EventSummary) {
 }
 
 templ chatToolChain(items []views.ToolChainItem) {
+	@chatToolChainWithContext(items, views.ChatContext{})
+}
+
+templ chatToolChainWithContext(items []views.ToolChainItem, chatCtx views.ChatContext) {
 	<div class="mr-auto max-w-[95%] sm:max-w-[85%] ml-8 my-2">
 		<details class="group/chain border border-gray-700/50 rounded-lg bg-gray-800/30">
 			<summary class="text-sm cursor-pointer flex items-center gap-2 py-2 px-3 hover:bg-gray-800/50 rounded-lg transition-colors">
@@ -126,7 +139,7 @@ templ chatToolChain(items []views.ToolChainItem) {
 			</summary>
 			<div class="border-t border-gray-700/30 pl-4 border-l-4 border-yellow-400/40 ml-3 space-y-1 py-2">
 				for _, item := range items {
-					@chatToolItem(item)
+					@chatToolItemWithContext(item, chatCtx)
 				}
 			</div>
 		</details>
@@ -134,40 +147,95 @@ templ chatToolChain(items []views.ToolChainItem) {
 }
 
 templ chatToolItem(item views.ToolChainItem) {
-	<details id={ item.CallEvent.EventUID } class="group/tool">
-		<summary class="text-sm cursor-pointer flex items-center gap-2 py-1 hover:bg-gray-800/50 rounded px-2 -ml-2 transition-colors">
-			<svg class="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 transition-transform group-open/tool:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+	@chatToolItemWithContext(item, views.ChatContext{})
+}
+
+templ chatToolItemWithContext(item views.ToolChainItem, chatCtx views.ChatContext) {
+	if item.ToolName == "Agent" {
+		@chatSubagentDispatch(item, chatCtx)
+	} else {
+		<details id={ item.CallEvent.EventUID } class="group/tool">
+			<summary class="text-sm cursor-pointer flex items-center gap-2 py-1 hover:bg-gray-800/50 rounded px-2 -ml-2 transition-colors">
+				<svg class="w-3.5 h-3.5 text-yellow-400 flex-shrink-0 transition-transform group-open/tool:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+				</svg>
+				<span class="text-yellow-400 font-medium truncate">{ toolDisplayName(item.ToolName) }</span>
+				if models.IsMCPTool(item.ToolName) {
+					<span class="px-1.5 py-0.5 text-xs rounded bg-cyan-500/20 text-cyan-400 flex-shrink-0">MCP</span>
+				}
+				if item.ResultEvent != nil {
+					<span class="text-green-500/60 text-xs flex-shrink-0">&#x2713;</span>
+				} else {
+					<span class="text-amber-500/60 text-xs flex-shrink-0" title="No result received">&#x26A0;</span>
+				}
+				if item.CallEvent.DurationMs > 0 {
+					<span class="text-gray-600 text-xs flex-shrink-0">{ fmt.Sprintf("%dms", item.CallEvent.DurationMs) }</span>
+				}
+			</summary>
+			<div class="mt-2 ml-5">
+				if item.Params != nil && item.ToolName == "Bash" {
+					@toolCardBash(item)
+				} else if item.Params != nil && item.ToolName == "Edit" {
+					@toolCardEdit(item)
+				} else if item.Params != nil && item.ToolName == "Write" {
+					@toolCardWrite(item)
+				} else if item.Params != nil && item.ToolName == "Read" {
+					@toolCardRead(item)
+				} else if item.Params != nil && (item.ToolName == "Grep" || item.ToolName == "Glob") {
+					@toolCardSearch(item)
+				} else {
+					@toolCardGeneric(item)
+				}
+			</div>
+		</details>
+	}
+}
+
+templ chatSubagentDispatch(item views.ToolChainItem, chatCtx views.ChatContext) {
+	<div id={ item.CallEvent.EventUID } class="border border-blue-500/30 rounded-lg bg-blue-500/5 p-3">
+		<div class="flex items-center gap-2 mb-2">
+			<svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
 			</svg>
-			<span class="text-yellow-400 font-medium truncate">{ toolDisplayName(item.ToolName) }</span>
-			if models.IsMCPTool(item.ToolName) {
-				<span class="px-1.5 py-0.5 text-xs rounded bg-cyan-500/20 text-cyan-400 flex-shrink-0">MCP</span>
-			}
-			if item.ResultEvent != nil {
-				<span class="text-green-500/60 text-xs flex-shrink-0">&#x2713;</span>
+			<span class="text-blue-400 font-medium text-sm">Subagent Dispatched</span>
+			if item.ResultEvent != nil || len(chatCtx.ChildSessions) > 0 {
+				<span class="text-green-500/60 text-xs">&#x2713; completed</span>
 			} else {
-				<span class="text-amber-500/60 text-xs flex-shrink-0" title="No result received">&#x26A0;</span>
-			}
-			if item.CallEvent.DurationMs > 0 {
-				<span class="text-gray-600 text-xs flex-shrink-0">{ fmt.Sprintf("%dms", item.CallEvent.DurationMs) }</span>
-			}
-		</summary>
-		<div class="mt-2 ml-5">
-			if item.Params != nil && item.ToolName == "Bash" {
-				@toolCardBash(item)
-			} else if item.Params != nil && item.ToolName == "Edit" {
-				@toolCardEdit(item)
-			} else if item.Params != nil && item.ToolName == "Write" {
-				@toolCardWrite(item)
-			} else if item.Params != nil && item.ToolName == "Read" {
-				@toolCardRead(item)
-			} else if item.Params != nil && (item.ToolName == "Grep" || item.ToolName == "Glob") {
-				@toolCardSearch(item)
-			} else {
-				@toolCardGeneric(item)
+				<span class="text-blue-400/60 text-xs animate-pulse">running...</span>
 			}
 		</div>
-	</details>
+		if agentDescription(item) != "" {
+			<p class="text-xs text-gray-400 mb-2">{ agentDescription(item) }</p>
+		}
+		if agentPromptPreview(item) != "" {
+			<details class="group/prompt">
+				<summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-300 transition-colors">
+					<span class="group-open/prompt:hidden">Show prompt</span>
+					<span class="hidden group-open/prompt:inline">Hide prompt</span>
+				</summary>
+				<div class="mt-2 text-xs text-gray-400 bg-gray-900/50 rounded p-2 max-h-40 overflow-y-auto whitespace-pre-wrap">
+					{ agentPromptPreview(item) }
+				</div>
+			</details>
+		}
+		if agentID(item) != "" {
+			<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", agentID(item))) }
+			   class="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 text-xs font-medium text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-md hover:bg-blue-500/20 hover:border-blue-400/40 transition-colors">
+				<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+				</svg>
+				View subagent session
+			</a>
+		} else if len(chatCtx.ChildSessions) > 0 {
+			<a href="#subagent-sessions"
+			   class="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 text-xs font-medium text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-md hover:bg-blue-500/20 hover:border-blue-400/40 transition-colors">
+				<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"></path>
+				</svg>
+				View subagent sessions ({ fmt.Sprintf("%d", len(chatCtx.ChildSessions)) })
+			</a>
+		}
+	</div>
 }
 
 templ toolChainNameList(items []views.ToolChainItem) {
@@ -335,6 +403,60 @@ templ copyButton() {
 			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
 		</svg>
 	</button>
+}
+
+// agentDescription extracts the description from an Agent tool call.
+func agentDescription(item views.ToolChainItem) string {
+	if item.Params != nil && item.Params.Description != "" {
+		return item.Params.Description
+	}
+	return ""
+}
+
+// agentPromptPreview extracts a preview of the agent prompt.
+func agentPromptPreview(item views.ToolChainItem) string {
+	if item.Params != nil && item.Params.Prompt != "" {
+		p := item.Params.Prompt
+		if len(p) > 500 {
+			return p[:500] + "..."
+		}
+		return p
+	}
+	return ""
+}
+
+// agentID extracts the agent ID from the tool result output.
+// The Agent tool result typically contains "agentId: <id>" in the output text.
+// We check the full ResultEvent text since the output preview is often truncated.
+func agentID(item views.ToolChainItem) string {
+	const prefix = "agentId: "
+	// Check full result text content first, then fall back to output preview
+	var sources [3]string
+	n := 0
+	if item.ResultEvent != nil {
+		sources[n] = item.ResultEvent.TextContent
+		n++
+		sources[n] = item.ResultEvent.TextPreview
+		n++
+	}
+	sources[n] = item.OutputPreview
+	n++
+
+	for _, output := range sources[:n] {
+		idx := strings.Index(output, prefix)
+		if idx < 0 {
+			continue
+		}
+		after := output[idx+len(prefix):]
+		end := strings.IndexAny(after, "\n )")
+		if end < 0 {
+			end = len(after)
+		}
+		if end > 0 {
+			return after[:end]
+		}
+	}
+	return ""
 }
 
 func toolDisplayName(name string) string {

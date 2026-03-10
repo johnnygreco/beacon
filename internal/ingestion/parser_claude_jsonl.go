@@ -31,18 +31,31 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 
 	cwd := jsonStr(raw, "cwd")
 
+	// Subagent detection: Claude Code subagents have isSidechain=true and agentId set.
+	// The sessionId in the JSONL refers to the parent session, so we use agentId as
+	// the session ID for subagent events and store the original as parentSessionID.
+	var parentSessionID string
+	agentID := jsonStr(raw, "agentId")
+	if agentID != "" {
+		if isSidechain, ok := raw["isSidechain"].(bool); ok && isSidechain {
+			parentSessionID = sessionID
+			sessionID = agentID
+		}
+	}
+
 	base := NormalizedEvent{
-		SessionID:    sessionID,
-		SourceName:   "claude",
-		Provider:     "anthropic",
-		Timestamp:    ts,
-		ParentUUID:   parentUUID,
-		MessageUUID:  uuid,
-		CWD:          cwd,
-		SourceFile:   file,
-		SourceLineNo: lineNo,
-		SourceOffset: offset,
-		RawPayload:   string(line),
+		SessionID:       sessionID,
+		SourceName:      "claude",
+		Provider:        "anthropic",
+		Timestamp:       ts,
+		ParentUUID:      parentUUID,
+		MessageUUID:     uuid,
+		CWD:             cwd,
+		ParentSessionID: parentSessionID,
+		SourceFile:      file,
+		SourceLineNo:    lineNo,
+		SourceOffset:    offset,
+		RawPayload:      string(line),
 	}
 
 	var events []NormalizedEvent

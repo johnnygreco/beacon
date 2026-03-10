@@ -54,11 +54,15 @@ func (db *DB) migrate() error {
 		// Add cwd column if not exists (for existing databases)
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS cwd VARCHAR`,
 
+		// Add parent_session_id column for subagent support
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS parent_session_id VARCHAR DEFAULT ''`,
+
 		`CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_kind ON events(event_kind)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_session_kind ON events(session_id, event_kind)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_kind_ts ON events(event_kind, timestamp DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_events_parent_session ON events(parent_session_id)`,
 
 		// Parent-child relationships
 		`CREATE TABLE IF NOT EXISTS event_links (
@@ -119,7 +123,8 @@ func (db *DB) migrate() error {
 			COUNT(CASE WHEN event_kind = 'tool_call' AND tool_name LIKE 'mcp__%' THEN 1 END) AS mcp_call_count,
 			COUNT(CASE WHEN event_kind = 'error' THEN 1 END) AS error_count,
 			COALESCE(MAX(model), '') AS last_model,
-			COALESCE(MAX(cwd), '') AS working_dir
+			COALESCE(MAX(cwd), '') AS working_dir,
+			COALESCE(MAX(parent_session_id), '') AS parent_session_id
 		FROM events GROUP BY session_id, source_name`,
 
 		// Conversation trace with turn sequencing

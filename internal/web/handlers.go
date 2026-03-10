@@ -62,7 +62,9 @@ func (h *Handlers) SessionDetail(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) SessionConversation(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	chatTurns, turns := QuerySessionConversation(r.Context(), h.db, id)
-	if err := partials.SessionConversation(chatTurns, turns).Render(r.Context(), w); err != nil {
+	childSessions := QueryChildSessions(r.Context(), h.db, id)
+	ctx := views.ChatContext{ChildSessions: childSessions}
+	if err := partials.SessionConversationWithContext(chatTurns, turns, ctx).Render(r.Context(), w); err != nil {
 		h.logger.Debug("render conversation failed", "error", err)
 	}
 }

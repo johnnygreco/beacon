@@ -138,6 +138,13 @@ type SessionSummary struct {
 	MCPCallCount      int64
 	ActiveModel       string
 	WorkingDir        string // full working directory path from cwd field
+	ParentSessionID   string // non-empty if this is a subagent session
+	ChildSessions     []SessionSummary // subagent sessions spawned from this session
+}
+
+// IsSubagent returns true if this session is a subagent of another session.
+func (s SessionSummary) IsSubagent() bool {
+	return s.ParentSessionID != ""
 }
 
 // projectName extracts the project name from a working directory path.
@@ -278,23 +285,26 @@ type SessionDetailData struct {
 }
 
 const (
-	ChatBlockUserMessage      = "user_message"
-	ChatBlockAssistantMessage = "assistant_message"
-	ChatBlockToolChain        = "tool_chain"
-	ChatBlockReasoning        = "reasoning"
-	ChatBlockError            = "error"
+	ChatBlockUserMessage        = "user_message"
+	ChatBlockAssistantMessage   = "assistant_message"
+	ChatBlockToolChain          = "tool_chain"
+	ChatBlockReasoning          = "reasoning"
+	ChatBlockError              = "error"
+	ChatBlockSubagentDispatch   = "subagent_dispatch"
 )
 
 // ToolCallParams holds parsed tool input for specialized rendering.
 type ToolCallParams struct {
-	Command     string     `json:"command"`
-	Description string     `json:"description"`
-	FilePath    string     `json:"file_path"`
-	OldString   string     `json:"old_string"`
-	NewString   string     `json:"new_string"`
-	Content     string     `json:"content"`
-	Pattern string `json:"pattern"`
-	Path    string `json:"path"`
+	Command     string `json:"command"`
+	Description string `json:"description"`
+	FilePath    string `json:"file_path"`
+	OldString   string `json:"old_string"`
+	NewString   string `json:"new_string"`
+	Content     string `json:"content"`
+	Pattern     string `json:"pattern"`
+	Path        string `json:"path"`
+	// Agent tool fields
+	Prompt string `json:"prompt"`
 }
 
 type ToolStatEntry struct {
@@ -325,4 +335,9 @@ type ChatTurn struct {
 	TotalTokens int64
 	StartedAt   time.Time
 	ToolStats   []ToolStatEntry // tool name -> call count for turn separator
+}
+
+// ChatContext holds additional context passed to the chat view for rendering.
+type ChatContext struct {
+	ChildSessions []SessionSummary // subagent sessions for this parent
 }

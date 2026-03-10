@@ -98,13 +98,7 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 // A session is "active" if its last event was within 5 minutes.
 func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed []views.SessionSummary) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
-		        COALESCE(turn_count, 0), COALESCE(total_tokens, 0),
-		        COALESCE(total_input_tokens, 0), COALESCE(total_output_tokens, 0),
-		        COALESCE(total_cache_read_tokens, 0), COALESCE(total_cache_create_tokens, 0),
-		        COALESCE(tool_call_count, 0), COALESCE(mcp_call_count, 0),
-		        COALESCE(last_model, ''),
-		        COALESCE(working_dir, '')
+		`SELECT `+sessionSummaryColumns+`
 		 FROM v_session_summary
 		 ORDER BY ended_at DESC
 		 LIMIT 30`)
@@ -115,18 +109,10 @@ func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed 
 
 	now := time.Now()
 	for rows.Next() {
-		var s views.SessionSummary
-		var source, model string
-		var startedAt, endedAt time.Time
-		if err := rows.Scan(&s.ID, &source, &startedAt, &endedAt,
-			&s.TurnCount, &s.TotalTokens, &s.InputTokens, &s.OutputTokens,
-			&s.CacheReadTokens, &s.CacheCreateTokens,
-			&s.ToolCallCount, &s.MCPCallCount, &model, &s.WorkingDir); err != nil {
+		s, err := scanSessionSummary(rows, now)
+		if err != nil {
 			continue
 		}
-		s.Actor = source
-		s.ActiveModel = model
-		setSessionTiming(&s, startedAt, endedAt, now)
 		if s.Status == "active" {
 			active = append(active, s)
 		} else {
@@ -257,28 +243,17 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 	var data views.SessionDetailData
 
 	// Session info from view
-	var source, model string
-	var startedAt, endedAt time.Time
-	err := db.QueryRowContext(ctx,
-		`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
-		        COALESCE(turn_count, 0), COALESCE(total_tokens, 0),
-		        COALESCE(total_input_tokens, 0), COALESCE(total_output_tokens, 0),
-		        COALESCE(total_cache_read_tokens, 0), COALESCE(total_cache_create_tokens, 0),
-		        COALESCE(tool_call_count, 0), COALESCE(mcp_call_count, 0),
-		        COALESCE(last_model, ''),
-		        COALESCE(working_dir, '')
-		 FROM v_session_summary WHERE session_id = $1`, id,
-	).Scan(&data.Session.ID, &source, &startedAt, &endedAt,
-		&data.Session.TurnCount, &data.Session.TotalTokens,
-		&data.Session.InputTokens, &data.Session.OutputTokens,
-		&data.Session.CacheReadTokens, &data.Session.CacheCreateTokens,
-		&data.Session.ToolCallCount, &data.Session.MCPCallCount, &model, &data.Session.WorkingDir)
+	row := db.QueryRowContext(ctx,
+		`SELECT `+sessionSummaryColumns+`
+		 FROM v_session_summary WHERE session_id = $1`, id)
+	session, err := scanSessionSummary(row, time.Now())
 	if err != nil {
 		return data, err
 	}
-	data.Session.Actor = source
-	data.Session.ActiveModel = model
-	setSessionTiming(&data.Session, startedAt, endedAt, time.Now())
+	data.Session = session
+
+	// Query child subagent sessions
+	data.Session.ChildSessions = QueryChildSessions(ctx, db, id)
 
 	// Single CTE query for chart, tool stats, and model breakdown
 	data.TokensChart = views.MultiSeriesChart{
@@ -440,10 +415,32 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 
 		flushToolChain := func() {
 			if len(pendingToolChain) > 0 {
-				ct.Blocks = append(ct.Blocks, views.ChatBlock{
-					Kind:      views.ChatBlockToolChain,
-					ToolChain: pendingToolChain,
-				})
+				// Separate Agent tool calls into their own top-level blocks
+				var regularTools []views.ToolChainItem
+				for _, item := range pendingToolChain {
+					if item.ToolName == "Agent" {
+						// Flush any accumulated regular tools first
+						if len(regularTools) > 0 {
+							ct.Blocks = append(ct.Blocks, views.ChatBlock{
+								Kind:      views.ChatBlockToolChain,
+								ToolChain: regularTools,
+							})
+							regularTools = nil
+						}
+						ct.Blocks = append(ct.Blocks, views.ChatBlock{
+							Kind:      views.ChatBlockSubagentDispatch,
+							ToolChain: []views.ToolChainItem{item},
+						})
+					} else {
+						regularTools = append(regularTools, item)
+					}
+				}
+				if len(regularTools) > 0 {
+					ct.Blocks = append(ct.Blocks, views.ChatBlock{
+						Kind:      views.ChatBlockToolChain,
+						ToolChain: regularTools,
+					})
+				}
 				pendingToolChain = nil
 			}
 		}
@@ -633,6 +630,62 @@ func deduplicateTurns(turns []views.TurnDetail) []views.TurnDetail {
 		result = append(result, t)
 	}
 	return result
+}
+
+// QueryChildSessions returns subagent sessions spawned from a parent session.
+func QueryChildSessions(ctx context.Context, db *sql.DB, parentID string) []views.SessionSummary {
+	rows, err := db.QueryContext(ctx,
+		`SELECT `+sessionSummaryColumns+`
+		 FROM v_session_summary
+		 WHERE parent_session_id = $1
+		 ORDER BY started_at ASC`, parentID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	now := time.Now()
+	var children []views.SessionSummary
+	for rows.Next() {
+		s, err := scanSessionSummary(rows, now)
+		if err != nil {
+			continue
+		}
+		children = append(children, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil
+	}
+	return children
+}
+
+// sessionSummaryColumns is the shared SELECT column list for v_session_summary queries.
+const sessionSummaryColumns = `session_id, COALESCE(source_name, ''), started_at, ended_at,
+		COALESCE(turn_count, 0), COALESCE(total_tokens, 0),
+		COALESCE(total_input_tokens, 0), COALESCE(total_output_tokens, 0),
+		COALESCE(total_cache_read_tokens, 0), COALESCE(total_cache_create_tokens, 0),
+		COALESCE(tool_call_count, 0), COALESCE(mcp_call_count, 0),
+		COALESCE(last_model, ''),
+		COALESCE(working_dir, ''),
+		COALESCE(parent_session_id, '')`
+
+// scanSessionSummary scans a row from v_session_summary into a SessionSummary.
+func scanSessionSummary(scanner interface{ Scan(dest ...any) error }, now time.Time) (views.SessionSummary, error) {
+	var s views.SessionSummary
+	var source, model string
+	var startedAt, endedAt time.Time
+	err := scanner.Scan(&s.ID, &source, &startedAt, &endedAt,
+		&s.TurnCount, &s.TotalTokens, &s.InputTokens, &s.OutputTokens,
+		&s.CacheReadTokens, &s.CacheCreateTokens,
+		&s.ToolCallCount, &s.MCPCallCount, &model, &s.WorkingDir,
+		&s.ParentSessionID)
+	if err != nil {
+		return s, err
+	}
+	s.Actor = source
+	s.ActiveModel = model
+	setSessionTiming(&s, startedAt, endedAt, now)
+	return s, nil
 }
 
 const activeSessionThreshold = 5 * time.Minute

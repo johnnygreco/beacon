@@ -6,8 +6,12 @@ import (
 )
 
 templ SessionConversation(chatTurns []views.ChatTurn, turns []views.TurnDetail) {
+	@SessionConversationWithContext(chatTurns, turns, views.ChatContext{})
+}
+
+templ SessionConversationWithContext(chatTurns []views.ChatTurn, turns []views.TurnDetail, chatCtx views.ChatContext) {
 	<div id="chat-view">
-		@components.ChatView(chatTurns)
+		@components.ChatViewWithContext(chatTurns, chatCtx)
 	</div>
 	<div id="timeline-view" class="hidden">
 		@components.TurnTimeline(turns)

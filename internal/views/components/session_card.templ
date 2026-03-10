@@ -46,27 +46,81 @@ templ SessionCard(s views.SessionSummary) {
 }
 
 templ ActiveSessionCard(s views.SessionSummary) {
-	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="block bg-gray-800 rounded-xl p-5 border border-green-500/30 hover:border-green-400/60 hover:shadow-lg hover:shadow-green-500/10 transition-all cursor-pointer relative overflow-hidden">
-		<div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-green-500/50 via-green-400/30 to-transparent"></div>
+	if s.IsSubagent() {
+		@SubagentActiveSessionCard(s)
+	} else {
+		<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="block bg-gray-800 rounded-xl p-5 border border-green-500/30 hover:border-green-400/60 hover:shadow-lg hover:shadow-green-500/10 transition-all cursor-pointer relative overflow-hidden">
+			<div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-green-500/50 via-green-400/30 to-transparent"></div>
+			<div class="flex items-center justify-between mb-1">
+				<div class="flex items-center gap-2">
+					<span class="relative flex h-2.5 w-2.5">
+						<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+						<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+					</span>
+					<span class="font-medium text-gray-100 truncate">{ views.SessionTitle(s, false) }</span>
+				</div>
+				<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-green-500/20 text-green-400">Live</span>
+			</div>
+			if s.WorkingDir != "" {
+				<p class="text-xs text-gray-500 truncate ml-5" title={ s.WorkingDir }>{ s.WorkingDir }</p>
+			}
+			<div class="flex items-center gap-2 mb-3">
+				if s.ActiveModel != "" {
+					<span class="px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 text-xs">{ s.ActiveModel }</span>
+				}
+				if !s.StartedAt.IsZero() {
+					<span class="text-xs text-gray-500">{ views.FormatTimeShort(s.StartedAt) }</span>
+				}
+				<span class="text-xs text-gray-600 font-mono">{ views.TruncateID(s.ID) }</span>
+			</div>
+			<div class="grid grid-cols-4 gap-2 text-xs text-gray-400">
+				<div>
+					<span class="text-gray-500">Duration</span>
+					<p class="text-gray-300">{ s.Duration }</p>
+				</div>
+				<div>
+					<span class="text-gray-500">Tokens</span>
+					<p class="text-gray-300">{ views.FormatTokens(s.TotalTokens) }</p>
+				</div>
+				<div>
+					<span class="text-gray-500">Turns</span>
+					<p class="text-gray-300">{ fmt.Sprintf("%d", s.TurnCount) }</p>
+				</div>
+				<div>
+					<span class="text-gray-500">Tools</span>
+					<p class="text-gray-300">{ fmt.Sprintf("%d", s.ToolCallCount) }</p>
+				</div>
+			</div>
+		</a>
+	}
+}
+
+templ SubagentActiveSessionCard(s views.SessionSummary) {
+	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="block bg-gray-800 rounded-xl p-5 border border-blue-500/30 hover:border-blue-400/60 hover:shadow-lg hover:shadow-blue-500/10 transition-all cursor-pointer relative overflow-hidden">
+		<div class="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500/50 via-blue-400/30 to-transparent"></div>
 		<div class="flex items-center justify-between mb-1">
 			<div class="flex items-center gap-2">
 				<span class="relative flex h-2.5 w-2.5">
-					<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-					<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+					<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+					<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500"></span>
 				</span>
 				<span class="font-medium text-gray-100 truncate">{ views.SessionTitle(s, false) }</span>
 			</div>
-			<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-green-500/20 text-green-400">Live</span>
+			<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-blue-500/20 text-blue-400">Subagent</span>
 		</div>
-		if s.WorkingDir != "" {
-			<p class="text-xs text-gray-500 truncate ml-5" title={ s.WorkingDir }>{ s.WorkingDir }</p>
-		}
 		<div class="flex items-center gap-2 mb-3">
+			<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ParentSessionID)) }
+			   class="text-xs text-blue-400/70 hover:text-blue-300 transition-colors"
+			   onclick="event.stopPropagation()">
+				<span class="inline-flex items-center gap-1">
+					<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16l-4-4m0 0l4-4m-4 4h18"></path>
+					</svg>
+					parent { views.TruncateID(s.ParentSessionID) }
+				</span>
+			</a>
 			if s.ActiveModel != "" {
 				<span class="px-1.5 py-0.5 rounded bg-gray-700 text-gray-300 text-xs">{ s.ActiveModel }</span>
-			}
-			if !s.StartedAt.IsZero() {
-				<span class="text-xs text-gray-500">{ views.FormatTimeShort(s.StartedAt) }</span>
 			}
 			<span class="text-xs text-gray-600 font-mono">{ views.TruncateID(s.ID) }</span>
 		</div>
@@ -91,10 +145,61 @@ templ ActiveSessionCard(s views.SessionSummary) {
 	</a>
 }
 
+templ SubagentSessionCard(s views.SessionSummary) {
+	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="block bg-gray-900 rounded-lg p-4 border border-blue-500/20 hover:border-blue-400/50 hover:shadow-lg hover:shadow-blue-500/5 transition-all cursor-pointer">
+		<div class="flex items-center justify-between mb-2">
+			<div class="flex items-center gap-2">
+				<svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+				</svg>
+				<span class="font-medium text-gray-200 text-sm truncate">{ views.SessionTitle(s, false) }</span>
+			</div>
+			if s.Status == "active" {
+				<span class="px-1.5 py-0.5 text-xs font-semibold uppercase rounded-full bg-blue-500/20 text-blue-400">Live</span>
+			} else {
+				<span class="px-1.5 py-0.5 text-xs font-semibold uppercase rounded-full bg-gray-600/40 text-gray-500">Done</span>
+			}
+		</div>
+		<div class="flex items-center gap-2 mb-2">
+			if s.ActiveModel != "" {
+				<span class="px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 text-xs">{ s.ActiveModel }</span>
+			}
+			<span class="text-xs text-gray-600 font-mono">{ views.TruncateID(s.ID) }</span>
+		</div>
+		<div class="grid grid-cols-4 gap-2 text-xs text-gray-500">
+			<div>
+				<span class="text-gray-600">Duration</span>
+				<p class="text-gray-400">{ s.Duration }</p>
+			</div>
+			<div>
+				<span class="text-gray-600">Tokens</span>
+				<p class="text-gray-400">{ views.FormatTokens(s.TotalTokens) }</p>
+			</div>
+			<div>
+				<span class="text-gray-600">Turns</span>
+				<p class="text-gray-400">{ fmt.Sprintf("%d", s.TurnCount) }</p>
+			</div>
+			<div>
+				<span class="text-gray-600">Tools</span>
+				<p class="text-gray-400">{ fmt.Sprintf("%d", s.ToolCallCount) }</p>
+			</div>
+		</div>
+	</a>
+}
+
 templ CompletedSessionRow(s views.SessionSummary) {
 	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="flex items-center gap-3 px-3 py-2 hover:bg-gray-800 rounded-lg transition-colors cursor-pointer group">
-		<span class="w-1.5 h-1.5 rounded-full bg-gray-600 flex-shrink-0"></span>
-		<span class="text-sm text-gray-300 truncate flex-1 group-hover:text-gray-100 transition-colors">{ views.SessionTitle(s, false) }</span>
+		if s.IsSubagent() {
+			<span class="w-1.5 h-1.5 rounded-full bg-blue-500/60 flex-shrink-0"></span>
+		} else {
+			<span class="w-1.5 h-1.5 rounded-full bg-gray-600 flex-shrink-0"></span>
+		}
+		<span class="text-sm text-gray-300 truncate flex-1 group-hover:text-gray-100 transition-colors">
+			if s.IsSubagent() {
+				<span class="text-blue-400/70 text-xs mr-1">sub</span>
+			}
+			{ views.SessionTitle(s, false) }
+		</span>
 		<span class="text-xs text-gray-500 tabular-nums flex-shrink-0">{ views.FormatTokens(s.TotalTokens) }</span>
 		<span class="text-xs text-gray-500 tabular-nums flex-shrink-0">{ fmt.Sprintf("%dt", s.TurnCount) }</span>
 		<span class="text-xs text-gray-500 tabular-nums flex-shrink-0">{ s.Duration }</span>

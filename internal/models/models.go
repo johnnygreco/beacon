@@ -15,6 +15,7 @@ func IsMCPTool(name string) bool {
 type Event struct {
 	EventUID          string     `json:"event_uid"`
 	SessionID         string     `json:"session_id"`
+	ParentSessionID   string     `json:"parent_session_id,omitempty"`
 	SessionDate       *time.Time `json:"session_date,omitempty"`
 	SourceName        string     `json:"source_name"`
 	Provider          string     `json:"provider"`

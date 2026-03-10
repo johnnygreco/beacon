@@ -11,16 +11,36 @@ templ SessionDetail(data views.SessionDetailData) {
 	@views.Layout("Session " + data.Session.ID) {
 		<div hx-ext="sse" sse-connect={ fmt.Sprintf("/sse/session/%s", data.Session.ID) } class="space-y-6">
 			<!-- Session Header -->
-			<div class="bg-gray-800 rounded-lg p-6 border border-gray-700">
+			<div class={ "bg-gray-800 rounded-lg p-6 border", templ.KV("border-blue-500/30", data.Session.IsSubagent()), templ.KV("border-gray-700", !data.Session.IsSubagent()) }>
 				<div class="flex items-center justify-between mb-4">
 					<div>
-						<h1 class="text-2xl font-bold text-gray-100">{ views.SessionTitle(data.Session, true) }</h1>
+						<div class="flex items-center gap-3">
+							<h1 class="text-2xl font-bold text-gray-100">{ views.SessionTitle(data.Session, true) }</h1>
+							if data.Session.IsSubagent() {
+								<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-blue-500/20 text-blue-400">Subagent</span>
+							}
+						</div>
+						if data.Session.IsSubagent() {
+							<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", data.Session.ParentSessionID)) }
+							   class="text-sm text-blue-400/70 hover:text-blue-300 transition-colors mt-1 inline-flex items-center gap-1">
+								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16l-4-4m0 0l4-4m-4 4h18"></path>
+								</svg>
+								Parent session { views.TruncateID(data.Session.ParentSessionID) }
+							</a>
+						}
 						if data.Session.WorkingDir != "" {
 							<p class="text-sm text-gray-500 mt-1 truncate" title={ data.Session.WorkingDir }>{ data.Session.WorkingDir }</p>
 						}
 						<p class="text-sm text-gray-500 mt-1 font-mono">{ data.Session.ID }</p>
 					</div>
-					if data.Session.Status == "active" {
+					if data.Session.IsSubagent() {
+						if data.Session.Status == "active" {
+							<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-blue-500/20 text-blue-400">Active</span>
+						} else {
+							<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">Completed</span>
+						}
+					} else if data.Session.Status == "active" {
 						<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-green-500/20 text-green-400">Active</span>
 					} else {
 						<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">Completed</span>
@@ -89,6 +109,24 @@ templ SessionDetail(data views.SessionDetailData) {
 									}
 								</p>
 							</div>
+						}
+					</div>
+				</div>
+			}
+
+			<!-- Subagent Sessions -->
+			if len(data.Session.ChildSessions) > 0 {
+				<div id="subagent-sessions" class="bg-gray-800 rounded-lg p-4 border border-blue-500/20">
+					<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
+						<svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
+						</svg>
+						Subagent Sessions
+						<span class="text-sm font-normal text-gray-500">{ fmt.Sprintf("(%d)", len(data.Session.ChildSessions)) }</span>
+					</h2>
+					<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+						for _, child := range data.Session.ChildSessions {
+							@components.SubagentSessionCard(child)
 						}
 					</div>
 				</div>

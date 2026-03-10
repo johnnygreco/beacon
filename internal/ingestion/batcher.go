@@ -100,6 +100,7 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 		event := &models.Event{
 			EventUID:          uid,
 			SessionID:         evt.SessionID,
+			ParentSessionID:   evt.ParentSessionID,
 			SourceName:        evt.SourceName,
 			Provider:          evt.Provider,
 			EventKind:         evt.EventKind,

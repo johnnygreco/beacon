@@ -40,6 +40,9 @@ type NormalizedEvent struct {
 	// Session context
 	CWD string // working directory of the session
 
+	// Subagent / team support
+	ParentSessionID string // parent session ID (non-empty for subagent sessions)
+
 	// Message grouping (used to deduplicate tokens across JSONL lines from the same API call)
 	MessageUUID string
 
