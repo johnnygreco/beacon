@@ -45,8 +45,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	// Last event
 	var lastEvent sql.NullTime
-	db.QueryRow("SELECT MAX(timestamp) FROM events").Scan(&lastEvent)
-	if lastEvent.Valid {
+	if err := db.QueryRow("SELECT MAX(timestamp) FROM events").Scan(&lastEvent); err != nil {
+		fmt.Println("Last event: unavailable")
+	} else if lastEvent.Valid {
 		fmt.Printf("Last event: %s\n", lastEvent.Time.Format(time.RFC3339))
 	} else {
 		fmt.Println("Last event: none")
@@ -77,19 +78,32 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	// Active sessions in last hour
 	var active int64
-	db.QueryRow("SELECT COUNT(DISTINCT session_id) FROM events WHERE timestamp > current_timestamp - INTERVAL '1 hour'").Scan(&active)
+	if err := db.QueryRow("SELECT COUNT(DISTINCT session_id) FROM events WHERE timestamp > current_timestamp - INTERVAL '1 hour'").Scan(&active); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: active sessions query failed: %v\n", err)
+	}
 	fmt.Printf("%-18s %d active in last hour\n", "", active)
 
 	// FTS status
 	fmt.Println()
-	db.Exec("INSTALL fts")
-	db.Exec("LOAD fts")
-	var ftsCount int
-	err = db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fts_main_events'").Scan(&ftsCount)
-	if err == nil && ftsCount > 0 {
-		fmt.Println("FTS Index: available")
+	ftsAvailable := true
+	if _, err := db.Exec("INSTALL fts"); err != nil {
+		ftsAvailable = false
+	}
+	if ftsAvailable {
+		if _, err := db.Exec("LOAD fts"); err != nil {
+			ftsAvailable = false
+		}
+	}
+	if ftsAvailable {
+		var ftsCount int
+		err = db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fts_main_events'").Scan(&ftsCount)
+		if err == nil && ftsCount > 0 {
+			fmt.Println("FTS Index: available")
+		} else {
+			fmt.Println("FTS Index: not built (run 'beacon serve' to build)")
+		}
 	} else {
-		fmt.Println("FTS Index: not built (run 'beacon serve' to build)")
+		fmt.Println("FTS Index: extension not available")
 	}
 
 	return nil

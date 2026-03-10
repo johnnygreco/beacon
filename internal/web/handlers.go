@@ -34,7 +34,9 @@ func (h *Handlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	} else {
 		data = QueryDashboardData(r.Context(), h.db)
 	}
-	pages.Dashboard(data).Render(r.Context(), w)
+	if err := pages.Dashboard(data).Render(r.Context(), w); err != nil {
+		h.logger.Debug("render dashboard failed", "error", err)
+	}
 }
 
 // Sessions redirects to dashboard (sessions are shown on the dashboard).
@@ -51,14 +53,18 @@ func (h *Handlers) SessionDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
-	pages.SessionDetail(data).Render(r.Context(), w)
+	if err := pages.SessionDetail(data).Render(r.Context(), w); err != nil {
+		h.logger.Debug("render session detail failed", "error", err)
+	}
 }
 
 // SessionConversation returns the conversation trace partial for lazy loading.
 func (h *Handlers) SessionConversation(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	chatTurns, turns := QuerySessionConversation(r.Context(), h.db, id)
-	partials.SessionConversation(chatTurns, turns).Render(r.Context(), w)
+	if err := partials.SessionConversation(chatTurns, turns).Render(r.Context(), w); err != nil {
+		h.logger.Debug("render conversation failed", "error", err)
+	}
 }
 
 // Health is a lightweight endpoint for connectivity checks.
@@ -68,14 +74,18 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 
 // Search renders the search page (results load via HTMX).
 func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
-	pages.Search(nil).Render(r.Context(), w)
+	if err := pages.Search(nil).Render(r.Context(), w); err != nil {
+		h.logger.Debug("render search failed", "error", err)
+	}
 }
 
 // SearchResults handles HTMX partial requests for search results.
 func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	if query == "" {
-		partials.SearchResults(nil).Render(r.Context(), w)
+		if err := partials.SearchResults(nil).Render(r.Context(), w); err != nil {
+			h.logger.Debug("render search results failed", "error", err)
+		}
 		return
 	}
 
@@ -104,7 +114,9 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 	results, err := h.searcher.Search(r.Context(), sq)
 	if err != nil {
 		h.logger.Error("search failed", "error", err)
-		partials.SearchResults(nil).Render(r.Context(), w)
+		if err := partials.SearchResults(nil).Render(r.Context(), w); err != nil {
+			h.logger.Debug("render search results failed", "error", err)
+		}
 		return
 	}
 
@@ -120,5 +132,7 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	partials.SearchResults(viewResults).Render(r.Context(), w)
+	if err := partials.SearchResults(viewResults).Render(r.Context(), w); err != nil {
+		h.logger.Debug("render search results failed", "error", err)
+	}
 }

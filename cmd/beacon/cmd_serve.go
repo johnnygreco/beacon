@@ -81,7 +81,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 			time.Duration(cfg.Watch.DebounceMs)*time.Millisecond,
 			cfg.Watch.ReconcileInterval,
 		)
-		go watcher.Run(ctx)
+		go func() {
+			if err := watcher.Run(ctx); err != nil {
+				logger.Error("watcher stopped", "error", err)
+			}
+		}()
 	}
 
 	// Start FTS indexer
@@ -111,7 +115,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		logger.Info("shutting down...")
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
-		srv.Shutdown(shutdownCtx)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			logger.Error("shutdown error", "error", err)
+		}
 		cancel()
 	}()
 

@@ -170,6 +170,8 @@ func eventUID(sourceFile string, lineNo int, offset int64, contentHash string) s
 
 func genID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
 	return hex.EncodeToString(b)
 }

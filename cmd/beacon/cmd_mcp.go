@@ -52,8 +52,12 @@ func runMCP(cmd *cobra.Command, args []string) error {
 	defer db.Close()
 
 	// Load FTS extension
-	db.Exec("INSTALL fts")
-	db.Exec("LOAD fts")
+	if _, err := db.Exec("INSTALL fts"); err != nil {
+		logger.Debug("fts install", "error", err)
+	}
+	if _, err := db.Exec("LOAD fts"); err != nil {
+		logger.Debug("fts load", "error", err)
+	}
 
 	maxResults := cfg.MCP.MaxResults
 	if maxResults <= 0 {

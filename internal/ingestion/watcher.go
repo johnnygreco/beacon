@@ -120,8 +120,11 @@ func (w *Watcher) Run(ctx context.Context) error {
 				if event.Has(fsnotify.Create) {
 					if fi, err := os.Stat(event.Name); err == nil && fi.IsDir() {
 						if !watchedDirs[event.Name] {
-							fsw.Add(event.Name)
-							watchedDirs[event.Name] = true
+							if err := fsw.Add(event.Name); err != nil {
+								w.logger.Warn("failed to watch new dir", "dir", event.Name, "error", err)
+							} else {
+								watchedDirs[event.Name] = true
+							}
 						}
 					}
 				}
@@ -218,7 +221,9 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 		if existing := cm.Get(file); existing != nil {
 			cp.SourceGeneration = existing.SourceGeneration + 1
 		}
-		cm.Save(ctx, cp)
+		if err := cm.Save(ctx, cp); err != nil {
+			w.logger.Error("save rotation checkpoint failed", "file", file, "error", err)
+		}
 	}
 
 	cp := cm.Get(file)
@@ -274,7 +279,9 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 				ErrorMessage:    err.Error(),
 				ContextFragment: truncate(string(lineBytes), 500),
 			}
-			database.InsertIngestError(ctx, w.db, ie)
+			if err := database.InsertIngestError(ctx, w.db, ie); err != nil {
+				w.logger.Error("record ingest error failed", "error", err)
+			}
 			offset += lineLen
 			continue
 		}

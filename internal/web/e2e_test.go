@@ -236,7 +236,9 @@ func TestE2E_APISessionsLimit(t *testing.T) {
 	defer resp.Body.Close()
 
 	var sessions []APISessionSummary
-	json.NewDecoder(resp.Body).Decode(&sessions)
+	if err := json.NewDecoder(resp.Body).Decode(&sessions); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if len(sessions) != 1 {
 		t.Errorf("expected 1 session with limit=1, got %d", len(sessions))
 	}
@@ -263,8 +265,10 @@ func TestE2E_APIToolStats(t *testing.T) {
 
 	insertTestEvent(t, db, "e1", "sess1", "tool_call", "", "", "", 0, 0)
 	// Set tool_name
-	db.WriteConn().ExecContext(context.Background(),
-		`UPDATE events SET tool_name = 'Read' WHERE event_uid = 'e1'`)
+	if _, err := db.WriteConn().ExecContext(context.Background(),
+		`UPDATE events SET tool_name = 'Read' WHERE event_uid = 'e1'`); err != nil {
+		t.Fatalf("update: %v", err)
+	}
 
 	resp, err := http.Get(server.URL + "/api/tool-stats")
 	if err != nil {
@@ -294,7 +298,9 @@ func TestE2E_APITokensByModel(t *testing.T) {
 	}
 
 	var items []map[string]any
-	json.NewDecoder(resp.Body).Decode(&items)
+	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
 	if len(items) < 2 {
 		t.Errorf("expected at least 2 models, got %d", len(items))
 	}
@@ -354,11 +360,15 @@ func TestE2E_SessionDetailWithToolCalls(t *testing.T) {
 
 	insertTestEvent(t, db, "e1", "sess1", "message", "user", "Read file.txt", "claude-sonnet-4-20250514", 100, 0)
 	insertTestEvent(t, db, "e2", "sess1", "tool_call", "", "", "claude-sonnet-4-20250514", 0, 50)
-	db.WriteConn().ExecContext(context.Background(),
-		`UPDATE events SET tool_name = 'Read' WHERE event_uid = 'e2'`)
+	if _, err := db.WriteConn().ExecContext(context.Background(),
+		`UPDATE events SET tool_name = 'Read' WHERE event_uid = 'e2'`); err != nil {
+		t.Fatalf("update: %v", err)
+	}
 	insertTestEvent(t, db, "e3", "sess1", "tool_result", "", "file contents here", "claude-sonnet-4-20250514", 0, 0)
-	db.WriteConn().ExecContext(context.Background(),
-		`UPDATE events SET tool_name = 'Read' WHERE event_uid = 'e3'`)
+	if _, err := db.WriteConn().ExecContext(context.Background(),
+		`UPDATE events SET tool_name = 'Read' WHERE event_uid = 'e3'`); err != nil {
+		t.Fatalf("update: %v", err)
+	}
 	insertTestEvent(t, db, "e4", "sess1", "message", "assistant", "Here are the contents", "claude-sonnet-4-20250514", 0, 200)
 
 	resp, err := http.Get(server.URL + "/sessions/sess1")

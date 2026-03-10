@@ -7,16 +7,20 @@ import (
 )
 
 // drainAndFlush writes msg and any queued messages, then flushes once.
-// Returns false if the channel was closed.
+// Returns false if the channel was closed or a write failed.
 func drainAndFlush(w http.ResponseWriter, flusher http.Flusher, ch <-chan SSEMessage, msg SSEMessage) bool {
-	w.Write(msg.Formatted)
+	if _, err := w.Write(msg.Formatted); err != nil {
+		return false
+	}
 	for {
 		select {
 		case msg, ok := <-ch:
 			if !ok {
 				return false
 			}
-			w.Write(msg.Formatted)
+			if _, err := w.Write(msg.Formatted); err != nil {
+				return false
+			}
 		default:
 			flusher.Flush()
 			return true
@@ -41,7 +45,9 @@ func (b *Broker) DashboardHandler(w http.ResponseWriter, r *http.Request) {
 	defer b.Unsubscribe(sub)
 
 	// Send initial connection event
-	w.Write(FormatSSE("connected", []byte("{}")))
+	if _, err := w.Write(FormatSSE("connected", []byte("{}"))); err != nil {
+		return
+	}
 	flusher.Flush()
 
 	for {
@@ -82,7 +88,9 @@ func (b *Broker) SessionHandler(w http.ResponseWriter, r *http.Request) {
 	sub := b.Subscribe(topic, "dashboard")
 	defer b.Unsubscribe(sub)
 
-	w.Write(FormatSSE("connected", []byte("{}")))
+	if _, err := w.Write(FormatSSE("connected", []byte("{}"))); err != nil {
+		return
+	}
 	flusher.Flush()
 
 	for {

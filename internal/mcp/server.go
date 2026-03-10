@@ -62,7 +62,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 		var req jsonRPCRequest
 		if err := json.Unmarshal(line, &req); err != nil {
-			s.writeError(writer, nil, -32700, "Parse error")
+			if err := s.writeError(writer, nil, -32700, "Parse error"); err != nil {
+				return fmt.Errorf("write error: %w", err)
+			}
 			continue
 		}
 
@@ -72,10 +74,9 @@ func (s *Server) Run(ctx context.Context) error {
 			continue
 		}
 
-		data, _ := json.Marshal(resp)
-		writer.Write(data)
-		writer.WriteByte('\n')
-		writer.Flush()
+		if err := writeJSONRPC(writer, resp); err != nil {
+			return fmt.Errorf("write response: %w", err)
+		}
 	}
 
 	if err := scanner.Err(); err != nil && err != io.EOF {
@@ -173,14 +174,24 @@ func (s *Server) handleToolsCall(ctx context.Context, req *jsonRPCRequest) *json
 	}
 }
 
-func (s *Server) writeError(w *bufio.Writer, id json.RawMessage, code int, msg string) {
-	resp := jsonRPCResponse{
+func writeJSONRPC(w *bufio.Writer, resp *jsonRPCResponse) error {
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	if _, err := w.Write(data); err != nil {
+		return err
+	}
+	if err := w.WriteByte('\n'); err != nil {
+		return err
+	}
+	return w.Flush()
+}
+
+func (s *Server) writeError(w *bufio.Writer, id json.RawMessage, code int, msg string) error {
+	return writeJSONRPC(w, &jsonRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
 		Error:   &jsonRPCError{Code: code, Message: msg},
-	}
-	data, _ := json.Marshal(resp)
-	w.Write(data)
-	w.WriteByte('\n')
-	w.Flush()
+	})
 }

@@ -31,7 +31,9 @@ func runDBReset(cmd *cobra.Command, args []string) error {
 	if !force {
 		fmt.Print("This will destroy all data. Are you sure? [y/N] ")
 		var answer string
-		fmt.Scanln(&answer)
+		if _, err := fmt.Scanln(&answer); err != nil {
+			return fmt.Errorf("reading input: %w", err)
+		}
 		if answer != "y" && answer != "Y" {
 			fmt.Println("Aborted.")
 			return nil

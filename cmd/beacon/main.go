@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,6 +52,8 @@ func resolveDBPath(cfg *config.Config) string {
 		dbPath = "~/.beacon/beacon.duckdb"
 	}
 	dbPath = expandHome(dbPath)
-	os.MkdirAll(filepath.Dir(dbPath), 0755)
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: cannot create database directory: %v\n", err)
+	}
 	return dbPath
 }

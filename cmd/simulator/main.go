@@ -18,7 +18,10 @@ func main() {
 		outDir = v
 	}
 
-	os.MkdirAll(outDir, 0755)
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "create dir: %v\n", err)
+		os.Exit(1)
+	}
 
 	sessionID := fmt.Sprintf("sim-%d", time.Now().Unix())
 	outFile := filepath.Join(outDir, sessionID+".jsonl")
@@ -146,5 +149,7 @@ func main() {
 }
 
 func writeLine(enc *json.Encoder, data map[string]any) {
-	enc.Encode(data)
+	if err := enc.Encode(data); err != nil {
+		fmt.Fprintf(os.Stderr, "encode: %v\n", err)
+	}
 }

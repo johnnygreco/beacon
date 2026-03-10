@@ -25,15 +25,19 @@ func NewAPIHandlers(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) 
 	return &APIHandlers{db: db, searcher: searcher, logger: logger}
 }
 
-func jsonResponse(w http.ResponseWriter, data any) {
+func (a *APIHandlers) jsonResponse(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		a.logger.Debug("json response write failed", "error", err)
+	}
 }
 
-func jsonError(w http.ResponseWriter, msg string, code int) {
+func (a *APIHandlers) jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": msg}); err != nil {
+		a.logger.Debug("json error response write failed", "error", err)
+	}
 }
 
 // GetMetrics returns current dashboard metrics.
@@ -50,7 +54,7 @@ func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 		        COUNT(CASE WHEN event_kind = 'tool_call' AND tool_name LIKE 'mcp__%' THEN 1 END)
 		 FROM events`,
 	).Scan(&totalSessions, &activeCount, &inputTokens, &outputTokens, &toolCalls, &mcpCalls); err != nil {
-		jsonError(w, "failed to query metrics", http.StatusInternalServerError)
+		a.jsonError(w, "failed to query metrics", http.StatusInternalServerError)
 		return
 	}
 
@@ -63,7 +67,7 @@ func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 		{Label: "MCP Calls", Value: float64(mcpCalls), Unit: "calls"},
 	}
 
-	jsonResponse(w, metrics)
+	a.jsonResponse(w, metrics)
 }
 
 // GetSessions returns session summaries.
@@ -82,7 +86,7 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 		 ORDER BY started_at DESC
 		 LIMIT $1`, limit)
 	if err != nil {
-		jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -105,10 +109,10 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 		sessions = append(sessions, s)
 	}
 	if err := rows.Err(); err != nil {
-		jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	jsonResponse(w, sessions)
+	a.jsonResponse(w, sessions)
 }
 
 // GetSessionDetail returns detailed info for a single session.
@@ -117,18 +121,18 @@ func (a *APIHandlers) GetSessionDetail(w http.ResponseWriter, r *http.Request) {
 
 	data, err := QuerySessionDetail(r.Context(), a.db, id)
 	if err != nil {
-		jsonError(w, "session not found", http.StatusNotFound)
+		a.jsonError(w, "session not found", http.StatusNotFound)
 		return
 	}
 	data.ChatTurns, data.Turns = QuerySessionConversation(r.Context(), a.db, id)
-	jsonResponse(w, data)
+	a.jsonResponse(w, data)
 }
 
 // SearchEvents performs keyword search.
 func (a *APIHandlers) SearchEvents(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	if query == "" {
-		jsonError(w, "missing query parameter 'q'", http.StatusBadRequest)
+		a.jsonError(w, "missing query parameter 'q'", http.StatusBadRequest)
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -138,10 +142,10 @@ func (a *APIHandlers) SearchEvents(w http.ResponseWriter, r *http.Request) {
 
 	results, err := a.searcher.LegacySearch(r.Context(), query, limit)
 	if err != nil {
-		jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	jsonResponse(w, results)
+	a.jsonResponse(w, results)
 }
 
 // GetTokensPerMinute returns time-series token data with breakdown.
@@ -150,7 +154,7 @@ func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request)
 		`SELECT minute, total_input, total_output, total_cache_read, total_tokens, call_count
 		 FROM v_tokens_per_minute LIMIT 60`)
 	if err != nil {
-		jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -164,10 +168,10 @@ func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request)
 		points = append(points, p)
 	}
 	if err := rows.Err(); err != nil {
-		jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	jsonResponse(w, points)
+	a.jsonResponse(w, points)
 }
 
 // GetToolStats returns tool usage statistics.
@@ -175,7 +179,7 @@ func (a *APIHandlers) GetToolStats(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.QueryContext(r.Context(),
 		`SELECT tool_name, calls, results, total, avg_duration_ms FROM v_tool_stats`)
 	if err != nil {
-		jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -190,10 +194,10 @@ func (a *APIHandlers) GetToolStats(w http.ResponseWriter, r *http.Request) {
 		stats = append(stats, s)
 	}
 	if err := rows.Err(); err != nil {
-		jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	jsonResponse(w, stats)
+	a.jsonResponse(w, stats)
 }
 
 // GetTokensByModel returns token usage broken down by model.
@@ -202,7 +206,7 @@ func (a *APIHandlers) GetTokensByModel(w http.ResponseWriter, r *http.Request) {
 		`SELECT model, total_input, total_output, total_cache_read, total_cache_create, total_tokens, call_count
 		 FROM v_tokens_by_model`)
 	if err != nil {
-		jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
@@ -216,8 +220,8 @@ func (a *APIHandlers) GetTokensByModel(w http.ResponseWriter, r *http.Request) {
 		items = append(items, m)
 	}
 	if err := rows.Err(); err != nil {
-		jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	jsonResponse(w, items)
+	a.jsonResponse(w, items)
 }
