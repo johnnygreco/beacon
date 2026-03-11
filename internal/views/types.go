@@ -148,6 +148,14 @@ func (s SessionSummary) IsSubagent() bool {
 	return s.ParentSessionID != ""
 }
 
+// DurationSeconds returns the session duration in seconds for sorting.
+func (s SessionSummary) DurationSeconds() int64 {
+	if s.EndedAt.IsZero() || s.StartedAt.IsZero() {
+		return 0
+	}
+	return int64(s.EndedAt.Sub(s.StartedAt).Seconds())
+}
+
 // ShortModelName returns a shortened model name for compact display.
 // "claude-opus-4-6" → "opus-4-6", "claude-haiku-4-5-20251001" → "haiku-4-5"
 func ShortModelName(model string) string {

@@ -13,7 +13,7 @@ const timeScaleOptions = {
   type: 'time',
   time: { unit: 'minute', displayFormats: { minute: 'h:mm a' } },
   grid: { color: '#374151' },
-  ticks: { color: '#9ca3af' }
+  ticks: { color: '#9ca3af', maxTicksLimit: 8, autoSkip: true, maxRotation: 0 }
 };
 
 const categoryScaleOptions = {

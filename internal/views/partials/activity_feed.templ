@@ -37,10 +37,11 @@ templ ActivityTimelineWithMore(items []views.ActivityItem, hasMore bool, rangeVa
 
 templ activityItem(item views.ActivityItem) {
 	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s#%s", item.SessionID, item.ID)) }
+	   data-type={ item.Type }
 	   class="block relative py-2 pl-4 hover:bg-gray-800/50 rounded-lg transition-colors group">
 		<div class={ "absolute left-[-8px] top-3.5 w-2.5 h-2.5 rounded-full ring-2 ring-gray-900", activityDotColor(item.Type) }></div>
+		<p class="text-sm text-gray-300 group-hover:text-gray-100 transition-colors mb-1">{ item.Summary }</p>
 		<div class="flex items-center gap-2">
-			<p class="text-sm text-gray-300 truncate flex-1 group-hover:text-gray-100 transition-colors">{ item.Summary }</p>
 			<span class={ "px-1.5 py-0.5 rounded text-xs flex-shrink-0", activityBadgeStyle(item.Type) }>{ activityLabel(item.Type) }</span>
 			if item.SessionID != "" {
 				<span class="text-xs text-gray-600 font-mono flex-shrink-0">{ views.TruncateID(item.SessionID) }</span>

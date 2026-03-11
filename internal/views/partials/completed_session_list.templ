@@ -12,15 +12,21 @@ templ CompletedSessionListWithMore(sessions []views.SessionSummary, hasMore bool
 		@components.CompletedSessionRow(s)
 	}
 	if hasMore {
-		<div hx-get={ fmt.Sprintf("/dashboard/sessions?range=%s&offset=%d", url.QueryEscape(rangeVal), nextOffset) }
+		<tr hx-get={ fmt.Sprintf("/dashboard/sessions?range=%s&offset=%d", url.QueryEscape(rangeVal), nextOffset) }
 		     hx-trigger="revealed"
 		     hx-swap="outerHTML"
 		     hx-on::before-request="this.closest('[id]').removeAttribute('sse-swap')"
-		     class="text-center py-3">
-			<span class="text-xs text-gray-500">Loading more...</span>
-		</div>
+		     class="text-center">
+			<td colspan="10" class="py-3">
+				<span class="text-xs text-gray-500">Loading more...</span>
+			</td>
+		</tr>
 	}
 	if len(sessions) == 0 && !hasMore {
-		<p class="text-sm text-gray-500 text-center py-4">No completed sessions</p>
+		<tr>
+			<td colspan="10" class="text-center py-4">
+				<span class="text-sm text-gray-500">No completed sessions</span>
+			</td>
+		</tr>
 	}
 }

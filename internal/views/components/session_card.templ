@@ -201,26 +201,53 @@ templ SubagentSessionCard(s views.SessionSummary) {
 	</a>
 }
 
+script goToSession(url string) {
+	window.location.href = url
+}
+
 templ CompletedSessionRow(s views.SessionSummary) {
-	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="flex items-center gap-3 px-3 py-2 hover:bg-gray-800 rounded-lg transition-colors cursor-pointer group">
-		if s.IsSubagent() {
-			<span class="w-1.5 h-1.5 rounded-full bg-blue-500/60 flex-shrink-0"></span>
-		} else {
-			<span class="w-1.5 h-1.5 rounded-full bg-gray-600 flex-shrink-0"></span>
-		}
-		<span class="text-sm text-gray-300 truncate group-hover:text-gray-100 transition-colors">
+	<tr onclick={ goToSession(fmt.Sprintf("/sessions/%s", s.ID)) }
+		class="border-b border-gray-800/50 cursor-pointer transition-colors"
+		data-sort-name={ views.SessionTitle(s, false) }
+		data-sort-id={ s.ID }
+		data-sort-model={ s.ActiveModel }
+		data-sort-tokens={ fmt.Sprintf("%d", s.TotalTokens) }
+		data-sort-turns={ fmt.Sprintf("%d", s.TurnCount) }
+		data-sort-tools={ fmt.Sprintf("%d", s.ToolCallCount) }
+		data-sort-duration={ fmt.Sprintf("%d", s.DurationSeconds()) }
+		data-sort-project={ s.WorkingDir }
+		data-sort-status={ s.Status }
+		data-sort-ended={ fmt.Sprintf("%d", s.EndedAt.Unix()) }>
+		<td class="py-2 px-3 text-sm text-gray-300 whitespace-nowrap">
 			if s.IsSubagent() {
 				<span class="text-blue-400/70 text-xs mr-1">sub</span>
 			}
 			{ views.SessionTitle(s, false) }
-		</span>
-		<span class="text-xs text-gray-600 font-mono flex-shrink-0">{ views.TruncateID(s.ID) }</span>
-		<span class="flex-1"></span>
-		<span class="text-xs text-gray-500 tabular-nums flex-shrink-0 w-12 text-right">{ views.FormatTokens(s.TotalTokens) }</span>
-		<span class="text-xs text-gray-500 tabular-nums flex-shrink-0 w-8 text-right">{ fmt.Sprintf("%dt", s.TurnCount) }</span>
-		<span class="text-xs text-gray-500 tabular-nums flex-shrink-0 w-14 text-right">{ s.Duration }</span>
-		<span class="text-xs text-gray-600 tabular-nums flex-shrink-0 w-14 text-right">{ views.RelativeTime(s.EndedAt) }</span>
-	</a>
+		</td>
+		<td class="py-2 px-3 font-mono text-xs text-gray-500">{ views.TruncateID(s.ID) }</td>
+		<td class="py-2 px-3 text-xs text-gray-400">
+			if s.ActiveModel != "" {
+				{ views.ShortModelName(s.ActiveModel) }
+			}
+		</td>
+		<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums">{ views.FormatTokens(s.TotalTokens) }</td>
+		<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums">{ fmt.Sprintf("%d", s.TurnCount) }</td>
+		<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums">{ fmt.Sprintf("%d", s.ToolCallCount) }</td>
+		<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums whitespace-nowrap">{ s.Duration }</td>
+		<td class="py-2 px-3 text-xs text-gray-500 max-w-[180px] truncate" title={ s.WorkingDir }>{ s.WorkingDir }</td>
+		<td class="py-2 px-3 text-center">
+			<span class="inline-flex items-center gap-1.5">
+				if s.HasSessionEnd {
+					<span class="w-1.5 h-1.5 rounded-full bg-green-500/60"></span>
+					<span class="text-xs text-gray-400">done</span>
+				} else {
+					<span class="w-1.5 h-1.5 rounded-full bg-gray-500/60"></span>
+					<span class="text-xs text-gray-500">done</span>
+				}
+			</span>
+		</td>
+		<td class="py-2 px-3 text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">{ views.RelativeTime(s.EndedAt) }</td>
+	</tr>
 }
 
 

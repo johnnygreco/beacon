@@ -43,26 +43,26 @@ func CompletedSessionListWithMore(sessions []views.SessionSummary, hasMore bool,
 			}
 		}
 		if hasMore {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div hx-get=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<tr hx-get=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var2 string
 			templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/dashboard/sessions?range=%s&offset=%d", url.QueryEscape(rangeVal), nextOffset))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/completed_session_list.templ`, Line: 15, Col: 108}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/completed_session_list.templ`, Line: 15, Col: 107}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" hx-trigger=\"revealed\" hx-swap=\"outerHTML\" hx-on::before-request=\"this.closest('[id]').removeAttribute('sse-swap')\" class=\"text-center py-3\"><span class=\"text-xs text-gray-500\">Loading more...</span></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" hx-trigger=\"revealed\" hx-swap=\"outerHTML\" hx-on::before-request=\"this.closest('[id]').removeAttribute('sse-swap')\" class=\"text-center\"><td colspan=\"10\" class=\"py-3\"><span class=\"text-xs text-gray-500\">Loading more...</span></td></tr>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
 		if len(sessions) == 0 && !hasMore {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<p class=\"text-sm text-gray-500 text-center py-4\">No completed sessions</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<tr><td colspan=\"10\" class=\"text-center py-4\"><span class=\"text-sm text-gray-500\">No completed sessions</span></td></tr>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

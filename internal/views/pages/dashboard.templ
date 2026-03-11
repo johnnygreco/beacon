@@ -9,86 +9,263 @@ import (
 
 templ Dashboard(data views.DashboardData) {
 	@views.Layout("Dashboard") {
-		<div hx-ext="sse" sse-connect="/sse/dashboard" class="flex flex-col gap-6 min-h-[calc(100vh-3rem)]">
+		<div hx-ext="sse" sse-connect="/sse/dashboard" id="dashboard-wrap" class="flex h-[calc(100vh-3rem)]">
 			<!-- Hidden SSE receiver for sidebar metrics (OOB swap) -->
 			<div sse-swap="metrics-update" class="hidden"></div>
 
-			<div class="space-y-6 flex-shrink-0">
-				<!-- Charts: Total Tokens Over Time + Tokens by Model -->
-				<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-					@components.ChartContainerWithOptions("dashboardTotalTokensChart", "200px", "Total Tokens Over Time", true, false)
-					if len(data.TokensByModel) > 0 {
-						@components.ChartContainerWithOptions("dashboardTokensByModelChart", "200px", "Tokens by Model", true, true)
-					}
-				</div>
-				if len(data.TokensChart.Labels) > 0 {
-					@templ.JSONScript("dashboard-total-tokens-data", data.TokensChart)
-				}
-				if len(data.TokensByModel) > 0 {
-					@templ.JSONScript("dashboard-tokens-by-model-data", dashboardTokensByModelData(data.TokensByModel))
-				}
-
-				<!-- Active Sessions -->
-				<div>
-					<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
-						<span class="relative flex h-2 w-2">
-							<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-							<span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-						</span>
-						Active Sessions
-						if len(data.ActiveSessions) > 0 {
-							<span class="text-xs font-normal text-gray-500">({ fmt.Sprintf("%d", len(data.ActiveSessions)) })</span>
+			<!-- Main Content Area -->
+			<div id="dashboard-main" class="flex-1 flex flex-col gap-6 overflow-y-auto min-w-0 pr-2">
+				<div class="space-y-6">
+					<!-- Charts: Total Tokens Over Time + Tokens by Model -->
+					<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+						@components.ChartContainerWithOptions("dashboardTotalTokensChart", "200px", "Total Tokens Over Time", true, false)
+						if len(data.TokensByModel) > 0 {
+							@components.ChartContainerWithOptions("dashboardTokensByModelChart", "200px", "Tokens by Model", true, true)
 						}
-					</h2>
-					<div id="active-sessions" sse-swap="active-sessions-update" hx-swap="innerHTML"
-					     class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-						@partials.ActiveSessionList(data.ActiveSessions)
 					</div>
-				</div>
+					if len(data.TokensChart.Labels) > 0 {
+						@templ.JSONScript("dashboard-total-tokens-data", data.TokensChart)
+					}
+					if len(data.TokensByModel) > 0 {
+						@templ.JSONScript("dashboard-tokens-by-model-data", dashboardTokensByModelData(data.TokensByModel))
+					}
 
-				<!-- Timeframe Filter -->
-				<div class="border-t border-gray-700/50 pt-4">
-					<div class="flex items-center gap-2">
-						<span class="text-xs text-gray-500">Time Range</span>
-						<button type="button" onclick="setDashboardRange(this, '')" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
-						<button type="button" onclick="setDashboardRange(this, '24h')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">24h</button>
-						<button type="button" onclick="setDashboardRange(this, '7d')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">7d</button>
-						<button type="button" onclick="setDashboardRange(this, '30d')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">30d</button>
+					<!-- Active Sessions -->
+					<div>
+						<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
+							<span class="relative flex h-2 w-2">
+								<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+								<span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+							</span>
+							Active Sessions
+							if len(data.ActiveSessions) > 0 {
+								<span class="text-xs font-normal text-gray-500">({ fmt.Sprintf("%d", len(data.ActiveSessions)) })</span>
+							}
+						</h2>
+						<div id="active-sessions" sse-swap="active-sessions-update" hx-swap="innerHTML"
+						     class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+							@partials.ActiveSessionList(data.ActiveSessions)
+						</div>
+					</div>
+
+					<!-- Completed Sessions Table -->
+					<div class="border-t border-gray-700/50 pt-4">
+						<div class="flex items-center justify-between mb-4">
+							<div class="flex items-center gap-2">
+								<span class="text-xs text-gray-500">Time Range</span>
+								<button type="button" onclick="setDashboardRange(this, '')" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
+								<button type="button" onclick="setDashboardRange(this, '24h')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">24h</button>
+								<button type="button" onclick="setDashboardRange(this, '7d')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">7d</button>
+								<button type="button" onclick="setDashboardRange(this, '30d')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">30d</button>
+							</div>
+							<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide">Completed Sessions</h2>
+						</div>
+						<div class="overflow-x-auto">
+							<table class="w-full text-sm" id="completed-table">
+								<thead class="sticky top-0 bg-gray-900/95 backdrop-blur">
+									<tr class="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-700">
+										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="name" onclick="sortCompletedTable(this, 'name')">
+											Name <span class="sort-arrow">▼</span>
+										</th>
+										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="id" onclick="sortCompletedTable(this, 'id')">
+											Session ID <span class="sort-arrow">▼</span>
+										</th>
+										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="model" onclick="sortCompletedTable(this, 'model')">
+											Model <span class="sort-arrow">▼</span>
+										</th>
+										<th class="text-right py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="tokens" onclick="sortCompletedTable(this, 'tokens')">
+											Tokens <span class="sort-arrow">▼</span>
+										</th>
+										<th class="text-right py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="turns" onclick="sortCompletedTable(this, 'turns')">
+											Turns <span class="sort-arrow">▼</span>
+										</th>
+										<th class="text-right py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="tools" onclick="sortCompletedTable(this, 'tools')">
+											Tools <span class="sort-arrow">▼</span>
+										</th>
+										<th class="text-right py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="duration" onclick="sortCompletedTable(this, 'duration')">
+											Duration <span class="sort-arrow">▼</span>
+										</th>
+										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="project" onclick="sortCompletedTable(this, 'project')">
+											Project <span class="sort-arrow">▼</span>
+										</th>
+										<th class="text-center py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="status" onclick="sortCompletedTable(this, 'status')">
+											Status <span class="sort-arrow">▼</span>
+										</th>
+										<th class="text-right py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="ended" onclick="sortCompletedTable(this, 'ended')">
+											Ended <span class="sort-arrow active">▼</span>
+										</th>
+									</tr>
+								</thead>
+								<tbody id="completed-sessions" sse-swap="completed-sessions-update" hx-swap="innerHTML">
+									@partials.CompletedSessionListWithMore(data.CompletedSessions, data.HasMoreSessions, "", len(data.CompletedSessions))
+								</tbody>
+							</table>
+						</div>
 					</div>
 				</div>
 			</div>
 
-			<!-- Completed Sessions + Activity Timeline (side by side) -->
-			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 min-h-[300px]">
-				<div class="flex flex-col min-h-0">
-					<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide mb-3">Completed Sessions</h2>
-					<div id="completed-sessions" sse-swap="completed-sessions-update" hx-swap="innerHTML"
-					     class="space-y-1 overflow-y-auto flex-1 min-h-0">
-						@partials.CompletedSessionListWithMore(data.CompletedSessions, data.HasMoreSessions, "", len(data.CompletedSessions))
-					</div>
+			<!-- Activity Timeline Sidebar -->
+			<aside id="timeline-sidebar" class="timeline-panel flex flex-col border-l border-gray-700 bg-gray-800/30">
+				<div class="flex items-center justify-between px-4 py-3 border-b border-gray-700/50 flex-shrink-0">
+					<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Activity Timeline</h2>
+					<button onclick="toggleTimeline()" class="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors ml-2" title="Toggle timeline (T)">
+						<svg class="w-4 h-4 transition-transform" id="timeline-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+						</svg>
+					</button>
 				</div>
-				<div class="flex flex-col min-h-0">
-					<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide mb-3">Activity Timeline</h2>
-					<div id="activity-feed" sse-swap="activity-update" hx-swap="innerHTML"
-					     class="overflow-y-auto flex-1 min-h-0">
-						@partials.ActivityTimelineFull(data.RecentActivity, data.HasMoreActivity, "", len(data.RecentActivity))
-					</div>
+				<div class="flex items-center gap-1.5 px-4 py-2 border-b border-gray-700/50 flex-shrink-0">
+					<button onclick="filterActivity(this, 'all')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
+					<button onclick="filterActivity(this, 'message')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Messages</button>
+					<button onclick="filterActivity(this, 'tool_call')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Tools</button>
+					<button onclick="filterActivity(this, 'error')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Errors</button>
 				</div>
-			</div>
+				<div id="activity-feed" sse-swap="activity-update" hx-swap="innerHTML"
+				     class="overflow-y-auto flex-1 min-h-0">
+					@partials.ActivityTimelineFull(data.RecentActivity, data.HasMoreActivity, "", len(data.RecentActivity))
+				</div>
+			</aside>
+
+			<!-- Toggle button when sidebar is collapsed -->
+			<button id="timeline-reopen" onclick="toggleTimeline()" class="hidden fixed bottom-6 right-6 z-40 p-2.5 rounded-lg bg-gray-800 border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 shadow-lg transition-colors" title="Open Activity Timeline (T)">
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+				</svg>
+			</button>
 		</div>
+
 		<script>
+		// --- Timeline sidebar toggle ---
+		function toggleTimeline() {
+			var sidebar = document.getElementById('timeline-sidebar');
+			var reopenBtn = document.getElementById('timeline-reopen');
+			var isOpen = !sidebar.classList.contains('collapsed');
+			if (isOpen) {
+				sidebar.classList.add('collapsed');
+				reopenBtn.classList.remove('hidden');
+				localStorage.setItem('beacon-timeline-open', 'false');
+			} else {
+				sidebar.classList.remove('collapsed');
+				reopenBtn.classList.add('hidden');
+				localStorage.setItem('beacon-timeline-open', 'true');
+			}
+		}
+
+		// Restore sidebar state
+		(function() {
+			var saved = localStorage.getItem('beacon-timeline-open');
+			if (saved === 'false') {
+				document.getElementById('timeline-sidebar').classList.add('collapsed');
+				document.getElementById('timeline-reopen').classList.remove('hidden');
+			}
+			if (window.innerWidth < 1024) {
+				document.getElementById('timeline-sidebar').classList.add('collapsed');
+				document.getElementById('timeline-reopen').classList.remove('hidden');
+			}
+		})();
+
+		// Keyboard shortcut: T
+		document.addEventListener('keydown', function(e) {
+			if (e.key === 'T' || e.key === 't') {
+				if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+				e.preventDefault();
+				toggleTimeline();
+			}
+		});
+
+		// Responsive auto-collapse
+		window.addEventListener('resize', function() {
+			var sidebar = document.getElementById('timeline-sidebar');
+			var reopenBtn = document.getElementById('timeline-reopen');
+			if (window.innerWidth < 1024 && !sidebar.classList.contains('collapsed')) {
+				sidebar.classList.add('collapsed');
+				reopenBtn.classList.remove('hidden');
+			}
+		});
+
+		// --- Activity filter chips ---
+		var currentActivityFilter = 'all';
+		function filterActivity(btn, type) {
+			currentActivityFilter = type;
+			var feed = document.getElementById('activity-feed');
+			// Update button styles
+			document.querySelectorAll('.activity-filter-btn').forEach(function(b) {
+				b.className = 'activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
+			});
+			btn.className = 'activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';
+			// Apply filter via CSS class
+			feed.className = feed.className.replace(/\bfilter-[\w-]+/g, '').trim();
+			if (type !== 'all') {
+				feed.classList.add('filter-' + type.replace('_', '-'));
+			}
+		}
+
+		// Re-apply filter after SSE swaps
+		document.body.addEventListener('htmx:afterSettle', function(e) {
+			if (e.detail.target && e.detail.target.id === 'activity-feed' && currentActivityFilter !== 'all') {
+				var feed = document.getElementById('activity-feed');
+				feed.classList.add('filter-' + currentActivityFilter.replace('_', '-'));
+			}
+		});
+
+		// --- Dashboard time range filter ---
 		function setDashboardRange(btn, value) {
-			// Highlight active button
 			btn.closest('.flex').querySelectorAll('.dash-range-btn').forEach(function(b) {
 				b.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
 			});
 			btn.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';
-			// Disable SSE swap for both containers
 			document.getElementById('completed-sessions').removeAttribute('sse-swap');
 			document.getElementById('activity-feed').removeAttribute('sse-swap');
-			// Fetch filtered data
 			htmx.ajax('GET', '/dashboard/sessions?range=' + encodeURIComponent(value), {target: '#completed-sessions', swap: 'innerHTML'});
 			htmx.ajax('GET', '/dashboard/activity?range=' + encodeURIComponent(value), {target: '#activity-feed', swap: 'innerHTML'});
+		}
+
+		// --- Table sorting ---
+		var sortColumn = 'ended';
+		var sortAsc = false;
+		function sortCompletedTable(th, column) {
+			if (sortColumn === column) {
+				sortAsc = !sortAsc;
+			} else {
+				sortColumn = column;
+				// Default ascending for text, descending for numbers
+				sortAsc = ['name', 'id', 'model', 'project', 'status'].indexOf(column) >= 0;
+			}
+			var tbody = document.getElementById('completed-sessions');
+			var rows = Array.from(tbody.querySelectorAll('tr[data-sort-ended]'));
+			var numericCols = ['tokens', 'turns', 'tools', 'duration', 'ended'];
+			var isNumeric = numericCols.indexOf(column) >= 0;
+
+			rows.sort(function(a, b) {
+				var aVal = a.getAttribute('data-sort-' + column) || '';
+				var bVal = b.getAttribute('data-sort-' + column) || '';
+				if (isNumeric) {
+					var diff = (parseFloat(aVal) || 0) - (parseFloat(bVal) || 0);
+					return sortAsc ? diff : -diff;
+				}
+				var cmp = aVal.localeCompare(bVal, undefined, {sensitivity: 'base'});
+				return sortAsc ? cmp : -cmp;
+			});
+
+			// Find the sentinel (load-more) row if it exists — it has no data-sort-ended
+			var sentinel = tbody.querySelector('tr:not([data-sort-ended])');
+			// Re-insert sorted data rows before the sentinel, or just append
+			rows.forEach(function(row) {
+				if (sentinel) { tbody.insertBefore(row, sentinel); }
+				else { tbody.appendChild(row); }
+			});
+
+			// Update sort indicators
+			document.querySelectorAll('#completed-table th .sort-arrow').forEach(function(arrow) {
+				arrow.classList.remove('active');
+				arrow.textContent = '▼';
+			});
+			var arrow = th.querySelector('.sort-arrow');
+			if (arrow) {
+				arrow.classList.add('active');
+				arrow.textContent = sortAsc ? '▲' : '▼';
+			}
 		}
 		</script>
 	}
