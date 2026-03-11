@@ -1,6 +1,8 @@
 package ingestion
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestDeduplicateTokens_Nil(t *testing.T) {
 	result := DeduplicateTokens(nil)
@@ -94,6 +96,70 @@ func TestDeduplicateTokens_EmptyUUID(t *testing.T) {
 	if result[1].InputTokens != 300 || result[1].OutputTokens != 400 {
 		t.Errorf("empty-uuid event 1 changed: input=%d output=%d", result[1].InputTokens, result[1].OutputTokens)
 	}
+}
+
+// PropagateModel tests
+
+func TestPropagateModel_ForwardFill(t *testing.T) {
+	events := []NormalizedEvent{
+		{SessionID: "s1", Model: "gpt-5.4", EventKind: "turn_context"},
+		{SessionID: "s1", Model: "", EventKind: "message"},
+		{SessionID: "s1", Model: "", EventKind: "tool_call"},
+	}
+	PropagateModel(events)
+	for i, evt := range events {
+		if evt.Model != "gpt-5.4" {
+			t.Errorf("event[%d] expected model=gpt-5.4, got %q", i, evt.Model)
+		}
+	}
+}
+
+func TestPropagateModel_NoOverwrite(t *testing.T) {
+	events := []NormalizedEvent{
+		{SessionID: "s1", Model: "gpt-5.4", EventKind: "turn_context"},
+		{SessionID: "s1", Model: "o3-pro", EventKind: "message"},
+		{SessionID: "s1", Model: "", EventKind: "tool_call"},
+	}
+	PropagateModel(events)
+	if events[1].Model != "o3-pro" {
+		t.Errorf("event[1] should keep explicit model, got %q", events[1].Model)
+	}
+	// After seeing o3-pro, forward-fill should use o3-pro
+	if events[2].Model != "o3-pro" {
+		t.Errorf("event[2] expected model=o3-pro after switch, got %q", events[2].Model)
+	}
+}
+
+func TestPropagateModel_MultipleSessions(t *testing.T) {
+	events := []NormalizedEvent{
+		{SessionID: "s1", Model: "gpt-5.4"},
+		{SessionID: "s2", Model: "o3-pro"},
+		{SessionID: "s1", Model: ""},
+		{SessionID: "s2", Model: ""},
+	}
+	PropagateModel(events)
+	if events[2].Model != "gpt-5.4" {
+		t.Errorf("s1 event expected gpt-5.4, got %q", events[2].Model)
+	}
+	if events[3].Model != "o3-pro" {
+		t.Errorf("s2 event expected o3-pro, got %q", events[3].Model)
+	}
+}
+
+func TestPropagateModel_NoModelAtAll(t *testing.T) {
+	events := []NormalizedEvent{
+		{SessionID: "s1", Model: ""},
+		{SessionID: "s1", Model: ""},
+	}
+	PropagateModel(events)
+	if events[0].Model != "" || events[1].Model != "" {
+		t.Errorf("events without any model should stay empty")
+	}
+}
+
+func TestPropagateModel_Nil(t *testing.T) {
+	// Should not panic on nil input
+	PropagateModel(nil)
 }
 
 func TestDeduplicateTokens_ThreeBlocksSameUUID(t *testing.T) {

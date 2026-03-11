@@ -712,3 +712,225 @@ func TestParseCodexJSONL_UUIDFromFilename(t *testing.T) {
 		t.Errorf("expected UUID extracted from filename, got %q", events[0].SessionID)
 	}
 }
+
+func TestParseCodexJSONL_CustomToolCall(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "response_item",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:00:10Z",
+		"payload": map[string]any{
+			"type":    "custom_tool_call",
+			"name":    "apply_patch",
+			"input":   "--- a/main.go\n+++ b/main.go\n@@ -1 +1 @@\n-old\n+new",
+			"call_id": "call_custom_1",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 20, 2000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.EventKind != "tool_call" {
+		t.Errorf("expected event_kind=tool_call, got %q", evt.EventKind)
+	}
+	if evt.ToolName != "apply_patch" {
+		t.Errorf("expected tool_name=apply_patch, got %q", evt.ToolName)
+	}
+	if evt.ToolUseID != "call_custom_1" {
+		t.Errorf("expected tool_use_id=call_custom_1, got %q", evt.ToolUseID)
+	}
+	if evt.ToolPhase != "call" {
+		t.Errorf("expected tool_phase=call, got %q", evt.ToolPhase)
+	}
+	if evt.ToolInput == "" {
+		t.Error("expected tool_input to be populated")
+	}
+}
+
+func TestParseCodexJSONL_CustomToolCallOutput(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "response_item",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:00:11Z",
+		"payload": map[string]any{
+			"type":    "custom_tool_call_output",
+			"output":  "Patch applied successfully",
+			"call_id": "call_custom_1",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 21, 2100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.EventKind != "tool_result" {
+		t.Errorf("expected event_kind=tool_result, got %q", evt.EventKind)
+	}
+	if evt.ToolUseID != "call_custom_1" {
+		t.Errorf("expected tool_use_id=call_custom_1, got %q", evt.ToolUseID)
+	}
+	if evt.ToolPhase != "result" {
+		t.Errorf("expected tool_phase=result, got %q", evt.ToolPhase)
+	}
+	if evt.TextContent != "Patch applied successfully" {
+		t.Errorf("expected text_content, got %q", evt.TextContent)
+	}
+}
+
+func TestParseCodexJSONL_AgentMessage(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "event_msg",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:00:12Z",
+		"payload": map[string]any{
+			"type":    "agent_message",
+			"message": "Analyzing the repository structure...",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 22, 2200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.EventKind != "message" {
+		t.Errorf("expected event_kind=message, got %q", evt.EventKind)
+	}
+	if evt.ActorRole != "assistant" {
+		t.Errorf("expected actor_role=assistant, got %q", evt.ActorRole)
+	}
+	if evt.TextContent != "Analyzing the repository structure..." {
+		t.Errorf("expected text_content, got %q", evt.TextContent)
+	}
+}
+
+func TestParseCodexJSONL_TaskStarted(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "event_msg",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:00:00Z",
+		"payload": map[string]any{
+			"type": "task_started",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.EventKind != "session_meta" {
+		t.Errorf("expected event_kind=session_meta, got %q", evt.EventKind)
+	}
+	if evt.ActorRole != "system" {
+		t.Errorf("expected actor_role=system, got %q", evt.ActorRole)
+	}
+	if evt.TextContent != "Task started" {
+		t.Errorf("expected text 'Task started', got %q", evt.TextContent)
+	}
+}
+
+func TestParseCodexJSONL_UserMessage(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "event_msg",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:00:01Z",
+		"payload": map[string]any{
+			"type":    "user_message",
+			"message": "Fix the login bug",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 2, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.EventKind != "message" {
+		t.Errorf("expected event_kind=message, got %q", evt.EventKind)
+	}
+	if evt.ActorRole != "user" {
+		t.Errorf("expected actor_role=user, got %q", evt.ActorRole)
+	}
+	if evt.TextContent != "Fix the login bug" {
+		t.Errorf("expected text_content, got %q", evt.TextContent)
+	}
+}
+
+func TestParseCodexJSONL_TurnContextModel(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "turn_context",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:00:01Z",
+		"payload": map[string]any{
+			"model": "gpt-5.4",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 2, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	if events[0].Model != "gpt-5.4" {
+		t.Errorf("expected model=gpt-5.4 from turn_context, got %q", events[0].Model)
+	}
+}
+
+func TestParseCodexJSONL_FunctionCallOutputSummary(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "response_item",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:00:04Z",
+		"payload": map[string]any{
+			"type":    "function_call_output_summary",
+			"name":    "shell",
+			"output":  "Command completed successfully",
+			"call_id": "call_sum_1",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 5, 400)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.EventKind != "tool_result" {
+		t.Errorf("expected event_kind=tool_result, got %q", evt.EventKind)
+	}
+	if evt.ToolName != "shell" {
+		t.Errorf("expected tool_name=shell, got %q", evt.ToolName)
+	}
+	if evt.ToolUseID != "call_sum_1" {
+		t.Errorf("expected tool_use_id=call_sum_1, got %q", evt.ToolUseID)
+	}
+}
