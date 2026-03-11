@@ -22,20 +22,31 @@ func TestDashboardTokensByModelData(t *testing.T) {
 	if !ok {
 		t.Fatal("expected []string labels")
 	}
-	// Multi-provider: should have provider prefix and spacer between groups.
+	// Multi-provider: short model names only (no provider prefix) with spacer between groups.
 	// OpenAI has higher total (1500) so it comes first.
-	// Expected: ["Codex · gpt-5.4", "", "Claude Code · opus-4-6"]
+	// Expected: ["gpt-5.4", "", "opus-4-6"] with providerGroups metadata.
 	if len(labels) != 3 {
 		t.Fatalf("expected 3 labels (2 models + 1 spacer), got %d: %v", len(labels), labels)
 	}
-	if labels[0] != "Codex · gpt-5.4" {
-		t.Errorf("expected first label 'Codex · gpt-5.4', got %q", labels[0])
+	if labels[0] != "gpt-5.4" {
+		t.Errorf("expected first label 'gpt-5.4', got %q", labels[0])
 	}
 	if labels[1] != "" {
 		t.Errorf("expected spacer label '', got %q", labels[1])
 	}
-	if labels[2] != "Claude Code · opus-4-6" {
-		t.Errorf("expected third label 'Claude Code · opus-4-6', got %q", labels[2])
+	if labels[2] != "opus-4-6" {
+		t.Errorf("expected third label 'opus-4-6', got %q", labels[2])
+	}
+	// Verify provider groups metadata
+	groups, ok := m["providerGroups"].([]map[string]any)
+	if !ok || len(groups) != 2 {
+		t.Fatalf("expected 2 provider groups, got %v", m["providerGroups"])
+	}
+	if groups[0]["provider"] != "Codex" {
+		t.Errorf("expected first group provider 'Codex', got %v", groups[0]["provider"])
+	}
+	if groups[1]["provider"] != "Claude Code" {
+		t.Errorf("expected second group provider 'Claude Code', got %v", groups[1]["provider"])
 	}
 
 	datasets, ok := m["datasets"].([]map[string]any)

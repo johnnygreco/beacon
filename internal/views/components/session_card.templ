@@ -206,7 +206,7 @@ templ SubagentSessionCard(s views.SessionSummary) {
 
 templ providerBadge(provider string) {
 	if provider == "openai" {
-		<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-emerald-500/15 text-emerald-400" title="Codex (OpenAI)">{ views.ProviderShort(provider) }</span>
+		<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-cyan-500/15 text-cyan-400" title="Codex (OpenAI)">{ views.ProviderShort(provider) }</span>
 	} else if provider == "anthropic" {
 		<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-orange-500/15 text-orange-300" title="Claude Code (Anthropic)">{ views.ProviderShort(provider) }</span>
 	} else if provider != "" {

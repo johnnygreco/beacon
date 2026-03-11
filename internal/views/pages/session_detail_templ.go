@@ -563,7 +563,7 @@ func tokensByModelData(models []views.ModelTokens) any {
 func providerBadgeClasses(provider string) string {
 	switch provider {
 	case "openai":
-		return "bg-emerald-500/20 text-emerald-400"
+		return "bg-cyan-500/20 text-cyan-400"
 	case "anthropic":
 		return "bg-orange-500/20 text-orange-300"
 	default:

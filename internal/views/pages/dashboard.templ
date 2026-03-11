@@ -199,18 +199,25 @@ templ Dashboard(data views.DashboardData) {
 				b.className = 'activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
 			});
 			btn.className = 'activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';
-			// Apply filter via CSS class
+			// Clear CSS filter classes
 			feed.className = feed.className.replace(/\bfilter-[\w-]+/g, '').trim();
+
+			// Use server-side filtering — ensures events of a specific type
+			// are not crowded out by high-volume types (e.g. errors hidden by tools).
 			if (type !== 'all') {
-				feed.classList.add('filter-' + type.replace('_', '-'));
+				activityFilterActive = true;
+				htmx.ajax('GET', '/dashboard/activity?event_kind=' + encodeURIComponent(type), {target: '#activity-feed', swap: 'innerHTML'});
+			} else {
+				activityFilterActive = false;
+				htmx.ajax('GET', '/dashboard/activity', {target: '#activity-feed', swap: 'innerHTML'});
 			}
 		}
 
 		// Re-apply filter after SSE swaps
 		document.body.addEventListener('htmx:afterSettle', function(e) {
 			if (e.detail.target && e.detail.target.id === 'activity-feed' && currentActivityFilter !== 'all') {
-				var feed = document.getElementById('activity-feed');
-				feed.classList.add('filter-' + currentActivityFilter.replace('_', '-'));
+				// Re-fetch with filter active (SSE pushed an unfiltered update)
+				activityFilterActive = true;
 			}
 		});
 
@@ -330,39 +337,61 @@ func dashboardTokensByModelData(models []views.ModelTokens) any {
 
 // tokensByModelChartData builds Chart.js data with models grouped by provider.
 // When multiple providers exist, a spacer bar is inserted between groups
-// and bars labels include the provider prefix.
+// and provider group metadata is included for rendering group headers.
 func tokensByModelChartData(models []views.ModelTokens) any {
 	sorted := views.SortModelsByProvider(models)
 	multiProvider := hasMultipleProviders(sorted)
 
 	var labels []string
 	var inputData, outputData, cacheData []int64
+	// providerGroups maps bar index ranges to provider names for header rendering
+	var providerGroups []map[string]any
 
 	lastProvider := ""
-	for _, m := range sorted {
+	groupStart := 0
+	for i, m := range sorted {
 		p := m.Provider
 		if p == "" {
 			p = "unknown"
 		}
 		// Insert spacer between provider groups
 		if multiProvider && lastProvider != "" && p != lastProvider {
+			// Close previous provider group
+			providerGroups = append(providerGroups, map[string]any{
+				"provider": views.ProviderShort(lastProvider),
+				"start":    groupStart,
+				"end":      len(labels) - 1,
+			})
 			labels = append(labels, "")
 			inputData = append(inputData, 0)
 			outputData = append(outputData, 0)
 			cacheData = append(cacheData, 0)
+			groupStart = len(labels)
+		}
+		if lastProvider == "" || p != lastProvider {
+			if multiProvider && lastProvider == "" {
+				groupStart = 0
+			}
 		}
 		lastProvider = p
 
+		// Use short model name only (no provider prefix)
 		label := views.ShortModelName(m.Model)
-		if multiProvider && m.Provider != "" {
-			label = views.ProviderShort(m.Provider) + " · " + label
-		}
 		labels = append(labels, label)
 		inputData = append(inputData, m.Input)
 		outputData = append(outputData, m.Output)
 		cacheData = append(cacheData, m.CacheRead)
+
+		// Close last provider group
+		if multiProvider && i == len(sorted)-1 {
+			providerGroups = append(providerGroups, map[string]any{
+				"provider": views.ProviderShort(p),
+				"start":    groupStart,
+				"end":      len(labels) - 1,
+			})
+		}
 	}
-	return map[string]any{
+	result := map[string]any{
 		"labels": labels,
 		"datasets": []map[string]any{
 			{"label": "Input", "data": inputData},
@@ -370,6 +399,10 @@ func tokensByModelChartData(models []views.ModelTokens) any {
 			{"label": "Cache Read", "data": cacheData},
 		},
 	}
+	if multiProvider && len(providerGroups) > 0 {
+		result["providerGroups"] = providerGroups
+	}
+	return result
 }
 
 func hasMultipleProviders(models []views.ModelTokens) bool {

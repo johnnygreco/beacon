@@ -262,6 +262,24 @@ func attachSubagentCounts(ctx context.Context, db *sql.DB, sessions []views.Sess
 
 // QueryRecentActivityFiltered returns paginated activity items with optional time filter.
 func QueryRecentActivityFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int) ([]views.ActivityItem, bool) {
+	return QueryRecentActivityFilteredByKind(ctx, db, since, offset, limit, nil)
+}
+
+// QueryRecentActivityFilteredByKind returns paginated activity items with optional time and event kind filters.
+// When eventKinds is non-empty, only those event types are returned (enables server-side filtering
+// so that low-volume event types like errors aren't crowded out by high-volume types).
+func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int, eventKinds []string) ([]views.ActivityItem, bool) {
+	var kindFilter string
+	if len(eventKinds) > 0 {
+		quoted := make([]string, len(eventKinds))
+		for i, k := range eventKinds {
+			quoted[i] = "'" + strings.ReplaceAll(k, "'", "''") + "'"
+		}
+		kindFilter = "(" + strings.Join(quoted, ",") + ")"
+	} else {
+		kindFilter = "('message', 'tool_call', 'error', 'session_meta')"
+	}
+
 	query := `SELECT event_uid,
 		        event_kind,
 		        ` + activitySummaryExpr + ` AS summary,
@@ -269,7 +287,7 @@ func QueryRecentActivityFiltered(ctx context.Context, db *sql.DB, since *time.Ti
 		        COALESCE(provider, ''),
 		        timestamp
 		 FROM events
-		 WHERE event_kind IN ('message', 'tool_call', 'error', 'session_meta')`
+		 WHERE event_kind IN ` + kindFilter
 	var args []any
 	if since != nil {
 		query += " AND timestamp >= $1"

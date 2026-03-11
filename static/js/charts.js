@@ -112,6 +112,48 @@ function applyDefaultLog(chart, el) {
   }
 }
 
+// Plugin: draw provider group headers below the x-axis labels
+var providerGroupPlugin = {
+  id: 'providerGroupHeaders',
+  afterDraw: function(chart) {
+    var groups = chart.options.plugins.providerGroupHeaders &&
+                 chart.options.plugins.providerGroupHeaders.groups;
+    if (!groups || !groups.length) return;
+    var ctx = chart.ctx;
+    var xAxis = chart.scales.x;
+    var chartArea = chart.chartArea;
+
+    ctx.save();
+    ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+
+    groups.forEach(function(g) {
+      // Get pixel positions for the group range
+      var x0 = xAxis.getPixelForTick(g.start);
+      var x1 = xAxis.getPixelForTick(g.end);
+      var centerX = (x0 + x1) / 2;
+      var y = chartArea.bottom + 28;
+
+      // Draw provider label
+      ctx.fillStyle = g.provider === 'Codex' ? '#34d399' : '#fb923c';
+      ctx.fillText(g.provider, centerX, y);
+
+      // Draw bracket line
+      ctx.strokeStyle = g.provider === 'Codex' ? 'rgba(52,211,153,0.3)' : 'rgba(251,146,60,0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x0, y - 3);
+      ctx.lineTo(x1, y - 3);
+      ctx.stroke();
+    });
+
+    ctx.restore();
+  }
+};
+
+Chart.register(providerGroupPlugin);
+
 // Create a grouped bar chart for tokens by model
 function createTokensByModelChart(el, dataEl) {
   var modelData = JSON.parse(dataEl.textContent);
@@ -126,14 +168,21 @@ function createTokensByModelChart(el, dataEl) {
       borderWidth: 1
     };
   });
+  var hasGroups = modelData.providerGroups && modelData.providerGroups.length > 0;
+  var xOpts = Object.assign({}, categoryScaleOptions);
+  if (hasGroups) {
+    // Add bottom padding for provider group headers
+    xOpts.ticks = Object.assign({}, xOpts.ticks || {}, { padding: 8 });
+  }
   return new Chart(el, {
     type: 'bar',
     data: { labels: modelData.labels, datasets: datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      layout: hasGroups ? { padding: { bottom: 20 } } : {},
       scales: {
-        x: categoryScaleOptions,
+        x: xOpts,
         y: {
           ...yAxisOptions,
           title: { display: true, text: 'Tokens', color: '#9ca3af' }
@@ -141,7 +190,8 @@ function createTokensByModelChart(el, dataEl) {
       },
       plugins: {
         legend: { display: true, position: 'top', labels: { usePointStyle: true, boxWidth: 8 } },
-        tooltip: { callbacks: { label: tokenTooltip } }
+        tooltip: { callbacks: { label: tokenTooltip } },
+        providerGroupHeaders: { groups: modelData.providerGroups || [] }
       }
     }
   });

@@ -976,14 +976,14 @@ func providerBadge(provider string) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if provider == "openai" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "<span class=\"px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-emerald-500/15 text-emerald-400\" title=\"Codex (OpenAI)\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "<span class=\"px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-cyan-500/15 text-cyan-400\" title=\"Codex (OpenAI)\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var54 string
 			templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(views.ProviderShort(provider))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/session_card.templ`, Line: 209, Col: 177}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `components/session_card.templ`, Line: 209, Col: 171}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
 			if templ_7745c5c3_Err != nil {

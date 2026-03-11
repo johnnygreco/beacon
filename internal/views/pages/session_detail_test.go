@@ -94,19 +94,20 @@ func TestTokensByModelData(t *testing.T) {
 	if err := json.Unmarshal(parsed["labels"], &labels); err != nil {
 		t.Fatalf("unmarshal labels: %v", err)
 	}
-	// Multi-provider with spacer: ["Claude Code · sonnet", "", "Codex · gpt-4o"]
+	// Multi-provider with spacer: short model names only with provider group metadata
+	// ["sonnet", "", "gpt-4o"]
 	if len(labels) != 3 {
 		t.Fatalf("expected 3 labels (2 models + 1 spacer), got %d: %v", len(labels), labels)
 	}
 	// Anthropic has higher total (300) so it comes first
-	if labels[0] != "Claude Code · sonnet" {
-		t.Errorf("expected first label 'Claude Code · sonnet', got %q", labels[0])
+	if labels[0] != "sonnet" {
+		t.Errorf("expected first label 'sonnet', got %q", labels[0])
 	}
 	if labels[1] != "" {
 		t.Errorf("expected spacer label '', got %q", labels[1])
 	}
-	if labels[2] != "Codex · gpt-4o" {
-		t.Errorf("expected third label 'Codex · gpt-4o', got %q", labels[2])
+	if labels[2] != "gpt-4o" {
+		t.Errorf("expected third label 'gpt-4o', got %q", labels[2])
 	}
 
 	var datasets []map[string]json.RawMessage
