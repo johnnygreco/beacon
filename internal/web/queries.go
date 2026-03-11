@@ -65,6 +65,7 @@ func QueryDashboardData(ctx context.Context, db *sql.DB) views.DashboardData {
 func QueryTokensByModelSummary(ctx context.Context, db *sql.DB) []views.ModelTokens {
 	rows, err := db.QueryContext(ctx,
 		`SELECT COALESCE(model, 'unknown'),
+		        COALESCE(MAX(provider), ''),
 		        COALESCE(SUM(input_tokens), 0),
 		        COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_read_tokens), 0),
@@ -82,7 +83,7 @@ func QueryTokensByModelSummary(ctx context.Context, db *sql.DB) []views.ModelTok
 	var result []views.ModelTokens
 	for rows.Next() {
 		var m views.ModelTokens
-		if err := rows.Scan(&m.Model, &m.Input, &m.Output, &m.CacheRead, &m.Total); err != nil {
+		if err := rows.Scan(&m.Model, &m.Provider, &m.Input, &m.Output, &m.CacheRead, &m.Total); err != nil {
 			continue
 		}
 		result = append(result, m)
@@ -415,6 +416,7 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 		),
 		model_breakdown AS (
 			SELECT COALESCE(model, 'unknown') AS model,
+			       COALESCE(MAX(provider), '') AS provider,
 			       COALESCE(SUM(input_tokens), 0) AS input,
 			       COALESCE(SUM(output_tokens), 0) AS output,
 			       COALESCE(SUM(cache_read_tokens), 0) AS cache_read
@@ -422,11 +424,11 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 			WHERE model IS NOT NULL AND model != '' AND model != '<synthetic>'
 			GROUP BY model ORDER BY (input + output) DESC
 		)
-		SELECT 'token' AS kind, timestamp, total_tokens, '' AS tool_name, 0 AS calls, 0 AS avg_dur, '' AS model, 0 AS input, 0 AS output, 0 AS cache_read FROM token_series
+		SELECT 'token' AS kind, timestamp, total_tokens, '' AS tool_name, 0 AS calls, 0 AS avg_dur, '' AS model, '' AS provider, 0 AS input, 0 AS output, 0 AS cache_read FROM token_series
 		UNION ALL
-		SELECT 'tool', NULL, 0, tool_name, calls, avg_duration, '', 0, 0, 0 FROM tool_stats
+		SELECT 'tool', NULL, 0, tool_name, calls, avg_duration, '', '', 0, 0, 0 FROM tool_stats
 		UNION ALL
-		SELECT 'model', NULL, 0, '', 0, 0, model, input, output, cache_read FROM model_breakdown`, id)
+		SELECT 'model', NULL, 0, '', 0, 0, model, provider, input, output, cache_read FROM model_breakdown`, id)
 	if err != nil {
 		return data, nil // Return partial data on query error
 	}
@@ -439,9 +441,9 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 		var toolName string
 		var calls int
 		var avgDur float64
-		var model string
+		var model, provider string
 		var input, output, cacheRead float64
-		if err := rows.Scan(&kind, &ts, &totalTokens, &toolName, &calls, &avgDur, &model, &input, &output, &cacheRead); err != nil {
+		if err := rows.Scan(&kind, &ts, &totalTokens, &toolName, &calls, &avgDur, &model, &provider, &input, &output, &cacheRead); err != nil {
 			continue
 		}
 		switch kind {
@@ -455,8 +457,15 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 			stat.IsMCP = models.IsMCPTool(toolName)
 			data.ToolStats = append(data.ToolStats, stat)
 		case "model":
-			ds := views.ChartDataset{Label: model, Values: []float64{input, output, cacheRead}}
-			data.TokensByModel = append(data.TokensByModel, ds)
+			mt := views.ModelTokens{
+				Model:    model,
+				Provider: provider,
+				Input:    int64(input),
+				Output:   int64(output),
+				CacheRead: int64(cacheRead),
+				Total:    int64(input + output),
+			}
+			data.TokensByModel = append(data.TokensByModel, mt)
 		}
 	}
 	if err := rows.Err(); err != nil {

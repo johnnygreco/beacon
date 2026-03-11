@@ -284,6 +284,7 @@ type SearchResult struct {
 	EventKind string
 	Snippet   string
 	ToolName  string  // tool name for tool_call/tool_result events
+	Provider  string  // "anthropic", "openai", etc.
 	Score     float64
 	MatchType string // "bm25", "keyword"
 	Timestamp time.Time
@@ -346,6 +347,7 @@ type ToolStat struct {
 
 type ModelTokens struct {
 	Model     string
+	Provider  string // "anthropic", "openai", etc.
 	Input     int64
 	Output    int64
 	CacheRead int64
@@ -369,7 +371,7 @@ type SessionDetailData struct {
 	ChatTurns      []ChatTurn
 	TokensChart    MultiSeriesChart
 	ToolStats      []ToolStat
-	TokensByModel  []ChartDataset
+	TokensByModel  []ModelTokens
 }
 
 const (

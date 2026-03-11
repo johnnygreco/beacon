@@ -325,12 +325,17 @@ templ Dashboard(data views.DashboardData) {
 }
 
 func dashboardTokensByModelData(models []views.ModelTokens) any {
+	// Check if there are models from multiple providers
+	multiProvider := hasMultipleProviders(models)
 	labels := make([]string, len(models))
 	inputData := make([]int64, len(models))
 	outputData := make([]int64, len(models))
 	cacheData := make([]int64, len(models))
 	for i, m := range models {
 		labels[i] = views.ShortModelName(m.Model)
+		if multiProvider && m.Provider != "" {
+			labels[i] = views.ProviderShort(m.Provider) + " · " + labels[i]
+		}
 		inputData[i] = m.Input
 		outputData[i] = m.Output
 		cacheData[i] = m.CacheRead
@@ -343,4 +348,17 @@ func dashboardTokensByModelData(models []views.ModelTokens) any {
 			{"label": "Cache Read", "data": cacheData},
 		},
 	}
+}
+
+func hasMultipleProviders(models []views.ModelTokens) bool {
+	if len(models) <= 1 {
+		return false
+	}
+	first := models[0].Provider
+	for _, m := range models[1:] {
+		if m.Provider != first {
+			return true
+		}
+	}
+	return false
 }

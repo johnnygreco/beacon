@@ -182,11 +182,24 @@ func multiSeriesChartData(data views.MultiSeriesChart) any {
 	return map[string]any{"labels": data.Labels, "datasets": data.Datasets}
 }
 
-func tokensByModelData(models []views.ChartDataset) any {
+func tokensByModelData(models []views.ModelTokens) any {
 	labels := []string{"Input", "Output", "Cache Read"}
+	multiProvider := len(models) > 1 && func() bool {
+		first := models[0].Provider
+		for _, m := range models[1:] {
+			if m.Provider != first {
+				return true
+			}
+		}
+		return false
+	}()
 	datasets := make([]map[string]any, len(models))
 	for i, m := range models {
-		datasets[i] = map[string]any{"label": views.ShortModelName(m.Label), "data": m.Values}
+		label := views.ShortModelName(m.Model)
+		if multiProvider && m.Provider != "" {
+			label = views.ProviderShort(m.Provider) + " · " + label
+		}
+		datasets[i] = map[string]any{"label": label, "data": []int64{m.Input, m.Output, m.CacheRead}}
 	}
 	return map[string]any{"labels": labels, "datasets": datasets}
 }

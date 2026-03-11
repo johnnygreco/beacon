@@ -73,9 +73,9 @@ func TestMultiSeriesChartData_Empty(t *testing.T) {
 }
 
 func TestTokensByModelData(t *testing.T) {
-	models := []views.ChartDataset{
-		{Label: "claude-sonnet", Values: []float64{100, 200, 50}},
-		{Label: "gpt-4o", Values: []float64{30, 40, 10}},
+	models := []views.ModelTokens{
+		{Model: "claude-sonnet", Provider: "anthropic", Input: 100, Output: 200, CacheRead: 50},
+		{Model: "gpt-4o", Provider: "openai", Input: 30, Output: 40, CacheRead: 10},
 	}
 
 	result := tokensByModelData(models)
@@ -101,7 +101,7 @@ func TestTokensByModelData(t *testing.T) {
 		t.Errorf("unexpected labels: %v", labels)
 	}
 
-	// Should have datasets with lowercase keys
+	// Should have datasets with provider prefix (multi-provider)
 	var datasets []map[string]json.RawMessage
 	if err := json.Unmarshal(parsed["datasets"], &datasets); err != nil {
 		t.Fatalf("unmarshal datasets: %v", err)
@@ -114,5 +114,11 @@ func TestTokensByModelData(t *testing.T) {
 	}
 	if _, ok := datasets[0]["data"]; !ok {
 		t.Error("expected 'data' key in dataset")
+	}
+	// Verify provider prefix in labels
+	var label0 string
+	json.Unmarshal(datasets[0]["label"], &label0)
+	if label0 != "Claude Code · sonnet" {
+		t.Errorf("expected 'Claude Code · sonnet', got %q", label0)
 	}
 }

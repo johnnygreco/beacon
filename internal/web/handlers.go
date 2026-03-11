@@ -147,6 +147,7 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 			EventKind: sr.EventKind,
 			Snippet:   snippet,
 			ToolName:  sr.ToolName,
+			Provider:  sr.Provider,
 			Score:     sr.Score,
 			Timestamp: sr.Timestamp,
 		})
