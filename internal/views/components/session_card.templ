@@ -208,6 +208,7 @@ script goToSession(url string) {
 templ CompletedSessionRow(s views.SessionSummary) {
 	<tr onclick={ goToSession(fmt.Sprintf("/sessions/%s", s.ID)) }
 		class="border-b border-gray-800/50 cursor-pointer transition-colors"
+		id={ "session-row-" + s.ID }
 		data-sort-name={ views.SessionTitle(s, false) }
 		data-sort-id={ s.ID }
 		data-sort-model={ s.ActiveModel }
@@ -216,13 +217,26 @@ templ CompletedSessionRow(s views.SessionSummary) {
 		data-sort-tools={ fmt.Sprintf("%d", s.ToolCallCount) }
 		data-sort-duration={ fmt.Sprintf("%d", s.DurationSeconds()) }
 		data-sort-project={ s.WorkingDir }
-		data-sort-status={ s.Status }
 		data-sort-ended={ fmt.Sprintf("%d", s.EndedAt.Unix()) }>
 		<td class="py-2 px-3 text-sm text-gray-300 whitespace-nowrap">
-			if s.IsSubagent() {
-				<span class="text-blue-400/70 text-xs mr-1">sub</span>
-			}
-			{ views.SessionTitle(s, false) }
+			<span class="inline-flex items-center gap-1.5">
+				if s.SubagentCount > 0 {
+					<button
+						type="button"
+						class="subagent-toggle text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0"
+						onclick={ toggleSubagents(s.ID) }
+						title={ fmt.Sprintf("%d subagents", s.SubagentCount) }
+					>
+						<svg class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
+						</svg>
+					</button>
+				}
+				<span>{ views.SessionTitle(s, false) }</span>
+				if s.SubagentCount > 0 {
+					<span class="text-[10px] text-blue-400/60 font-normal">{ fmt.Sprintf("+%d sub", s.SubagentCount) }</span>
+				}
+			</span>
 		</td>
 		<td class="py-2 px-3 font-mono text-xs text-gray-500">{ views.TruncateID(s.ID) }</td>
 		<td class="py-2 px-3 text-xs text-gray-400">
@@ -235,18 +249,59 @@ templ CompletedSessionRow(s views.SessionSummary) {
 		<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums">{ fmt.Sprintf("%d", s.ToolCallCount) }</td>
 		<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums whitespace-nowrap">{ s.Duration }</td>
 		<td class="py-2 px-3 text-xs text-gray-500 max-w-[180px] truncate" title={ s.WorkingDir }>{ s.WorkingDir }</td>
-		<td class="py-2 px-3 text-center">
-			<span class="inline-flex items-center gap-1.5">
-				if s.HasSessionEnd {
-					<span class="w-1.5 h-1.5 rounded-full bg-green-500/60"></span>
-					<span class="text-xs text-gray-400">done</span>
-				} else {
-					<span class="w-1.5 h-1.5 rounded-full bg-gray-500/60"></span>
-					<span class="text-xs text-gray-500">done</span>
+		<td class="py-2 px-3 text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">{ views.RelativeTime(s.EndedAt) }</td>
+	</tr>
+}
+
+script toggleSubagents(sessionID string) {
+	event.stopPropagation();
+	var parentRow = document.getElementById('session-row-' + sessionID);
+	if (!parentRow) return;
+	var btn = parentRow.querySelector('.subagent-toggle');
+	var existing = parentRow.parentNode.querySelectorAll('tr[data-parent="' + sessionID + '"]');
+	if (existing.length > 0) {
+		// Toggle visibility
+		var hidden = existing[0].classList.contains('hidden');
+		existing.forEach(function(row) {
+			row.classList.toggle('hidden');
+		});
+		btn.querySelector('svg').style.transform = hidden ? 'rotate(90deg)' : '';
+	} else {
+		// Fetch subagent rows
+		btn.querySelector('svg').style.transform = 'rotate(90deg)';
+		fetch('/dashboard/sessions/' + sessionID + '/subagents')
+			.then(function(res) { return res.text(); })
+			.then(function(html) {
+				if (html.trim()) {
+					parentRow.insertAdjacentHTML('afterend', html);
 				}
+			});
+	}
+}
+
+templ CompletedSubagentRow(s views.SessionSummary, parentID string) {
+	<tr data-parent={ parentID }
+		onclick={ goToSession(fmt.Sprintf("/sessions/%s", s.ID)) }
+		class="border-b border-gray-800/50 cursor-pointer transition-colors bg-gray-800/20">
+		<td class="py-1.5 px-3 text-sm text-gray-400 whitespace-nowrap pl-10">
+			<span class="inline-flex items-center gap-1.5">
+				<span class="w-1.5 h-1.5 rounded-full bg-blue-400/50 flex-shrink-0"></span>
+				<span class="text-blue-400/70 text-xs">sub</span>
+				<span>{ views.SessionTitle(s, false) }</span>
 			</span>
 		</td>
-		<td class="py-2 px-3 text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">{ views.RelativeTime(s.EndedAt) }</td>
+		<td class="py-1.5 px-3 font-mono text-xs text-gray-600">{ views.TruncateID(s.ID) }</td>
+		<td class="py-1.5 px-3 text-xs text-gray-500">
+			if s.ActiveModel != "" {
+				{ views.ShortModelName(s.ActiveModel) }
+			}
+		</td>
+		<td class="py-1.5 px-3 text-right text-xs text-gray-500 tabular-nums">{ views.FormatTokens(s.TotalTokens) }</td>
+		<td class="py-1.5 px-3 text-right text-xs text-gray-500 tabular-nums">{ fmt.Sprintf("%d", s.TurnCount) }</td>
+		<td class="py-1.5 px-3 text-right text-xs text-gray-500 tabular-nums">{ fmt.Sprintf("%d", s.ToolCallCount) }</td>
+		<td class="py-1.5 px-3 text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">{ s.Duration }</td>
+		<td class="py-1.5 px-3 text-xs text-gray-600 max-w-[180px] truncate" title={ s.WorkingDir }>{ s.WorkingDir }</td>
+		<td class="py-1.5 px-3 text-right text-xs text-gray-600 tabular-nums whitespace-nowrap">{ views.RelativeTime(s.EndedAt) }</td>
 	</tr>
 }
 

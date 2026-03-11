@@ -19,6 +19,7 @@ const (
 	defaultSessionPageSize  = 30
 	defaultActivityPageSize = 30
 	defaultSearchPageSize   = 30
+	activityTimelineLimit   = 500 // max activity items for 24h window
 )
 
 // parseRange converts a range string ("1h", "24h", "7d", "30d") to a *time.Time cutoff.
@@ -173,18 +174,21 @@ const activitySummaryExpr = `CASE
 		            ELSE event_kind
 		        END`
 
-// QueryRecentActivity returns a feed of recent events, filtered to meaningful entries.
+// QueryRecentActivity returns a feed of recent events within the last 24 hours.
 func QueryRecentActivity(ctx context.Context, db *sql.DB) ([]views.ActivityItem, bool) {
-	return QueryRecentActivityFiltered(ctx, db, nil, 0, defaultActivityPageSize)
+	since := time.Now().Add(-24 * time.Hour)
+	return QueryRecentActivityFiltered(ctx, db, &since, 0, activityTimelineLimit)
 }
 
 // QueryCompletedSessions returns paginated completed sessions with optional time filter.
+// Only returns parent sessions (excludes subagents); subagent counts are attached.
 func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int) ([]views.SessionSummary, bool) {
 	cutoff := time.Now().Add(-idleThreshold)
 	query := `SELECT ` + sessionSummaryColumns + `
 		 FROM v_session_summary
-		 WHERE ended_at < $1
-		    OR COALESCE(has_session_end, 0) = 1`
+		 WHERE (ended_at < $1
+		    OR COALESCE(has_session_end, 0) = 1)
+		   AND (parent_session_id = '' OR parent_session_id IS NULL)`
 	args := []any{cutoff}
 	if since != nil {
 		query += " AND ended_at >= $2"
@@ -215,7 +219,37 @@ func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, o
 	if hasMore {
 		sessions = sessions[:limit]
 	}
+	attachSubagentCounts(ctx, db, sessions)
 	return sessions, hasMore
+}
+
+// attachSubagentCounts queries subagent counts and attaches them to parent sessions.
+func attachSubagentCounts(ctx context.Context, db *sql.DB, sessions []views.SessionSummary) {
+	if len(sessions) == 0 {
+		return
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT parent_session_id, COUNT(*)
+		 FROM v_session_summary
+		 WHERE parent_session_id != '' AND parent_session_id IS NOT NULL
+		 GROUP BY parent_session_id`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var parentID string
+		var count int
+		if err := rows.Scan(&parentID, &count); err != nil {
+			continue
+		}
+		counts[parentID] = count
+	}
+	for i := range sessions {
+		sessions[i].SubagentCount = counts[sessions[i].ID]
+	}
 }
 
 // QueryRecentActivityFiltered returns paginated activity items with optional time filter.

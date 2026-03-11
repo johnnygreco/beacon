@@ -7,26 +7,63 @@ import (
 	"github.com/johnnygreco/beacon/internal/views/components"
 )
 
-templ CompletedSessionListWithMore(sessions []views.SessionSummary, hasMore bool, rangeVal string, nextOffset int) {
+templ CompletedSessionListPaginated(sessions []views.SessionSummary, hasMore bool, rangeVal string, currentOffset int, pageSize int) {
 	for _, s := range sessions {
 		@components.CompletedSessionRow(s)
 	}
-	if hasMore {
-		<tr hx-get={ fmt.Sprintf("/dashboard/sessions?range=%s&offset=%d", url.QueryEscape(rangeVal), nextOffset) }
-		     hx-trigger="revealed"
-		     hx-swap="outerHTML"
-		     hx-on::before-request="this.closest('[id]').removeAttribute('sse-swap')"
-		     class="text-center">
-			<td colspan="10" class="py-3">
-				<span class="text-xs text-gray-500">Loading more...</span>
+	if len(sessions) > 0 || currentOffset > 0 {
+		<tr class="border-none">
+			<td colspan="9" class="py-3">
+				<div class="flex items-center justify-center gap-4">
+					if currentOffset > 0 {
+						<button
+							type="button"
+							class="px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+							hx-get={ fmt.Sprintf("/dashboard/sessions?range=%s&offset=%d", url.QueryEscape(rangeVal), maxInt(0, currentOffset-pageSize)) }
+							hx-target="#completed-sessions"
+							hx-swap="innerHTML"
+							onclick="activateSessionsPagination()"
+						>
+							&larr; Previous
+						</button>
+					}
+					<span class="text-xs text-gray-500 tabular-nums">
+						Page { fmt.Sprintf("%d", currentOffset/pageSize+1) }
+					</span>
+					if hasMore {
+						<button
+							type="button"
+							class="px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+							hx-get={ fmt.Sprintf("/dashboard/sessions?range=%s&offset=%d", url.QueryEscape(rangeVal), currentOffset+pageSize) }
+							hx-target="#completed-sessions"
+							hx-swap="innerHTML"
+							onclick="activateSessionsPagination()"
+						>
+							Next &rarr;
+						</button>
+					}
+				</div>
 			</td>
 		</tr>
 	}
-	if len(sessions) == 0 && !hasMore {
+	if len(sessions) == 0 && currentOffset == 0 {
 		<tr>
-			<td colspan="10" class="text-center py-4">
+			<td colspan="9" class="text-center py-4">
 				<span class="text-sm text-gray-500">No completed sessions</span>
 			</td>
 		</tr>
 	}
+}
+
+templ CompletedSubagentRows(sessions []views.SessionSummary, parentID string) {
+	for _, s := range sessions {
+		@components.CompletedSubagentRow(s, parentID)
+	}
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

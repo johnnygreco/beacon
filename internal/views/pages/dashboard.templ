@@ -88,16 +88,13 @@ templ Dashboard(data views.DashboardData) {
 										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="project" onclick="sortCompletedTable(this, 'project')">
 											Project <span class="sort-arrow">▼</span>
 										</th>
-										<th class="text-center py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="status" onclick="sortCompletedTable(this, 'status')">
-											Status <span class="sort-arrow">▼</span>
-										</th>
 										<th class="text-right py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="ended" onclick="sortCompletedTable(this, 'ended')">
 											Ended <span class="sort-arrow active">▼</span>
 										</th>
 									</tr>
 								</thead>
 								<tbody id="completed-sessions" sse-swap="completed-sessions-update" hx-swap="innerHTML">
-									@partials.CompletedSessionListWithMore(data.CompletedSessions, data.HasMoreSessions, "", len(data.CompletedSessions))
+									@partials.CompletedSessionListPaginated(data.CompletedSessions, data.HasMoreSessions, "", 0, 30)
 								</tbody>
 							</table>
 						</div>
@@ -123,7 +120,7 @@ templ Dashboard(data views.DashboardData) {
 				</div>
 				<div id="activity-feed" sse-swap="activity-update" hx-swap="innerHTML"
 				     class="overflow-y-auto flex-1 min-h-0">
-					@partials.ActivityTimelineFull(data.RecentActivity, data.HasMoreActivity, "", len(data.RecentActivity))
+					@partials.ActivityTimelineFull(data.RecentActivity)
 				</div>
 			</aside>
 
@@ -150,6 +147,11 @@ templ Dashboard(data views.DashboardData) {
 				reopenBtn.classList.add('hidden');
 				localStorage.setItem('beacon-timeline-open', 'true');
 			}
+			// Resize charts after sidebar CSS transition completes
+			setTimeout(function() {
+				if (window.dashboardTotalTokensChart) window.dashboardTotalTokensChart.resize();
+				if (window.dashboardTokensByModelChart) window.dashboardTokensByModelChart.resize();
+			}, 300);
 		}
 
 		// Restore sidebar state
@@ -209,16 +211,47 @@ templ Dashboard(data views.DashboardData) {
 			}
 		});
 
+		// --- Pagination SSE guard ---
+		// When user paginates or filters by range, prevent SSE from overwriting the content.
+		var sessionsPaginationActive = false;
+		var activityFilterActive = false;
+		(function() {
+			var wrap = document.getElementById('dashboard-wrap');
+			if (wrap) {
+				wrap.addEventListener('htmx:sseBeforeMessage', function(evt) {
+					var type = evt.detail && evt.detail.type;
+					if (sessionsPaginationActive && type === 'completed-sessions-update') {
+						evt.preventDefault();
+						return;
+					}
+					if (activityFilterActive && type === 'activity-update') {
+						evt.preventDefault();
+						return;
+					}
+				});
+			}
+		})();
+
+		function activateSessionsPagination() {
+			sessionsPaginationActive = true;
+		}
+
 		// --- Dashboard time range filter ---
 		function setDashboardRange(btn, value) {
 			btn.closest('.flex').querySelectorAll('.dash-range-btn').forEach(function(b) {
 				b.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
 			});
 			btn.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';
-			document.getElementById('completed-sessions').removeAttribute('sse-swap');
-			document.getElementById('activity-feed').removeAttribute('sse-swap');
+			// Guard SSE updates while filtered
+			sessionsPaginationActive = true;
+			activityFilterActive = true;
 			htmx.ajax('GET', '/dashboard/sessions?range=' + encodeURIComponent(value), {target: '#completed-sessions', swap: 'innerHTML'});
 			htmx.ajax('GET', '/dashboard/activity?range=' + encodeURIComponent(value), {target: '#activity-feed', swap: 'innerHTML'});
+			// Re-enable SSE for "All" (no filter)
+			if (!value) {
+				sessionsPaginationActive = false;
+				activityFilterActive = false;
+			}
 		}
 
 		// --- Table sorting ---
@@ -230,7 +263,7 @@ templ Dashboard(data views.DashboardData) {
 			} else {
 				sortColumn = column;
 				// Default ascending for text, descending for numbers
-				sortAsc = ['name', 'id', 'model', 'project', 'status'].indexOf(column) >= 0;
+				sortAsc = ['name', 'id', 'model', 'project'].indexOf(column) >= 0;
 			}
 			var tbody = document.getElementById('completed-sessions');
 			var rows = Array.from(tbody.querySelectorAll('tr[data-sort-ended]'));
@@ -248,12 +281,29 @@ templ Dashboard(data views.DashboardData) {
 				return sortAsc ? cmp : -cmp;
 			});
 
-			// Find the sentinel (load-more) row if it exists — it has no data-sort-ended
-			var sentinel = tbody.querySelector('tr:not([data-sort-ended])');
-			// Re-insert sorted data rows before the sentinel, or just append
+			// Find the pagination row if it exists — it has no data-sort-ended
+			var paginationRow = tbody.querySelector('tr:not([data-sort-ended])');
+			// Also temporarily remove subagent rows, then re-insert after their parent
+			var subagentRows = Array.from(tbody.querySelectorAll('tr[data-parent]'));
+			var subagentsByParent = {};
+			subagentRows.forEach(function(row) {
+				var pid = row.getAttribute('data-parent');
+				if (!subagentsByParent[pid]) subagentsByParent[pid] = [];
+				subagentsByParent[pid].push(row);
+				row.remove();
+			});
+			// Re-insert sorted parent rows before the pagination row, or just append
 			rows.forEach(function(row) {
-				if (sentinel) { tbody.insertBefore(row, sentinel); }
+				if (paginationRow) { tbody.insertBefore(row, paginationRow); }
 				else { tbody.appendChild(row); }
+				// Re-insert subagent rows after their parent
+				var parentID = row.id.replace('session-row-', '');
+				if (subagentsByParent[parentID]) {
+					subagentsByParent[parentID].forEach(function(subRow) {
+						row.after(subRow);
+						row = subRow; // chain after each other
+					});
+				}
 			});
 
 			// Update sort indicators
