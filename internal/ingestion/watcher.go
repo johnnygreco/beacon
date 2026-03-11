@@ -293,6 +293,11 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 		offset += lineLen
 	}
 
+	// Propagate model from context events to events without a model.
+	// Codex puts the model on turn_context events but not on token_count
+	// or tool events, so we forward-fill the model within the file.
+	PropagateModel(allEvents)
+
 	// Deduplicate tokens across JSONL lines from the same API call
 	// before sending to the batcher.
 	allEvents = DeduplicateTokens(allEvents)

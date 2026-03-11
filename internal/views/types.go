@@ -181,18 +181,15 @@ func ProviderLabel(provider string) string {
 	}
 }
 
-// ProviderShort returns a very short provider label for badges.
+// ProviderShort returns a short provider label for badges.
 func ProviderShort(provider string) string {
 	switch provider {
 	case "anthropic":
-		return "CC"
+		return "Claude Code"
 	case "openai":
-		return "CX"
+		return "Codex"
 	default:
-		if len(provider) > 2 {
-			return strings.ToUpper(provider[:2])
-		}
-		return strings.ToUpper(provider)
+		return provider
 	}
 }
 
@@ -297,6 +294,7 @@ type ActivityItem struct {
 	Type      string // event_kind: "message", "tool_call", "tool_result", "error"
 	Summary   string
 	SessionID string
+	Provider  string // "anthropic", "openai", etc.
 	Timestamp time.Time
 }
 

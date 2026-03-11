@@ -60,6 +60,10 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		evt := base
 		evt.EventKind = "turn_context"
 		evt.ActorRole = "system"
+		// Extract model from turn_context payload (Codex puts it here)
+		if m := jsonStr(payload, "model"); m != "" {
+			evt.Model = m
+		}
 		events = append(events, evt)
 
 	case "response_item":
@@ -117,6 +121,41 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.TextContent = jsonStr(payload, "output")
 			events = append(events, evt)
 
+		case "function_call_output_summary":
+			// Codex sometimes emits a summary of tool output — treat as tool_result
+			evt := base
+			evt.EventKind = "tool_result"
+			evt.ActorRole = "tool"
+			evt.ToolName = jsonStr(payload, "name")
+			evt.ToolPhase = "result"
+			evt.ToolOutput = jsonStr(payload, "output")
+			evt.ToolUseID = jsonStr(payload, "call_id")
+			evt.TextContent = jsonStr(payload, "output")
+			events = append(events, evt)
+
+		case "custom_tool_call":
+			// Codex built-in tools (apply_patch, etc.)
+			evt := base
+			evt.EventKind = "tool_call"
+			evt.ActorRole = "assistant"
+			evt.ToolName = jsonStr(payload, "name")
+			evt.ToolPhase = "call"
+			evt.ToolInput = jsonStr(payload, "input")
+			evt.ToolUseID = jsonStr(payload, "call_id")
+			evt.TextContent = evt.ToolName
+			events = append(events, evt)
+
+		case "custom_tool_call_output":
+			// Codex built-in tool results
+			evt := base
+			evt.EventKind = "tool_result"
+			evt.ActorRole = "tool"
+			evt.ToolPhase = "result"
+			evt.ToolOutput = jsonStr(payload, "output")
+			evt.ToolUseID = jsonStr(payload, "call_id")
+			evt.TextContent = jsonStr(payload, "output")
+			events = append(events, evt)
+
 		case "reasoning":
 			evt := base
 			evt.EventKind = "reasoning"
@@ -147,6 +186,37 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ActorRole = "system"
 			evt.PayloadType = "task_complete"
 			events = append(events, evt)
+
+		case "agent_message":
+			// Codex status/commentary messages from the agent
+			evt := base
+			evt.EventKind = "message"
+			evt.ActorRole = "assistant"
+			evt.TextContent = jsonStr(payload, "message")
+			events = append(events, evt)
+
+		case "token_count":
+			// Token usage event — store as event_msg but ensure tokens are captured
+			evt := base
+			evt.EventKind = "event_msg"
+			evt.PayloadType = payloadType
+			events = append(events, evt)
+
+		case "task_started":
+			evt := base
+			evt.EventKind = "session_meta"
+			evt.ActorRole = "system"
+			evt.TextContent = "Task started"
+			events = append(events, evt)
+
+		case "user_message":
+			// User message echoed back by Codex
+			evt := base
+			evt.EventKind = "message"
+			evt.ActorRole = "user"
+			evt.TextContent = jsonStr(payload, "message")
+			events = append(events, evt)
+
 		default:
 			evt := base
 			evt.EventKind = "event_msg"

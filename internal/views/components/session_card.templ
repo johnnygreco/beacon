@@ -223,7 +223,7 @@ templ CompletedSessionRow(s views.SessionSummary) {
 		class="border-b border-gray-800/50 cursor-pointer transition-colors"
 		id={ "session-row-" + s.ID }
 		data-sort-name={ views.SessionTitle(s, false) }
-		data-sort-id={ s.ID }
+		data-sort-provider={ views.ProviderShort(s.Provider) }
 		data-sort-model={ s.ActiveModel }
 		data-sort-tokens={ fmt.Sprintf("%d", s.TotalTokens) }
 		data-sort-turns={ fmt.Sprintf("%d", s.TurnCount) }
@@ -245,14 +245,15 @@ templ CompletedSessionRow(s views.SessionSummary) {
 						</svg>
 					</button>
 				}
-				@providerBadge(s.Provider)
 				<span>{ views.SessionTitle(s, false) }</span>
 				if s.SubagentCount > 0 {
 					<span class="text-[10px] text-blue-400/60 font-normal">{ fmt.Sprintf("+%d sub", s.SubagentCount) }</span>
 				}
 			</span>
 		</td>
-		<td class="py-2 px-3 font-mono text-xs text-gray-500">{ views.TruncateID(s.ID) }</td>
+		<td class="py-2 px-3 text-xs whitespace-nowrap">
+			@providerBadge(s.Provider)
+		</td>
 		<td class="py-2 px-3 text-xs text-gray-400">
 			if s.ActiveModel != "" {
 				{ views.ShortModelName(s.ActiveModel) }
@@ -307,7 +308,7 @@ templ CompletedSubagentRow(s views.SessionSummary, parentID string) {
 				<span>{ views.SessionTitle(s, false) }</span>
 			</span>
 		</td>
-		<td class="py-1.5 px-3 font-mono text-xs text-gray-600">{ views.TruncateID(s.ID) }</td>
+		<td class="py-1.5 px-3 text-xs text-gray-600"></td>
 		<td class="py-1.5 px-3 text-xs text-gray-500">
 			if s.ActiveModel != "" {
 				{ views.ShortModelName(s.ActiveModel) }

@@ -265,6 +265,7 @@ func QueryRecentActivityFiltered(ctx context.Context, db *sql.DB, since *time.Ti
 		        event_kind,
 		        ` + activitySummaryExpr + ` AS summary,
 		        COALESCE(session_id, ''),
+		        COALESCE(provider, ''),
 		        timestamp
 		 FROM events
 		 WHERE event_kind IN ('message', 'tool_call', 'error', 'session_meta')`
@@ -285,7 +286,7 @@ func QueryRecentActivityFiltered(ctx context.Context, db *sql.DB, since *time.Ti
 	var items []views.ActivityItem
 	for rows.Next() {
 		var item views.ActivityItem
-		if err := rows.Scan(&item.ID, &item.Type, &item.Summary, &item.SessionID, &item.Timestamp); err != nil {
+		if err := rows.Scan(&item.ID, &item.Type, &item.Summary, &item.SessionID, &item.Provider, &item.Timestamp); err != nil {
 			continue
 		}
 		item.Summary = shortenActivitySummary(item.Summary)

@@ -107,6 +107,38 @@ func DeduplicateTokens(events []NormalizedEvent) []NormalizedEvent {
 	return events
 }
 
+// PropagateModel forward-fills model names across events within a session.
+// Some providers (e.g. Codex) only set the model on context events
+// (turn_context, session_meta) while token and tool events have no model.
+// This function propagates the model forward so that tokens-by-model
+// queries can correctly attribute tokens to the right model.
+func PropagateModel(events []NormalizedEvent) {
+	// Group events by session and propagate model forward within each session.
+	type sessionState struct {
+		model string
+	}
+	sessions := make(map[string]*sessionState)
+
+	for i := range events {
+		sid := events[i].SessionID
+		state, ok := sessions[sid]
+		if !ok {
+			state = &sessionState{}
+			sessions[sid] = state
+		}
+
+		// If this event has a model, use it as the current model for the session.
+		if events[i].Model != "" {
+			state.model = events[i].Model
+		}
+
+		// If this event has no model but we know one, propagate it.
+		if events[i].Model == "" && state.model != "" {
+			events[i].Model = state.model
+		}
+	}
+}
+
 func zeroTokens(evt *NormalizedEvent) {
 	evt.InputTokens = 0
 	evt.OutputTokens = 0
