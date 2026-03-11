@@ -145,7 +145,7 @@ func dashboardTokensByModelData(models []views.ModelTokens) any {
 	outputData := make([]int64, len(models))
 	cacheData := make([]int64, len(models))
 	for i, m := range models {
-		labels[i] = m.Model
+		labels[i] = views.ShortModelName(m.Model)
 		inputData[i] = m.Input
 		outputData[i] = m.Output
 		cacheData[i] = m.CacheRead

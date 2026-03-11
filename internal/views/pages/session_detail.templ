@@ -186,7 +186,7 @@ func tokensByModelData(models []views.ChartDataset) any {
 	labels := []string{"Input", "Output", "Cache Read"}
 	datasets := make([]map[string]any, len(models))
 	for i, m := range models {
-		datasets[i] = map[string]any{"label": m.Label, "data": m.Values}
+		datasets[i] = map[string]any{"label": views.ShortModelName(m.Label), "data": m.Values}
 	}
 	return map[string]any{"labels": labels, "datasets": datasets}
 }

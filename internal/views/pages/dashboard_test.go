@@ -8,8 +8,8 @@ import (
 
 func TestDashboardTokensByModelData(t *testing.T) {
 	models := []views.ModelTokens{
-		{Model: "claude-3", Input: 100, Output: 200, CacheRead: 300, Total: 600},
-		{Model: "claude-4", Input: 400, Output: 500, CacheRead: 600, Total: 1500},
+		{Model: "claude-opus-4-6", Input: 100, Output: 200, CacheRead: 300, Total: 600},
+		{Model: "gpt-5.4", Input: 400, Output: 500, CacheRead: 600, Total: 1500},
 	}
 
 	result := dashboardTokensByModelData(models)
@@ -22,7 +22,8 @@ func TestDashboardTokensByModelData(t *testing.T) {
 	if !ok || len(labels) != 2 {
 		t.Fatal("expected 2 labels")
 	}
-	if labels[0] != "claude-3" || labels[1] != "claude-4" {
+	// ShortModelName strips "claude-" prefix and date suffixes
+	if labels[0] != "opus-4-6" || labels[1] != "gpt-5.4" {
 		t.Errorf("unexpected labels: %v", labels)
 	}
 
