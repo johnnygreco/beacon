@@ -91,6 +91,9 @@ templ Dashboard(data views.DashboardData) {
 										<th class="text-right py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="ended" onclick="sortCompletedTable(this, 'ended')">
 											Ended <span class="sort-arrow active">▼</span>
 										</th>
+									<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="id" onclick="sortCompletedTable(this, 'id')">
+										Session ID <span class="sort-arrow">▼</span>
+									</th>
 									</tr>
 								</thead>
 								<tbody id="completed-sessions" sse-swap="completed-sessions-update" hx-swap="innerHTML">
@@ -263,7 +266,7 @@ templ Dashboard(data views.DashboardData) {
 			} else {
 				sortColumn = column;
 				// Default ascending for text, descending for numbers
-				sortAsc = ['name', 'provider', 'model', 'project'].indexOf(column) >= 0;
+				sortAsc = ['name', 'provider', 'model', 'project', 'id'].indexOf(column) >= 0;
 			}
 			var tbody = document.getElementById('completed-sessions');
 			var rows = Array.from(tbody.querySelectorAll('tr[data-sort-ended]'));

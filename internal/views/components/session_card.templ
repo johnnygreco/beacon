@@ -230,7 +230,8 @@ templ CompletedSessionRow(s views.SessionSummary) {
 		data-sort-tools={ fmt.Sprintf("%d", s.ToolCallCount) }
 		data-sort-duration={ fmt.Sprintf("%d", s.DurationSeconds()) }
 		data-sort-project={ s.WorkingDir }
-		data-sort-ended={ fmt.Sprintf("%d", s.EndedAt.Unix()) }>
+		data-sort-ended={ fmt.Sprintf("%d", s.EndedAt.Unix()) }
+		data-sort-id={ s.ID }>
 		<td class="py-2 px-3 text-sm text-gray-300 whitespace-nowrap">
 			<span class="inline-flex items-center gap-1.5">
 				if s.SubagentCount > 0 {
@@ -265,6 +266,7 @@ templ CompletedSessionRow(s views.SessionSummary) {
 		<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums whitespace-nowrap">{ s.Duration }</td>
 		<td class="py-2 px-3 text-xs text-gray-500 max-w-[180px] truncate" title={ s.WorkingDir }>{ s.WorkingDir }</td>
 		<td class="py-2 px-3 text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">{ views.RelativeTime(s.EndedAt) }</td>
+		<td class="py-2 px-3 text-xs text-gray-600 font-mono whitespace-nowrap">{ views.TruncateSessionID(s.ID) }</td>
 	</tr>
 }
 
@@ -320,6 +322,7 @@ templ CompletedSubagentRow(s views.SessionSummary, parentID string) {
 		<td class="py-1.5 px-3 text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">{ s.Duration }</td>
 		<td class="py-1.5 px-3 text-xs text-gray-600 max-w-[180px] truncate" title={ s.WorkingDir }>{ s.WorkingDir }</td>
 		<td class="py-1.5 px-3 text-right text-xs text-gray-600 tabular-nums whitespace-nowrap">{ views.RelativeTime(s.EndedAt) }</td>
+		<td class="py-1.5 px-3 text-xs text-gray-700 font-mono whitespace-nowrap">{ views.TruncateSessionID(s.ID) }</td>
 	</tr>
 }
 
