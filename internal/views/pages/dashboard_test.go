@@ -22,20 +22,17 @@ func TestDashboardTokensByModelData(t *testing.T) {
 	if !ok {
 		t.Fatal("expected []string labels")
 	}
-	// Multi-provider: short model names only (no provider prefix) with spacer between groups.
+	// Multi-provider: short model names only (no provider prefix), no spacer.
 	// OpenAI has higher total (1500) so it comes first.
-	// Expected: ["gpt-5.4", "", "opus-4-6"] with providerGroups metadata.
-	if len(labels) != 3 {
-		t.Fatalf("expected 3 labels (2 models + 1 spacer), got %d: %v", len(labels), labels)
+	// Expected: ["gpt-5.4", "opus-4-6"] with providerGroups metadata.
+	if len(labels) != 2 {
+		t.Fatalf("expected 2 labels, got %d: %v", len(labels), labels)
 	}
 	if labels[0] != "gpt-5.4" {
 		t.Errorf("expected first label 'gpt-5.4', got %q", labels[0])
 	}
-	if labels[1] != "" {
-		t.Errorf("expected spacer label '', got %q", labels[1])
-	}
-	if labels[2] != "opus-4-6" {
-		t.Errorf("expected third label 'opus-4-6', got %q", labels[2])
+	if labels[1] != "opus-4-6" {
+		t.Errorf("expected second label 'opus-4-6', got %q", labels[1])
 	}
 	// Verify provider groups metadata
 	groups, ok := m["providerGroups"].([]map[string]any)

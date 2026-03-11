@@ -90,7 +90,7 @@ func Dashboard(data views.DashboardData) templ.Component {
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", len(data.ActiveSessions)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `pages/dashboard.templ`, Line: 42, Col: 102}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 42, Col: 102}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 				if templ_7745c5c3_Err != nil {
@@ -162,28 +162,17 @@ func tokensByModelChartData(models []views.ModelTokens) any {
 		if p == "" {
 			p = "unknown"
 		}
-		// Insert spacer between provider groups
+		// Track provider group boundaries (no spacer bar)
 		if multiProvider && lastProvider != "" && p != lastProvider {
-			// Close previous provider group
 			providerGroups = append(providerGroups, map[string]any{
 				"provider": views.ProviderShort(lastProvider),
 				"start":    groupStart,
 				"end":      len(labels) - 1,
 			})
-			labels = append(labels, "")
-			inputData = append(inputData, 0)
-			outputData = append(outputData, 0)
-			cacheData = append(cacheData, 0)
 			groupStart = len(labels)
-		}
-		if lastProvider == "" || p != lastProvider {
-			if multiProvider && lastProvider == "" {
-				groupStart = 0
-			}
 		}
 		lastProvider = p
 
-		// Use short model name only (no provider prefix)
 		label := views.ShortModelName(m.Model)
 		labels = append(labels, label)
 		inputData = append(inputData, m.Input)

@@ -133,7 +133,7 @@ var providerGroupPlugin = {
       var x0 = xAxis.getPixelForTick(g.start);
       var x1 = xAxis.getPixelForTick(g.end);
       var centerX = (x0 + x1) / 2;
-      var y = chartArea.bottom + 28;
+      var y = chartArea.bottom + 38;
 
       // Draw provider label
       ctx.fillStyle = g.provider === 'Codex' ? '#34d399' : '#fb923c';
@@ -180,7 +180,7 @@ function createTokensByModelChart(el, dataEl) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      layout: hasGroups ? { padding: { bottom: 20 } } : {},
+      layout: hasGroups ? { padding: { bottom: 30 } } : {},
       scales: {
         x: xOpts,
         y: {
