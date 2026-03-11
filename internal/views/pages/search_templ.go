@@ -46,7 +46,7 @@ func Search(results []views.SearchResult) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"space-y-6\"><h1 class=\"text-2xl font-bold text-gray-100\">Search Conversations</h1><!-- Search Input --><div><input type=\"text\" name=\"q\" autocomplete=\"off\" placeholder=\"Search prompts, responses, and tool outputs...\" class=\"w-full bg-gray-800 text-gray-100 rounded-lg px-4 py-3 border border-gray-700 focus:border-blue-500 focus:outline-none text-lg placeholder-gray-500\" hx-get=\"/search/results\" hx-trigger=\"input changed delay:300ms\" hx-target=\"#search-results\" hx-include=\"#search-filters\"></div><!-- Filters --><div id=\"search-filters\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<!-- Full-height flex layout: fixed header + scrollable results --> <div class=\"flex flex-col -m-6 h-[calc(100vh)]\"><!-- Fixed search header --><div class=\"shrink-0 px-6 pt-6 pb-4 space-y-3 bg-gray-900 border-b border-gray-800\"><h1 class=\"text-2xl font-bold text-gray-100\">Search</h1><!-- Search Input --><div class=\"relative\"><input type=\"text\" id=\"search-input\" name=\"q\" autocomplete=\"off\" placeholder=\"Search prompts, responses, and tool outputs...\" class=\"w-full bg-gray-800 text-gray-100 rounded-lg pl-4 pr-16 py-3 border border-gray-700 focus:border-blue-500 focus:outline-none text-lg placeholder-gray-500\" hx-get=\"/search/results\" hx-trigger=\"input changed delay:300ms, search-refresh from:body\" hx-target=\"#search-results\" hx-include=\"#search-filters\" hx-indicator=\"#search-spinner\"><div class=\"absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2\"><button type=\"button\" id=\"search-clear\" onclick=\"clearSearch()\" class=\"hidden text-gray-500 hover:text-gray-300 transition-colors\" title=\"Clear search\"><svg class=\"h-5 w-5\" fill=\"none\" viewBox=\"0 0 24 24\" stroke=\"currentColor\" stroke-width=\"2\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" d=\"M6 18L18 6M6 6l12 12\"></path></svg></button><div id=\"search-spinner\" class=\"htmx-indicator\"><svg class=\"animate-spin h-5 w-5 text-blue-400\" xmlns=\"http://www.w3.org/2000/svg\" fill=\"none\" viewBox=\"0 0 24 24\"><circle class=\"opacity-25\" cx=\"12\" cy=\"12\" r=\"10\" stroke=\"currentColor\" stroke-width=\"4\"></circle> <path class=\"opacity-75\" fill=\"currentColor\" d=\"M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z\"></path></svg></div></div></div><!-- Filters --><div id=\"search-filters\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -54,7 +54,7 @@ func Search(results []views.SearchResult) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</div><!-- Results --><div id=\"search-results\" class=\"space-y-3\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</div></div><!-- Scrollable results --><div class=\"flex-1 overflow-y-auto px-6 py-4\"><div id=\"search-results\" class=\"space-y-3\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -70,7 +70,7 @@ func Search(results []views.SearchResult) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</div></div></div><script>\n\t\t// Show/hide clear button based on input content\n\t\tvar searchInput = document.getElementById('search-input');\n\t\tvar clearBtn = document.getElementById('search-clear');\n\t\tsearchInput.addEventListener('input', function() {\n\t\t\tclearBtn.classList.toggle('hidden', this.value === '');\n\t\t});\n\t\tfunction clearSearch() {\n\t\t\tsearchInput.value = '';\n\t\t\tclearBtn.classList.add('hidden');\n\t\t\thtmx.trigger(searchInput, 'input');\n\t\t\tsearchInput.focus();\n\t\t}\n\t\t</script>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

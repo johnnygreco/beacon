@@ -18,6 +18,7 @@ import (
 const (
 	defaultSessionPageSize  = 30
 	defaultActivityPageSize = 30
+	defaultSearchPageSize   = 30
 )
 
 // parseRange converts a range string ("1h", "24h", "7d", "30d") to a *time.Time cutoff.
