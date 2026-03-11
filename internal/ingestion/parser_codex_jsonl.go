@@ -87,6 +87,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ToolPhase = "call"
 			evt.ToolInput = jsonStr(payload, "arguments")
 			evt.ToolUseID = jsonStr(payload, "call_id")
+			evt.TextContent = evt.ToolName
 			events = append(events, evt)
 
 		case "function_call_output":
@@ -139,6 +140,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		evt.ActorRole = "system"
 		evt.ErrorCode = jsonStr(payload, "code")
 		evt.ErrorMessage = jsonStr(payload, "message")
+		evt.TextContent = evt.ErrorMessage
 		events = append(events, evt)
 
 	default:

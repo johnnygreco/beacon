@@ -1,17 +1,47 @@
 package partials
 
 import (
+	"fmt"
 	"github.com/johnnygreco/beacon/internal/views"
 	"github.com/johnnygreco/beacon/internal/views/components"
 )
 
 templ SearchResults(results []views.SearchResult) {
+	@SearchResultsWithCount(results, -1, false)
+}
+
+templ SearchResultsWithCount(results []views.SearchResult, totalCount int, hasMore bool) {
+	if totalCount > 0 {
+		<div class="flex items-center justify-between mb-2">
+			<span class="text-sm text-gray-500">
+				{ fmt.Sprintf("%d", totalCount) } results
+				if hasMore {
+					<span class="text-gray-600"> — more available</span>
+				}
+			</span>
+			if hasMore {
+				<button
+					type="button"
+					onclick="increaseLimit()"
+					class="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+				>
+					Show more
+				</button>
+			}
+		</div>
+	}
 	for _, r := range results {
 		@components.SearchResultCard(r)
 	}
-	if len(results) == 0 {
-		<div class="text-center py-8 text-gray-500">
-			<p>No results found</p>
+	if len(results) == 0 && totalCount == 0 {
+		<div class="text-center py-12 text-gray-500">
+			<p class="text-lg">No results found</p>
+			<p class="text-sm mt-1">Try a different query or adjust your filters</p>
+		</div>
+	}
+	if len(results) == 0 && totalCount < 0 {
+		<div class="text-center py-12 text-gray-500">
+			<p class="text-lg">Enter a query to search conversations</p>
 		</div>
 	}
 }

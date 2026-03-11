@@ -6,19 +6,36 @@ import (
 )
 
 templ SearchResultCard(r views.SearchResult) {
-	<div class="bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-gray-600 transition-colors">
+	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", r.SessionID)) } class="block bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-blue-500/40 transition-colors cursor-pointer">
 		<div class="flex items-center justify-between mb-2">
-			<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", r.SessionID)) } class="text-sm text-blue-400 hover:underline">
-				Session { r.SessionID }
-			</a>
 			<div class="flex items-center gap-2">
-				<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">{ r.EventKind }</span>
-				if r.Score > 0 {
-					<span class="text-xs text-gray-500">{ fmt.Sprintf("%.2f", r.Score) }</span>
+				<span class="text-sm text-blue-400 font-mono">
+					{ views.TruncateSessionID(r.SessionID) }
+				</span>
+				if r.ToolName != "" {
+					<span class="text-xs text-gray-400 font-mono">{ r.ToolName }</span>
 				}
+				<span class="text-xs text-gray-500">{ views.RelativeTime(r.Timestamp) }</span>
 			</div>
+			<span class={ "px-2 py-0.5 text-xs font-semibold uppercase rounded-full", eventKindClass(r.EventKind) }>{ r.EventKind }</span>
 		</div>
-		<p class="text-sm text-gray-300 leading-relaxed">{ r.Snippet }</p>
-		<p class="text-xs text-gray-500 mt-2">{ views.FormatTime(r.Timestamp) }</p>
-	</div>
+		<p class="text-sm text-gray-300 leading-relaxed line-clamp-2">{ r.Snippet }</p>
+	</a>
+}
+
+func eventKindClass(kind string) string {
+	switch kind {
+	case "message":
+		return "bg-blue-500/20 text-blue-400"
+	case "tool_call":
+		return "bg-amber-500/20 text-amber-400"
+	case "tool_result":
+		return "bg-green-500/20 text-green-400"
+	case "reasoning":
+		return "bg-purple-500/20 text-purple-400"
+	case "error":
+		return "bg-red-500/20 text-red-400"
+	default:
+		return "bg-gray-600/40 text-gray-400"
+	}
 }

@@ -168,6 +168,8 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 						evt.ToolInput = string(b)
 					}
 				}
+				// Populate text_content so tool_call events are FTS-searchable.
+				evt.TextContent = evt.ToolName
 
 			case "tool_result":
 				evt.EventKind = "tool_result"

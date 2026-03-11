@@ -15,12 +15,14 @@ templ FilterBar() {
 		</div>
 		<div>
 			<label class="text-xs text-gray-500 block mb-1" for="filter-session">Session</label>
-			<input type="text" id="filter-session" name="session_id" placeholder="All sessions"
-				class="bg-gray-700 text-gray-200 text-sm rounded px-2 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none w-32"/>
+			<input type="text" id="filter-session" name="session_id" placeholder="Filter by ID..."
+				oninput="triggerSearchDebounced()"
+				class="bg-gray-700 text-gray-200 text-sm font-mono rounded px-2 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none w-36"/>
 		</div>
 		<div>
 			<label class="text-xs text-gray-500 block mb-1" for="filter-event-kind">Event Kind</label>
 			<select id="filter-event-kind" name="event_kind"
+				onchange="triggerSearch()"
 				class="bg-gray-700 text-gray-200 text-sm rounded px-2 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none">
 				<option value="">All</option>
 				<option value="message">Message</option>
@@ -30,17 +32,49 @@ templ FilterBar() {
 				<option value="error">Error</option>
 			</select>
 		</div>
+		<div>
+			<label class="text-xs text-gray-500 block mb-1" for="filter-limit">Results</label>
+			<select id="filter-limit" name="limit"
+				onchange="triggerSearch()"
+				class="bg-gray-700 text-gray-200 text-sm rounded px-2 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none">
+				<option value="25">25</option>
+				<option value="50">50</option>
+				<option value="100">100</option>
+				<option value="200">200</option>
+			</select>
+		</div>
 	</div>
 	<script>
+	function triggerSearch() {
+		htmx.trigger(document.body, 'search-refresh');
+	}
+	var _searchTimer;
+	function triggerSearchDebounced() {
+		clearTimeout(_searchTimer);
+		_searchTimer = setTimeout(triggerSearch, 300);
+	}
 	function setRange(btn, value) {
 		document.getElementById('filter-range').value = value;
 		btn.closest('.flex').querySelectorAll('.range-btn').forEach(function(b) {
 			b.className = 'range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
 		});
 		btn.className = 'range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';
-		// Trigger HTMX search refresh
-		var input = document.querySelector('input[name="q"]');
-		if (input && input.value) htmx.trigger(input, 'input');
+		triggerSearch();
 	}
+	function increaseLimit() {
+		var sel = document.getElementById('filter-limit');
+		var idx = sel.selectedIndex;
+		if (idx < sel.options.length - 1) {
+			sel.selectedIndex = idx + 1;
+			triggerSearch();
+		}
+	}
+	// Focus search input with / key
+	document.addEventListener('keydown', function(e) {
+		if (e.key === '/' && !e.ctrlKey && !e.metaKey && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+			e.preventDefault();
+			document.querySelector('input[name="q"]').focus();
+		}
+	});
 	</script>
 }

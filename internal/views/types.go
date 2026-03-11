@@ -205,6 +205,14 @@ func FormatTime(t time.Time) string {
 	return t.Local().Format("1/2/2006 3:04 PM")
 }
 
+// TruncateSessionID returns a short form of a session UUID (first 8 chars).
+func TruncateSessionID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
 // FormatTimeShort formats a time in short 12-hour format (e.g. "3/7 3:04 PM").
 func FormatTimeShort(t time.Time) string {
 	if t.IsZero() {
@@ -240,6 +248,7 @@ type SearchResult struct {
 	SessionID string
 	EventKind string
 	Snippet   string
+	ToolName  string  // tool name for tool_call/tool_result events
 	Score     float64
 	MatchType string // "bm25", "keyword"
 	Timestamp time.Time

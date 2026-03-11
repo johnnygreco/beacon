@@ -154,12 +154,10 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 
 	s.mu.RLock()
 	hasIndex := s.indexExists
-	lastBuild := s.lastIndexBuild
 	s.mu.RUnlock()
 
 	var bm25Results []SearchResult
 	var recencyResults []SearchResult
-	bm25OK := false
 
 	// BM25 path
 	if hasIndex && s.ftsConn != nil {
@@ -168,18 +166,15 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 			s.logger.Warn("BM25 search failed, falling back to ILIKE", "error", err)
 		} else {
 			bm25Results = results
-			bm25OK = true
 		}
 	}
 
-	// Recency path: ILIKE for events newer than last index build.
-	// If BM25 failed or no index, search everything (zero time).
-	ilikeTime := lastBuild
-	if !bm25OK {
-		ilikeTime = time.Time{}
-	}
-	if !ilikeTime.IsZero() || !bm25OK {
-		results, err := s.ilikeSearch(ctx, q, ilikeTime)
+	// ILIKE path: always run without time constraint.
+	// BM25 only indexes text_content, so events matched by tool_name or
+	// error_message (e.g. tool_call, error events) need the ILIKE path.
+	// Deduplication below handles any overlap with BM25 results.
+	{
+		results, err := s.ilikeSearch(ctx, q, time.Time{})
 		if err != nil {
 			s.logger.Warn("ILIKE search failed", "error", err)
 		} else {
@@ -251,11 +246,21 @@ func (s *Searcher) ilikeSearch(ctx context.Context, q SearchQuery, since time.Ti
 	}
 	whereExtra += " " + s.buildFilters(q)
 
+	// Search text_content, tool_name, and error_message so that
+	// tool_call and error events are discoverable.
+	// Join tool_io for richer snippets on tool_call events.
 	query := fmt.Sprintf(
-		`SELECT e.event_uid, e.session_id, e.event_kind, e.text_preview,
+		`SELECT e.event_uid, e.session_id, e.event_kind,
+		        CASE WHEN e.event_kind = 'tool_call'
+		             THEN COALESCE(e.tool_name || ': ' || NULLIF(tio.input_preview, ''), e.tool_name, '')
+		             ELSE COALESCE(NULLIF(e.text_preview, ''), e.tool_name, '')
+		        END AS preview,
 		        0.0 AS score, e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, '')
 		 FROM events e
-		 WHERE e.text_content ILIKE $1 %s
+		 LEFT JOIN tool_io tio ON e.event_uid = tio.event_uid
+		 WHERE (e.text_content ILIKE $1
+		        OR e.tool_name ILIKE $1
+		        OR e.error_message ILIKE $1) %s
 		 ORDER BY e.timestamp DESC
 		 LIMIT %d`,
 		whereExtra, q.Limit,
