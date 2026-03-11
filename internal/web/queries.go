@@ -69,7 +69,7 @@ func QueryTokensByModelSummary(ctx context.Context, db *sql.DB) []views.ModelTok
 		        COALESCE(SUM(cache_read_tokens), 0),
 		        COALESCE(SUM(input_tokens + output_tokens), 0)
 		 FROM events
-		 WHERE model IS NOT NULL AND model != ''
+		 WHERE model IS NOT NULL AND model != '' AND model != '<synthetic>'
 		 GROUP BY model
 		 ORDER BY COALESCE(SUM(input_tokens + output_tokens), 0) DESC
 		 LIMIT 10`)
@@ -377,7 +377,7 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 			       COALESCE(SUM(output_tokens), 0) AS output,
 			       COALESCE(SUM(cache_read_tokens), 0) AS cache_read
 			FROM session_events
-			WHERE model IS NOT NULL AND model != ''
+			WHERE model IS NOT NULL AND model != '' AND model != '<synthetic>'
 			GROUP BY model ORDER BY (input + output) DESC
 		)
 		SELECT 'token' AS kind, timestamp, total_tokens, '' AS tool_name, 0 AS calls, 0 AS avg_dur, '' AS model, 0 AS input, 0 AS output, 0 AS cache_read FROM token_series

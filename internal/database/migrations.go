@@ -172,7 +172,7 @@ func (db *DB) migrate() error {
 			SUM(input_tokens + output_tokens) AS total_tokens,
 			COUNT(CASE WHEN input_tokens + output_tokens > 0 THEN 1 END) AS call_count
 		FROM events
-		WHERE model IS NOT NULL AND model != ''
+		WHERE model IS NOT NULL AND model != '' AND model != '<synthetic>'
 		GROUP BY model ORDER BY total_tokens DESC`,
 	}
 
