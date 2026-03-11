@@ -572,3 +572,143 @@ func TestParseCodexJSONL_SourceCoordinates(t *testing.T) {
 		t.Errorf("expected source_offset=9876, got %d", evt.SourceOffset)
 	}
 }
+
+func TestParseCodexJSONL_CWDFromSessionMeta(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "session_meta",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:00:00Z",
+		"payload": map[string]any{
+			"cwd": "/Users/user/projects/myapp",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events[0].CWD != "/Users/user/projects/myapp" {
+		t.Errorf("expected CWD from session_meta, got %q", events[0].CWD)
+	}
+}
+
+func TestParseCodexJSONL_CWDFromTurnContext(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "turn_context",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:00:01Z",
+		"payload": map[string]any{
+			"cwd": "/Users/user/projects/myapp",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 2, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events[0].CWD != "/Users/user/projects/myapp" {
+		t.Errorf("expected CWD from turn_context, got %q", events[0].CWD)
+	}
+}
+
+func TestParseCodexJSONL_TaskComplete(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "event_msg",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:05:00Z",
+		"payload": map[string]any{
+			"type": "task_complete",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 50, 5000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.EventKind != "session_end" {
+		t.Errorf("expected event_kind=session_end for task_complete, got %q", evt.EventKind)
+	}
+	if evt.PayloadType != "task_complete" {
+		t.Errorf("expected payload_type=task_complete, got %q", evt.PayloadType)
+	}
+}
+
+func TestParseCodexJSONL_CachedInputTokens(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "event_msg",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:00:07Z",
+		"payload": map[string]any{
+			"type": "token_count",
+			"info": map[string]any{
+				"last_token_usage": map[string]any{
+					"input_tokens":        9516,
+					"cached_input_tokens": 8064,
+					"output_tokens":       157,
+				},
+			},
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 21, 2100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.InputTokens != 9516 {
+		t.Errorf("expected input_tokens=9516, got %d", evt.InputTokens)
+	}
+	if evt.OutputTokens != 157 {
+		t.Errorf("expected output_tokens=157, got %d", evt.OutputTokens)
+	}
+	if evt.CacheReadTokens != 8064 {
+		t.Errorf("expected cache_read_tokens=8064, got %d", evt.CacheReadTokens)
+	}
+}
+
+func TestParseCodexJSONL_DeveloperMessageSkipped(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "response_item",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:00:02Z",
+		"payload": map[string]any{
+			"type": "message",
+			"role": "developer",
+			"content": []map[string]any{
+				{"type": "input_text", "text": "system setup instructions"},
+			},
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 2, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected 0 events for developer message, got %d", len(events))
+	}
+}
+
+func TestParseCodexJSONL_UUIDFromFilename(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":      "turn_context",
+		"timestamp": "2025-06-01T10:00:00Z",
+	})
+
+	events, err := ParseCodexJSONL(line, "/home/user/.codex/sessions/rollout-2026-03-11T14-53-45-019cde3f-7111-7153-a5e2-e1b7562aea73.jsonl", 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if events[0].SessionID != "019cde3f-7111-7153-a5e2-e1b7562aea73" {
+		t.Errorf("expected UUID extracted from filename, got %q", events[0].SessionID)
+	}
+}

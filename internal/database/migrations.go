@@ -57,6 +57,9 @@ func (db *DB) migrate() error {
 		// Add parent_session_id column for subagent support
 		`ALTER TABLE events ADD COLUMN IF NOT EXISTS parent_session_id VARCHAR DEFAULT ''`,
 
+		// Add tool_use_id column for matching tool_call/tool_result pairs
+		`ALTER TABLE events ADD COLUMN IF NOT EXISTS tool_use_id VARCHAR DEFAULT ''`,
+
 		`CREATE INDEX IF NOT EXISTS idx_events_session ON events(session_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events(timestamp)`,
 		`CREATE INDEX IF NOT EXISTS idx_events_kind ON events(event_kind)`,
@@ -125,7 +128,8 @@ func (db *DB) migrate() error {
 			COALESCE(MAX(model), '') AS last_model,
 			COALESCE(MAX(cwd), '') AS working_dir,
 			COALESCE(MAX(parent_session_id), '') AS parent_session_id,
-			MAX(CASE WHEN event_kind = 'session_end' OR (event_kind = 'event_msg' AND payload_type = 'last-prompt') THEN 1 ELSE 0 END) AS has_session_end
+			MAX(CASE WHEN event_kind = 'session_end' OR (event_kind = 'event_msg' AND payload_type = 'last-prompt') THEN 1 ELSE 0 END) AS has_session_end,
+			COALESCE(MAX(provider), '') AS provider
 		FROM events GROUP BY session_id, source_name`,
 
 		// Conversation trace with turn sequencing

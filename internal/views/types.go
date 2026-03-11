@@ -124,6 +124,7 @@ type MetricData struct {
 type SessionSummary struct {
 	ID                string
 	Actor             string
+	Provider          string // "anthropic", "openai", etc.
 	Status            string // "active", "idle", "completed"
 	StartedAt         time.Time
 	EndedAt           time.Time
@@ -159,12 +160,40 @@ func (s SessionSummary) DurationSeconds() int64 {
 
 // ShortModelName returns a shortened model name for compact display.
 // "claude-opus-4-6" → "opus-4-6", "claude-haiku-4-5-20251001" → "haiku-4-5"
+// "gpt-5.4" → "gpt-5.4", "o3-pro" → "o3-pro"
 func ShortModelName(model string) string {
 	model = strings.TrimPrefix(model, "claude-")
 	if idx := strings.Index(model, "-202"); idx > 0 {
 		model = model[:idx]
 	}
 	return model
+}
+
+// ProviderLabel returns a short display label for a provider.
+func ProviderLabel(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "Claude Code"
+	case "openai":
+		return "Codex"
+	default:
+		return provider
+	}
+}
+
+// ProviderShort returns a very short provider label for badges.
+func ProviderShort(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "CC"
+	case "openai":
+		return "CX"
+	default:
+		if len(provider) > 2 {
+			return strings.ToUpper(provider[:2])
+		}
+		return strings.ToUpper(provider)
+	}
 }
 
 // GroupActiveSessions groups subagent sessions under their parent sessions.
@@ -278,6 +307,7 @@ type EventSummary struct {
 	TextContent   string
 	TextPreview   string
 	ToolName      string
+	ToolUseID     string // call_id for matching tool_call/tool_result pairs
 	Model         string
 	Tokens        int64
 	DurationMs    int64

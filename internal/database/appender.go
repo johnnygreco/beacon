@@ -12,15 +12,15 @@ func InsertEvent(ctx context.Context, db *DB, e *models.Event) error {
 		`INSERT OR IGNORE INTO events (
 			event_uid, session_id, session_date, source_name, provider,
 			event_kind, payload_type, actor_role, timestamp,
-			text_content, text_preview, tool_name, model,
+			text_content, text_preview, tool_name, tool_use_id, model,
 			input_tokens, output_tokens, cache_read_tokens, cache_create_tokens,
 			duration_ms, cost_usd, error_code, error_message,
 			event_version, payload_json, cwd, source_file, source_line_no, source_offset,
 			parent_session_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.EventUID, e.SessionID, e.SessionDate, e.SourceName, e.Provider,
 		e.EventKind, e.PayloadType, e.ActorRole, e.Timestamp,
-		e.TextContent, e.TextPreview, e.ToolName, e.Model,
+		e.TextContent, e.TextPreview, e.ToolName, e.ToolUseID, e.Model,
 		e.InputTokens, e.OutputTokens, e.CacheReadTokens, e.CacheCreateTokens,
 		e.DurationMs, e.CostUSD, e.ErrorCode, e.ErrorMessage,
 		e.EventVersion, e.PayloadJSON, e.CWD, e.SourceFile, e.SourceLineNo, e.SourceOffset,

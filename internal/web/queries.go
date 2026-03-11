@@ -470,7 +470,7 @@ func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]vie
 	traceRows, err := db.QueryContext(ctx,
 		`SELECT e.event_uid, e.event_kind, COALESCE(e.actor_role, ''),
 		        COALESCE(e.text_content, ''), COALESCE(e.text_preview, ''),
-		        COALESCE(e.tool_name, ''), COALESCE(e.model, ''),
+		        COALESCE(e.tool_name, ''), COALESCE(e.tool_use_id, ''), COALESCE(e.model, ''),
 		        e.input_tokens + e.output_tokens, e.duration_ms, e.timestamp, turn_seq,
 		        COALESCE(tio.input_preview, ''), COALESCE(tio.output_preview, ''),
 		        COALESCE(tio.input_json, '')
@@ -491,7 +491,7 @@ func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]vie
 		var turnSeq int
 		if err := traceRows.Scan(&es.EventUID, &es.EventKind, &es.ActorRole,
 			&es.TextContent, &es.TextPreview,
-			&es.ToolName, &es.Model, &es.Tokens, &es.DurationMs, &es.Timestamp, &turnSeq,
+			&es.ToolName, &es.ToolUseID, &es.Model, &es.Tokens, &es.DurationMs, &es.Timestamp, &turnSeq,
 			&es.InputPreview, &es.OutputPreview, &es.InputJSON); err != nil {
 			continue
 		}
@@ -591,6 +591,16 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 			}
 		}
 
+		// Pre-build a map of tool_use_id → tool_result for call_id-based matching.
+		// This handles Codex's pattern of batched calls then batched results.
+		resultByCallID := make(map[string]int) // tool_use_id → event index
+		consumedResults := make(map[int]bool)
+		for idx, e := range t.Events {
+			if e.EventKind == "tool_result" && e.ToolUseID != "" {
+				resultByCallID[e.ToolUseID] = idx
+			}
+		}
+
 		for i := 0; i < len(t.Events); i++ {
 			e := t.Events[i]
 
@@ -603,26 +613,48 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 					InputJSON:    e.InputJSON,
 				}
 				item.Params = parseToolParams(e.InputJSON)
-				// Look ahead for a matching tool_result, skipping event_msg
-				for j := i + 1; j < len(t.Events); j++ {
-					if t.Events[j].EventKind == "tool_result" {
-						i = j
-						result := t.Events[j]
+
+				// Try call_id-based matching first
+				if e.ToolUseID != "" {
+					if ridx, ok := resultByCallID[e.ToolUseID]; ok {
+						result := t.Events[ridx]
+						// Copy tool name to result if missing
+						if result.ToolName == "" {
+							result.ToolName = e.ToolName
+						}
 						item.ResultEvent = &result
 						item.OutputPreview = result.OutputPreview
 						if item.OutputPreview == "" {
 							item.OutputPreview = result.TextPreview
 						}
-						break
-					} else if t.Events[j].EventKind == "event_msg" {
-						continue // skip intermediate log events
-					} else {
-						break // something else — don't consume it
+						consumedResults[ridx] = true
+					}
+				} else {
+					// Fallback: sequential look-ahead for sources without call_id
+					for j := i + 1; j < len(t.Events); j++ {
+						if t.Events[j].EventKind == "tool_result" && !consumedResults[j] {
+							consumedResults[j] = true
+							i = j
+							result := t.Events[j]
+							item.ResultEvent = &result
+							item.OutputPreview = result.OutputPreview
+							if item.OutputPreview == "" {
+								item.OutputPreview = result.TextPreview
+							}
+							break
+						} else if t.Events[j].EventKind == "event_msg" {
+							continue // skip intermediate log events
+						} else {
+							break // something else — don't consume it
+						}
 					}
 				}
 				pendingToolChain = append(pendingToolChain, item)
 
 			case "tool_result":
+				if consumedResults[i] {
+					break // Already paired with a tool_call
+				}
 				// Orphan tool_result (no preceding tool_call)
 				item := views.ToolChainItem{
 					CallEvent:     e,
@@ -804,7 +836,8 @@ const sessionSummaryColumns = `session_id, COALESCE(source_name, ''), started_at
 		COALESCE(last_model, ''),
 		COALESCE(working_dir, ''),
 		COALESCE(parent_session_id, ''),
-		COALESCE(has_session_end, 0)`
+		COALESCE(has_session_end, 0),
+		COALESCE(provider, '')`
 
 // scanSessionSummary scans a row from v_session_summary into a SessionSummary.
 func scanSessionSummary(scanner interface{ Scan(dest ...any) error }, now time.Time) (views.SessionSummary, error) {
@@ -816,7 +849,7 @@ func scanSessionSummary(scanner interface{ Scan(dest ...any) error }, now time.T
 		&s.TurnCount, &s.TotalTokens, &s.InputTokens, &s.OutputTokens,
 		&s.CacheReadTokens, &s.CacheCreateTokens,
 		&s.ToolCallCount, &s.MCPCallCount, &model, &s.WorkingDir,
-		&s.ParentSessionID, &hasSessionEnd)
+		&s.ParentSessionID, &hasSessionEnd, &s.Provider)
 	if err != nil {
 		return s, err
 	}

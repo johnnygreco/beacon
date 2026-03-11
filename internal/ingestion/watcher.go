@@ -68,9 +68,12 @@ func (w *Watcher) Run(ctx context.Context) error {
 
 	// Backfill: process existing files from checkpoint
 	for _, src := range w.sources {
-		for _, f := range sourceFiles[src.Name] {
+		files := sourceFiles[src.Name]
+		w.logger.Info("backfill source", "name", src.Name, "files", len(files))
+		for _, f := range files {
 			w.processFile(ctx, src, f)
 		}
+		w.logger.Info("backfill source complete", "name", src.Name)
 	}
 
 	// Start fsnotify watcher

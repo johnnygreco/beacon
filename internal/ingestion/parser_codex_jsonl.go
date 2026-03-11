@@ -14,11 +14,11 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		return nil, err
 	}
 
-	// Session ID from top-level or from filename
+	// Session ID: prefer top-level session_id, then extract from filename.
+	// Codex filenames follow "rollout-{date}-{uuid}.jsonl" format.
 	sessionID := jsonStr(raw, "session_id")
 	if sessionID == "" {
-		base := filepath.Base(file)
-		sessionID = strings.TrimSuffix(base, filepath.Ext(base))
+		sessionID = codexSessionIDFromFile(file)
 	}
 
 	ts := parseTimestamp(jsonStr(raw, "timestamp"))
@@ -39,6 +39,11 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 	payload, _ := raw["payload"].(map[string]any)
 	if payload == nil {
 		payload = raw // fallback: fields at top level
+	}
+
+	// Extract CWD from payload (present in session_meta and turn_context)
+	if cwd := jsonStr(payload, "cwd"); cwd != "" {
+		base.CWD = cwd
 	}
 
 	var events []NormalizedEvent
@@ -67,14 +72,25 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			if evt.ActorRole == "" {
 				evt.ActorRole = "assistant"
 			}
+			// Skip developer/system setup messages that don't contain user-relevant content
+			if evt.ActorRole == "developer" {
+				break
+			}
 			// Extract text from content array
 			if content, ok := payload["content"].([]any); ok {
+				var texts []string
 				for _, c := range content {
 					if cm, ok := c.(map[string]any); ok {
-						if jsonStr(cm, "type") == "output_text" || jsonStr(cm, "type") == "text" {
-							evt.TextContent = jsonStr(cm, "text")
+						ct := jsonStr(cm, "type")
+						if ct == "output_text" || ct == "text" || ct == "input_text" {
+							if t := jsonStr(cm, "text"); t != "" {
+								texts = append(texts, t)
+							}
 						}
 					}
+				}
+				if len(texts) > 0 {
+					evt.TextContent = texts[len(texts)-1] // use last text block (most relevant)
 				}
 			}
 			events = append(events, evt)
@@ -122,11 +138,22 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		}
 
 	case "event_msg":
-		evt := base
-		evt.EventKind = "event_msg"
-		evt.PayloadType = jsonStr(payload, "type")
-		evt.TextContent = jsonStr(payload, "message")
-		events = append(events, evt)
+		payloadType := jsonStr(payload, "type")
+		switch payloadType {
+		case "task_complete":
+			// Codex signals session completion with task_complete
+			evt := base
+			evt.EventKind = "session_end"
+			evt.ActorRole = "system"
+			evt.PayloadType = "task_complete"
+			events = append(events, evt)
+		default:
+			evt := base
+			evt.EventKind = "event_msg"
+			evt.PayloadType = payloadType
+			evt.TextContent = jsonStr(payload, "message")
+			events = append(events, evt)
+		}
 
 	case "compacted":
 		evt := base
@@ -156,6 +183,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			for i := range events {
 				events[i].InputTokens = jsonInt64(usage, "input_tokens")
 				events[i].OutputTokens = jsonInt64(usage, "output_tokens")
+				events[i].CacheReadTokens = jsonInt64(usage, "cached_input_tokens")
 			}
 		}
 	}
@@ -176,3 +204,34 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 	return events, nil
 }
 
+// codexSessionIDFromFile extracts a session ID from a Codex filename.
+// Codex filenames follow "rollout-YYYY-MM-DDTHH-MM-SS-{uuid}.jsonl".
+// We extract the UUID portion for a cleaner session ID.
+func codexSessionIDFromFile(file string) string {
+	base := filepath.Base(file)
+	name := strings.TrimSuffix(base, filepath.Ext(base))
+
+	// Try to find a UUID pattern (8-4-4-4-12 hex) in the filename
+	parts := strings.Split(name, "-")
+	// Walk backwards through parts looking for a UUID start
+	// UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (5 groups)
+	for i := 0; i+4 < len(parts); i++ {
+		if len(parts[i]) == 8 && isHex(parts[i]) &&
+			len(parts[i+1]) == 4 && isHex(parts[i+1]) &&
+			len(parts[i+2]) == 4 && isHex(parts[i+2]) &&
+			len(parts[i+3]) == 4 && isHex(parts[i+3]) &&
+			len(parts[i+4]) >= 12 && isHex(parts[i+4][:12]) {
+			return strings.Join(parts[i:i+5], "-")
+		}
+	}
+	return name
+}
+
+func isHex(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return len(s) > 0
+}

@@ -73,11 +73,14 @@ templ parentActiveCard(s views.SessionSummary) {
 					<span class="font-medium text-gray-100 truncate">{ views.SessionTitle(s, false) }</span>
 					<span class="text-xs text-gray-600 font-mono flex-shrink-0">{ views.TruncateID(s.ID) }</span>
 				</div>
-				if s.Status == "active" {
-					<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-green-500/15 text-green-400 flex-shrink-0 ml-2">Live</span>
-				} else {
-					<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-amber-500/15 text-amber-400 flex-shrink-0 ml-2">Idle</span>
-				}
+				<div class="flex items-center gap-1.5 flex-shrink-0 ml-2">
+					@providerBadge(s.Provider)
+					if s.Status == "active" {
+						<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-green-500/15 text-green-400">Live</span>
+					} else {
+						<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-amber-500/15 text-amber-400">Idle</span>
+					}
+				</div>
 			</div>
 			<div class="flex items-center gap-2 text-xs text-gray-500 mt-1 ml-4 flex-wrap">
 				if s.ActiveModel != "" {
@@ -201,6 +204,16 @@ templ SubagentSessionCard(s views.SessionSummary) {
 	</a>
 }
 
+templ providerBadge(provider string) {
+	if provider == "openai" {
+		<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-emerald-500/15 text-emerald-400" title="Codex (OpenAI)">{ views.ProviderShort(provider) }</span>
+	} else if provider == "anthropic" {
+		<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-orange-500/15 text-orange-300" title="Claude Code (Anthropic)">{ views.ProviderShort(provider) }</span>
+	} else if provider != "" {
+		<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-gray-500/15 text-gray-400" title={ provider }>{ views.ProviderShort(provider) }</span>
+	}
+}
+
 script goToSession(url string) {
 	window.location.href = url
 }
@@ -232,6 +245,7 @@ templ CompletedSessionRow(s views.SessionSummary) {
 						</svg>
 					</button>
 				}
+				@providerBadge(s.Provider)
 				<span>{ views.SessionTitle(s, false) }</span>
 				if s.SubagentCount > 0 {
 					<span class="text-[10px] text-blue-400/60 font-normal">{ fmt.Sprintf("+%d sub", s.SubagentCount) }</span>
