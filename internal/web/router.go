@@ -34,6 +34,7 @@ func NewRouter(
 	r.Get("/search", handlers.Search)
 	r.Get("/search/results", handlers.SearchResults)
 	r.Get("/dashboard/sessions", handlers.DashboardSessions)
+	r.Get("/dashboard/sessions/{id}/subagents", handlers.DashboardSubagentSessions)
 	r.Get("/dashboard/activity", handlers.DashboardActivity)
 	r.Get("/health", handlers.Health)
 

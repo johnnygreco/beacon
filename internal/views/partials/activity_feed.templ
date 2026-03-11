@@ -2,35 +2,18 @@ package partials
 
 import (
 	"fmt"
-	"net/url"
 	"github.com/johnnygreco/beacon/internal/views"
 )
 
-templ ActivityTimelineFull(items []views.ActivityItem, hasMore bool, rangeVal string, nextOffset int) {
-	if len(items) > 0 || hasMore {
+templ ActivityTimelineFull(items []views.ActivityItem) {
+	if len(items) > 0 {
 		<div class="relative pl-8">
 			<div class="absolute left-3 top-0 bottom-0 w-px bg-gray-700"></div>
-			@ActivityTimelineWithMore(items, hasMore, rangeVal, nextOffset)
+			for _, item := range items {
+				@activityItem(item)
+			}
 		</div>
 	} else {
-		<p class="text-sm text-gray-500 text-center py-4">No recent activity</p>
-	}
-}
-
-templ ActivityTimelineWithMore(items []views.ActivityItem, hasMore bool, rangeVal string, nextOffset int) {
-	for _, item := range items {
-		@activityItem(item)
-	}
-	if hasMore {
-		<div hx-get={ fmt.Sprintf("/dashboard/activity?range=%s&offset=%d", url.QueryEscape(rangeVal), nextOffset) }
-		     hx-trigger="revealed"
-		     hx-swap="outerHTML"
-		     hx-on::before-request="document.getElementById('activity-feed').removeAttribute('sse-swap')"
-		     class="text-center py-3">
-			<span class="text-xs text-gray-500">Loading more...</span>
-		</div>
-	}
-	if len(items) == 0 && !hasMore {
 		<p class="text-sm text-gray-500 text-center py-4">No recent activity</p>
 	}
 }

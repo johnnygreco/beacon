@@ -85,7 +85,7 @@ func (u *Updater) NotifyDashboard() {
 	}
 
 	var completedBuf bytes.Buffer
-	if err := partials.CompletedSessionListWithMore(completedSessions, hasMoreSessions, "", len(completedSessions)).Render(ctx, &completedBuf); err != nil {
+	if err := partials.CompletedSessionListPaginated(completedSessions, hasMoreSessions, "", 0, defaultSessionPageSize).Render(ctx, &completedBuf); err != nil {
 		u.logger.Error("render completed sessions partial", "error", err)
 	} else {
 		u.broker.Broadcast("dashboard", sse.SSEMessage{
@@ -95,7 +95,7 @@ func (u *Updater) NotifyDashboard() {
 	}
 
 	var activityBuf bytes.Buffer
-	if err := partials.ActivityTimelineFull(activity, hasMoreActivity, "", len(activity)).Render(ctx, &activityBuf); err != nil {
+	if err := partials.ActivityTimelineFull(activity).Render(ctx, &activityBuf); err != nil {
 		u.logger.Error("render activity partial", "error", err)
 	} else {
 		u.broker.Broadcast("dashboard", sse.SSEMessage{
