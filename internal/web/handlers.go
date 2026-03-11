@@ -133,11 +133,7 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 		// the raw JSON input, and strip the redundant tool name prefix.
 		if sr.EventKind == "tool_call" && sr.ToolName != "" {
 			// Strip "ToolName: " prefix if present
-			raw := snippet
-			prefix := sr.ToolName + ": "
-			if strings.HasPrefix(raw, prefix) {
-				raw = strings.TrimPrefix(raw, prefix)
-			}
+			raw := strings.TrimPrefix(snippet, sr.ToolName+": ")
 			if raw == sr.ToolName || raw == "" {
 				snippet = ""
 			} else if formatted := formatToolCallSnippet(sr.ToolName, raw); formatted != "" {
