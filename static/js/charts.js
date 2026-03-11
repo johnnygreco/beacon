@@ -112,41 +112,32 @@ function applyDefaultLog(chart, el) {
   }
 }
 
-// Plugin: draw provider group headers below the x-axis labels
+// Plugin: draw dashed vertical divider lines between provider groups
 var providerGroupPlugin = {
   id: 'providerGroupHeaders',
   afterDraw: function(chart) {
     var groups = chart.options.plugins.providerGroupHeaders &&
                  chart.options.plugins.providerGroupHeaders.groups;
-    if (!groups || !groups.length) return;
+    if (!groups || groups.length < 2) return;
     var ctx = chart.ctx;
     var xAxis = chart.scales.x;
     var chartArea = chart.chartArea;
 
     ctx.save();
-    ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
+    ctx.strokeStyle = 'rgba(156,163,175,0.4)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
 
-    groups.forEach(function(g) {
-      // Get pixel positions for the group range
-      var x0 = xAxis.getPixelForTick(g.start);
-      var x1 = xAxis.getPixelForTick(g.end);
-      var centerX = (x0 + x1) / 2;
-      var y = chartArea.bottom + 38;
-
-      // Draw provider label
-      ctx.fillStyle = g.provider === 'Codex' ? '#34d399' : '#fb923c';
-      ctx.fillText(g.provider, centerX, y);
-
-      // Draw bracket line
-      ctx.strokeStyle = g.provider === 'Codex' ? 'rgba(52,211,153,0.3)' : 'rgba(251,146,60,0.3)';
-      ctx.lineWidth = 1;
+    // Draw a dashed vertical line between each pair of adjacent groups
+    for (var i = 0; i < groups.length - 1; i++) {
+      var endTick = groups[i].end;
+      var startTick = groups[i + 1].start;
+      var x = (xAxis.getPixelForTick(endTick) + xAxis.getPixelForTick(startTick)) / 2;
       ctx.beginPath();
-      ctx.moveTo(x0, y - 3);
-      ctx.lineTo(x1, y - 3);
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
       ctx.stroke();
-    });
+    }
 
     ctx.restore();
   }
@@ -170,17 +161,13 @@ function createTokensByModelChart(el, dataEl) {
   });
   var hasGroups = modelData.providerGroups && modelData.providerGroups.length > 0;
   var xOpts = Object.assign({}, categoryScaleOptions);
-  if (hasGroups) {
-    // Add bottom padding for provider group headers
-    xOpts.ticks = Object.assign({}, xOpts.ticks || {}, { padding: 8 });
-  }
   return new Chart(el, {
     type: 'bar',
     data: { labels: modelData.labels, datasets: datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      layout: hasGroups ? { padding: { bottom: 30 } } : {},
+      layout: {},
       scales: {
         x: xOpts,
         y: {
