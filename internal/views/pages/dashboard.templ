@@ -232,8 +232,8 @@ templ Dashboard(data views.DashboardData) {
 			}
 		})();
 
-		function activateSessionsPagination() {
-			sessionsPaginationActive = true;
+		function activateSessionsPagination(offset) {
+			sessionsPaginationActive = offset > 0;
 		}
 
 		// --- Dashboard time range filter ---

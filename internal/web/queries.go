@@ -223,16 +223,23 @@ func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, o
 	return sessions, hasMore
 }
 
-// attachSubagentCounts queries subagent counts and attaches them to parent sessions.
+// attachSubagentCounts queries subagent counts for the given sessions and attaches them.
 func attachSubagentCounts(ctx context.Context, db *sql.DB, sessions []views.SessionSummary) {
 	if len(sessions) == 0 {
 		return
 	}
-	rows, err := db.QueryContext(ctx,
-		`SELECT parent_session_id, COUNT(*)
+	// Build placeholders for the parent IDs on this page
+	placeholders := make([]string, len(sessions))
+	args := make([]any, len(sessions))
+	for i, s := range sessions {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = s.ID
+	}
+	query := `SELECT parent_session_id, COUNT(*)
 		 FROM v_session_summary
-		 WHERE parent_session_id != '' AND parent_session_id IS NOT NULL
-		 GROUP BY parent_session_id`)
+		 WHERE parent_session_id IN (` + strings.Join(placeholders, ",") + `)
+		 GROUP BY parent_session_id`
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return
 	}

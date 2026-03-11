@@ -267,7 +267,7 @@ script toggleSubagents(sessionID string) {
 		});
 		btn.querySelector('svg').style.transform = hidden ? 'rotate(90deg)' : '';
 	} else {
-		// Fetch subagent rows
+		// Fetch subagent rows (event implicit from onclick handler)
 		btn.querySelector('svg').style.transform = 'rotate(90deg)';
 		fetch('/dashboard/sessions/' + sessionID + '/subagents')
 			.then(function(res) { return res.text(); })
@@ -275,6 +275,9 @@ script toggleSubagents(sessionID string) {
 				if (html.trim()) {
 					parentRow.insertAdjacentHTML('afterend', html);
 				}
+			})
+			.catch(function() {
+				btn.querySelector('svg').style.transform = '';
 			});
 	}
 }

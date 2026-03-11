@@ -22,7 +22,8 @@ templ CompletedSessionListPaginated(sessions []views.SessionSummary, hasMore boo
 							hx-get={ fmt.Sprintf("/dashboard/sessions?range=%s&offset=%d", url.QueryEscape(rangeVal), maxInt(0, currentOffset-pageSize)) }
 							hx-target="#completed-sessions"
 							hx-swap="innerHTML"
-							onclick="activateSessionsPagination()"
+							data-page-offset={ fmt.Sprintf("%d", maxInt(0, currentOffset-pageSize)) }
+							onclick="activateSessionsPagination(parseInt(this.getAttribute('data-page-offset')))"
 						>
 							&larr; Previous
 						</button>
@@ -37,7 +38,8 @@ templ CompletedSessionListPaginated(sessions []views.SessionSummary, hasMore boo
 							hx-get={ fmt.Sprintf("/dashboard/sessions?range=%s&offset=%d", url.QueryEscape(rangeVal), currentOffset+pageSize) }
 							hx-target="#completed-sessions"
 							hx-swap="innerHTML"
-							onclick="activateSessionsPagination()"
+							data-page-offset={ fmt.Sprintf("%d", currentOffset+pageSize) }
+							onclick="activateSessionsPagination(parseInt(this.getAttribute('data-page-offset')))"
 						>
 							Next &rarr;
 						</button>

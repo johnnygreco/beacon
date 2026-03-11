@@ -176,6 +176,10 @@ func (h *Handlers) DashboardSessions(w http.ResponseWriter, r *http.Request) {
 // DashboardSubagentSessions returns subagent rows for a parent session (HTMX partial).
 func (h *Handlers) DashboardSubagentSessions(w http.ResponseWriter, r *http.Request) {
 	parentID := chi.URLParam(r, "id")
+	if parentID == "" {
+		http.Error(w, "missing session id", http.StatusBadRequest)
+		return
+	}
 	subagents := QueryChildSessions(r.Context(), h.db, parentID)
 	if err := partials.CompletedSubagentRows(subagents, parentID).Render(r.Context(), w); err != nil {
 		h.logger.Debug("render subagent sessions failed", "error", err)

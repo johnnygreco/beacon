@@ -1325,8 +1325,8 @@ func CompletedSessionRow(s views.SessionSummary) templ.Component {
 
 func toggleSubagents(sessionID string) templ.ComponentScript {
 	return templ.ComponentScript{
-		Name: `__templ_toggleSubagents_041f`,
-		Function: `function __templ_toggleSubagents_041f(sessionID){event.stopPropagation();
+		Name: `__templ_toggleSubagents_1bd5`,
+		Function: `function __templ_toggleSubagents_1bd5(sessionID){event.stopPropagation();
 	var parentRow = document.getElementById('session-row-' + sessionID);
 	if (!parentRow) return;
 	var btn = parentRow.querySelector('.subagent-toggle');
@@ -1339,7 +1339,7 @@ func toggleSubagents(sessionID string) templ.ComponentScript {
 		});
 		btn.querySelector('svg').style.transform = hidden ? 'rotate(90deg)' : '';
 	} else {
-		// Fetch subagent rows
+		// Fetch subagent rows (event implicit from onclick handler)
 		btn.querySelector('svg').style.transform = 'rotate(90deg)';
 		fetch('/dashboard/sessions/' + sessionID + '/subagents')
 			.then(function(res) { return res.text(); })
@@ -1347,11 +1347,14 @@ func toggleSubagents(sessionID string) templ.ComponentScript {
 				if (html.trim()) {
 					parentRow.insertAdjacentHTML('afterend', html);
 				}
+			})
+			.catch(function() {
+				btn.querySelector('svg').style.transform = '';
 			});
 	}
 }`,
-		Call:       templ.SafeScript(`__templ_toggleSubagents_041f`, sessionID),
-		CallInline: templ.SafeScriptInline(`__templ_toggleSubagents_041f`, sessionID),
+		Call:       templ.SafeScript(`__templ_toggleSubagents_1bd5`, sessionID),
+		CallInline: templ.SafeScriptInline(`__templ_toggleSubagents_1bd5`, sessionID),
 	}
 }
 
@@ -1387,7 +1390,7 @@ func CompletedSubagentRow(s views.SessionSummary, parentID string) templ.Compone
 		var templ_7745c5c3_Var79 string
 		templ_7745c5c3_Var79, templ_7745c5c3_Err = templ.JoinStringErrs(parentID)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 283, Col: 27}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 286, Col: 27}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var79))
 		if templ_7745c5c3_Err != nil {
@@ -1409,7 +1412,7 @@ func CompletedSubagentRow(s views.SessionSummary, parentID string) templ.Compone
 		var templ_7745c5c3_Var81 string
 		templ_7745c5c3_Var81, templ_7745c5c3_Err = templ.JoinStringErrs(views.SessionTitle(s, false))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 290, Col: 40}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 293, Col: 40}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var81))
 		if templ_7745c5c3_Err != nil {
@@ -1422,7 +1425,7 @@ func CompletedSubagentRow(s views.SessionSummary, parentID string) templ.Compone
 		var templ_7745c5c3_Var82 string
 		templ_7745c5c3_Var82, templ_7745c5c3_Err = templ.JoinStringErrs(views.TruncateID(s.ID))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 293, Col: 82}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 296, Col: 82}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var82))
 		if templ_7745c5c3_Err != nil {
@@ -1436,7 +1439,7 @@ func CompletedSubagentRow(s views.SessionSummary, parentID string) templ.Compone
 			var templ_7745c5c3_Var83 string
 			templ_7745c5c3_Var83, templ_7745c5c3_Err = templ.JoinStringErrs(views.ShortModelName(s.ActiveModel))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 296, Col: 41}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 299, Col: 41}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var83))
 			if templ_7745c5c3_Err != nil {
@@ -1450,7 +1453,7 @@ func CompletedSubagentRow(s views.SessionSummary, parentID string) templ.Compone
 		var templ_7745c5c3_Var84 string
 		templ_7745c5c3_Var84, templ_7745c5c3_Err = templ.JoinStringErrs(views.FormatTokens(s.TotalTokens))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 299, Col: 107}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 302, Col: 107}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var84))
 		if templ_7745c5c3_Err != nil {
@@ -1463,7 +1466,7 @@ func CompletedSubagentRow(s views.SessionSummary, parentID string) templ.Compone
 		var templ_7745c5c3_Var85 string
 		templ_7745c5c3_Var85, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", s.TurnCount))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 300, Col: 104}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 303, Col: 104}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var85))
 		if templ_7745c5c3_Err != nil {
@@ -1476,7 +1479,7 @@ func CompletedSubagentRow(s views.SessionSummary, parentID string) templ.Compone
 		var templ_7745c5c3_Var86 string
 		templ_7745c5c3_Var86, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", s.ToolCallCount))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 301, Col: 108}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 304, Col: 108}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var86))
 		if templ_7745c5c3_Err != nil {
@@ -1489,7 +1492,7 @@ func CompletedSubagentRow(s views.SessionSummary, parentID string) templ.Compone
 		var templ_7745c5c3_Var87 string
 		templ_7745c5c3_Var87, templ_7745c5c3_Err = templ.JoinStringErrs(s.Duration)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 302, Col: 102}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 305, Col: 102}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var87))
 		if templ_7745c5c3_Err != nil {
@@ -1502,7 +1505,7 @@ func CompletedSubagentRow(s views.SessionSummary, parentID string) templ.Compone
 		var templ_7745c5c3_Var88 string
 		templ_7745c5c3_Var88, templ_7745c5c3_Err = templ.JoinStringErrs(s.WorkingDir)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 303, Col: 91}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 306, Col: 91}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var88))
 		if templ_7745c5c3_Err != nil {
@@ -1515,7 +1518,7 @@ func CompletedSubagentRow(s views.SessionSummary, parentID string) templ.Compone
 		var templ_7745c5c3_Var89 string
 		templ_7745c5c3_Var89, templ_7745c5c3_Err = templ.JoinStringErrs(s.WorkingDir)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 303, Col: 108}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 306, Col: 108}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var89))
 		if templ_7745c5c3_Err != nil {
@@ -1528,7 +1531,7 @@ func CompletedSubagentRow(s views.SessionSummary, parentID string) templ.Compone
 		var templ_7745c5c3_Var90 string
 		templ_7745c5c3_Var90, templ_7745c5c3_Err = templ.JoinStringErrs(views.RelativeTime(s.EndedAt))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 304, Col: 121}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/session_card.templ`, Line: 307, Col: 121}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var90))
 		if templ_7745c5c3_Err != nil {
