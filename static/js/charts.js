@@ -112,32 +112,47 @@ function applyDefaultLog(chart, el) {
   }
 }
 
-// Plugin: draw dashed vertical divider lines between provider groups
+// Plugin: draw provider group labels and dashed vertical dividers
 var providerGroupPlugin = {
   id: 'providerGroupHeaders',
   afterDraw: function(chart) {
     var groups = chart.options.plugins.providerGroupHeaders &&
                  chart.options.plugins.providerGroupHeaders.groups;
-    if (!groups || groups.length < 2) return;
+    if (!groups || !groups.length) return;
     var ctx = chart.ctx;
     var xAxis = chart.scales.x;
     var chartArea = chart.chartArea;
 
     ctx.save();
-    ctx.strokeStyle = 'rgba(156,163,175,0.4)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
 
-    // Draw a dashed vertical line between each pair of adjacent groups
-    for (var i = 0; i < groups.length - 1; i++) {
-      var endTick = groups[i].end;
-      var startTick = groups[i + 1].start;
-      var x = (xAxis.getPixelForTick(endTick) + xAxis.getPixelForTick(startTick)) / 2;
-      ctx.beginPath();
-      ctx.moveTo(x, chartArea.top);
-      ctx.lineTo(x, chartArea.bottom);
-      ctx.stroke();
+    // Draw dashed vertical dividers between groups
+    if (groups.length >= 2) {
+      ctx.strokeStyle = 'rgba(156,163,175,0.4)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      for (var i = 0; i < groups.length - 1; i++) {
+        var endTick = groups[i].end;
+        var startTick = groups[i + 1].start;
+        var x = (xAxis.getPixelForTick(endTick) + xAxis.getPixelForTick(startTick)) / 2;
+        ctx.beginPath();
+        ctx.moveTo(x, chartArea.top);
+        ctx.lineTo(x, chartArea.bottom);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
     }
+
+    // Draw provider labels below x-axis
+    ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    var y = chartArea.bottom + 38;
+    groups.forEach(function(g) {
+      var x0 = xAxis.getPixelForTick(g.start);
+      var x1 = xAxis.getPixelForTick(g.end);
+      ctx.fillStyle = g.provider === 'Codex' ? '#34d399' : '#fb923c';
+      ctx.fillText(g.provider, (x0 + x1) / 2, y);
+    });
 
     ctx.restore();
   }
@@ -167,7 +182,7 @@ function createTokensByModelChart(el, dataEl) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      layout: {},
+      layout: hasGroups ? { padding: { bottom: 25 } } : {},
       scales: {
         x: xOpts,
         y: {
