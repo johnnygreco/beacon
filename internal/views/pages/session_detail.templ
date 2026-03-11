@@ -183,25 +183,9 @@ func multiSeriesChartData(data views.MultiSeriesChart) any {
 }
 
 func tokensByModelData(models []views.ModelTokens) any {
-	labels := []string{"Input", "Output", "Cache Read"}
-	multiProvider := len(models) > 1 && func() bool {
-		first := models[0].Provider
-		for _, m := range models[1:] {
-			if m.Provider != first {
-				return true
-			}
-		}
-		return false
-	}()
-	datasets := make([]map[string]any, len(models))
-	for i, m := range models {
-		label := views.ShortModelName(m.Model)
-		if multiProvider && m.Provider != "" {
-			label = views.ProviderShort(m.Provider) + " · " + label
-		}
-		datasets[i] = map[string]any{"label": label, "data": []int64{m.Input, m.Output, m.CacheRead}}
-	}
-	return map[string]any{"labels": labels, "datasets": datasets}
+	// Session detail uses the same grouping logic as the dashboard.
+	// This is a per-model chart with x-axis = model names, datasets = Input/Output/Cache.
+	return tokensByModelChartData(models)
 }
 
 func providerBadgeClasses(provider string) string {

@@ -478,7 +478,7 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 // QuerySessionConversation returns the conversation trace for a session.
 func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]views.ChatTurn, []views.TurnDetail) {
 	traceRows, err := db.QueryContext(ctx,
-		`SELECT e.event_uid, e.event_kind, COALESCE(e.actor_role, ''),
+		`SELECT e.event_uid, e.event_kind, COALESCE(e.payload_type, ''), COALESCE(e.actor_role, ''),
 		        COALESCE(e.text_content, ''), COALESCE(e.text_preview, ''),
 		        COALESCE(e.tool_name, ''), COALESCE(e.tool_use_id, ''), COALESCE(e.model, ''),
 		        e.input_tokens + e.output_tokens, e.duration_ms, e.timestamp, turn_seq,
@@ -499,7 +499,7 @@ func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]vie
 	for traceRows.Next() {
 		var es views.EventSummary
 		var turnSeq int
-		if err := traceRows.Scan(&es.EventUID, &es.EventKind, &es.ActorRole,
+		if err := traceRows.Scan(&es.EventUID, &es.EventKind, &es.PayloadType, &es.ActorRole,
 			&es.TextContent, &es.TextPreview,
 			&es.ToolName, &es.ToolUseID, &es.Model, &es.Tokens, &es.DurationMs, &es.Timestamp, &turnSeq,
 			&es.InputPreview, &es.OutputPreview, &es.InputJSON); err != nil {

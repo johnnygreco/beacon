@@ -48,6 +48,11 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 
 	var events []NormalizedEvent
 
+	// Extract parent session ID from forked_from_id (Codex subagent linking)
+	if forkedFrom := jsonStr(payload, "forked_from_id"); forkedFrom != "" {
+		base.ParentSessionID = forkedFrom
+	}
+
 	switch eventType {
 	case "session_meta":
 		evt := base
@@ -108,6 +113,10 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ToolInput = jsonStr(payload, "arguments")
 			evt.ToolUseID = jsonStr(payload, "call_id")
 			evt.TextContent = evt.ToolName
+			// Map spawn_agent to Agent for UI subagent dispatch rendering
+			if evt.ToolName == "spawn_agent" {
+				evt.ToolName = "Agent"
+			}
 			events = append(events, evt)
 
 		case "function_call_output":
@@ -119,6 +128,14 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ToolOutput = jsonStr(payload, "output")
 			evt.ToolUseID = jsonStr(payload, "call_id")
 			evt.TextContent = jsonStr(payload, "output")
+			// For spawn_agent results, reformat output so agentID() can extract
+			// the session ID. Codex output: {"agent_id":"xxx","nickname":"yyy"}
+			if evt.ToolName == "spawn_agent" || evt.ToolName == "" {
+				if aid := extractCodexAgentID(evt.ToolOutput); aid != "" {
+					evt.ToolName = "Agent"
+					evt.TextContent = "agentId: " + aid
+				}
+			}
 			events = append(events, evt)
 
 		case "function_call_output_summary":
@@ -165,6 +182,13 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 					if sm, ok := s.(map[string]any); ok {
 						evt.TextContent += jsonStr(sm, "text")
 					}
+				}
+			}
+			// Codex reasoning blocks often have encrypted_content with empty summary.
+			// Mark as encrypted so the UI can show appropriate messaging.
+			if evt.TextContent == "" {
+				if _, hasEncrypted := payload["encrypted_content"]; hasEncrypted {
+					evt.PayloadType = "encrypted"
 				}
 			}
 			events = append(events, evt)
@@ -304,4 +328,20 @@ func isHex(s string) bool {
 		}
 	}
 	return len(s) > 0
+}
+
+// extractCodexAgentID extracts agent_id from Codex spawn_agent output JSON.
+// Output format: {"agent_id":"<uuid>","nickname":"<name>"}
+func extractCodexAgentID(output string) string {
+	if output == "" {
+		return ""
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(output), &result); err != nil {
+		return ""
+	}
+	if aid, ok := result["agent_id"].(string); ok && aid != "" {
+		return aid
+	}
+	return ""
 }

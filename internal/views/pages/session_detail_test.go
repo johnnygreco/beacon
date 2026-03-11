@@ -74,8 +74,8 @@ func TestMultiSeriesChartData_Empty(t *testing.T) {
 
 func TestTokensByModelData(t *testing.T) {
 	models := []views.ModelTokens{
-		{Model: "claude-sonnet", Provider: "anthropic", Input: 100, Output: 200, CacheRead: 50},
-		{Model: "gpt-4o", Provider: "openai", Input: 30, Output: 40, CacheRead: 10},
+		{Model: "claude-sonnet", Provider: "anthropic", Input: 100, Output: 200, CacheRead: 50, Total: 300},
+		{Model: "gpt-4o", Provider: "openai", Input: 30, Output: 40, CacheRead: 10, Total: 70},
 	}
 
 	result := tokensByModelData(models)
@@ -89,36 +89,31 @@ func TestTokensByModelData(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	// Should have labels: ["Input", "Output", "Cache Read"]
+	// Now uses same format as dashboard: labels = model names, datasets = Input/Output/Cache
 	var labels []string
 	if err := json.Unmarshal(parsed["labels"], &labels); err != nil {
 		t.Fatalf("unmarshal labels: %v", err)
 	}
+	// Multi-provider with spacer: ["Claude Code · sonnet", "", "Codex · gpt-4o"]
 	if len(labels) != 3 {
-		t.Fatalf("expected 3 labels, got %d", len(labels))
+		t.Fatalf("expected 3 labels (2 models + 1 spacer), got %d: %v", len(labels), labels)
 	}
-	if labels[0] != "Input" || labels[1] != "Output" || labels[2] != "Cache Read" {
-		t.Errorf("unexpected labels: %v", labels)
+	// Anthropic has higher total (300) so it comes first
+	if labels[0] != "Claude Code · sonnet" {
+		t.Errorf("expected first label 'Claude Code · sonnet', got %q", labels[0])
+	}
+	if labels[1] != "" {
+		t.Errorf("expected spacer label '', got %q", labels[1])
+	}
+	if labels[2] != "Codex · gpt-4o" {
+		t.Errorf("expected third label 'Codex · gpt-4o', got %q", labels[2])
 	}
 
-	// Should have datasets with provider prefix (multi-provider)
 	var datasets []map[string]json.RawMessage
 	if err := json.Unmarshal(parsed["datasets"], &datasets); err != nil {
 		t.Fatalf("unmarshal datasets: %v", err)
 	}
-	if len(datasets) != 2 {
-		t.Fatalf("expected 2 datasets, got %d", len(datasets))
-	}
-	if _, ok := datasets[0]["label"]; !ok {
-		t.Error("expected 'label' key in dataset")
-	}
-	if _, ok := datasets[0]["data"]; !ok {
-		t.Error("expected 'data' key in dataset")
-	}
-	// Verify provider prefix in labels
-	var label0 string
-	json.Unmarshal(datasets[0]["label"], &label0)
-	if label0 != "Claude Code · sonnet" {
-		t.Errorf("expected 'Claude Code · sonnet', got %q", label0)
+	if len(datasets) != 3 {
+		t.Fatalf("expected 3 datasets (Input/Output/Cache), got %d", len(datasets))
 	}
 }

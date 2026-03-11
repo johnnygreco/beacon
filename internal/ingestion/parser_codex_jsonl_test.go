@@ -934,3 +934,121 @@ func TestParseCodexJSONL_FunctionCallOutputSummary(t *testing.T) {
 		t.Errorf("expected tool_use_id=call_sum_1, got %q", evt.ToolUseID)
 	}
 }
+
+func TestParseCodexJSONL_EncryptedReasoning(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "response_item",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:00:05Z",
+		"payload": map[string]any{
+			"type":              "reasoning",
+			"summary":           []map[string]any{},
+			"content":           nil,
+			"encrypted_content": "gAAAAABpscDl...",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 6, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.EventKind != "reasoning" {
+		t.Errorf("expected event_kind=reasoning, got %q", evt.EventKind)
+	}
+	if evt.PayloadType != "encrypted" {
+		t.Errorf("expected payload_type=encrypted for encrypted reasoning, got %q", evt.PayloadType)
+	}
+	if evt.TextContent != "" {
+		t.Errorf("expected empty text_content for encrypted reasoning, got %q", evt.TextContent)
+	}
+}
+
+func TestParseCodexJSONL_ForkedFromID(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "session_meta",
+		"session_id": "codex-child-1",
+		"timestamp":  "2025-06-01T10:00:00Z",
+		"payload": map[string]any{
+			"id":             "codex-child-1",
+			"forked_from_id": "codex-parent-1",
+			"agent_role":     "explorer",
+			"agent_nickname": "Raman",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.ParentSessionID != "codex-parent-1" {
+		t.Errorf("expected parent_session_id=codex-parent-1, got %q", evt.ParentSessionID)
+	}
+}
+
+func TestParseCodexJSONL_SpawnAgent(t *testing.T) {
+	// spawn_agent should be mapped to Agent tool name
+	line := toJSONL(t, map[string]any{
+		"type":       "response_item",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:00:10Z",
+		"payload": map[string]any{
+			"type":      "function_call",
+			"name":      "spawn_agent",
+			"arguments": `{"agent_type":"explorer","message":"Review the codebase"}`,
+			"call_id":   "call_spawn_1",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 20, 2000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.ToolName != "Agent" {
+		t.Errorf("expected tool_name=Agent for spawn_agent, got %q", evt.ToolName)
+	}
+}
+
+func TestParseCodexJSONL_SpawnAgentOutput(t *testing.T) {
+	// spawn_agent output should have reformatted text with agentId
+	line := toJSONL(t, map[string]any{
+		"type":       "response_item",
+		"session_id": "codex-sess-1",
+		"timestamp":  "2025-06-01T10:00:11Z",
+		"payload": map[string]any{
+			"type":    "function_call_output",
+			"output":  `{"agent_id":"019cdec0-8edd-7013-bdad-7df9b2d917ef","nickname":"Raman"}`,
+			"call_id": "call_spawn_1",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 21, 2100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.ToolName != "Agent" {
+		t.Errorf("expected tool_name=Agent for spawn_agent output, got %q", evt.ToolName)
+	}
+	if evt.TextContent != "agentId: 019cdec0-8edd-7013-bdad-7df9b2d917ef" {
+		t.Errorf("expected reformatted agentId text, got %q", evt.TextContent)
+	}
+}

@@ -325,20 +325,42 @@ templ Dashboard(data views.DashboardData) {
 }
 
 func dashboardTokensByModelData(models []views.ModelTokens) any {
-	// Check if there are models from multiple providers
-	multiProvider := hasMultipleProviders(models)
-	labels := make([]string, len(models))
-	inputData := make([]int64, len(models))
-	outputData := make([]int64, len(models))
-	cacheData := make([]int64, len(models))
-	for i, m := range models {
-		labels[i] = views.ShortModelName(m.Model)
-		if multiProvider && m.Provider != "" {
-			labels[i] = views.ProviderShort(m.Provider) + " · " + labels[i]
+	return tokensByModelChartData(models)
+}
+
+// tokensByModelChartData builds Chart.js data with models grouped by provider.
+// When multiple providers exist, a spacer bar is inserted between groups
+// and bars labels include the provider prefix.
+func tokensByModelChartData(models []views.ModelTokens) any {
+	sorted := views.SortModelsByProvider(models)
+	multiProvider := hasMultipleProviders(sorted)
+
+	var labels []string
+	var inputData, outputData, cacheData []int64
+
+	lastProvider := ""
+	for _, m := range sorted {
+		p := m.Provider
+		if p == "" {
+			p = "unknown"
 		}
-		inputData[i] = m.Input
-		outputData[i] = m.Output
-		cacheData[i] = m.CacheRead
+		// Insert spacer between provider groups
+		if multiProvider && lastProvider != "" && p != lastProvider {
+			labels = append(labels, "")
+			inputData = append(inputData, 0)
+			outputData = append(outputData, 0)
+			cacheData = append(cacheData, 0)
+		}
+		lastProvider = p
+
+		label := views.ShortModelName(m.Model)
+		if multiProvider && m.Provider != "" {
+			label = views.ProviderShort(m.Provider) + " · " + label
+		}
+		labels = append(labels, label)
+		inputData = append(inputData, m.Input)
+		outputData = append(outputData, m.Output)
+		cacheData = append(cacheData, m.CacheRead)
 	}
 	return map[string]any{
 		"labels": labels,

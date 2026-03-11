@@ -5,6 +5,7 @@ package views
 import (
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 	"time"
 )
@@ -232,6 +233,43 @@ func projectName(dir string) string {
 	return path.Base(dir)
 }
 
+// SortModelsByProvider groups models by provider, placing the provider with the
+// most total tokens first within each group. Returns a stable ordering.
+func SortModelsByProvider(models []ModelTokens) []ModelTokens {
+	if len(models) <= 1 {
+		return models
+	}
+	// Group by provider
+	groups := make(map[string][]ModelTokens)
+	var providerOrder []string
+	providerTotal := make(map[string]int64)
+	for _, m := range models {
+		p := m.Provider
+		if p == "" {
+			p = "unknown"
+		}
+		if _, seen := groups[p]; !seen {
+			providerOrder = append(providerOrder, p)
+		}
+		groups[p] = append(groups[p], m)
+		providerTotal[p] += m.Total
+	}
+	// Sort providers by total tokens descending
+	sort.Slice(providerOrder, func(i, j int) bool {
+		return providerTotal[providerOrder[i]] > providerTotal[providerOrder[j]]
+	})
+	// Flatten: models grouped by provider, each group sorted by total desc
+	var result []ModelTokens
+	for _, p := range providerOrder {
+		g := groups[p]
+		sort.Slice(g, func(i, j int) bool {
+			return g[i].Total > g[j].Total
+		})
+		result = append(result, g...)
+	}
+	return result
+}
+
 // FormatTime formats a time in 12-hour clock with numeric date (e.g. "3/7/2026 3:04 PM").
 func FormatTime(t time.Time) string {
 	if t.IsZero() {
@@ -302,6 +340,7 @@ type ActivityItem struct {
 type EventSummary struct {
 	EventUID      string
 	EventKind     string // message, tool_call, tool_result, reasoning, etc.
+	PayloadType   string // sub-type (e.g. "encrypted" for encrypted reasoning)
 	ActorRole     string
 	TextContent   string
 	TextPreview   string
@@ -394,7 +433,9 @@ type ToolCallParams struct {
 	Pattern     string `json:"pattern"`
 	Path        string `json:"path"`
 	// Agent tool fields
-	Prompt string `json:"prompt"`
+	Prompt    string `json:"prompt"`
+	Message   string `json:"message"`    // Codex spawn_agent uses "message" instead of "prompt"
+	AgentType string `json:"agent_type"` // Codex agent type (e.g. "explorer")
 }
 
 type ToolStatEntry struct {

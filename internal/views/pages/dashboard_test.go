@@ -19,12 +19,23 @@ func TestDashboardTokensByModelData(t *testing.T) {
 	}
 
 	labels, ok := m["labels"].([]string)
-	if !ok || len(labels) != 2 {
-		t.Fatal("expected 2 labels")
+	if !ok {
+		t.Fatal("expected []string labels")
 	}
-	// Multi-provider: should have provider prefix
-	if labels[0] != "Claude Code · opus-4-6" || labels[1] != "Codex · gpt-5.4" {
-		t.Errorf("unexpected labels: %v", labels)
+	// Multi-provider: should have provider prefix and spacer between groups.
+	// OpenAI has higher total (1500) so it comes first.
+	// Expected: ["Codex · gpt-5.4", "", "Claude Code · opus-4-6"]
+	if len(labels) != 3 {
+		t.Fatalf("expected 3 labels (2 models + 1 spacer), got %d: %v", len(labels), labels)
+	}
+	if labels[0] != "Codex · gpt-5.4" {
+		t.Errorf("expected first label 'Codex · gpt-5.4', got %q", labels[0])
+	}
+	if labels[1] != "" {
+		t.Errorf("expected spacer label '', got %q", labels[1])
+	}
+	if labels[2] != "Claude Code · opus-4-6" {
+		t.Errorf("expected third label 'Claude Code · opus-4-6', got %q", labels[2])
 	}
 
 	datasets, ok := m["datasets"].([]map[string]any)
@@ -52,7 +63,7 @@ func TestDashboardTokensByModelData_SingleProvider(t *testing.T) {
 	if !ok || len(labels) != 2 {
 		t.Fatal("expected 2 labels")
 	}
-	// Single provider: no prefix
+	// Single provider: no prefix, no spacer. Sorted by total desc.
 	if labels[0] != "opus-4-6" || labels[1] != "haiku-4-5" {
 		t.Errorf("unexpected labels: %v", labels)
 	}
