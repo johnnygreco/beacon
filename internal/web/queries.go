@@ -171,6 +171,7 @@ const activitySummaryExpr = `CASE
 		            WHEN event_kind = 'message' AND actor_role = 'assistant' AND COALESCE(NULLIF(text_preview, ''), '') != '' THEN text_preview
 		            WHEN event_kind = 'message' THEN COALESCE(NULLIF(actor_role, ''), 'message') || ' message'
 		            WHEN event_kind = 'error' THEN COALESCE(NULLIF(error_code, ''), 'error') || ': ' || COALESCE(NULLIF(error_message, ''), NULLIF(text_preview, ''), 'unknown error')
+		            WHEN event_kind = 'tool_error' THEN 'Tool error: ' || COALESCE(NULLIF(tool_name, ''), 'unknown') || ' — ' || COALESCE(NULLIF(error_message, ''), NULLIF(text_preview, ''), 'failed')
 		            WHEN event_kind = 'session_meta' THEN 'Session started'
 		            ELSE event_kind
 		        END`
@@ -277,7 +278,7 @@ func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *t
 		}
 		kindFilter = "(" + strings.Join(quoted, ",") + ")"
 	} else {
-		kindFilter = "('message', 'tool_call', 'error', 'session_meta')"
+		kindFilter = "('message', 'tool_call', 'error', 'tool_error', 'session_meta')"
 	}
 
 	query := `SELECT event_uid,
@@ -746,6 +747,15 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 				eCopy := e
 				ct.Blocks = append(ct.Blocks, views.ChatBlock{
 					Kind:    views.ChatBlockError,
+					Message: &eCopy,
+				})
+
+			case "tool_error":
+				flushReasoning()
+				flushToolChain()
+				eCopy := e
+				ct.Blocks = append(ct.Blocks, views.ChatBlock{
+					Kind:    views.ChatBlockToolError,
 					Message: &eCopy,
 				})
 

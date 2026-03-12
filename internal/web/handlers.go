@@ -281,10 +281,13 @@ func (h *Handlers) DashboardActivity(w http.ResponseWriter, r *http.Request) {
 		since = &t
 	}
 
-	eventKind := r.URL.Query().Get("event_kind")
 	var eventKinds []string
-	if eventKind != "" {
-		eventKinds = []string{eventKind}
+	for _, ek := range r.URL.Query()["event_kind"] {
+		for _, k := range strings.Split(ek, ",") {
+			if k = strings.TrimSpace(k); k != "" {
+				eventKinds = append(eventKinds, k)
+			}
+		}
 	}
 
 	items, _ := QueryRecentActivityFilteredByKind(r.Context(), h.db, since, 0, activityTimelineLimit, eventKinds)

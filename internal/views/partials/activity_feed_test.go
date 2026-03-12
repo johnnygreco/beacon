@@ -10,6 +10,7 @@ func TestActivityDotColor(t *testing.T) {
 		{"message", "bg-blue-400"},
 		{"tool_call", "bg-yellow-400"},
 		{"error", "bg-red-400"},
+		{"tool_error", "bg-orange-400"},
 		{"session_meta", "bg-teal-400"},
 		{"unknown", "bg-gray-400"},
 		{"", "bg-gray-400"},

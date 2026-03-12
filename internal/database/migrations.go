@@ -124,7 +124,7 @@ func (db *DB) migrate() error {
 			COALESCE(SUM(input_tokens + output_tokens), 0) AS total_tokens,
 			COUNT(CASE WHEN event_kind = 'tool_call' THEN 1 END) AS tool_call_count,
 			COUNT(CASE WHEN event_kind = 'tool_call' AND tool_name LIKE 'mcp__%' THEN 1 END) AS mcp_call_count,
-			COUNT(CASE WHEN event_kind = 'error' THEN 1 END) AS error_count,
+			COUNT(CASE WHEN event_kind IN ('error', 'tool_error') THEN 1 END) AS error_count,
 			COALESCE(MAX(model), '') AS last_model,
 			COALESCE(MAX(cwd), '') AS working_dir,
 			COALESCE(MAX(parent_session_id), '') AS parent_session_id,

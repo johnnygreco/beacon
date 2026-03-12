@@ -265,6 +265,8 @@ func activityDotColor(eventType string) string {
 		return "bg-yellow-400"
 	case "error":
 		return "bg-red-400"
+	case "tool_error":
+		return "bg-orange-400"
 	case "session_meta":
 		return "bg-teal-400"
 	default:
@@ -279,7 +281,9 @@ func activityLabel(eventType string) string {
 	case "tool_call":
 		return "tool"
 	case "error":
-		return "error"
+		return "api error"
+	case "tool_error":
+		return "tool error"
 	case "session_meta":
 		return "session"
 	default:
@@ -295,6 +299,8 @@ func activityBadgeStyle(eventType string) string {
 		return "bg-yellow-500/15 text-yellow-400"
 	case "error":
 		return "bg-red-500/15 text-red-400"
+	case "tool_error":
+		return "bg-orange-500/15 text-orange-400"
 	case "session_meta":
 		return "bg-teal-500/15 text-teal-400"
 	default:

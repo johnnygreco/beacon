@@ -137,6 +137,11 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 					evt.TextContent = "agentId: " + aid
 				}
 			}
+			if isCodexToolError(evt.ToolOutput) {
+				evt.EventKind = "tool_error"
+				evt.ErrorCode = "tool_execution_failed"
+				evt.ErrorMessage = evt.ToolOutput
+			}
 			events = append(events, evt)
 
 		case "function_call_output_summary":
@@ -172,6 +177,11 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ToolOutput = jsonStr(payload, "output")
 			evt.ToolUseID = jsonStr(payload, "call_id")
 			evt.TextContent = jsonStr(payload, "output")
+			if isCodexToolError(evt.ToolOutput) {
+				evt.EventKind = "tool_error"
+				evt.ErrorCode = "tool_execution_failed"
+				evt.ErrorMessage = evt.ToolOutput
+			}
 			events = append(events, evt)
 
 		case "reasoning":
@@ -314,6 +324,19 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 	}
 
 	return events, nil
+}
+
+// isCodexToolError detects tool execution failures in Codex output.
+// Codex embeds exit code info as "Process exited with code N" in tool output.
+func isCodexToolError(output string) bool {
+	const prefix = "Process exited with code "
+	idx := strings.Index(output, prefix)
+	if idx < 0 {
+		return false
+	}
+	after := output[idx+len(prefix):]
+	// Non-zero exit code indicates failure
+	return len(after) > 0 && after[0] != '0'
 }
 
 func codexUsageTotalKey(usage map[string]any) string {
