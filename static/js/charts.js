@@ -195,8 +195,18 @@ function setupModelFilters(chartName, dataEl) {
   try { fullData = JSON.parse(dataEl.textContent); } catch(e) { return; }
   if (!fullData.labels || fullData.labels.length <= 1) return;
 
+  // Clean up previous dropdown if re-initialized
+  var existing = document.getElementById(chartName + '-model-dropdown');
+  if (existing) {
+    if (chart._modelFilterCloseHandler) {
+      document.removeEventListener('click', chart._modelFilterCloseHandler);
+    }
+    existing.remove();
+  }
+
   // Store full data and build provider map
   chart._fullModelData = fullData;
+  chart._hadMultipleProviders = fullData.providerGroups && fullData.providerGroups.length > 1;
   var providerMap = {};
   fullData.labels.forEach(function(label, i) {
     providerMap[label] = getModelProvider(fullData, i);
@@ -227,7 +237,21 @@ function setupModelFilters(chartName, dataEl) {
   var trigger = document.createElement('button');
   trigger.type = 'button';
   trigger.className = 'model-dropdown-trigger';
-  trigger.innerHTML = '<span class="model-dropdown-label"></span><svg class="model-dropdown-chevron" width="10" height="10" viewBox="0 0 10 10"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>';
+  var triggerLabel = document.createElement('span');
+  triggerLabel.className = 'model-dropdown-label';
+  trigger.appendChild(triggerLabel);
+  var chevronSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  chevronSvg.setAttribute('class', 'model-dropdown-chevron');
+  chevronSvg.setAttribute('width', '10');
+  chevronSvg.setAttribute('height', '10');
+  chevronSvg.setAttribute('viewBox', '0 0 10 10');
+  var chevronPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  chevronPath.setAttribute('d', 'M2 4l3 3 3-3');
+  chevronPath.setAttribute('stroke', 'currentColor');
+  chevronPath.setAttribute('stroke-width', '1.5');
+  chevronPath.setAttribute('fill', 'none');
+  chevronSvg.appendChild(chevronPath);
+  trigger.appendChild(chevronSvg);
   wrapper.appendChild(trigger);
 
   // Dropdown panel
@@ -237,7 +261,17 @@ function setupModelFilters(chartName, dataEl) {
   // "All" checkbox row
   var allRow = document.createElement('label');
   allRow.className = 'model-dropdown-item model-dropdown-all';
-  allRow.innerHTML = '<input type="checkbox" checked><span class="model-dropdown-dot" style="background:#60a5fa"></span><span>All Models</span>';
+  var allCb = document.createElement('input');
+  allCb.type = 'checkbox';
+  allCb.checked = true;
+  allRow.appendChild(allCb);
+  var allDot = document.createElement('span');
+  allDot.className = 'model-dropdown-dot';
+  allDot.style.background = '#60a5fa';
+  allRow.appendChild(allDot);
+  var allLabel = document.createElement('span');
+  allLabel.textContent = 'All Models';
+  allRow.appendChild(allLabel);
   panel.appendChild(allRow);
 
   var divider = document.createElement('div');
@@ -248,10 +282,10 @@ function setupModelFilters(chartName, dataEl) {
   var lastProv = '';
   fullData.labels.forEach(function(label) {
     var prov = providerMap[label] || '';
+    var pc = providerColors[prov] || { border: '#9ca3af' };
     if (prov !== lastProv && prov) {
       var groupHeader = document.createElement('div');
       groupHeader.className = 'model-dropdown-group';
-      var pc = providerColors[prov] || { border: '#9ca3af' };
       groupHeader.style.color = pc.border;
       groupHeader.textContent = prov;
       panel.appendChild(groupHeader);
@@ -259,10 +293,18 @@ function setupModelFilters(chartName, dataEl) {
     }
     var row = document.createElement('label');
     row.className = 'model-dropdown-item';
-    var pc = providerColors[prov] || { border: '#9ca3af' };
-    row.innerHTML = '<input type="checkbox" data-model="' + label + '" checked>' +
-      '<span class="model-dropdown-dot" style="background:' + pc.border + '"></span>' +
-      '<span>' + label + '</span>';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.dataset.model = label;
+    cb.checked = true;
+    row.appendChild(cb);
+    var dot = document.createElement('span');
+    dot.className = 'model-dropdown-dot';
+    dot.style.background = pc.border;
+    row.appendChild(dot);
+    var nameSpan = document.createElement('span');
+    nameSpan.textContent = label;
+    row.appendChild(nameSpan);
     panel.appendChild(row);
   });
 
@@ -283,13 +325,14 @@ function setupModelFilters(chartName, dataEl) {
     trigger.classList.toggle('open', !panel.classList.contains('hidden'));
   };
 
-  // Event: close on outside click
-  document.addEventListener('click', function(e) {
+  // Event: close on outside click (stored for cleanup on re-init)
+  chart._modelFilterCloseHandler = function(e) {
     if (!wrapper.contains(e.target)) {
       panel.classList.add('hidden');
       trigger.classList.remove('open');
     }
-  });
+  };
+  document.addEventListener('click', chart._modelFilterCloseHandler);
 
   // Event: "All" checkbox
   var allCheckbox = allRow.querySelector('input');
@@ -409,10 +452,11 @@ function rebuildModelChart(chartName) {
     ds.data = newDatasets[i].data;
   });
 
-  // Update provider group headers
+  // Update provider group headers — keep single-provider group visible
+  // if the original data had multiple providers (so user sees context)
   var pgh = chart.options.plugins.providerGroupHeaders;
   if (pgh) {
-    pgh.groups = newGroups.length > 1 ? newGroups : [];
+    pgh.groups = (newGroups.length > 1 || (newGroups.length === 1 && chart._hadMultipleProviders)) ? newGroups : [];
   }
 
   chart.update();
