@@ -225,6 +225,38 @@ th .sort-arrow.active {
   opacity: 1;
 }
 
+/* --- Model filter pills --- */
+.model-pill {
+  padding: 1px 8px;
+  font-size: 0.65rem;
+  border-radius: 9999px;
+  border: 1px solid #4b5563;
+  color: #6b7280;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+  line-height: 1.5;
+  background: transparent;
+}
+.model-pill:hover {
+  border-color: #9ca3af;
+  color: #9ca3af;
+}
+.model-pill.active {
+  opacity: 1;
+}
+.model-pill:not(.active) {
+  opacity: 0.5;
+}
+.model-pill:not(.active):hover {
+  opacity: 0.8;
+}
+.model-pill-all.active {
+  border-color: rgba(59, 130, 246, 0.4) !important;
+  background-color: rgba(59, 130, 246, 0.2) !important;
+  color: #60a5fa !important;
+}
+
 /* --- highlight.js overrides --- */
 .hljs {
   background: #0d1117 !important;

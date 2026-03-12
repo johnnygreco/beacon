@@ -176,6 +176,220 @@ var providerGroupPlugin = {
 
 Chart.register(providerGroupPlugin);
 
+// ---- Model filter system for tokens-by-model charts ----
+
+function getModelProvider(fullData, index) {
+  if (!fullData.providerGroups) return '';
+  for (var i = 0; i < fullData.providerGroups.length; i++) {
+    var g = fullData.providerGroups[i];
+    if (index >= g.start && index <= g.end) return g.provider;
+  }
+  return '';
+}
+
+function setupModelFilters(chartName, dataEl) {
+  var chart = window[chartName];
+  if (!chart || !dataEl) return;
+
+  var fullData;
+  try { fullData = JSON.parse(dataEl.textContent); } catch(e) { return; }
+  if (!fullData.labels || fullData.labels.length <= 1) return;
+
+  // Store full data and build provider map
+  chart._fullModelData = fullData;
+  var providerMap = {};
+  fullData.labels.forEach(function(label, i) {
+    providerMap[label] = getModelProvider(fullData, i);
+  });
+  chart._modelProviderMap = providerMap;
+
+  // Load saved hidden models from localStorage
+  var storageKey = 'beacon-model-hidden-' + chartName;
+  var savedHidden = [];
+  try { savedHidden = JSON.parse(localStorage.getItem(storageKey)) || []; } catch(e) {}
+  var validLabels = new Set(fullData.labels);
+  savedHidden = savedHidden.filter(function(l) { return validLabels.has(l); });
+
+  chart._activeModels = new Set(fullData.labels.filter(function(l) {
+    return savedHidden.indexOf(l) === -1;
+  }));
+
+  // Build filter UI
+  var canvasWrapper = chart.canvas.parentElement;
+  var containerCard = canvasWrapper.parentElement;
+  var headerDiv = containerCard.querySelector('.flex.items-center');
+
+  var filterDiv = document.createElement('div');
+  filterDiv.className = 'flex flex-wrap items-center gap-1.5 mb-2';
+  filterDiv.id = chartName + '-model-filters';
+
+  // "All" toggle
+  var allBtn = document.createElement('button');
+  allBtn.type = 'button';
+  allBtn.textContent = 'All';
+  allBtn.className = 'model-pill model-pill-all';
+  allBtn.onclick = function() {
+    var allActive = chart._activeModels.size === fullData.labels.length;
+    if (allActive) {
+      chart._activeModels.clear();
+    } else {
+      chart._activeModels = new Set(fullData.labels);
+    }
+    rebuildModelChart(chartName);
+    syncModelPills(chartName);
+    saveModelFilterState(chartName);
+  };
+  filterDiv.appendChild(allBtn);
+
+  // Separator
+  var sep = document.createElement('span');
+  sep.className = 'inline-block w-px h-4 bg-gray-600';
+  filterDiv.appendChild(sep);
+
+  // Per-model pills
+  fullData.labels.forEach(function(label) {
+    var pill = document.createElement('button');
+    pill.type = 'button';
+    pill.textContent = label;
+    pill.className = 'model-pill';
+    pill.dataset.model = label;
+    pill.dataset.provider = providerMap[label] || '';
+    pill.onclick = function() {
+      if (chart._activeModels.has(label)) {
+        chart._activeModels.delete(label);
+      } else {
+        chart._activeModels.add(label);
+      }
+      rebuildModelChart(chartName);
+      syncModelPills(chartName);
+      saveModelFilterState(chartName);
+    };
+    filterDiv.appendChild(pill);
+  });
+
+  headerDiv.after(filterDiv);
+  syncModelPills(chartName);
+
+  // If some models were previously hidden, rebuild chart
+  if (savedHidden.length > 0 && chart._activeModels.size < fullData.labels.length) {
+    rebuildModelChart(chartName);
+  }
+}
+
+function syncModelPills(chartName) {
+  var chart = window[chartName];
+  if (!chart || !chart._fullModelData) return;
+
+  var container = document.getElementById(chartName + '-model-filters');
+  if (!container) return;
+
+  var allActive = chart._activeModels.size === chart._fullModelData.labels.length;
+
+  // Update "All" button
+  var allBtn = container.querySelector('.model-pill-all');
+  if (allBtn) {
+    allBtn.className = 'model-pill model-pill-all' + (allActive ? ' active' : '');
+  }
+
+  // Update individual pills
+  container.querySelectorAll('.model-pill:not(.model-pill-all)').forEach(function(pill) {
+    var model = pill.dataset.model;
+    var provider = pill.dataset.provider;
+    var active = chart._activeModels.has(model);
+    var pc = providerColors[provider];
+
+    if (active) {
+      pill.classList.add('active');
+      if (pc) {
+        pill.style.borderColor = pc.border;
+        pill.style.backgroundColor = pc.bg;
+        pill.style.color = pc.border;
+      }
+    } else {
+      pill.classList.remove('active');
+      pill.style.borderColor = '';
+      pill.style.backgroundColor = '';
+      pill.style.color = '';
+    }
+  });
+}
+
+function rebuildModelChart(chartName) {
+  var chart = window[chartName];
+  if (!chart || !chart._fullModelData) return;
+
+  var fullData = chart._fullModelData;
+  var active = chart._activeModels;
+
+  var newLabels = [];
+  var newDatasets = fullData.datasets.map(function(ds) {
+    return { label: ds.label, data: [] };
+  });
+  var newGroups = [];
+  var lastProvider = '';
+  var groupStart = 0;
+
+  fullData.labels.forEach(function(label, i) {
+    if (!active.has(label)) return;
+
+    var provider = chart._modelProviderMap[label] || '';
+
+    if (lastProvider && provider !== lastProvider) {
+      newGroups.push({
+        provider: lastProvider,
+        start: groupStart,
+        end: newLabels.length - 1
+      });
+      groupStart = newLabels.length;
+    }
+    lastProvider = provider;
+
+    newLabels.push(label);
+    fullData.datasets.forEach(function(ds, j) {
+      newDatasets[j].data.push(ds.data[i]);
+    });
+  });
+
+  // Close last group
+  if (lastProvider && newLabels.length > 0) {
+    newGroups.push({
+      provider: lastProvider,
+      start: groupStart,
+      end: newLabels.length - 1
+    });
+  }
+
+  // Update chart data
+  chart.data.labels = newLabels;
+  chart.data.datasets.forEach(function(ds, i) {
+    ds.data = newDatasets[i].data;
+  });
+
+  // Update provider group headers
+  var pgh = chart.options.plugins.providerGroupHeaders;
+  if (pgh) {
+    pgh.groups = newGroups.length > 1 ? newGroups : [];
+  }
+
+  chart.update();
+}
+
+function saveModelFilterState(chartName) {
+  var chart = window[chartName];
+  if (!chart || !chart._fullModelData) return;
+
+  var storageKey = 'beacon-model-hidden-' + chartName;
+  var hidden = chart._fullModelData.labels.filter(function(l) {
+    return !chart._activeModels.has(l);
+  });
+
+  if (hidden.length === 0) {
+    localStorage.removeItem(storageKey);
+  } else {
+    localStorage.setItem(storageKey, JSON.stringify(hidden));
+  }
+}
+
 // Create a grouped bar chart for tokens by model
 function createTokensByModelChart(el, dataEl) {
   var modelData = JSON.parse(dataEl.textContent);
@@ -192,6 +406,11 @@ function createTokensByModelChart(el, dataEl) {
   });
   var hasGroups = modelData.providerGroups && modelData.providerGroups.length > 0;
   var xOpts = Object.assign({}, categoryScaleOptions);
+  if (modelData.labels.length > 4) {
+    xOpts.ticks = Object.assign({}, xOpts.ticks || {}, {
+      maxRotation: 45, minRotation: 0, font: { size: 10 }
+    });
+  }
   return new Chart(el, {
     type: 'bar',
     data: { labels: modelData.labels, datasets: datasets },
@@ -244,6 +463,7 @@ if (dashboardByModelEl) {
         window.dashboardTokensByModelChart.update();
       }
     } catch(e) {}
+    setupModelFilters('dashboardTokensByModelChart', dashboardModelDataEl);
   }
 }
 
@@ -270,5 +490,6 @@ if (sessionTokensByModelEl) {
         window.sessionTokensByModelChart.update();
       }
     } catch(e) {}
+    setupModelFilters('sessionTokensByModelChart', sessionModelDataEl);
   }
 }
