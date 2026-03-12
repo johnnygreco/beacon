@@ -39,6 +39,7 @@ vendor/
 
 # Agent tools
 .claude/
+.mcp.json
 .ralphkit/
 .kraang/
 task*.md
