@@ -10,8 +10,22 @@ Keep a signal on your long-running AI coding agents. Beacon gives you a live das
 - **Session replay** — review full conversations with turn timelines and tool call details
 - **Full-text search** — find anything across all your agent conversations
 - **Multi-agent support** — monitors Claude Code and OpenAI Codex sessions
-- **Token & cost tracking** — input, output, and cache token counts per session
+- **Token tracking** — input, output, and cache token counts per session
 - **MCP server** — give your agents access to search and review their own history
+
+## What it looks like
+
+<table>
+  <tr>
+    <td><img src="assets/beacon-screenshot.png" alt="Beacon dashboard" /></td>
+    <td><img src="assets/session-screenshot.png" alt="Session view" /></td>
+  </tr>
+</table>
+
+- Token usage charts and active sessions at a glance
+- Live activity timeline streams tool calls and agent output as they happen
+- Subagent sessions are tracked alongside their parent
+- Click into any session to browse the full chat history, tool calls, and outputs
 
 ## Install
 
