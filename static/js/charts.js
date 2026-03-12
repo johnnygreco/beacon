@@ -214,61 +214,113 @@ function setupModelFilters(chartName, dataEl) {
     return savedHidden.indexOf(l) === -1;
   }));
 
-  // Build filter UI
+  // Build dropdown UI
   var canvasWrapper = chart.canvas.parentElement;
   var containerCard = canvasWrapper.parentElement;
   var headerDiv = containerCard.querySelector('.flex.items-center');
 
-  var filterDiv = document.createElement('div');
-  filterDiv.className = 'flex flex-wrap items-center gap-1.5 mb-2';
-  filterDiv.id = chartName + '-model-filters';
+  // Insert dropdown trigger into the header bar (between title and log toggle)
+  var wrapper = document.createElement('div');
+  wrapper.className = 'model-dropdown relative ml-auto mr-2';
+  wrapper.id = chartName + '-model-dropdown';
 
-  // "All" toggle
-  var allBtn = document.createElement('button');
-  allBtn.type = 'button';
-  allBtn.textContent = 'All';
-  allBtn.className = 'model-pill model-pill-all';
-  allBtn.onclick = function() {
-    var allActive = chart._activeModels.size === fullData.labels.length;
-    if (allActive) {
-      chart._activeModels.clear();
-    } else {
-      chart._activeModels = new Set(fullData.labels);
-    }
-    rebuildModelChart(chartName);
-    syncModelPills(chartName);
-    saveModelFilterState(chartName);
-  };
-  filterDiv.appendChild(allBtn);
+  var trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'model-dropdown-trigger';
+  trigger.innerHTML = '<span class="model-dropdown-label"></span><svg class="model-dropdown-chevron" width="10" height="10" viewBox="0 0 10 10"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>';
+  wrapper.appendChild(trigger);
 
-  // Separator
-  var sep = document.createElement('span');
-  sep.className = 'inline-block w-px h-4 bg-gray-600';
-  filterDiv.appendChild(sep);
+  // Dropdown panel
+  var panel = document.createElement('div');
+  panel.className = 'model-dropdown-panel hidden';
 
-  // Per-model pills
+  // "All" checkbox row
+  var allRow = document.createElement('label');
+  allRow.className = 'model-dropdown-item model-dropdown-all';
+  allRow.innerHTML = '<input type="checkbox" checked><span class="model-dropdown-dot" style="background:#60a5fa"></span><span>All Models</span>';
+  panel.appendChild(allRow);
+
+  var divider = document.createElement('div');
+  divider.className = 'model-dropdown-divider';
+  panel.appendChild(divider);
+
+  // Group models by provider
+  var lastProv = '';
   fullData.labels.forEach(function(label) {
-    var pill = document.createElement('button');
-    pill.type = 'button';
-    pill.textContent = label;
-    pill.className = 'model-pill';
-    pill.dataset.model = label;
-    pill.dataset.provider = providerMap[label] || '';
-    pill.onclick = function() {
-      if (chart._activeModels.has(label)) {
-        chart._activeModels.delete(label);
-      } else {
-        chart._activeModels.add(label);
-      }
-      rebuildModelChart(chartName);
-      syncModelPills(chartName);
-      saveModelFilterState(chartName);
-    };
-    filterDiv.appendChild(pill);
+    var prov = providerMap[label] || '';
+    if (prov !== lastProv && prov) {
+      var groupHeader = document.createElement('div');
+      groupHeader.className = 'model-dropdown-group';
+      var pc = providerColors[prov] || { border: '#9ca3af' };
+      groupHeader.style.color = pc.border;
+      groupHeader.textContent = prov;
+      panel.appendChild(groupHeader);
+      lastProv = prov;
+    }
+    var row = document.createElement('label');
+    row.className = 'model-dropdown-item';
+    var pc = providerColors[prov] || { border: '#9ca3af' };
+    row.innerHTML = '<input type="checkbox" data-model="' + label + '" checked>' +
+      '<span class="model-dropdown-dot" style="background:' + pc.border + '"></span>' +
+      '<span>' + label + '</span>';
+    panel.appendChild(row);
   });
 
-  headerDiv.after(filterDiv);
-  syncModelPills(chartName);
+  wrapper.appendChild(panel);
+
+  // Insert into header — before the log toggle button if present, else at end
+  var logBtn = headerDiv.querySelector('.log-scale-toggle');
+  if (logBtn) {
+    headerDiv.insertBefore(wrapper, logBtn);
+  } else {
+    headerDiv.appendChild(wrapper);
+  }
+
+  // Event: toggle dropdown
+  trigger.onclick = function(e) {
+    e.stopPropagation();
+    panel.classList.toggle('hidden');
+    trigger.classList.toggle('open', !panel.classList.contains('hidden'));
+  };
+
+  // Event: close on outside click
+  document.addEventListener('click', function(e) {
+    if (!wrapper.contains(e.target)) {
+      panel.classList.add('hidden');
+      trigger.classList.remove('open');
+    }
+  });
+
+  // Event: "All" checkbox
+  var allCheckbox = allRow.querySelector('input');
+  allCheckbox.addEventListener('change', function() {
+    if (allCheckbox.checked) {
+      chart._activeModels = new Set(fullData.labels);
+    } else {
+      chart._activeModels.clear();
+    }
+    syncDropdownState(chartName);
+    rebuildModelChart(chartName);
+    saveModelFilterState(chartName);
+  });
+
+  // Event: individual model checkboxes
+  panel.querySelectorAll('input[data-model]').forEach(function(cb) {
+    cb.addEventListener('change', function() {
+      var model = cb.dataset.model;
+      if (cb.checked) {
+        chart._activeModels.add(model);
+      } else {
+        chart._activeModels.delete(model);
+      }
+      syncDropdownState(chartName);
+      rebuildModelChart(chartName);
+      saveModelFilterState(chartName);
+    });
+  });
+
+  // Initial sync
+  syncDropdownState(chartName);
 
   // If some models were previously hidden, rebuild chart
   if (savedHidden.length > 0 && chart._activeModels.size < fullData.labels.length) {
@@ -276,41 +328,33 @@ function setupModelFilters(chartName, dataEl) {
   }
 }
 
-function syncModelPills(chartName) {
+function syncDropdownState(chartName) {
   var chart = window[chartName];
   if (!chart || !chart._fullModelData) return;
 
-  var container = document.getElementById(chartName + '-model-filters');
-  if (!container) return;
+  var wrapper = document.getElementById(chartName + '-model-dropdown');
+  if (!wrapper) return;
 
-  var allActive = chart._activeModels.size === chart._fullModelData.labels.length;
+  var total = chart._fullModelData.labels.length;
+  var active = chart._activeModels.size;
+  var allActive = active === total;
 
-  // Update "All" button
-  var allBtn = container.querySelector('.model-pill-all');
-  if (allBtn) {
-    allBtn.className = 'model-pill model-pill-all' + (allActive ? ' active' : '');
+  // Update trigger label
+  var label = wrapper.querySelector('.model-dropdown-label');
+  if (label) {
+    label.textContent = allActive ? 'All Models' : 'Models (' + active + '/' + total + ')';
   }
 
-  // Update individual pills
-  container.querySelectorAll('.model-pill:not(.model-pill-all)').forEach(function(pill) {
-    var model = pill.dataset.model;
-    var provider = pill.dataset.provider;
-    var active = chart._activeModels.has(model);
-    var pc = providerColors[provider];
+  // Update "All" checkbox
+  var allCb = wrapper.querySelector('.model-dropdown-all input');
+  if (allCb) {
+    allCb.checked = allActive;
+    allCb.indeterminate = !allActive && active > 0;
+  }
 
-    if (active) {
-      pill.classList.add('active');
-      if (pc) {
-        pill.style.borderColor = pc.border;
-        pill.style.backgroundColor = pc.bg;
-        pill.style.color = pc.border;
-      }
-    } else {
-      pill.classList.remove('active');
-      pill.style.borderColor = '';
-      pill.style.backgroundColor = '';
-      pill.style.color = '';
-    }
+  // Update individual checkboxes
+  wrapper.querySelectorAll('input[data-model]').forEach(function(cb) {
+    cb.checked = chart._activeModels.has(cb.dataset.model);
   });
 }
 
