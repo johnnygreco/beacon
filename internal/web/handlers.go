@@ -290,7 +290,7 @@ func (h *Handlers) DashboardActivity(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	items, _ := QueryRecentActivityFilteredByKind(r.Context(), h.db, since, 0, activityTimelineLimit, eventKinds)
+	items := QueryRecentActivityFilteredByKind(r.Context(), h.db, since, eventKinds)
 
 	if err := partials.ActivityTimelineFull(items).Render(r.Context(), w); err != nil {
 		h.logger.Debug("render dashboard activity failed", "error", err)

@@ -414,7 +414,6 @@ type DashboardData struct {
 	TokensChart       MultiSeriesChart
 	TokensByModel     []ModelTokens
 	HasMoreSessions   bool
-	HasMoreActivity   bool
 }
 
 type SessionDetailData struct {

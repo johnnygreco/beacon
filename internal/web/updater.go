@@ -40,7 +40,7 @@ func (u *Updater) NotifyDashboard() {
 	defer cancel()
 
 	var activeSessions, completedSessions []views.SessionSummary
-	var hasMoreSessions, hasMoreActivity bool
+	var hasMoreSessions bool
 	var activity []views.ActivityItem
 	var tokensChart views.MultiSeriesChart
 	var tokensByModel []views.ModelTokens
@@ -53,7 +53,7 @@ func (u *Updater) NotifyDashboard() {
 	}()
 	go func() {
 		defer wg.Done()
-		activity, hasMoreActivity = QueryRecentActivity(ctx, u.db)
+		activity = QueryRecentActivity(ctx, u.db)
 	}()
 	go func() { defer wg.Done(); tokensChart = QueryTotalTokensTimeSeries(ctx, u.db) }()
 	go func() { defer wg.Done(); tokensByModel = QueryTokensByModelSummary(ctx, u.db) }()
@@ -67,7 +67,6 @@ func (u *Updater) NotifyDashboard() {
 		TokensChart:       tokensChart,
 		TokensByModel:     tokensByModel,
 		HasMoreSessions:   hasMoreSessions,
-		HasMoreActivity:   hasMoreActivity,
 	})
 
 	if u.broker.SubscriberCount() == 0 {
