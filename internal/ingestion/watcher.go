@@ -68,9 +68,12 @@ func (w *Watcher) Run(ctx context.Context) error {
 
 	// Backfill: process existing files from checkpoint
 	for _, src := range w.sources {
-		for _, f := range sourceFiles[src.Name] {
+		files := sourceFiles[src.Name]
+		w.logger.Info("backfill source", "name", src.Name, "files", len(files))
+		for _, f := range files {
 			w.processFile(ctx, src, f)
 		}
+		w.logger.Info("backfill source complete", "name", src.Name)
 	}
 
 	// Start fsnotify watcher
@@ -289,6 +292,11 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 		allEvents = append(allEvents, events...)
 		offset += lineLen
 	}
+
+	// Propagate model from context events to events without a model.
+	// Codex puts the model on turn_context events but not on token_count
+	// or tool events, so we forward-fill the model within the file.
+	PropagateModel(allEvents)
 
 	// Deduplicate tokens across JSONL lines from the same API call
 	// before sending to the batcher.

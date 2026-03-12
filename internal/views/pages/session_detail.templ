@@ -16,6 +16,9 @@ templ SessionDetail(data views.SessionDetailData) {
 					<div>
 						<div class="flex items-center gap-3">
 							<h1 class="text-2xl font-bold text-gray-100">{ views.SessionTitle(data.Session, true) }</h1>
+							if data.Session.Provider != "" {
+								<span class={ "px-2 py-0.5 text-xs font-semibold uppercase rounded-full", providerBadgeClasses(data.Session.Provider) }>{ views.ProviderLabel(data.Session.Provider) }</span>
+							}
 							if data.Session.IsSubagent() {
 								<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-blue-500/20 text-blue-400">Subagent</span>
 							}
@@ -179,13 +182,21 @@ func multiSeriesChartData(data views.MultiSeriesChart) any {
 	return map[string]any{"labels": data.Labels, "datasets": data.Datasets}
 }
 
-func tokensByModelData(models []views.ChartDataset) any {
-	labels := []string{"Input", "Output", "Cache Read"}
-	datasets := make([]map[string]any, len(models))
-	for i, m := range models {
-		datasets[i] = map[string]any{"label": m.Label, "data": m.Values}
+func tokensByModelData(models []views.ModelTokens) any {
+	// Session detail uses the same grouping logic as the dashboard.
+	// This is a per-model chart with x-axis = model names, datasets = Input/Output/Cache.
+	return tokensByModelChartData(models)
+}
+
+func providerBadgeClasses(provider string) string {
+	switch provider {
+	case "openai":
+		return "bg-cyan-500/20 text-cyan-400"
+	case "anthropic":
+		return "bg-orange-500/20 text-orange-300"
+	default:
+		return "bg-gray-600/40 text-gray-400"
 	}
-	return map[string]any{"labels": labels, "datasets": datasets}
 }
 
 func toolShortName(name string) string {

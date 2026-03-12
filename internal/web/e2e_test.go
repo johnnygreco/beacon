@@ -444,8 +444,9 @@ func TestE2E_SessionDetailChartDataByModel(t *testing.T) {
 	if !strings.Contains(html, `id="session-tokens-by-model-data"`) {
 		t.Error("expected session-tokens-by-model-data script element for multi-model session")
 	}
-	if !strings.Contains(html, "claude-sonnet-4-20250514") {
-		t.Error("expected model name in by-model chart data")
+	// ShortModelName strips "claude-" prefix and date suffixes
+	if !strings.Contains(html, "sonnet-4") {
+		t.Error("expected short model name in by-model chart data")
 	}
 	if !strings.Contains(html, "gpt-4o") {
 		t.Error("expected second model name in by-model chart data")

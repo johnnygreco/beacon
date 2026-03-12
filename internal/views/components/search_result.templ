@@ -12,6 +12,9 @@ templ SearchResultCard(r views.SearchResult) {
 				<span class="text-sm text-blue-400 font-mono">
 					{ views.TruncateSessionID(r.SessionID) }
 				</span>
+				if r.Provider != "" {
+					<span class={ "px-1.5 py-0.5 rounded text-[10px] font-medium", searchProviderStyle(r.Provider) }>{ views.ProviderShort(r.Provider) }</span>
+				}
 				if r.ToolName != "" {
 					<span class="text-xs text-gray-400 font-mono">{ r.ToolName }</span>
 				}
@@ -21,6 +24,17 @@ templ SearchResultCard(r views.SearchResult) {
 		</div>
 		<p class="text-sm text-gray-300 leading-relaxed line-clamp-2">{ r.Snippet }</p>
 	</a>
+}
+
+func searchProviderStyle(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "bg-orange-500/15 text-orange-300"
+	case "openai":
+		return "bg-cyan-500/15 text-cyan-400"
+	default:
+		return "bg-gray-500/15 text-gray-400"
+	}
 }
 
 func eventKindClass(kind string) string {

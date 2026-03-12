@@ -46,6 +46,14 @@ function tokenTooltip(ctx) {
   return ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + ' tokens';
 }
 
+function tokensByModelTooltipFooter(items) {
+  if (!items || !items.length) return [];
+  return [
+    'Input = fresh input only; cache hits are shown under Cache.',
+    'Cache = cache read tokens; provider-specific cache creation is excluded.'
+  ];
+}
+
 // Create a stacked area chart with multiple token series
 function createMultiSeriesChart(el, seriesLabels, yTitle, xScale) {
   var datasets = seriesLabels.map(function(label, i) {
@@ -112,6 +120,54 @@ function applyDefaultLog(chart, el) {
   }
 }
 
+// Plugin: draw provider group labels and dashed vertical dividers
+var providerGroupPlugin = {
+  id: 'providerGroupHeaders',
+  afterDraw: function(chart) {
+    var groups = chart.options.plugins.providerGroupHeaders &&
+                 chart.options.plugins.providerGroupHeaders.groups;
+    if (!groups || !groups.length) return;
+    var ctx = chart.ctx;
+    var xAxis = chart.scales.x;
+    var chartArea = chart.chartArea;
+
+    ctx.save();
+
+    // Draw dashed vertical dividers between groups
+    if (groups.length >= 2) {
+      ctx.strokeStyle = 'rgba(156,163,175,0.4)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      for (var i = 0; i < groups.length - 1; i++) {
+        var endTick = groups[i].end;
+        var startTick = groups[i + 1].start;
+        var x = (xAxis.getPixelForTick(endTick) + xAxis.getPixelForTick(startTick)) / 2;
+        ctx.beginPath();
+        ctx.moveTo(x, chartArea.top);
+        ctx.lineTo(x, chartArea.bottom);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+    }
+
+    // Draw provider labels below x-axis
+    ctx.font = 'bold 11px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    var y = chartArea.bottom + 38;
+    groups.forEach(function(g) {
+      var x0 = xAxis.getPixelForTick(g.start);
+      var x1 = xAxis.getPixelForTick(g.end);
+      ctx.fillStyle = g.provider === 'Codex' ? '#34d399' : '#fb923c';
+      ctx.fillText(g.provider, (x0 + x1) / 2, y);
+    });
+
+    ctx.restore();
+  }
+};
+
+Chart.register(providerGroupPlugin);
+
 // Create a grouped bar chart for tokens by model
 function createTokensByModelChart(el, dataEl) {
   var modelData = JSON.parse(dataEl.textContent);
@@ -126,14 +182,17 @@ function createTokensByModelChart(el, dataEl) {
       borderWidth: 1
     };
   });
+  var hasGroups = modelData.providerGroups && modelData.providerGroups.length > 0;
+  var xOpts = Object.assign({}, categoryScaleOptions);
   return new Chart(el, {
     type: 'bar',
     data: { labels: modelData.labels, datasets: datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      layout: hasGroups ? { padding: { bottom: 25 } } : {},
       scales: {
-        x: categoryScaleOptions,
+        x: xOpts,
         y: {
           ...yAxisOptions,
           title: { display: true, text: 'Tokens', color: '#9ca3af' }
@@ -141,7 +200,13 @@ function createTokensByModelChart(el, dataEl) {
       },
       plugins: {
         legend: { display: true, position: 'top', labels: { usePointStyle: true, boxWidth: 8 } },
-        tooltip: { callbacks: { label: tokenTooltip } }
+        tooltip: {
+          callbacks: {
+            label: tokenTooltip,
+            footer: tokensByModelTooltipFooter
+          }
+        },
+        providerGroupHeaders: { groups: modelData.providerGroups || [] }
       }
     }
   });

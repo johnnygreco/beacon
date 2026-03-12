@@ -5,6 +5,7 @@ package views
 import (
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 	"time"
 )
@@ -124,6 +125,7 @@ type MetricData struct {
 type SessionSummary struct {
 	ID                string
 	Actor             string
+	Provider          string // "anthropic", "openai", etc.
 	Status            string // "active", "idle", "completed"
 	StartedAt         time.Time
 	EndedAt           time.Time
@@ -159,12 +161,37 @@ func (s SessionSummary) DurationSeconds() int64 {
 
 // ShortModelName returns a shortened model name for compact display.
 // "claude-opus-4-6" → "opus-4-6", "claude-haiku-4-5-20251001" → "haiku-4-5"
+// "gpt-5.4" → "gpt-5.4", "o3-pro" → "o3-pro"
 func ShortModelName(model string) string {
 	model = strings.TrimPrefix(model, "claude-")
 	if idx := strings.Index(model, "-202"); idx > 0 {
 		model = model[:idx]
 	}
 	return model
+}
+
+// ProviderLabel returns a short display label for a provider.
+func ProviderLabel(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "Claude Code"
+	case "openai":
+		return "Codex"
+	default:
+		return provider
+	}
+}
+
+// ProviderShort returns a short provider label for badges.
+func ProviderShort(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "Claude Code"
+	case "openai":
+		return "Codex"
+	default:
+		return provider
+	}
 }
 
 // GroupActiveSessions groups subagent sessions under their parent sessions.
@@ -204,6 +231,43 @@ func projectName(dir string) string {
 		return path.Base(dir[:idx])
 	}
 	return path.Base(dir)
+}
+
+// SortModelsByProvider groups models by provider, placing the provider with the
+// most total tokens first within each group. Returns a stable ordering.
+func SortModelsByProvider(models []ModelTokens) []ModelTokens {
+	if len(models) <= 1 {
+		return models
+	}
+	// Group by provider
+	groups := make(map[string][]ModelTokens)
+	var providerOrder []string
+	providerTotal := make(map[string]int64)
+	for _, m := range models {
+		p := m.Provider
+		if p == "" {
+			p = "unknown"
+		}
+		if _, seen := groups[p]; !seen {
+			providerOrder = append(providerOrder, p)
+		}
+		groups[p] = append(groups[p], m)
+		providerTotal[p] += m.Total
+	}
+	// Sort providers by total tokens descending
+	sort.Slice(providerOrder, func(i, j int) bool {
+		return providerTotal[providerOrder[i]] > providerTotal[providerOrder[j]]
+	})
+	// Flatten: models grouped by provider, each group sorted by total desc
+	var result []ModelTokens
+	for _, p := range providerOrder {
+		g := groups[p]
+		sort.Slice(g, func(i, j int) bool {
+			return g[i].Total > g[j].Total
+		})
+		result = append(result, g...)
+	}
+	return result
 }
 
 // FormatTime formats a time in 12-hour clock with numeric date (e.g. "3/7/2026 3:04 PM").
@@ -258,6 +322,7 @@ type SearchResult struct {
 	EventKind string
 	Snippet   string
 	ToolName  string  // tool name for tool_call/tool_result events
+	Provider  string  // "anthropic", "openai", etc.
 	Score     float64
 	MatchType string // "bm25", "keyword"
 	Timestamp time.Time
@@ -268,16 +333,19 @@ type ActivityItem struct {
 	Type      string // event_kind: "message", "tool_call", "tool_result", "error"
 	Summary   string
 	SessionID string
+	Provider  string // "anthropic", "openai", etc.
 	Timestamp time.Time
 }
 
 type EventSummary struct {
 	EventUID      string
 	EventKind     string // message, tool_call, tool_result, reasoning, etc.
+	PayloadType   string // sub-type (e.g. "encrypted" for encrypted reasoning)
 	ActorRole     string
 	TextContent   string
 	TextPreview   string
 	ToolName      string
+	ToolUseID     string // call_id for matching tool_call/tool_result pairs
 	Model         string
 	Tokens        int64
 	DurationMs    int64
@@ -318,6 +386,7 @@ type ToolStat struct {
 
 type ModelTokens struct {
 	Model     string
+	Provider  string // "anthropic", "openai", etc.
 	Input     int64
 	Output    int64
 	CacheRead int64
@@ -341,7 +410,7 @@ type SessionDetailData struct {
 	ChatTurns      []ChatTurn
 	TokensChart    MultiSeriesChart
 	ToolStats      []ToolStat
-	TokensByModel  []ChartDataset
+	TokensByModel  []ModelTokens
 }
 
 const (
@@ -364,7 +433,9 @@ type ToolCallParams struct {
 	Pattern     string `json:"pattern"`
 	Path        string `json:"path"`
 	// Agent tool fields
-	Prompt string `json:"prompt"`
+	Prompt    string `json:"prompt"`
+	Message   string `json:"message"`    // Codex spawn_agent uses "message" instead of "prompt"
+	AgentType string `json:"agent_type"` // Codex agent type (e.g. "explorer")
 }
 
 type ToolStatEntry struct {

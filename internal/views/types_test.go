@@ -118,6 +118,43 @@ func TestTruncateID(t *testing.T) {
 	}
 }
 
+func TestSortModelsByProvider(t *testing.T) {
+	models := []ModelTokens{
+		{Model: "opus-4-6", Provider: "anthropic", Total: 5000},
+		{Model: "o4-mini", Provider: "openai", Total: 3000},
+		{Model: "sonnet-4-6", Provider: "anthropic", Total: 2000},
+		{Model: "o3-pro", Provider: "openai", Total: 8000},
+	}
+
+	sorted := SortModelsByProvider(models)
+
+	// OpenAI has higher total (11K) so it should come first
+	if sorted[0].Provider != "openai" || sorted[0].Model != "o3-pro" {
+		t.Errorf("expected openai/o3-pro first, got %s/%s", sorted[0].Provider, sorted[0].Model)
+	}
+	if sorted[1].Provider != "openai" || sorted[1].Model != "o4-mini" {
+		t.Errorf("expected openai/o4-mini second, got %s/%s", sorted[1].Provider, sorted[1].Model)
+	}
+	if sorted[2].Provider != "anthropic" || sorted[2].Model != "opus-4-6" {
+		t.Errorf("expected anthropic/opus-4-6 third, got %s/%s", sorted[2].Provider, sorted[2].Model)
+	}
+	if sorted[3].Provider != "anthropic" || sorted[3].Model != "sonnet-4-6" {
+		t.Errorf("expected anthropic/sonnet-4-6 fourth, got %s/%s", sorted[3].Provider, sorted[3].Model)
+	}
+}
+
+func TestSortModelsByProvider_SingleProvider(t *testing.T) {
+	models := []ModelTokens{
+		{Model: "sonnet-4-6", Provider: "anthropic", Total: 2000},
+		{Model: "opus-4-6", Provider: "anthropic", Total: 5000},
+	}
+
+	sorted := SortModelsByProvider(models)
+	if sorted[0].Model != "opus-4-6" {
+		t.Errorf("expected opus-4-6 first (highest total), got %s", sorted[0].Model)
+	}
+}
+
 func TestMultiSeriesChartJSONTags(t *testing.T) {
 	chart := MultiSeriesChart{
 		Labels: []string{"a", "b"},

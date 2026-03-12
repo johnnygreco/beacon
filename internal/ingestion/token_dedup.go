@@ -1,7 +1,7 @@
 package ingestion
 
 // DeduplicateTokens removes duplicate token counts that arise from
-// Claude Code writing multiple JSONL lines for the same API response.
+// providers writing multiple JSONL lines for the same logical usage event.
 //
 // Claude Code writes each content block as a separate JSONL line, connected
 // via parentUuid chains (e.g. thinking → text → tool_use). Each line carries
@@ -16,6 +16,10 @@ package ingestion
 //
 //  2. Shared MessageUUID: Multiple events from the same JSONL line (e.g. a
 //     line with [thinking, text] content). Tokens kept on the last event.
+//
+//  3. Repeated cumulative token snapshots: Codex occasionally repeats a
+//     token_count line with an unchanged total_token_usage snapshot. Those
+//     repeated bookkeeping lines do not represent new usage and are zeroed.
 func DeduplicateTokens(events []NormalizedEvent) []NormalizedEvent {
 	if len(events) <= 1 {
 		return events
@@ -104,7 +108,52 @@ func DeduplicateTokens(events []NormalizedEvent) []NormalizedEvent {
 		}
 	}
 
+	// --- Phase 3: Repeated cumulative token snapshots ---
+	lastTotalBySession := make(map[string]string)
+	for i := range events {
+		if events[i].SourceName != "codex" || events[i].PayloadType != "token_count" || events[i].TokenUsageTotalKey == "" {
+			continue
+		}
+		if prev, ok := lastTotalBySession[events[i].SessionID]; ok && prev == events[i].TokenUsageTotalKey {
+			zeroTokens(&events[i])
+			continue
+		}
+		lastTotalBySession[events[i].SessionID] = events[i].TokenUsageTotalKey
+	}
+
 	return events
+}
+
+// PropagateModel forward-fills model names across events within a session.
+// Some providers (e.g. Codex) only set the model on context events
+// (turn_context, session_meta) while token and tool events have no model.
+// This function propagates the model forward so that tokens-by-model
+// queries can correctly attribute tokens to the right model.
+func PropagateModel(events []NormalizedEvent) {
+	// Group events by session and propagate model forward within each session.
+	type sessionState struct {
+		model string
+	}
+	sessions := make(map[string]*sessionState)
+
+	for i := range events {
+		sid := events[i].SessionID
+		state, ok := sessions[sid]
+		if !ok {
+			state = &sessionState{}
+			sessions[sid] = state
+		}
+
+		// If this event has a model, use it as the current model for the session.
+		if events[i].Model != "" {
+			state.model = events[i].Model
+		}
+
+		// If this event has no model but we know one, propagate it.
+		if events[i].Model == "" && state.model != "" {
+			events[i].Model = state.model
+		}
+	}
 }
 
 func zeroTokens(evt *NormalizedEvent) {

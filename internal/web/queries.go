@@ -65,6 +65,7 @@ func QueryDashboardData(ctx context.Context, db *sql.DB) views.DashboardData {
 func QueryTokensByModelSummary(ctx context.Context, db *sql.DB) []views.ModelTokens {
 	rows, err := db.QueryContext(ctx,
 		`SELECT COALESCE(model, 'unknown'),
+		        COALESCE(MAX(provider), ''),
 		        COALESCE(SUM(input_tokens), 0),
 		        COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_read_tokens), 0),
@@ -82,7 +83,7 @@ func QueryTokensByModelSummary(ctx context.Context, db *sql.DB) []views.ModelTok
 	var result []views.ModelTokens
 	for rows.Next() {
 		var m views.ModelTokens
-		if err := rows.Scan(&m.Model, &m.Input, &m.Output, &m.CacheRead, &m.Total); err != nil {
+		if err := rows.Scan(&m.Model, &m.Provider, &m.Input, &m.Output, &m.CacheRead, &m.Total); err != nil {
 			continue
 		}
 		result = append(result, m)
@@ -261,13 +262,32 @@ func attachSubagentCounts(ctx context.Context, db *sql.DB, sessions []views.Sess
 
 // QueryRecentActivityFiltered returns paginated activity items with optional time filter.
 func QueryRecentActivityFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int) ([]views.ActivityItem, bool) {
+	return QueryRecentActivityFilteredByKind(ctx, db, since, offset, limit, nil)
+}
+
+// QueryRecentActivityFilteredByKind returns paginated activity items with optional time and event kind filters.
+// When eventKinds is non-empty, only those event types are returned (enables server-side filtering
+// so that low-volume event types like errors aren't crowded out by high-volume types).
+func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int, eventKinds []string) ([]views.ActivityItem, bool) {
+	var kindFilter string
+	if len(eventKinds) > 0 {
+		quoted := make([]string, len(eventKinds))
+		for i, k := range eventKinds {
+			quoted[i] = "'" + strings.ReplaceAll(k, "'", "''") + "'"
+		}
+		kindFilter = "(" + strings.Join(quoted, ",") + ")"
+	} else {
+		kindFilter = "('message', 'tool_call', 'error', 'session_meta')"
+	}
+
 	query := `SELECT event_uid,
 		        event_kind,
 		        ` + activitySummaryExpr + ` AS summary,
 		        COALESCE(session_id, ''),
+		        COALESCE(provider, ''),
 		        timestamp
 		 FROM events
-		 WHERE event_kind IN ('message', 'tool_call', 'error', 'session_meta')`
+		 WHERE event_kind IN ` + kindFilter
 	var args []any
 	if since != nil {
 		query += " AND timestamp >= $1"
@@ -285,7 +305,7 @@ func QueryRecentActivityFiltered(ctx context.Context, db *sql.DB, since *time.Ti
 	var items []views.ActivityItem
 	for rows.Next() {
 		var item views.ActivityItem
-		if err := rows.Scan(&item.ID, &item.Type, &item.Summary, &item.SessionID, &item.Timestamp); err != nil {
+		if err := rows.Scan(&item.ID, &item.Type, &item.Summary, &item.SessionID, &item.Provider, &item.Timestamp); err != nil {
 			continue
 		}
 		item.Summary = shortenActivitySummary(item.Summary)
@@ -414,6 +434,7 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 		),
 		model_breakdown AS (
 			SELECT COALESCE(model, 'unknown') AS model,
+			       COALESCE(MAX(provider), '') AS provider,
 			       COALESCE(SUM(input_tokens), 0) AS input,
 			       COALESCE(SUM(output_tokens), 0) AS output,
 			       COALESCE(SUM(cache_read_tokens), 0) AS cache_read
@@ -421,11 +442,11 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 			WHERE model IS NOT NULL AND model != '' AND model != '<synthetic>'
 			GROUP BY model ORDER BY (input + output) DESC
 		)
-		SELECT 'token' AS kind, timestamp, total_tokens, '' AS tool_name, 0 AS calls, 0 AS avg_dur, '' AS model, 0 AS input, 0 AS output, 0 AS cache_read FROM token_series
+		SELECT 'token' AS kind, timestamp, total_tokens, '' AS tool_name, 0 AS calls, 0 AS avg_dur, '' AS model, '' AS provider, 0 AS input, 0 AS output, 0 AS cache_read FROM token_series
 		UNION ALL
-		SELECT 'tool', NULL, 0, tool_name, calls, avg_duration, '', 0, 0, 0 FROM tool_stats
+		SELECT 'tool', NULL, 0, tool_name, calls, avg_duration, '', '', 0, 0, 0 FROM tool_stats
 		UNION ALL
-		SELECT 'model', NULL, 0, '', 0, 0, model, input, output, cache_read FROM model_breakdown`, id)
+		SELECT 'model', NULL, 0, '', 0, 0, model, provider, input, output, cache_read FROM model_breakdown`, id)
 	if err != nil {
 		return data, nil // Return partial data on query error
 	}
@@ -438,9 +459,9 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 		var toolName string
 		var calls int
 		var avgDur float64
-		var model string
+		var model, provider string
 		var input, output, cacheRead float64
-		if err := rows.Scan(&kind, &ts, &totalTokens, &toolName, &calls, &avgDur, &model, &input, &output, &cacheRead); err != nil {
+		if err := rows.Scan(&kind, &ts, &totalTokens, &toolName, &calls, &avgDur, &model, &provider, &input, &output, &cacheRead); err != nil {
 			continue
 		}
 		switch kind {
@@ -454,8 +475,15 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 			stat.IsMCP = models.IsMCPTool(toolName)
 			data.ToolStats = append(data.ToolStats, stat)
 		case "model":
-			ds := views.ChartDataset{Label: model, Values: []float64{input, output, cacheRead}}
-			data.TokensByModel = append(data.TokensByModel, ds)
+			mt := views.ModelTokens{
+				Model:    model,
+				Provider: provider,
+				Input:    int64(input),
+				Output:   int64(output),
+				CacheRead: int64(cacheRead),
+				Total:    int64(input + output),
+			}
+			data.TokensByModel = append(data.TokensByModel, mt)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -468,9 +496,9 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 // QuerySessionConversation returns the conversation trace for a session.
 func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]views.ChatTurn, []views.TurnDetail) {
 	traceRows, err := db.QueryContext(ctx,
-		`SELECT e.event_uid, e.event_kind, COALESCE(e.actor_role, ''),
+		`SELECT e.event_uid, e.event_kind, COALESCE(e.payload_type, ''), COALESCE(e.actor_role, ''),
 		        COALESCE(e.text_content, ''), COALESCE(e.text_preview, ''),
-		        COALESCE(e.tool_name, ''), COALESCE(e.model, ''),
+		        COALESCE(e.tool_name, ''), COALESCE(e.tool_use_id, ''), COALESCE(e.model, ''),
 		        e.input_tokens + e.output_tokens, e.duration_ms, e.timestamp, turn_seq,
 		        COALESCE(tio.input_preview, ''), COALESCE(tio.output_preview, ''),
 		        COALESCE(tio.input_json, '')
@@ -489,9 +517,9 @@ func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]vie
 	for traceRows.Next() {
 		var es views.EventSummary
 		var turnSeq int
-		if err := traceRows.Scan(&es.EventUID, &es.EventKind, &es.ActorRole,
+		if err := traceRows.Scan(&es.EventUID, &es.EventKind, &es.PayloadType, &es.ActorRole,
 			&es.TextContent, &es.TextPreview,
-			&es.ToolName, &es.Model, &es.Tokens, &es.DurationMs, &es.Timestamp, &turnSeq,
+			&es.ToolName, &es.ToolUseID, &es.Model, &es.Tokens, &es.DurationMs, &es.Timestamp, &turnSeq,
 			&es.InputPreview, &es.OutputPreview, &es.InputJSON); err != nil {
 			continue
 		}
@@ -591,6 +619,16 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 			}
 		}
 
+		// Pre-build a map of tool_use_id → tool_result for call_id-based matching.
+		// This handles Codex's pattern of batched calls then batched results.
+		resultByCallID := make(map[string]int) // tool_use_id → event index
+		consumedResults := make(map[int]bool)
+		for idx, e := range t.Events {
+			if e.EventKind == "tool_result" && e.ToolUseID != "" {
+				resultByCallID[e.ToolUseID] = idx
+			}
+		}
+
 		for i := 0; i < len(t.Events); i++ {
 			e := t.Events[i]
 
@@ -603,26 +641,48 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 					InputJSON:    e.InputJSON,
 				}
 				item.Params = parseToolParams(e.InputJSON)
-				// Look ahead for a matching tool_result, skipping event_msg
-				for j := i + 1; j < len(t.Events); j++ {
-					if t.Events[j].EventKind == "tool_result" {
-						i = j
-						result := t.Events[j]
+
+				// Try call_id-based matching first
+				if e.ToolUseID != "" {
+					if ridx, ok := resultByCallID[e.ToolUseID]; ok {
+						result := t.Events[ridx]
+						// Copy tool name to result if missing
+						if result.ToolName == "" {
+							result.ToolName = e.ToolName
+						}
 						item.ResultEvent = &result
 						item.OutputPreview = result.OutputPreview
 						if item.OutputPreview == "" {
 							item.OutputPreview = result.TextPreview
 						}
-						break
-					} else if t.Events[j].EventKind == "event_msg" {
-						continue // skip intermediate log events
-					} else {
-						break // something else — don't consume it
+						consumedResults[ridx] = true
+					}
+				} else {
+					// Fallback: sequential look-ahead for sources without call_id
+					for j := i + 1; j < len(t.Events); j++ {
+						if t.Events[j].EventKind == "tool_result" && !consumedResults[j] {
+							consumedResults[j] = true
+							i = j
+							result := t.Events[j]
+							item.ResultEvent = &result
+							item.OutputPreview = result.OutputPreview
+							if item.OutputPreview == "" {
+								item.OutputPreview = result.TextPreview
+							}
+							break
+						} else if t.Events[j].EventKind == "event_msg" {
+							continue // skip intermediate log events
+						} else {
+							break // something else — don't consume it
+						}
 					}
 				}
 				pendingToolChain = append(pendingToolChain, item)
 
 			case "tool_result":
+				if consumedResults[i] {
+					break // Already paired with a tool_call
+				}
 				// Orphan tool_result (no preceding tool_call)
 				item := views.ToolChainItem{
 					CallEvent:     e,
@@ -804,7 +864,8 @@ const sessionSummaryColumns = `session_id, COALESCE(source_name, ''), started_at
 		COALESCE(last_model, ''),
 		COALESCE(working_dir, ''),
 		COALESCE(parent_session_id, ''),
-		COALESCE(has_session_end, 0)`
+		COALESCE(has_session_end, 0),
+		COALESCE(provider, '')`
 
 // scanSessionSummary scans a row from v_session_summary into a SessionSummary.
 func scanSessionSummary(scanner interface{ Scan(dest ...any) error }, now time.Time) (views.SessionSummary, error) {
@@ -816,7 +877,7 @@ func scanSessionSummary(scanner interface{ Scan(dest ...any) error }, now time.T
 		&s.TurnCount, &s.TotalTokens, &s.InputTokens, &s.OutputTokens,
 		&s.CacheReadTokens, &s.CacheCreateTokens,
 		&s.ToolCallCount, &s.MCPCallCount, &model, &s.WorkingDir,
-		&s.ParentSessionID, &hasSessionEnd)
+		&s.ParentSessionID, &hasSessionEnd, &s.Provider)
 	if err != nil {
 		return s, err
 	}

@@ -147,6 +147,7 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 			EventKind: sr.EventKind,
 			Snippet:   snippet,
 			ToolName:  sr.ToolName,
+			Provider:  sr.Provider,
 			Score:     sr.Score,
 			Timestamp: sr.Timestamp,
 		})
@@ -280,7 +281,13 @@ func (h *Handlers) DashboardActivity(w http.ResponseWriter, r *http.Request) {
 		since = &t
 	}
 
-	items, _ := QueryRecentActivityFiltered(r.Context(), h.db, since, 0, activityTimelineLimit)
+	eventKind := r.URL.Query().Get("event_kind")
+	var eventKinds []string
+	if eventKind != "" {
+		eventKinds = []string{eventKind}
+	}
+
+	items, _ := QueryRecentActivityFilteredByKind(r.Context(), h.db, since, 0, activityTimelineLimit, eventKinds)
 
 	if err := partials.ActivityTimelineFull(items).Render(r.Context(), w); err != nil {
 		h.logger.Debug("render dashboard activity failed", "error", err)

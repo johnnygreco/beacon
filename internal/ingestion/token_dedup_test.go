@@ -1,6 +1,8 @@
 package ingestion
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestDeduplicateTokens_Nil(t *testing.T) {
 	result := DeduplicateTokens(nil)
@@ -96,6 +98,70 @@ func TestDeduplicateTokens_EmptyUUID(t *testing.T) {
 	}
 }
 
+// PropagateModel tests
+
+func TestPropagateModel_ForwardFill(t *testing.T) {
+	events := []NormalizedEvent{
+		{SessionID: "s1", Model: "gpt-5.4", EventKind: "turn_context"},
+		{SessionID: "s1", Model: "", EventKind: "message"},
+		{SessionID: "s1", Model: "", EventKind: "tool_call"},
+	}
+	PropagateModel(events)
+	for i, evt := range events {
+		if evt.Model != "gpt-5.4" {
+			t.Errorf("event[%d] expected model=gpt-5.4, got %q", i, evt.Model)
+		}
+	}
+}
+
+func TestPropagateModel_NoOverwrite(t *testing.T) {
+	events := []NormalizedEvent{
+		{SessionID: "s1", Model: "gpt-5.4", EventKind: "turn_context"},
+		{SessionID: "s1", Model: "o3-pro", EventKind: "message"},
+		{SessionID: "s1", Model: "", EventKind: "tool_call"},
+	}
+	PropagateModel(events)
+	if events[1].Model != "o3-pro" {
+		t.Errorf("event[1] should keep explicit model, got %q", events[1].Model)
+	}
+	// After seeing o3-pro, forward-fill should use o3-pro
+	if events[2].Model != "o3-pro" {
+		t.Errorf("event[2] expected model=o3-pro after switch, got %q", events[2].Model)
+	}
+}
+
+func TestPropagateModel_MultipleSessions(t *testing.T) {
+	events := []NormalizedEvent{
+		{SessionID: "s1", Model: "gpt-5.4"},
+		{SessionID: "s2", Model: "o3-pro"},
+		{SessionID: "s1", Model: ""},
+		{SessionID: "s2", Model: ""},
+	}
+	PropagateModel(events)
+	if events[2].Model != "gpt-5.4" {
+		t.Errorf("s1 event expected gpt-5.4, got %q", events[2].Model)
+	}
+	if events[3].Model != "o3-pro" {
+		t.Errorf("s2 event expected o3-pro, got %q", events[3].Model)
+	}
+}
+
+func TestPropagateModel_NoModelAtAll(t *testing.T) {
+	events := []NormalizedEvent{
+		{SessionID: "s1", Model: ""},
+		{SessionID: "s1", Model: ""},
+	}
+	PropagateModel(events)
+	if events[0].Model != "" || events[1].Model != "" {
+		t.Errorf("events without any model should stay empty")
+	}
+}
+
+func TestPropagateModel_Nil(t *testing.T) {
+	// Should not panic on nil input
+	PropagateModel(nil)
+}
+
 func TestDeduplicateTokens_ThreeBlocksSameUUID(t *testing.T) {
 	// Three content blocks from the same API call (e.g., thinking + text + tool_use).
 	events := []NormalizedEvent{
@@ -168,5 +234,52 @@ func TestDeduplicateTokens_MixedUUIDAndEmpty(t *testing.T) {
 	// uuid-1 message: kept
 	if result[2].InputTokens != 10 || result[2].OutputTokens != 50 {
 		t.Errorf("uuid-1 message should be kept: input=%d output=%d", result[2].InputTokens, result[2].OutputTokens)
+	}
+}
+
+func TestDeduplicateTokens_CodexRepeatedTotals(t *testing.T) {
+	events := []NormalizedEvent{
+		{
+			SessionID:          "codex-sess-1",
+			SourceName:         "codex",
+			PayloadType:        "token_count",
+			TokenUsageTotalKey: "9516:8064:157:9673",
+			InputTokens:        1452,
+			OutputTokens:       157,
+			CacheReadTokens:    8064,
+		},
+		{
+			SessionID:          "codex-sess-1",
+			SourceName:         "codex",
+			PayloadType:        "token_count",
+			TokenUsageTotalKey: "9516:8064:157:9673",
+			InputTokens:        1452,
+			OutputTokens:       157,
+			CacheReadTokens:    8064,
+		},
+		{
+			SessionID:          "codex-sess-1",
+			SourceName:         "codex",
+			PayloadType:        "token_count",
+			TokenUsageTotalKey: "10516:8832:207:10723",
+			InputTokens:        232,
+			OutputTokens:       50,
+			CacheReadTokens:    768,
+		},
+	}
+
+	result := DeduplicateTokens(events)
+
+	if result[0].InputTokens != 1452 || result[0].OutputTokens != 157 || result[0].CacheReadTokens != 8064 {
+		t.Errorf("first codex token_count should be preserved: input=%d output=%d cache_read=%d",
+			result[0].InputTokens, result[0].OutputTokens, result[0].CacheReadTokens)
+	}
+	if result[1].InputTokens != 0 || result[1].OutputTokens != 0 || result[1].CacheReadTokens != 0 {
+		t.Errorf("duplicate codex token_count should be zeroed: input=%d output=%d cache_read=%d",
+			result[1].InputTokens, result[1].OutputTokens, result[1].CacheReadTokens)
+	}
+	if result[2].InputTokens != 232 || result[2].OutputTokens != 50 || result[2].CacheReadTokens != 768 {
+		t.Errorf("next codex token_count should be preserved: input=%d output=%d cache_read=%d",
+			result[2].InputTokens, result[2].OutputTokens, result[2].CacheReadTokens)
 	}
 }

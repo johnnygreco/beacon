@@ -110,6 +110,7 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 			TextContent:       evt.TextContent,
 			TextPreview:       preview,
 			ToolName:          evt.ToolName,
+			ToolUseID:         evt.ToolUseID,
 			Model:             evt.Model,
 			InputTokens:       evt.InputTokens,
 			OutputTokens:      evt.OutputTokens,
@@ -128,7 +129,7 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 		}
 
 		if err := database.InsertEvent(ctx, b.db, event); err != nil {
-			b.logger.Error("insert event failed", "uid", uid, "error", err)
+			b.logger.Error("insert event failed", "uid", uid, "source", evt.SourceName, "kind", evt.EventKind, "error", err)
 			continue
 		}
 

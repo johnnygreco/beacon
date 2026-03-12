@@ -24,8 +24,11 @@ templ activityItem(item views.ActivityItem) {
 	   class="block relative py-2 pl-4 hover:bg-gray-800/50 rounded-lg transition-colors group">
 		<div class={ "absolute left-[-8px] top-3.5 w-2.5 h-2.5 rounded-full ring-2 ring-gray-900", activityDotColor(item.Type) }></div>
 		<p class="text-sm text-gray-300 group-hover:text-gray-100 transition-colors mb-1">{ item.Summary }</p>
-		<div class="flex items-center gap-2">
+		<div class="flex items-center gap-2 flex-wrap">
 			<span class={ "px-1.5 py-0.5 rounded text-xs flex-shrink-0", activityBadgeStyle(item.Type) }>{ activityLabel(item.Type) }</span>
+			if item.Provider != "" {
+				<span class={ "px-1.5 py-0.5 rounded text-[10px] flex-shrink-0", activityProviderStyle(item.Provider) }>{ views.ProviderShort(item.Provider) }</span>
+			}
 			if item.SessionID != "" {
 				<span class="text-xs text-gray-600 font-mono flex-shrink-0">{ views.TruncateID(item.SessionID) }</span>
 			}
@@ -76,5 +79,16 @@ func activityBadgeStyle(eventType string) string {
 		return "bg-teal-500/15 text-teal-400"
 	default:
 		return "bg-gray-600/40 text-gray-400"
+	}
+}
+
+func activityProviderStyle(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "bg-orange-500/15 text-orange-300"
+	case "openai":
+		return "bg-cyan-500/15 text-cyan-400"
+	default:
+		return "bg-gray-500/15 text-gray-400"
 	}
 }

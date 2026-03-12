@@ -46,6 +46,10 @@ type NormalizedEvent struct {
 	// Message grouping (used to deduplicate tokens across JSONL lines from the same API call)
 	MessageUUID string
 
+	// Provider-specific cumulative usage snapshot used for deduplicating
+	// bookkeeping token events that repeat the same totals.
+	TokenUsageTotalKey string
+
 	// Source coordinates (set by watcher)
 	SourceFile   string
 	SourceLineNo int

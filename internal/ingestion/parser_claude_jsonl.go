@@ -90,6 +90,33 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 			return events, nil
 		}
 
+		// Detect API error messages (e.g. authentication_failed, overloaded_error).
+		// Claude Code sets "error" and "isApiErrorMessage" at the top level.
+		if errCode := jsonStr(raw, "error"); errCode != "" {
+			evt := base
+			evt.EventKind = "error"
+			evt.ActorRole = "system"
+			evt.ErrorCode = errCode
+			// Extract error text from content blocks
+			if content, ok := msg["content"].([]any); ok {
+				for _, block := range content {
+					if bm, ok := block.(map[string]any); ok {
+						if t := jsonStr(bm, "text"); t != "" {
+							evt.ErrorMessage = t
+							evt.TextContent = t
+							break
+						}
+					}
+				}
+			}
+			if evt.ErrorMessage == "" {
+				evt.ErrorMessage = errCode
+				evt.TextContent = errCode
+			}
+			events = append(events, evt)
+			return events, nil
+		}
+
 		role := jsonStr(msg, "role")
 		model := jsonStr(msg, "model")
 

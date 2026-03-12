@@ -31,6 +31,7 @@ type SearchResult struct {
 	Timestamp   time.Time `json:"timestamp"`
 	ToolName    string    `json:"tool_name"`
 	Model       string    `json:"model"`
+	Provider    string    `json:"provider"`
 }
 
 type Searcher struct {
@@ -216,7 +217,7 @@ func (s *Searcher) bm25Search(ctx context.Context, q SearchQuery) ([]SearchResul
 	query := fmt.Sprintf(
 		`SELECT e.event_uid, e.session_id, e.event_kind, e.text_preview,
 		        fts_main_events.match_bm25(e.event_uid, $1, fields := 'text_content') AS score,
-		        e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, '')
+		        e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, ''), COALESCE(e.provider, '')
 		 FROM events e
 		 WHERE score IS NOT NULL %s
 		 ORDER BY score DESC
@@ -255,7 +256,7 @@ func (s *Searcher) ilikeSearch(ctx context.Context, q SearchQuery, since time.Ti
 		             THEN COALESCE(e.tool_name || ': ' || NULLIF(tio.input_preview, ''), e.tool_name, '')
 		             ELSE COALESCE(NULLIF(e.text_preview, ''), e.tool_name, '')
 		        END AS preview,
-		        0.0 AS score, e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, '')
+		        0.0 AS score, e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, ''), COALESCE(e.provider, '')
 		 FROM events e
 		 LEFT JOIN tool_io tio ON e.event_uid = tio.event_uid
 		 WHERE (e.text_content ILIKE $1
@@ -309,7 +310,7 @@ func scanResults(rows *sql.Rows) ([]SearchResult, error) {
 	var results []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		if err := rows.Scan(&r.EventUID, &r.SessionID, &r.EventKind, &r.TextPreview, &r.Score, &r.Timestamp, &r.ToolName, &r.Model); err != nil {
+		if err := rows.Scan(&r.EventUID, &r.SessionID, &r.EventKind, &r.TextPreview, &r.Score, &r.Timestamp, &r.ToolName, &r.Model, &r.Provider); err != nil {
 			continue
 		}
 		results = append(results, r)

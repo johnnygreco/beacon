@@ -420,6 +420,85 @@ func TestParseClaudeJSONL_MessageUUIDPropagated(t *testing.T) {
 	}
 }
 
+func TestParseClaudeJSONL_APIError(t *testing.T) {
+	// Claude Code API errors have "error" and "isApiErrorMessage" fields at top level.
+	line := toJSONL(t, map[string]any{
+		"sessionId":         "sess-1",
+		"uuid":              "uuid-err-1",
+		"timestamp":         "2025-01-01T00:00:05Z",
+		"type":              "assistant",
+		"error":             "authentication_failed",
+		"isApiErrorMessage": true,
+		"message": map[string]any{
+			"role":  "assistant",
+			"model": "<synthetic>",
+			"content": []map[string]any{
+				{"type": "text", "text": "API Error: 401 authentication_error · Please run /login"},
+			},
+		},
+	})
+
+	events, err := ParseClaudeJSONL(line, "test.jsonl", 7, 700)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.EventKind != "error" {
+		t.Errorf("expected event_kind=error, got %q", evt.EventKind)
+	}
+	if evt.ActorRole != "system" {
+		t.Errorf("expected actor_role=system, got %q", evt.ActorRole)
+	}
+	if evt.ErrorCode != "authentication_failed" {
+		t.Errorf("expected error_code=authentication_failed, got %q", evt.ErrorCode)
+	}
+	if evt.ErrorMessage == "" {
+		t.Error("expected error_message to be non-empty")
+	}
+	if evt.TextContent == "" {
+		t.Error("expected text_content to be non-empty")
+	}
+}
+
+func TestParseClaudeJSONL_OverloadedError(t *testing.T) {
+	// Test overloaded error pattern.
+	line := toJSONL(t, map[string]any{
+		"sessionId":         "sess-1",
+		"uuid":              "uuid-err-2",
+		"timestamp":         "2025-01-01T00:00:06Z",
+		"type":              "assistant",
+		"error":             "overloaded_error",
+		"isApiErrorMessage": true,
+		"message": map[string]any{
+			"role":  "assistant",
+			"model": "<synthetic>",
+			"content": []map[string]any{
+				{"type": "text", "text": "API Error: 529 Overloaded"},
+			},
+		},
+	})
+
+	events, err := ParseClaudeJSONL(line, "test.jsonl", 8, 800)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.EventKind != "error" {
+		t.Errorf("expected event_kind=error, got %q", evt.EventKind)
+	}
+	if evt.ErrorCode != "overloaded_error" {
+		t.Errorf("expected error_code=overloaded_error, got %q", evt.ErrorCode)
+	}
+}
+
 func TestParseClaudeJSONL_DeduplicateTokensAcrossLines(t *testing.T) {
 	// Simulates two JSONL lines from the same API call (thinking + text)
 	// with identical usage values. After DeduplicateTokens, only the last

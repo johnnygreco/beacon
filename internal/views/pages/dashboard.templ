@@ -67,8 +67,8 @@ templ Dashboard(data views.DashboardData) {
 										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="name" onclick="sortCompletedTable(this, 'name')">
 											Name <span class="sort-arrow">▼</span>
 										</th>
-										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="id" onclick="sortCompletedTable(this, 'id')">
-											Session ID <span class="sort-arrow">▼</span>
+										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="provider" onclick="sortCompletedTable(this, 'provider')">
+											Provider <span class="sort-arrow">▼</span>
 										</th>
 										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="model" onclick="sortCompletedTable(this, 'model')">
 											Model <span class="sort-arrow">▼</span>
@@ -91,6 +91,9 @@ templ Dashboard(data views.DashboardData) {
 										<th class="text-right py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="ended" onclick="sortCompletedTable(this, 'ended')">
 											Ended <span class="sort-arrow active">▼</span>
 										</th>
+									<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="id" onclick="sortCompletedTable(this, 'id')">
+										Session ID <span class="sort-arrow">▼</span>
+									</th>
 									</tr>
 								</thead>
 								<tbody id="completed-sessions" sse-swap="completed-sessions-update" hx-swap="innerHTML">
@@ -196,18 +199,25 @@ templ Dashboard(data views.DashboardData) {
 				b.className = 'activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
 			});
 			btn.className = 'activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';
-			// Apply filter via CSS class
+			// Clear CSS filter classes
 			feed.className = feed.className.replace(/\bfilter-[\w-]+/g, '').trim();
+
+			// Use server-side filtering — ensures events of a specific type
+			// are not crowded out by high-volume types (e.g. errors hidden by tools).
 			if (type !== 'all') {
-				feed.classList.add('filter-' + type.replace('_', '-'));
+				activityFilterActive = true;
+				htmx.ajax('GET', '/dashboard/activity?event_kind=' + encodeURIComponent(type), {target: '#activity-feed', swap: 'innerHTML'});
+			} else {
+				activityFilterActive = false;
+				htmx.ajax('GET', '/dashboard/activity', {target: '#activity-feed', swap: 'innerHTML'});
 			}
 		}
 
 		// Re-apply filter after SSE swaps
 		document.body.addEventListener('htmx:afterSettle', function(e) {
 			if (e.detail.target && e.detail.target.id === 'activity-feed' && currentActivityFilter !== 'all') {
-				var feed = document.getElementById('activity-feed');
-				feed.classList.add('filter-' + currentActivityFilter.replace('_', '-'));
+				// Re-fetch with filter active (SSE pushed an unfiltered update)
+				activityFilterActive = true;
 			}
 		});
 
@@ -263,7 +273,7 @@ templ Dashboard(data views.DashboardData) {
 			} else {
 				sortColumn = column;
 				// Default ascending for text, descending for numbers
-				sortAsc = ['name', 'id', 'model', 'project'].indexOf(column) >= 0;
+				sortAsc = ['name', 'provider', 'model', 'project', 'id'].indexOf(column) >= 0;
 			}
 			var tbody = document.getElementById('completed-sessions');
 			var rows = Array.from(tbody.querySelectorAll('tr[data-sort-ended]'));
@@ -322,22 +332,78 @@ templ Dashboard(data views.DashboardData) {
 }
 
 func dashboardTokensByModelData(models []views.ModelTokens) any {
-	labels := make([]string, len(models))
-	inputData := make([]int64, len(models))
-	outputData := make([]int64, len(models))
-	cacheData := make([]int64, len(models))
-	for i, m := range models {
-		labels[i] = m.Model
-		inputData[i] = m.Input
-		outputData[i] = m.Output
-		cacheData[i] = m.CacheRead
+	return tokensByModelChartData(models)
+}
+
+// tokensByModelChartData builds Chart.js data with models grouped by provider.
+// The shared chart uses normalized labels across providers:
+// Input = fresh/uncached input, Output = provider-reported output,
+// Cache = cache read tokens.
+func tokensByModelChartData(models []views.ModelTokens) any {
+	sorted := views.SortModelsByProvider(models)
+	multiProvider := hasMultipleProviders(sorted)
+
+	var labels []string
+	var inputData, outputData, cacheData []int64
+	// providerGroups maps bar index ranges to provider names for header rendering
+	var providerGroups []map[string]any
+
+	lastProvider := ""
+	groupStart := 0
+	for i, m := range sorted {
+		p := m.Provider
+		if p == "" {
+			p = "unknown"
+		}
+		// Track provider group boundaries (no spacer bar)
+		if multiProvider && lastProvider != "" && p != lastProvider {
+			providerGroups = append(providerGroups, map[string]any{
+				"provider": views.ProviderShort(lastProvider),
+				"start":    groupStart,
+				"end":      len(labels) - 1,
+			})
+			groupStart = len(labels)
+		}
+		lastProvider = p
+
+		label := views.ShortModelName(m.Model)
+		labels = append(labels, label)
+		inputData = append(inputData, m.Input)
+		outputData = append(outputData, m.Output)
+		cacheData = append(cacheData, m.CacheRead)
+
+		// Close last provider group
+		if multiProvider && i == len(sorted)-1 {
+			providerGroups = append(providerGroups, map[string]any{
+				"provider": views.ProviderShort(p),
+				"start":    groupStart,
+				"end":      len(labels) - 1,
+			})
+		}
 	}
-	return map[string]any{
+	result := map[string]any{
 		"labels": labels,
 		"datasets": []map[string]any{
 			{"label": "Input", "data": inputData},
 			{"label": "Output", "data": outputData},
-			{"label": "Cache Read", "data": cacheData},
+			{"label": "Cache", "data": cacheData},
 		},
 	}
+	if multiProvider && len(providerGroups) > 0 {
+		result["providerGroups"] = providerGroups
+	}
+	return result
+}
+
+func hasMultipleProviders(models []views.ModelTokens) bool {
+	if len(models) <= 1 {
+		return false
+	}
+	first := models[0].Provider
+	for _, m := range models[1:] {
+		if m.Provider != first {
+			return true
+		}
+	}
+	return false
 }

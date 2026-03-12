@@ -75,6 +75,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Start watcher
 	if cfg.Watch.Enabled {
 		sources := buildSources(cfg)
+		for _, s := range sources {
+			logger.Info("watch source configured", "name", s.Name, "provider", s.Provider, "globs", s.Globs)
+		}
 		watcher := ingestion.NewWatcher(
 			sources,
 			batcher.EventCh(),

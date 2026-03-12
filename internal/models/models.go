@@ -26,6 +26,7 @@ type Event struct {
 	TextContent       string     `json:"text_content"`
 	TextPreview       string     `json:"text_preview"`
 	ToolName          string     `json:"tool_name"`
+	ToolUseID         string     `json:"tool_use_id"`
 	Model             string     `json:"model"`
 	InputTokens       int64      `json:"input_tokens"`
 	OutputTokens      int64      `json:"output_tokens"`
