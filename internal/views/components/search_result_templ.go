@@ -190,14 +190,7 @@ func SearchResultCard(r views.SearchResult) templ.Component {
 }
 
 func searchProviderStyle(provider string) string {
-	switch provider {
-	case "anthropic":
-		return "bg-orange-500/15 text-orange-300"
-	case "openai":
-		return "bg-cyan-500/15 text-cyan-400"
-	default:
-		return "bg-gray-500/15 text-gray-400"
-	}
+	return views.ProviderBadgeClasses(provider)
 }
 
 func eventKindClass(kind string) string {
