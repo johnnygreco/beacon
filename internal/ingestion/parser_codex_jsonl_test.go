@@ -630,11 +630,14 @@ func TestParseCodexJSONL_TaskComplete(t *testing.T) {
 	}
 
 	evt := events[0]
-	if evt.EventKind != "session_end" {
-		t.Errorf("expected event_kind=session_end for task_complete, got %q", evt.EventKind)
+	if evt.EventKind != "event_msg" {
+		t.Errorf("expected event_kind=event_msg for task_complete, got %q", evt.EventKind)
 	}
 	if evt.PayloadType != "task_complete" {
 		t.Errorf("expected payload_type=task_complete, got %q", evt.PayloadType)
+	}
+	if evt.ActorRole != "assistant" {
+		t.Errorf("expected actor_role=assistant, got %q", evt.ActorRole)
 	}
 }
 
@@ -664,8 +667,8 @@ func TestParseCodexJSONL_CachedInputTokens(t *testing.T) {
 	}
 
 	evt := events[0]
-	if evt.InputTokens != 9516 {
-		t.Errorf("expected input_tokens=9516, got %d", evt.InputTokens)
+	if evt.InputTokens != 1452 {
+		t.Errorf("expected input_tokens=1452, got %d", evt.InputTokens)
 	}
 	if evt.OutputTokens != 157 {
 		t.Errorf("expected output_tokens=157, got %d", evt.OutputTokens)

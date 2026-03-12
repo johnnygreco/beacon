@@ -48,10 +48,13 @@ func TestDashboardTokensByModelData(t *testing.T) {
 
 	datasets, ok := m["datasets"].([]map[string]any)
 	if !ok || len(datasets) != 3 {
-		t.Fatal("expected 3 datasets (Input, Output, Cache Read)")
+		t.Fatal("expected 3 datasets (Input, Output, Cache)")
 	}
 	if datasets[0]["label"] != "Input" {
 		t.Errorf("expected first dataset label 'Input', got %v", datasets[0]["label"])
+	}
+	if datasets[2]["label"] != "Cache" {
+		t.Errorf("expected third dataset label 'Cache', got %v", datasets[2]["label"])
 	}
 }
 

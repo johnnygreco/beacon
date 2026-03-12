@@ -46,6 +46,14 @@ function tokenTooltip(ctx) {
   return ctx.dataset.label + ': ' + ctx.parsed.y.toLocaleString() + ' tokens';
 }
 
+function tokensByModelTooltipFooter(items) {
+  if (!items || !items.length) return [];
+  return [
+    'Input = fresh input only; cache hits are shown under Cache.',
+    'Cache = cache read tokens; provider-specific cache creation is excluded.'
+  ];
+}
+
 // Create a stacked area chart with multiple token series
 function createMultiSeriesChart(el, seriesLabels, yTitle, xScale) {
   var datasets = seriesLabels.map(function(label, i) {
@@ -192,7 +200,12 @@ function createTokensByModelChart(el, dataEl) {
       },
       plugins: {
         legend: { display: true, position: 'top', labels: { usePointStyle: true, boxWidth: 8 } },
-        tooltip: { callbacks: { label: tokenTooltip } },
+        tooltip: {
+          callbacks: {
+            label: tokenTooltip,
+            footer: tokensByModelTooltipFooter
+          }
+        },
         providerGroupHeaders: { groups: modelData.providerGroups || [] }
       }
     }

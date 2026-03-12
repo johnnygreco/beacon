@@ -144,8 +144,9 @@ func dashboardTokensByModelData(models []views.ModelTokens) any {
 }
 
 // tokensByModelChartData builds Chart.js data with models grouped by provider.
-// When multiple providers exist, a spacer bar is inserted between groups
-// and provider group metadata is included for rendering group headers.
+// The shared chart uses normalized labels across providers:
+// Input = fresh/uncached input, Output = provider-reported output,
+// Cache = cache read tokens.
 func tokensByModelChartData(models []views.ModelTokens) any {
 	sorted := views.SortModelsByProvider(models)
 	multiProvider := hasMultipleProviders(sorted)
@@ -193,7 +194,7 @@ func tokensByModelChartData(models []views.ModelTokens) any {
 		"datasets": []map[string]any{
 			{"label": "Input", "data": inputData},
 			{"label": "Output", "data": outputData},
-			{"label": "Cache Read", "data": cacheData},
+			{"label": "Cache", "data": cacheData},
 		},
 	}
 	if multiProvider && len(providerGroups) > 0 {

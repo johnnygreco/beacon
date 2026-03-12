@@ -72,7 +72,7 @@ func SearchResultsWithCount(results []views.SearchResult, totalCount int, hasMor
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", totalCount))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `partials/search_results.templ`, Line: 17, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/search_results.templ`, Line: 17, Col: 35}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {

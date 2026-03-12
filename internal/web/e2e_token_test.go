@@ -530,6 +530,228 @@ func TestE2E_TokenAccuracy_ToolUseWithResults(t *testing.T) {
 	}
 }
 
+func TestE2E_TokenAccuracy_CodexNormalizationAndDedup(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+
+	turnContextLine := toJSONL(t, map[string]any{
+		"type":       "turn_context",
+		"session_id": "codex-tok-sess-1",
+		"timestamp":  "2025-06-01T10:00:00Z",
+		"payload": map[string]any{
+			"turn_id": "turn-1",
+			"model":   "gpt-5.4",
+		},
+	})
+	tokenCountLine := toJSONL(t, map[string]any{
+		"type":       "event_msg",
+		"session_id": "codex-tok-sess-1",
+		"timestamp":  "2025-06-01T10:00:01Z",
+		"payload": map[string]any{
+			"type": "token_count",
+			"info": map[string]any{
+				"last_token_usage": map[string]any{
+					"input_tokens":        9516,
+					"cached_input_tokens": 8064,
+					"output_tokens":       157,
+					"total_tokens":        9673,
+				},
+				"total_token_usage": map[string]any{
+					"input_tokens":        9516,
+					"cached_input_tokens": 8064,
+					"output_tokens":       157,
+					"total_tokens":        9673,
+				},
+			},
+		},
+	})
+	duplicateTokenCountLine := toJSONL(t, map[string]any{
+		"type":       "event_msg",
+		"session_id": "codex-tok-sess-1",
+		"timestamp":  "2025-06-01T10:00:02Z",
+		"payload": map[string]any{
+			"type": "token_count",
+			"info": map[string]any{
+				"last_token_usage": map[string]any{
+					"input_tokens":        9516,
+					"cached_input_tokens": 8064,
+					"output_tokens":       157,
+					"total_tokens":        9673,
+				},
+				"total_token_usage": map[string]any{
+					"input_tokens":        9516,
+					"cached_input_tokens": 8064,
+					"output_tokens":       157,
+					"total_tokens":        9673,
+				},
+			},
+		},
+	})
+	nextTokenCountLine := toJSONL(t, map[string]any{
+		"type":       "event_msg",
+		"session_id": "codex-tok-sess-1",
+		"timestamp":  "2025-06-01T10:00:03Z",
+		"payload": map[string]any{
+			"type": "token_count",
+			"info": map[string]any{
+				"last_token_usage": map[string]any{
+					"input_tokens":        1000,
+					"cached_input_tokens": 768,
+					"output_tokens":       50,
+					"total_tokens":        1050,
+				},
+				"total_token_usage": map[string]any{
+					"input_tokens":        10516,
+					"cached_input_tokens": 8832,
+					"output_tokens":       207,
+					"total_tokens":        10723,
+				},
+			},
+		},
+	})
+
+	contextEvents, err := ingestion.ParseCodexJSONL(turnContextLine, "test.jsonl", 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstTokenEvents, err := ingestion.ParseCodexJSONL(tokenCountLine, "test.jsonl", 2, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicateTokenEvents, err := ingestion.ParseCodexJSONL(duplicateTokenCountLine, "test.jsonl", 3, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextTokenEvents, err := ingestion.ParseCodexJSONL(nextTokenCountLine, "test.jsonl", 4, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	allEvents := append(contextEvents, firstTokenEvents...)
+	allEvents = append(allEvents, duplicateTokenEvents...)
+	allEvents = append(allEvents, nextTokenEvents...)
+
+	ingestion.PropagateModel(allEvents)
+	allEvents = ingestion.DeduplicateTokens(allEvents)
+
+	if allEvents[1].InputTokens != 1452 || allEvents[1].OutputTokens != 157 || allEvents[1].CacheReadTokens != 8064 {
+		t.Errorf("first Codex token_count should normalize cached input: input=%d output=%d cache_read=%d",
+			allEvents[1].InputTokens, allEvents[1].OutputTokens, allEvents[1].CacheReadTokens)
+	}
+	if allEvents[2].InputTokens != 0 || allEvents[2].OutputTokens != 0 || allEvents[2].CacheReadTokens != 0 {
+		t.Errorf("duplicate Codex token_count should be zeroed: input=%d output=%d cache_read=%d",
+			allEvents[2].InputTokens, allEvents[2].OutputTokens, allEvents[2].CacheReadTokens)
+	}
+	if allEvents[3].InputTokens != 232 || allEvents[3].OutputTokens != 50 || allEvents[3].CacheReadTokens != 768 {
+		t.Errorf("second unique Codex token_count should be preserved: input=%d output=%d cache_read=%d",
+			allEvents[3].InputTokens, allEvents[3].OutputTokens, allEvents[3].CacheReadTokens)
+	}
+
+	insertNormalizedEvents(t, db, allEvents)
+
+	active, completed, _ := QueryDashboardSessions(ctx, db.ReadPool)
+	allSessions := append(active, completed...)
+	if len(allSessions) != 1 {
+		t.Fatalf("expected 1 session, got %d", len(allSessions))
+	}
+	sess := allSessions[0]
+	if sess.InputTokens != 1684 {
+		t.Errorf("session input_tokens: expected 1684 uncached tokens, got %d", sess.InputTokens)
+	}
+	if sess.OutputTokens != 207 {
+		t.Errorf("session output_tokens: expected 207, got %d", sess.OutputTokens)
+	}
+	if sess.CacheReadTokens != 8832 {
+		t.Errorf("session cache_read_tokens: expected 8832, got %d", sess.CacheReadTokens)
+	}
+	if sess.TotalTokens != 1891 {
+		t.Errorf("session total_tokens: expected 1891, got %d", sess.TotalTokens)
+	}
+
+	byModel := QueryTokensByModelSummary(ctx, db.ReadPool)
+	if len(byModel) != 1 {
+		t.Fatalf("expected 1 model row, got %d", len(byModel))
+	}
+	if byModel[0].Model != "gpt-5.4" {
+		t.Errorf("expected model gpt-5.4, got %q", byModel[0].Model)
+	}
+	if byModel[0].Input != 1684 || byModel[0].Output != 207 || byModel[0].CacheRead != 8832 || byModel[0].Total != 1891 {
+		t.Errorf("unexpected model totals: input=%d output=%d cache_read=%d total=%d",
+			byModel[0].Input, byModel[0].Output, byModel[0].CacheRead, byModel[0].Total)
+	}
+}
+
+func TestE2E_CodexTaskCompleteDoesNotEndSession(t *testing.T) {
+	db := setupTestDB(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	turnContextLine := toJSONL(t, map[string]any{
+		"type":       "turn_context",
+		"session_id": "codex-active-sess-1",
+		"timestamp":  now.Add(-20 * time.Second).Format(time.RFC3339Nano),
+		"payload": map[string]any{
+			"turn_id": "turn-1",
+			"model":   "gpt-5.4",
+		},
+	})
+	taskCompleteLine := toJSONL(t, map[string]any{
+		"type":       "event_msg",
+		"session_id": "codex-active-sess-1",
+		"timestamp":  now.Add(-5 * time.Second).Format(time.RFC3339Nano),
+		"payload": map[string]any{
+			"type":               "task_complete",
+			"turn_id":            "turn-1",
+			"last_agent_message": "Completed the current turn.",
+		},
+	})
+
+	contextEvents, err := ingestion.ParseCodexJSONL(turnContextLine, "test.jsonl", 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	taskCompleteEvents, err := ingestion.ParseCodexJSONL(taskCompleteLine, "test.jsonl", 2, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	allEvents := append(contextEvents, taskCompleteEvents...)
+	ingestion.PropagateModel(allEvents)
+	insertNormalizedEvents(t, db, allEvents)
+
+	// Simulate legacy data from the old Codex parser, which incorrectly stored
+	// task_complete as session_end. The session should still remain active.
+	legacyTaskComplete := ingestion.NormalizedEvent{
+		SessionID:    "codex-active-sess-1",
+		SourceName:   "codex",
+		Provider:     "openai",
+		Timestamp:    now.Add(-4 * time.Second),
+		EventKind:    "session_end",
+		PayloadType:  "task_complete",
+		ActorRole:    "system",
+		TextContent:  "Completed the current turn.",
+		SourceFile:   "legacy.jsonl",
+		SourceLineNo: 3,
+		SourceOffset: 200,
+		RawPayload:   `{"type":"event_msg","payload":{"type":"task_complete"}}`,
+	}
+	insertNormalizedEvents(t, db, []ingestion.NormalizedEvent{legacyTaskComplete})
+
+	active, completed, _ := QueryDashboardSessions(ctx, db.ReadPool)
+	if len(active) != 1 {
+		t.Fatalf("expected 1 active session, got %d", len(active))
+	}
+	if active[0].ID != "codex-active-sess-1" {
+		t.Fatalf("expected active session codex-active-sess-1, got %q", active[0].ID)
+	}
+	if active[0].Status != "active" {
+		t.Errorf("expected status active, got %q", active[0].Status)
+	}
+	if len(completed) != 0 {
+		t.Fatalf("expected 0 completed sessions, got %d", len(completed))
+	}
+}
+
 // TestE2E_TokenAccuracy_CacheTokens tests that cache_read and cache_create
 // tokens flow correctly through the full pipeline.
 func TestE2E_TokenAccuracy_CacheTokens(t *testing.T) {
@@ -615,10 +837,10 @@ func TestE2E_TokenAccuracy_ZeroTokens(t *testing.T) {
 
 	// User message — no tokens
 	userLine := toJSONL(t, map[string]any{
-		"sessionId":  "tok-sess-5",
-		"uuid":       "uuid-user-5",
-		"timestamp":  "2025-06-01T10:00:00Z",
-		"type":       "user",
+		"sessionId": "tok-sess-5",
+		"uuid":      "uuid-user-5",
+		"timestamp": "2025-06-01T10:00:00Z",
+		"type":      "user",
 		"message": map[string]any{
 			"role":    "user",
 			"content": "Hello",
@@ -669,10 +891,10 @@ func TestE2E_TokenAccuracy_MissingUsageField(t *testing.T) {
 
 	// Assistant message without usage field
 	assistantLine := toJSONL(t, map[string]any{
-		"sessionId":  "tok-sess-6",
-		"uuid":       "uuid-asst-nousage",
-		"timestamp":  "2025-06-01T10:00:00Z",
-		"type":       "assistant",
+		"sessionId": "tok-sess-6",
+		"uuid":      "uuid-asst-nousage",
+		"timestamp": "2025-06-01T10:00:00Z",
+		"type":      "assistant",
 		"message": map[string]any{
 			"role":  "assistant",
 			"model": "claude-sonnet-4-20250514",

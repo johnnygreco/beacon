@@ -2,6 +2,7 @@ package ingestion
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 )
@@ -204,11 +205,13 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		payloadType := jsonStr(payload, "type")
 		switch payloadType {
 		case "task_complete":
-			// Codex signals session completion with task_complete
+			// Codex emits task_complete at turn boundaries, not only when the
+			// session is fully over.
 			evt := base
-			evt.EventKind = "session_end"
-			evt.ActorRole = "system"
+			evt.EventKind = "event_msg"
+			evt.ActorRole = "assistant"
 			evt.PayloadType = "task_complete"
+			evt.TextContent = jsonStr(payload, "last_agent_message")
 			events = append(events, evt)
 
 		case "agent_message":
@@ -274,10 +277,25 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 	// Extract token usage from payload.info.last_token_usage
 	if info, ok := payload["info"].(map[string]any); ok {
 		if usage, ok := info["last_token_usage"].(map[string]any); ok {
+			grossInput := jsonInt64(usage, "input_tokens")
+			cacheRead := jsonInt64(usage, "cached_input_tokens")
+			input := grossInput - cacheRead
+			if input < 0 {
+				input = 0
+			}
+			output := jsonInt64(usage, "output_tokens")
 			for i := range events {
-				events[i].InputTokens = jsonInt64(usage, "input_tokens")
-				events[i].OutputTokens = jsonInt64(usage, "output_tokens")
-				events[i].CacheReadTokens = jsonInt64(usage, "cached_input_tokens")
+				// OpenAI reports cached tokens as a subset of input_tokens, so we
+				// normalize input to uncached prompt tokens for cross-provider totals.
+				events[i].InputTokens = input
+				events[i].OutputTokens = output
+				events[i].CacheReadTokens = cacheRead
+			}
+		}
+		if usage, ok := info["total_token_usage"].(map[string]any); ok {
+			key := codexUsageTotalKey(usage)
+			for i := range events {
+				events[i].TokenUsageTotalKey = key
 			}
 		}
 	}
@@ -296,6 +314,15 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 	}
 
 	return events, nil
+}
+
+func codexUsageTotalKey(usage map[string]any) string {
+	return fmt.Sprintf("%d:%d:%d:%d",
+		jsonInt64(usage, "input_tokens"),
+		jsonInt64(usage, "cached_input_tokens"),
+		jsonInt64(usage, "output_tokens"),
+		jsonInt64(usage, "total_tokens"),
+	)
 }
 
 // codexSessionIDFromFile extracts a session ID from a Codex filename.

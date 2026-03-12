@@ -236,3 +236,50 @@ func TestDeduplicateTokens_MixedUUIDAndEmpty(t *testing.T) {
 		t.Errorf("uuid-1 message should be kept: input=%d output=%d", result[2].InputTokens, result[2].OutputTokens)
 	}
 }
+
+func TestDeduplicateTokens_CodexRepeatedTotals(t *testing.T) {
+	events := []NormalizedEvent{
+		{
+			SessionID:          "codex-sess-1",
+			SourceName:         "codex",
+			PayloadType:        "token_count",
+			TokenUsageTotalKey: "9516:8064:157:9673",
+			InputTokens:        1452,
+			OutputTokens:       157,
+			CacheReadTokens:    8064,
+		},
+		{
+			SessionID:          "codex-sess-1",
+			SourceName:         "codex",
+			PayloadType:        "token_count",
+			TokenUsageTotalKey: "9516:8064:157:9673",
+			InputTokens:        1452,
+			OutputTokens:       157,
+			CacheReadTokens:    8064,
+		},
+		{
+			SessionID:          "codex-sess-1",
+			SourceName:         "codex",
+			PayloadType:        "token_count",
+			TokenUsageTotalKey: "10516:8832:207:10723",
+			InputTokens:        232,
+			OutputTokens:       50,
+			CacheReadTokens:    768,
+		},
+	}
+
+	result := DeduplicateTokens(events)
+
+	if result[0].InputTokens != 1452 || result[0].OutputTokens != 157 || result[0].CacheReadTokens != 8064 {
+		t.Errorf("first codex token_count should be preserved: input=%d output=%d cache_read=%d",
+			result[0].InputTokens, result[0].OutputTokens, result[0].CacheReadTokens)
+	}
+	if result[1].InputTokens != 0 || result[1].OutputTokens != 0 || result[1].CacheReadTokens != 0 {
+		t.Errorf("duplicate codex token_count should be zeroed: input=%d output=%d cache_read=%d",
+			result[1].InputTokens, result[1].OutputTokens, result[1].CacheReadTokens)
+	}
+	if result[2].InputTokens != 232 || result[2].OutputTokens != 50 || result[2].CacheReadTokens != 768 {
+		t.Errorf("next codex token_count should be preserved: input=%d output=%d cache_read=%d",
+			result[2].InputTokens, result[2].OutputTokens, result[2].CacheReadTokens)
+	}
+}
