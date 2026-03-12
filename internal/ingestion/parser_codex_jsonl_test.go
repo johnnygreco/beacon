@@ -536,6 +536,65 @@ func TestParseCodexJSONL_SessionIDFallbackToFilename(t *testing.T) {
 	}
 }
 
+func TestParseCodexJSONL_ToolOutputWithNonZeroExitCode(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":       "response_item",
+		"session_id": "sess-codex-1",
+		"timestamp":  "2025-06-01T10:00:00Z",
+		"payload": map[string]any{
+			"type":    "function_call_output",
+			"name":    "shell",
+			"call_id": "call_abc",
+			"output":  "golangci-lint: command not found\nProcess exited with code 2",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 14, 1300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.EventKind != "tool_error" {
+		t.Errorf("expected event_kind=tool_error, got %q", evt.EventKind)
+	}
+	if evt.ErrorCode != "tool_execution_failed" {
+		t.Errorf("expected error_code=tool_execution_failed, got %q", evt.ErrorCode)
+	}
+	if evt.ToolName != "shell" {
+		t.Errorf("expected tool_name=shell, got %q", evt.ToolName)
+	}
+}
+
+func TestParseCodexJSONL_ToolOutputWithZeroExitCode(t *testing.T) {
+	// Exit code 0 should NOT be treated as an error
+	line := toJSONL(t, map[string]any{
+		"type":       "response_item",
+		"session_id": "sess-codex-1",
+		"timestamp":  "2025-06-01T10:00:00Z",
+		"payload": map[string]any{
+			"type":    "function_call_output",
+			"name":    "shell",
+			"call_id": "call_def",
+			"output":  "all tests passed\nProcess exited with code 0",
+		},
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 15, 1400)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].EventKind != "tool_result" {
+		t.Errorf("expected event_kind=tool_result, got %q", events[0].EventKind)
+	}
+}
+
 func TestParseCodexJSONL_MalformedJSON(t *testing.T) {
 	line := []byte(`{"type": "session_meta", broken json`)
 

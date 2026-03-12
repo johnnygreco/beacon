@@ -19,7 +19,6 @@ const (
 	defaultSessionPageSize  = 30
 	defaultActivityPageSize = 30
 	defaultSearchPageSize   = 30
-	activityTimelineLimit   = 500 // max activity items for 24h window
 )
 
 // parseRange converts a range string ("1h", "24h", "7d", "30d") to a *time.Time cutoff.
@@ -53,7 +52,7 @@ func QueryDashboardData(ctx context.Context, db *sql.DB) views.DashboardData {
 	}()
 	go func() {
 		defer wg.Done()
-		data.RecentActivity, data.HasMoreActivity = QueryRecentActivity(ctx, db)
+		data.RecentActivity = QueryRecentActivity(ctx, db)
 	}()
 	go func() { defer wg.Done(); data.TokensByModel = QueryTokensByModelSummary(ctx, db) }()
 	go func() { defer wg.Done(); data.TokensChart = QueryTotalTokensTimeSeries(ctx, db) }()
@@ -171,14 +170,15 @@ const activitySummaryExpr = `CASE
 		            WHEN event_kind = 'message' AND actor_role = 'assistant' AND COALESCE(NULLIF(text_preview, ''), '') != '' THEN text_preview
 		            WHEN event_kind = 'message' THEN COALESCE(NULLIF(actor_role, ''), 'message') || ' message'
 		            WHEN event_kind = 'error' THEN COALESCE(NULLIF(error_code, ''), 'error') || ': ' || COALESCE(NULLIF(error_message, ''), NULLIF(text_preview, ''), 'unknown error')
+		            WHEN event_kind = 'tool_error' THEN 'Tool error: ' || COALESCE(NULLIF(tool_name, ''), 'unknown') || ' — ' || COALESCE(NULLIF(error_message, ''), NULLIF(text_preview, ''), 'failed')
 		            WHEN event_kind = 'session_meta' THEN 'Session started'
 		            ELSE event_kind
 		        END`
 
 // QueryRecentActivity returns a feed of recent events within the last 24 hours.
-func QueryRecentActivity(ctx context.Context, db *sql.DB) ([]views.ActivityItem, bool) {
+func QueryRecentActivity(ctx context.Context, db *sql.DB) []views.ActivityItem {
 	since := time.Now().Add(-24 * time.Hour)
-	return QueryRecentActivityFiltered(ctx, db, &since, 0, activityTimelineLimit)
+	return QueryRecentActivityFiltered(ctx, db, &since)
 }
 
 // QueryCompletedSessions returns paginated completed sessions with optional time filter.
@@ -260,15 +260,15 @@ func attachSubagentCounts(ctx context.Context, db *sql.DB, sessions []views.Sess
 	}
 }
 
-// QueryRecentActivityFiltered returns paginated activity items with optional time filter.
-func QueryRecentActivityFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int) ([]views.ActivityItem, bool) {
-	return QueryRecentActivityFilteredByKind(ctx, db, since, offset, limit, nil)
+// QueryRecentActivityFiltered returns activity items with optional time filter.
+func QueryRecentActivityFiltered(ctx context.Context, db *sql.DB, since *time.Time) []views.ActivityItem {
+	return QueryRecentActivityFilteredByKind(ctx, db, since, nil)
 }
 
-// QueryRecentActivityFilteredByKind returns paginated activity items with optional time and event kind filters.
+// QueryRecentActivityFilteredByKind returns activity items with optional time and event kind filters.
 // When eventKinds is non-empty, only those event types are returned (enables server-side filtering
 // so that low-volume event types like errors aren't crowded out by high-volume types).
-func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int, eventKinds []string) ([]views.ActivityItem, bool) {
+func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *time.Time, eventKinds []string) []views.ActivityItem {
 	var kindFilter string
 	if len(eventKinds) > 0 {
 		quoted := make([]string, len(eventKinds))
@@ -277,7 +277,7 @@ func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *t
 		}
 		kindFilter = "(" + strings.Join(quoted, ",") + ")"
 	} else {
-		kindFilter = "('message', 'tool_call', 'error', 'session_meta')"
+		kindFilter = "('message', 'tool_call', 'error', 'tool_error', 'session_meta')"
 	}
 
 	query := `SELECT event_uid,
@@ -294,11 +294,10 @@ func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *t
 		args = append(args, *since)
 	}
 	query += ` ORDER BY timestamp DESC`
-	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit+1, offset)
 
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, false
+		return nil
 	}
 	defer rows.Close()
 
@@ -312,14 +311,9 @@ func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *t
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, false
+		return nil
 	}
-	hasMore := len(items) > limit
-	if hasMore {
-		items = items[:limit]
-	}
-	items = deduplicateActivity(items)
-	return items, hasMore
+	return deduplicateActivity(items)
 }
 
 // deduplicateActivity removes duplicate activity items that arise from
@@ -746,6 +740,15 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 				eCopy := e
 				ct.Blocks = append(ct.Blocks, views.ChatBlock{
 					Kind:    views.ChatBlockError,
+					Message: &eCopy,
+				})
+
+			case "tool_error":
+				flushReasoning()
+				flushToolChain()
+				eCopy := e
+				ct.Blocks = append(ct.Blocks, views.ChatBlock{
+					Kind:    views.ChatBlockToolError,
 					Message: &eCopy,
 				})
 

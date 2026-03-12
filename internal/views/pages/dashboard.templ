@@ -206,7 +206,11 @@ templ Dashboard(data views.DashboardData) {
 			// are not crowded out by high-volume types (e.g. errors hidden by tools).
 			if (type !== 'all') {
 				activityFilterActive = true;
-				htmx.ajax('GET', '/dashboard/activity?event_kind=' + encodeURIComponent(type), {target: '#activity-feed', swap: 'innerHTML'});
+				var url = '/dashboard/activity?event_kind=' + encodeURIComponent(type);
+				if (type === 'error') {
+					url = '/dashboard/activity?event_kind=error,tool_error';
+				}
+				htmx.ajax('GET', url, {target: '#activity-feed', swap: 'innerHTML'});
 			} else {
 				activityFilterActive = false;
 				htmx.ajax('GET', '/dashboard/activity', {target: '#activity-feed', swap: 'innerHTML'});

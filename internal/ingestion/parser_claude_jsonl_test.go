@@ -499,6 +499,115 @@ func TestParseClaudeJSONL_OverloadedError(t *testing.T) {
 	}
 }
 
+func TestParseClaudeJSONL_ToolResultWithIsError(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"sessionId": "sess-1",
+		"uuid":      "uuid-tool-err",
+		"timestamp": "2025-01-01T00:00:05Z",
+		"type":      "user",
+		"message": map[string]any{
+			"role": "user",
+			"content": []map[string]any{
+				{
+					"type":        "tool_result",
+					"tool_use_id": "toolu_123",
+					"content":     "Exit code 2\ngolangci-lint: command not found",
+					"is_error":    true,
+				},
+			},
+		},
+	})
+
+	events, err := ParseClaudeJSONL(line, "test.jsonl", 9, 900)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.EventKind != "tool_error" {
+		t.Errorf("expected event_kind=tool_error, got %q", evt.EventKind)
+	}
+	if evt.ErrorCode != "tool_execution_failed" {
+		t.Errorf("expected error_code=tool_execution_failed, got %q", evt.ErrorCode)
+	}
+	if evt.ErrorMessage != "Exit code 2\ngolangci-lint: command not found" {
+		t.Errorf("unexpected error_message: %q", evt.ErrorMessage)
+	}
+	if evt.ToolUseID != "toolu_123" {
+		t.Errorf("expected tool_use_id=toolu_123, got %q", evt.ToolUseID)
+	}
+}
+
+func TestParseClaudeJSONL_ToolResultWithIsErrorWrapped(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"sessionId": "sess-1",
+		"uuid":      "uuid-tool-err-2",
+		"timestamp": "2025-01-01T00:00:06Z",
+		"type":      "user",
+		"message": map[string]any{
+			"role": "user",
+			"content": []map[string]any{
+				{
+					"type":        "tool_result",
+					"tool_use_id": "toolu_456",
+					"content":     "<tool_use_error>File does not exist.</tool_use_error>",
+					"is_error":    true,
+				},
+			},
+		},
+	})
+
+	events, err := ParseClaudeJSONL(line, "test.jsonl", 10, 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.EventKind != "tool_error" {
+		t.Errorf("expected event_kind=tool_error, got %q", evt.EventKind)
+	}
+	if evt.ErrorMessage != "File does not exist." {
+		t.Errorf("expected stripped error_message, got %q", evt.ErrorMessage)
+	}
+}
+
+func TestParseClaudeJSONL_ToolResultWithoutIsError(t *testing.T) {
+	// Ensure normal tool_result (is_error absent or false) stays as tool_result
+	line := toJSONL(t, map[string]any{
+		"sessionId": "sess-1",
+		"uuid":      "uuid-tool-ok",
+		"timestamp": "2025-01-01T00:00:07Z",
+		"type":      "user",
+		"message": map[string]any{
+			"role": "user",
+			"content": []map[string]any{
+				{
+					"type":        "tool_result",
+					"tool_use_id": "toolu_789",
+					"content":     "success",
+				},
+			},
+		},
+	})
+
+	events, err := ParseClaudeJSONL(line, "test.jsonl", 11, 1100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].EventKind != "tool_result" {
+		t.Errorf("expected event_kind=tool_result, got %q", events[0].EventKind)
+	}
+}
+
 func TestParseClaudeJSONL_DeduplicateTokensAcrossLines(t *testing.T) {
 	// Simulates two JSONL lines from the same API call (thinking + text)
 	// with identical usage values. After DeduplicateTokens, only the last

@@ -414,7 +414,6 @@ type DashboardData struct {
 	TokensChart       MultiSeriesChart
 	TokensByModel     []ModelTokens
 	HasMoreSessions   bool
-	HasMoreActivity   bool
 }
 
 type SessionDetailData struct {
@@ -432,6 +431,7 @@ const (
 	ChatBlockToolChain          = "tool_chain"
 	ChatBlockReasoning          = "reasoning"
 	ChatBlockError              = "error"
+	ChatBlockToolError          = "tool_error"
 	ChatBlockSubagentDispatch   = "subagent_dispatch"
 )
 

@@ -218,6 +218,16 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 						}
 					}
 				}
+				// Detect tool execution failures via is_error flag
+				if isErr, ok := bm["is_error"].(bool); ok && isErr {
+					evt.EventKind = "tool_error"
+					evt.ErrorCode = "tool_execution_failed"
+					msg := evt.TextContent
+					// Strip <tool_use_error> wrapper tags for cleaner display
+					msg = strings.TrimPrefix(msg, "<tool_use_error>")
+					msg = strings.TrimSuffix(msg, "</tool_use_error>")
+					evt.ErrorMessage = msg
+				}
 
 			case "thinking":
 				evt.EventKind = "reasoning"
