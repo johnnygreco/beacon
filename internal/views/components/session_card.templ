@@ -12,7 +12,7 @@ templ SessionCard(s views.SessionSummary) {
 			if s.Status == "active" {
 				<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-green-500/20 text-green-400">Active</span>
 			} else if s.Status == "idle" {
-				<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-amber-500/20 text-amber-400">Idle</span>
+				<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-red-500/15 text-red-400">Idle</span>
 			} else {
 				<span class="px-2 py-0.5 text-xs font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">Done</span>
 			}
@@ -56,7 +56,7 @@ templ ActiveSessionCard(s views.SessionSummary) {
 }
 
 templ parentActiveCard(s views.SessionSummary) {
-	<div class={ "rounded-lg overflow-hidden border-l-2", templ.KV("bg-gray-800/60 border-green-500/50", s.Status == "active"), templ.KV("bg-gray-800/40 border-amber-500/30 border-dashed", s.Status == "idle") }>
+	<div class={ "rounded-lg overflow-hidden border-l-2", templ.KV("bg-gray-800/60 border-green-500/50", s.Status == "active"), templ.KV("bg-gray-800/40 border-red-500/30 border-dashed", s.Status == "idle") }>
 		<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="block px-4 py-3 hover:bg-gray-700/20 transition-colors">
 			<div class="flex items-center justify-between">
 				<div class="flex items-center gap-2 min-w-0">
@@ -67,7 +67,7 @@ templ parentActiveCard(s views.SessionSummary) {
 						</span>
 					} else {
 						<span class="relative flex h-2 w-2 flex-shrink-0">
-							<span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500/60"></span>
+							<span class="relative inline-flex rounded-full h-2 w-2 bg-red-500/60"></span>
 						</span>
 					}
 					<span class="font-medium text-gray-100 truncate">{ views.SessionTitle(s, false) }</span>
@@ -78,7 +78,7 @@ templ parentActiveCard(s views.SessionSummary) {
 					if s.Status == "active" {
 						<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-green-500/15 text-green-400">Live</span>
 					} else {
-						<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-amber-500/15 text-amber-400">Idle</span>
+						<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-red-500/15 text-red-400">Idle</span>
 					}
 				</div>
 			</div>
@@ -124,7 +124,7 @@ templ parentActiveCard(s views.SessionSummary) {
 }
 
 templ orphanSubagentCard(s views.SessionSummary) {
-	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class={ "block rounded-lg overflow-hidden bg-gray-800/40 border-l-2 px-4 py-3 hover:bg-gray-700/20 transition-colors", templ.KV("border-blue-500/50", s.Status == "active"), templ.KV("border-amber-500/40", s.Status == "idle") }>
+	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class={ "block rounded-lg overflow-hidden bg-gray-800/40 border-l-2 px-4 py-3 hover:bg-gray-700/20 transition-colors", templ.KV("border-blue-500/50", s.Status == "active"), templ.KV("border-red-500/40", s.Status == "idle") }>
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-2 min-w-0">
 				if s.Status == "active" {
@@ -134,7 +134,7 @@ templ orphanSubagentCard(s views.SessionSummary) {
 					</span>
 				} else {
 					<span class="relative flex h-2 w-2 flex-shrink-0">
-						<span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500/60"></span>
+						<span class="relative inline-flex rounded-full h-2 w-2 bg-red-500/60"></span>
 					</span>
 				}
 				<span class="font-medium text-gray-100 truncate">{ views.SessionTitle(s, false) }</span>
@@ -143,7 +143,7 @@ templ orphanSubagentCard(s views.SessionSummary) {
 			if s.Status == "active" {
 				<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-blue-500/15 text-blue-400 flex-shrink-0 ml-2">Sub</span>
 			} else {
-				<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-amber-500/15 text-amber-400 flex-shrink-0 ml-2">Idle</span>
+				<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded bg-red-500/15 text-red-400 flex-shrink-0 ml-2">Idle</span>
 			}
 		</div>
 		<div class="flex items-center gap-2 text-xs text-gray-500 mt-1 ml-4 flex-wrap">
@@ -172,7 +172,7 @@ templ SubagentSessionCard(s views.SessionSummary) {
 			if s.Status == "active" {
 				<span class="px-1.5 py-0.5 text-xs font-semibold uppercase rounded-full bg-blue-500/20 text-blue-400">Live</span>
 			} else if s.Status == "idle" {
-				<span class="px-1.5 py-0.5 text-xs font-semibold uppercase rounded-full bg-amber-500/20 text-amber-400">Idle</span>
+				<span class="px-1.5 py-0.5 text-xs font-semibold uppercase rounded-full bg-red-500/15 text-red-400">Idle</span>
 			} else {
 				<span class="px-1.5 py-0.5 text-xs font-semibold uppercase rounded-full bg-gray-600/40 text-gray-500">Done</span>
 			}

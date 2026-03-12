@@ -318,7 +318,29 @@ func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *t
 	if hasMore {
 		items = items[:limit]
 	}
+	items = deduplicateActivity(items)
 	return items, hasMore
+}
+
+// deduplicateActivity removes duplicate activity items that arise from
+// Claude Code JSONL logging the same content in multiple line types.
+// Items are considered duplicates when they share the same summary,
+// session_id, and event type.
+func deduplicateActivity(items []views.ActivityItem) []views.ActivityItem {
+	if len(items) <= 1 {
+		return items
+	}
+	var result []views.ActivityItem
+	seen := make(map[string]bool)
+	for _, item := range items {
+		key := item.Type + "|" + item.SessionID + "|" + item.Summary
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, item)
+	}
+	return result
 }
 
 // QueryChartData returns token time-series data with breakdown by type.

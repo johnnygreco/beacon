@@ -44,7 +44,7 @@ templ SessionDetail(data views.SessionDetailData) {
 							<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-green-500/20 text-green-400">Active</span>
 						}
 					} else if data.Session.Status == "idle" {
-						<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-amber-500/20 text-amber-400">Idle</span>
+						<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-red-500/15 text-red-400">Idle</span>
 					} else {
 						<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">Completed</span>
 					}
@@ -168,6 +168,44 @@ templ SessionDetail(data views.SessionDetailData) {
 					</div>
 				</div>
 			</div>
+
+			<!-- Scroll to hash fragment after lazy-loaded conversation arrives -->
+			<script>
+			document.body.addEventListener('htmx:afterSettle', function(e) {
+				if (e.detail.target && e.detail.target.id === 'conversation-container' && window.location.hash) {
+					var id = window.location.hash.substring(1);
+					var el = document.getElementById(id);
+					if (!el) {
+						// Exact event not found (may have been deduplicated).
+						// Fall back to scrolling to the conversation section.
+						el = document.getElementById('conversation-container');
+					}
+					if (el) {
+						setTimeout(function() {
+							// Open any collapsed <details> ancestors so the element is visible
+							var parent = el.closest ? el.closest('details') : null;
+							while (parent) {
+								parent.open = true;
+								parent = parent.parentElement ? parent.parentElement.closest('details') : null;
+							}
+							// If the element itself is a <details>, open it too
+							if (el.tagName === 'DETAILS') { el.open = true; }
+							// Scroll after layout reflow
+							requestAnimationFrame(function() {
+								el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+								// Flash highlight if it's the exact element (not fallback)
+								if (el.id !== 'conversation-container') {
+									el.style.outline = '2px solid rgba(59, 130, 246, 0.6)';
+									el.style.outlineOffset = '4px';
+									el.style.borderRadius = '8px';
+									setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2500);
+								}
+							});
+						}, 150);
+					}
+				}
+			});
+			</script>
 
 			<!-- Initial chart data embedded as JSON -->
 			@templ.JSONScript("session-tokens-data", multiSeriesChartData(data.TokensChart))
