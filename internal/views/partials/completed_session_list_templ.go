@@ -55,7 +55,7 @@ func CompletedSessionListPaginated(sessions []views.SessionSummary, hasMore bool
 				var templ_7745c5c3_Var2 string
 				templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/dashboard/sessions?range=%s&offset=%d", url.QueryEscape(rangeVal), maxInt(0, currentOffset-pageSize)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/completed_session_list.templ`, Line: 22, Col: 131}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `partials/completed_session_list.templ`, Line: 22, Col: 131}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 				if templ_7745c5c3_Err != nil {
@@ -68,7 +68,7 @@ func CompletedSessionListPaginated(sessions []views.SessionSummary, hasMore bool
 				var templ_7745c5c3_Var3 string
 				templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", maxInt(0, currentOffset-pageSize)))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/completed_session_list.templ`, Line: 25, Col: 78}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `partials/completed_session_list.templ`, Line: 25, Col: 78}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 				if templ_7745c5c3_Err != nil {
@@ -86,7 +86,7 @@ func CompletedSessionListPaginated(sessions []views.SessionSummary, hasMore bool
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", currentOffset/pageSize+1))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/completed_session_list.templ`, Line: 32, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `partials/completed_session_list.templ`, Line: 32, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -104,7 +104,7 @@ func CompletedSessionListPaginated(sessions []views.SessionSummary, hasMore bool
 				var templ_7745c5c3_Var5 string
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/dashboard/sessions?range=%s&offset=%d", url.QueryEscape(rangeVal), currentOffset+pageSize))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/completed_session_list.templ`, Line: 38, Col: 120}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `partials/completed_session_list.templ`, Line: 38, Col: 120}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 				if templ_7745c5c3_Err != nil {
@@ -117,7 +117,7 @@ func CompletedSessionListPaginated(sessions []views.SessionSummary, hasMore bool
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", currentOffset+pageSize))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/completed_session_list.templ`, Line: 41, Col: 67}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `partials/completed_session_list.templ`, Line: 41, Col: 67}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {
