@@ -33,11 +33,18 @@ const yAxisOptions = {
   beginAtZero: true
 };
 
+// Provider identity colors — single source of truth for all chart-level
+// provider styling (labels, borders, legend items).
+const providerColors = {
+  'Claude Code': { border: '#fb923c', bg: 'rgba(251, 146, 60, 0.15)' },  // orange
+  'Codex':       { border: '#22d3ee', bg: 'rgba(34, 211, 238, 0.15)' },  // cyan
+};
+
 const seriesColors = [
   { border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.15)' },   // blue - input
-  { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)' },   // amber - output
+  { border: '#a78bfa', bg: 'rgba(167, 139, 250, 0.15)' },   // violet - output
   { border: '#10b981', bg: 'rgba(16, 185, 129, 0.15)' },    // green - cache read
-  { border: '#8b5cf6', bg: 'rgba(139, 92, 246, 0.15)' },    // purple
+  { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)' },    // amber
   { border: '#ef4444', bg: 'rgba(239, 68, 68, 0.15)' },     // red
   { border: '#06b6d4', bg: 'rgba(6, 182, 212, 0.15)' },     // cyan
 ];
@@ -158,7 +165,8 @@ var providerGroupPlugin = {
     groups.forEach(function(g) {
       var x0 = xAxis.getPixelForTick(g.start);
       var x1 = xAxis.getPixelForTick(g.end);
-      ctx.fillStyle = g.provider === 'Codex' ? '#34d399' : '#fb923c';
+      var pc = providerColors[g.provider] || { border: '#9ca3af' };
+      ctx.fillStyle = pc.border;
       ctx.fillText(g.provider, (x0 + x1) / 2, y);
     });
 

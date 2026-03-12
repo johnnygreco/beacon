@@ -194,6 +194,31 @@ func ProviderShort(provider string) string {
 	}
 }
 
+// ProviderBadgeClasses returns Tailwind classes for a provider badge (background + text).
+// This is the single source of truth for provider colors across all templates.
+func ProviderBadgeClasses(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "bg-orange-500/15 text-orange-300"
+	case "openai":
+		return "bg-cyan-500/15 text-cyan-400"
+	default:
+		return "bg-gray-500/15 text-gray-400"
+	}
+}
+
+// ProviderBadgeBorder returns Tailwind border color class for a provider.
+func ProviderBadgeBorder(provider string) string {
+	switch provider {
+	case "anthropic":
+		return "border-orange-500/40"
+	case "openai":
+		return "border-cyan-500/40"
+	default:
+		return "border-gray-500/40"
+	}
+}
+
 // GroupActiveSessions groups subagent sessions under their parent sessions.
 // Returns only top-level sessions (parents with ChildSessions populated,
 // plus orphan subagents whose parent is not in the list).
