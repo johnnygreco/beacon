@@ -207,18 +207,6 @@ func ProviderBadgeClasses(provider string) string {
 	}
 }
 
-// ProviderBadgeBorder returns Tailwind border color class for a provider.
-func ProviderBadgeBorder(provider string) string {
-	switch provider {
-	case "anthropic":
-		return "border-orange-500/40"
-	case "openai":
-		return "border-cyan-500/40"
-	default:
-		return "border-gray-500/40"
-	}
-}
-
 // GroupActiveSessions groups subagent sessions under their parent sessions.
 // Returns only top-level sessions (parents with ChildSessions populated,
 // plus orphan subagents whose parent is not in the list).
