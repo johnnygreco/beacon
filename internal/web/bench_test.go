@@ -106,7 +106,7 @@ func BenchmarkDashboard(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}
 }
@@ -121,7 +121,7 @@ func BenchmarkSessionDetail(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}
 }
@@ -136,7 +136,7 @@ func BenchmarkSessionConversation(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}
 }
@@ -151,7 +151,7 @@ func BenchmarkSearch(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}
 }
@@ -175,7 +175,7 @@ func BenchmarkAPIMetrics(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}
 }
@@ -190,7 +190,7 @@ func BenchmarkAPISessions(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		io.Copy(io.Discard, resp.Body)
+		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}
 }

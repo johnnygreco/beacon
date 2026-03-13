@@ -146,7 +146,7 @@ func seedBatch(ctx context.Context, db *database.DB, rng *rand.Rand, cfg seedCon
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	eventStmt, err := tx.PrepareContext(ctx, eventInsertSQL)
 	if err != nil {
