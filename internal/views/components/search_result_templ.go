@@ -120,7 +120,7 @@ func SearchResultCard(r views.SearchResult) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		if r.Score != 0 {
+		if r.Score > 0.01 {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<span class=\"text-xs text-gray-500\" title=\"BM25 relevance score\">Score: ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err

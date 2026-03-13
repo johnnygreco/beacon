@@ -213,8 +213,9 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 		})
 	default: // "relevance" — BM25 scores first, then by timestamp for unscored
 		sort.SliceStable(merged, func(i, j int) bool {
-			if merged[i].Score != merged[j].Score {
-				return merged[i].Score > merged[j].Score
+			si, sj := merged[i].Score, merged[j].Score
+			if si != sj {
+				return si > sj
 			}
 			return merged[i].Timestamp.After(merged[j].Timestamp)
 		})
@@ -303,7 +304,9 @@ func (s *Searcher) buildFilters(q SearchQuery) string {
 	if q.SessionID != "" {
 		escaped := strings.ReplaceAll(q.SessionID, "'", "''")
 		if len(q.SessionID) < 36 {
-			// Partial session ID — use prefix match
+			// Partial session ID — use prefix match; escape LIKE wildcards
+			escaped = strings.ReplaceAll(escaped, "%", "\\%")
+			escaped = strings.ReplaceAll(escaped, "_", "\\_")
 			clauses = append(clauses, fmt.Sprintf("AND e.session_id LIKE '%s%%'", escaped))
 		} else {
 			clauses = append(clauses, fmt.Sprintf("AND e.session_id = '%s'", escaped))
