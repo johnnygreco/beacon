@@ -332,6 +332,46 @@ func (s *Searcher) buildFilters(q SearchQuery) string {
 	return strings.Join(clauses, " ")
 }
 
+// Browse returns events matching filters without requiring a text query.
+// Used when session_id or other filters are set but no search term is entered.
+func (s *Searcher) Browse(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
+	if q.Limit <= 0 {
+		q.Limit = s.maxResults
+	}
+	if q.Limit <= 0 {
+		q.Limit = 25
+	}
+
+	filters := s.buildFilters(q)
+	query := fmt.Sprintf(
+		`SELECT e.event_uid, e.session_id, e.event_kind,
+		        COALESCE(NULLIF(e.text_preview, ''), e.tool_name, '') AS preview,
+		        0.0 AS score, e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, ''), COALESCE(e.provider, '')
+		 FROM events e
+		 WHERE 1=1 %s
+		 ORDER BY e.timestamp %s
+		 LIMIT %d`,
+		filters, browseSortOrder(q.SortBy), q.Limit,
+	)
+
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanResults(rows)
+}
+
+func browseSortOrder(sortBy string) string {
+	switch sortBy {
+	case "oldest":
+		return "ASC"
+	default:
+		return "DESC"
+	}
+}
+
 func scanResults(rows *sql.Rows) ([]SearchResult, error) {
 	var results []SearchResult
 	for rows.Next() {

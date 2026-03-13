@@ -87,7 +87,11 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 // SearchResults handles HTMX partial requests for search results.
 func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
-	if query == "" {
+	sessionID := r.URL.Query().Get("session_id")
+	eventKind := r.URL.Query().Get("event_kind")
+
+	// Show placeholder only when there's no query AND no filters
+	if query == "" && sessionID == "" && eventKind == "" {
 		if err := partials.SearchResultsWithCount(nil, -1, false).Render(r.Context(), w); err != nil {
 			h.logger.Debug("render search results failed", "error", err)
 		}
@@ -104,17 +108,24 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 	sq := search.SearchQuery{
 		Query:     query,
 		Limit:     pageSize + 1,
-		SessionID: r.URL.Query().Get("session_id"),
+		SessionID: sessionID,
 		SortBy:    r.URL.Query().Get("sort"),
 	}
-	if ek := r.URL.Query().Get("event_kind"); ek != "" {
-		sq.EventKinds = []string{ek}
+	if eventKind != "" {
+		sq.EventKinds = []string{eventKind}
 	}
 	if t := parseRange(r.URL.Query().Get("range")); t != nil {
 		sq.FromTime = *t
 	}
 
-	results, err := h.searcher.Search(r.Context(), sq)
+	// Use Browse (filter-only) when no text query, Search (BM25+ILIKE) otherwise
+	var results []search.SearchResult
+	var err error
+	if query == "" {
+		results, err = h.searcher.Browse(r.Context(), sq)
+	} else {
+		results, err = h.searcher.Search(r.Context(), sq)
+	}
 	if err != nil {
 		h.logger.Error("search failed", "error", err)
 		if err := partials.SearchResultsWithCount(nil, 0, false).Render(r.Context(), w); err != nil {
