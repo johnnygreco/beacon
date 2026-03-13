@@ -105,6 +105,7 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 		Query:     query,
 		Limit:     pageSize + 1,
 		SessionID: r.URL.Query().Get("session_id"),
+		SortBy:    r.URL.Query().Get("sort"),
 	}
 	if ek := r.URL.Query().Get("event_kind"); ek != "" {
 		sq.EventKinds = []string{ek}

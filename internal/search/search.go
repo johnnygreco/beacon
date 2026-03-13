@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,7 @@ type SearchQuery struct {
 	FromTime       time.Time
 	ToTime         time.Time
 	ExcludeMCPSelf bool
+	SortBy         string // "relevance" (default), "newest", "oldest"
 }
 
 type SearchResult struct {
@@ -199,6 +201,25 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 		}
 	}
 
+	// Apply sort order
+	switch q.SortBy {
+	case "newest":
+		sort.Slice(merged, func(i, j int) bool {
+			return merged[i].Timestamp.After(merged[j].Timestamp)
+		})
+	case "oldest":
+		sort.Slice(merged, func(i, j int) bool {
+			return merged[i].Timestamp.Before(merged[j].Timestamp)
+		})
+	default: // "relevance" — BM25 scores first, then by timestamp for unscored
+		sort.SliceStable(merged, func(i, j int) bool {
+			if merged[i].Score != merged[j].Score {
+				return merged[i].Score > merged[j].Score
+			}
+			return merged[i].Timestamp.After(merged[j].Timestamp)
+		})
+	}
+
 	if len(merged) > q.Limit {
 		merged = merged[:q.Limit]
 	}
@@ -280,7 +301,13 @@ func (s *Searcher) buildFilters(q SearchQuery) string {
 	var clauses []string
 
 	if q.SessionID != "" {
-		clauses = append(clauses, fmt.Sprintf("AND e.session_id = '%s'", strings.ReplaceAll(q.SessionID, "'", "''")))
+		escaped := strings.ReplaceAll(q.SessionID, "'", "''")
+		if len(q.SessionID) < 36 {
+			// Partial session ID — use prefix match
+			clauses = append(clauses, fmt.Sprintf("AND e.session_id LIKE '%s%%'", escaped))
+		} else {
+			clauses = append(clauses, fmt.Sprintf("AND e.session_id = '%s'", escaped))
+		}
 	}
 
 	if len(q.EventKinds) > 0 {

@@ -33,6 +33,16 @@ templ FilterBar() {
 			</select>
 		</div>
 		<div>
+			<label class="text-xs text-gray-500 block mb-1" for="filter-sort">Sort By</label>
+			<select id="filter-sort" name="sort"
+				onchange="triggerSearch()"
+				class="bg-gray-700 text-gray-200 text-sm rounded px-2 py-1 border border-gray-600 focus:border-blue-500 focus:outline-none">
+				<option value="relevance">Relevance</option>
+				<option value="newest">Newest</option>
+				<option value="oldest">Oldest</option>
+			</select>
+		</div>
+		<div>
 			<label class="text-xs text-gray-500 block mb-1" for="filter-limit">Results</label>
 			<select id="filter-limit" name="limit"
 				onchange="triggerSearch()"
