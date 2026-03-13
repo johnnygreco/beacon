@@ -80,7 +80,7 @@ func (s *Searcher) RunIndexer(ctx context.Context) {
 		return
 	}
 
-	s.rebuildIndex(ctx)
+	s.RebuildIndex(ctx)
 
 	if s.rebuildInterval <= 0 {
 		return
@@ -97,12 +97,13 @@ func (s *Searcher) RunIndexer(ctx context.Context) {
 			}
 			return
 		case <-ticker.C:
-			s.rebuildIndex(ctx)
+			s.RebuildIndex(ctx)
 		}
 	}
 }
 
-func (s *Searcher) rebuildIndex(ctx context.Context) {
+// RebuildIndex rebuilds the FTS index if the event count has changed.
+func (s *Searcher) RebuildIndex(ctx context.Context) {
 	if s.ftsConn == nil {
 		return
 	}
