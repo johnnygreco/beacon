@@ -19,8 +19,8 @@ templ SearchResultCard(r views.SearchResult) {
 					<span class="text-xs text-gray-400 font-mono">{ r.ToolName }</span>
 				}
 				if r.Score > 0.01 {
-					<span class="text-xs text-gray-500" title="BM25 relevance score">
-						Score: { fmt.Sprintf("%.2f", r.Score) }
+					<span class="text-xs text-gray-500" title="BM25 full-text search relevance score">
+						BM25: { fmt.Sprintf("%.2f", r.Score) }
 					</span>
 				}
 				<span class="text-xs text-gray-500">{ views.RelativeTime(r.Timestamp) }</span>
