@@ -1,7 +1,6 @@
 package pages
 
 import (
-	"fmt"
 	"github.com/johnnygreco/beacon/internal/views"
 	"github.com/johnnygreco/beacon/internal/views/components"
 	"github.com/johnnygreco/beacon/internal/views/partials"
@@ -31,21 +30,8 @@ templ Dashboard(data views.DashboardData) {
 					}
 
 					<!-- Active Sessions -->
-					<div>
-						<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
-							<span class="relative flex h-2 w-2">
-								<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-								<span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-							</span>
-							Active Sessions
-							if len(data.ActiveSessions) > 0 {
-								<span class="text-xs font-normal text-gray-500">({ fmt.Sprintf("%d", len(data.ActiveSessions)) })</span>
-							}
-						</h2>
-						<div id="active-sessions" sse-swap="active-sessions-update" hx-swap="innerHTML"
-						     class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-							@partials.ActiveSessionList(data.ActiveSessions)
-						</div>
+					<div id="active-sessions" sse-swap="active-sessions-update" hx-swap="innerHTML">
+						@partials.ActiveSessionList(data.ActiveSessions)
 					</div>
 
 					<!-- Completed Sessions Table -->
