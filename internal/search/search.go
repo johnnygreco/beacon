@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,7 @@ type SearchQuery struct {
 	FromTime       time.Time
 	ToTime         time.Time
 	ExcludeMCPSelf bool
+	SortBy         string // "relevance" (default), "newest", "oldest"
 }
 
 type SearchResult struct {
@@ -199,6 +201,26 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 		}
 	}
 
+	// Apply sort order
+	switch q.SortBy {
+	case "newest":
+		sort.Slice(merged, func(i, j int) bool {
+			return merged[i].Timestamp.After(merged[j].Timestamp)
+		})
+	case "oldest":
+		sort.Slice(merged, func(i, j int) bool {
+			return merged[i].Timestamp.Before(merged[j].Timestamp)
+		})
+	default: // "relevance" — BM25 scores first, then by timestamp for unscored
+		sort.SliceStable(merged, func(i, j int) bool {
+			si, sj := merged[i].Score, merged[j].Score
+			if si != sj {
+				return si > sj
+			}
+			return merged[i].Timestamp.After(merged[j].Timestamp)
+		})
+	}
+
 	if len(merged) > q.Limit {
 		merged = merged[:q.Limit]
 	}
@@ -280,7 +302,11 @@ func (s *Searcher) buildFilters(q SearchQuery) string {
 	var clauses []string
 
 	if q.SessionID != "" {
-		clauses = append(clauses, fmt.Sprintf("AND e.session_id = '%s'", strings.ReplaceAll(q.SessionID, "'", "''")))
+		// Prefix match supports both partial (8-char truncated) and full UUIDs
+		escaped := strings.ReplaceAll(q.SessionID, "'", "''")
+		escaped = strings.ReplaceAll(escaped, "%", "\\%")
+		escaped = strings.ReplaceAll(escaped, "_", "\\_")
+		clauses = append(clauses, fmt.Sprintf("AND e.session_id LIKE '%s%%'", escaped))
 	}
 
 	if len(q.EventKinds) > 0 {
@@ -304,6 +330,46 @@ func (s *Searcher) buildFilters(q SearchQuery) string {
 	}
 
 	return strings.Join(clauses, " ")
+}
+
+// Browse returns events matching filters without requiring a text query.
+// Used when session_id or other filters are set but no search term is entered.
+func (s *Searcher) Browse(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
+	if q.Limit <= 0 {
+		q.Limit = s.maxResults
+	}
+	if q.Limit <= 0 {
+		q.Limit = 25
+	}
+
+	filters := s.buildFilters(q)
+	query := fmt.Sprintf(
+		`SELECT e.event_uid, e.session_id, e.event_kind,
+		        COALESCE(NULLIF(e.text_preview, ''), e.tool_name, '') AS preview,
+		        0.0 AS score, e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, ''), COALESCE(e.provider, '')
+		 FROM events e
+		 WHERE 1=1 %s
+		 ORDER BY e.timestamp %s
+		 LIMIT %d`,
+		filters, browseSortOrder(q.SortBy), q.Limit,
+	)
+
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanResults(rows)
+}
+
+func browseSortOrder(sortBy string) string {
+	switch sortBy {
+	case "oldest":
+		return "ASC"
+	default:
+		return "DESC"
+	}
 }
 
 func scanResults(rows *sql.Rows) ([]SearchResult, error) {

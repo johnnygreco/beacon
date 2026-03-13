@@ -18,6 +18,11 @@ templ SearchResultCard(r views.SearchResult) {
 				if r.ToolName != "" {
 					<span class="text-xs text-gray-400 font-mono">{ r.ToolName }</span>
 				}
+				if r.Score > 0.01 {
+					<span class="text-xs text-gray-500" title="BM25 full-text search relevance score">
+						BM25: { fmt.Sprintf("%.2f", r.Score) }
+					</span>
+				}
 				<span class="text-xs text-gray-500">{ views.RelativeTime(r.Timestamp) }</span>
 			</div>
 			<span class={ "px-2 py-0.5 text-xs font-semibold uppercase rounded-full", eventKindClass(r.EventKind) }>{ r.EventKind }</span>
