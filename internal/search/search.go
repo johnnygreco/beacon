@@ -302,15 +302,11 @@ func (s *Searcher) buildFilters(q SearchQuery) string {
 	var clauses []string
 
 	if q.SessionID != "" {
+		// Prefix match supports both partial (8-char truncated) and full UUIDs
 		escaped := strings.ReplaceAll(q.SessionID, "'", "''")
-		if len(q.SessionID) < 36 {
-			// Partial session ID — use prefix match; escape LIKE wildcards
-			escaped = strings.ReplaceAll(escaped, "%", "\\%")
-			escaped = strings.ReplaceAll(escaped, "_", "\\_")
-			clauses = append(clauses, fmt.Sprintf("AND e.session_id LIKE '%s%%'", escaped))
-		} else {
-			clauses = append(clauses, fmt.Sprintf("AND e.session_id = '%s'", escaped))
-		}
+		escaped = strings.ReplaceAll(escaped, "%", "\\%")
+		escaped = strings.ReplaceAll(escaped, "_", "\\_")
+		clauses = append(clauses, fmt.Sprintf("AND e.session_id LIKE '%s%%'", escaped))
 	}
 
 	if len(q.EventKinds) > 0 {
