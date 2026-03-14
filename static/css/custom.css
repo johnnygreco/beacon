@@ -192,6 +192,17 @@ nav a.active {
   min-width: 380px;
   flex-shrink: 0;
   overflow: hidden;
+  transition: width 0.2s ease, min-width 0.2s ease, opacity 0.2s ease;
+}
+.timeline-panel.collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  opacity: 0;
+  pointer-events: none;
+}
+/* Disable transition while dragging for instant feedback */
+.sidebar-resizing .timeline-panel {
+  transition: none;
 }
 
 /* --- Draggable sidebar divider --- */

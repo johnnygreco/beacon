@@ -122,6 +122,7 @@ templ Dashboard(data views.DashboardData) {
 			var sidebar = document.getElementById('timeline-sidebar');
 			var wrap = document.getElementById('dashboard-wrap');
 			var DIVIDER_WIDTH = 8;
+			var SNAP_THRESHOLD = 100; // drag below this to collapse
 			var MIN_WIDTH = 200;
 			var MAX_WIDTH = 700;
 			var DEFAULT_WIDTH = 380;
@@ -138,14 +139,39 @@ templ Dashboard(data views.DashboardData) {
 				sidebar.style.minWidth = w + 'px';
 			}
 
-			// Restore saved width
-			var savedWidth = parseInt(localStorage.getItem('beacon-timeline-width'), 10);
-			if (savedWidth && savedWidth >= MIN_WIDTH && savedWidth <= MAX_WIDTH) {
-				setSidebarWidth(savedWidth);
+			function collapse() {
+				var current = parseInt(sidebar.style.width, 10) || DEFAULT_WIDTH;
+				if (current > 0) {
+					localStorage.setItem('beacon-timeline-prev-width', current);
+				}
+				sidebar.classList.add('collapsed');
+				localStorage.setItem('beacon-timeline-width', '0');
+			}
+
+			function expand(w) {
+				sidebar.classList.remove('collapsed');
+				setSidebarWidth(w);
+				localStorage.setItem('beacon-timeline-width', w);
+			}
+
+			function isCollapsed() {
+				return sidebar.classList.contains('collapsed');
+			}
+
+			// Restore saved state
+			var savedWidth = localStorage.getItem('beacon-timeline-width');
+			if (savedWidth === '0') {
+				sidebar.classList.add('collapsed');
+			} else {
+				var w = parseInt(savedWidth, 10);
+				if (w && w >= MIN_WIDTH && w <= MAX_WIDTH) {
+					setSidebarWidth(w);
+				}
 			}
 
 			// Responsive: constrain sidebar on small screens
 			function constrainForViewport() {
+				if (isCollapsed()) return;
 				var maxAllowed = Math.floor(wrap.offsetWidth * 0.5);
 				if (maxAllowed < MIN_WIDTH) {
 					setSidebarWidth(MIN_WIDTH);
@@ -167,6 +193,11 @@ templ Dashboard(data views.DashboardData) {
 				e.preventDefault();
 				divider.setPointerCapture(e.pointerId);
 				dragging = true;
+				// If collapsed, uncollapse so drag can set a width
+				if (isCollapsed()) {
+					sidebar.classList.remove('collapsed');
+					setSidebarWidth(0);
+				}
 				document.body.style.cursor = 'col-resize';
 				document.body.style.userSelect = 'none';
 				wrap.classList.add('sidebar-resizing');
@@ -175,10 +206,16 @@ templ Dashboard(data views.DashboardData) {
 			document.addEventListener('pointermove', function(e) {
 				if (!dragging) return;
 				var wrapRect = wrap.getBoundingClientRect();
-				var newWidth = wrapRect.right - e.clientX - DIVIDER_WIDTH;
-				if (newWidth < MIN_WIDTH) newWidth = MIN_WIDTH;
-				if (newWidth > MAX_WIDTH) newWidth = MAX_WIDTH;
-				setSidebarWidth(newWidth);
+				var rawWidth = wrapRect.right - e.clientX - DIVIDER_WIDTH;
+				// Snap zone: show collapse intent
+				if (rawWidth < SNAP_THRESHOLD) {
+					setSidebarWidth(0);
+				} else {
+					var newWidth = rawWidth;
+					if (newWidth < MIN_WIDTH) newWidth = MIN_WIDTH;
+					if (newWidth > MAX_WIDTH) newWidth = MAX_WIDTH;
+					setSidebarWidth(newWidth);
+				}
 				// Debounced chart resize during drag
 				if (!resizeRAF) {
 					resizeRAF = requestAnimationFrame(function() {
@@ -195,31 +232,30 @@ templ Dashboard(data views.DashboardData) {
 				document.body.style.userSelect = '';
 				wrap.classList.remove('sidebar-resizing');
 				var currentWidth = parseInt(sidebar.style.width, 10);
-				localStorage.setItem('beacon-timeline-width', currentWidth);
+				if (currentWidth < SNAP_THRESHOLD) {
+					collapse();
+				} else {
+					localStorage.setItem('beacon-timeline-width', currentWidth);
+				}
 				resizeCharts();
 			});
 
-			// Double-click to reset to default width
+			// Double-click to reset to default width (or expand if collapsed)
 			divider.addEventListener('dblclick', function() {
-				setSidebarWidth(DEFAULT_WIDTH);
-				localStorage.setItem('beacon-timeline-width', DEFAULT_WIDTH);
+				expand(DEFAULT_WIDTH);
 				resizeCharts();
 			});
 
-			// Keyboard shortcut: T toggles between min-width and current/default
+			// Keyboard shortcut: T toggles collapsed/expanded
 			document.addEventListener('keydown', function(e) {
 				if (e.key === 'T' || e.key === 't') {
 					if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
 					e.preventDefault();
-					var current = parseInt(sidebar.style.width, 10) || DEFAULT_WIDTH;
-					if (current > MIN_WIDTH) {
-						localStorage.setItem('beacon-timeline-prev-width', current);
-						setSidebarWidth(MIN_WIDTH);
-						localStorage.setItem('beacon-timeline-width', MIN_WIDTH);
-					} else {
+					if (isCollapsed()) {
 						var restored = parseInt(localStorage.getItem('beacon-timeline-prev-width'), 10) || DEFAULT_WIDTH;
-						setSidebarWidth(restored);
-						localStorage.setItem('beacon-timeline-width', restored);
+						expand(restored);
+					} else {
+						collapse();
 					}
 					resizeCharts();
 				}
