@@ -13,7 +13,7 @@ templ Dashboard(data views.DashboardData) {
 			<div sse-swap="metrics-update" class="hidden"></div>
 
 			<!-- Main Content Area -->
-			<div id="dashboard-main" class="flex-1 flex flex-col gap-6 overflow-y-auto min-w-0 pr-2">
+			<div id="dashboard-main" class="flex-1 flex flex-col gap-6 overflow-y-auto min-w-0 pr-0">
 				<div class="space-y-6">
 					<!-- Charts: Total Tokens Over Time + Tokens by Model -->
 					<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -91,15 +91,15 @@ templ Dashboard(data views.DashboardData) {
 				</div>
 			</div>
 
+			<!-- Draggable Divider -->
+			<div id="sidebar-divider" class="sidebar-divider" title="Drag to resize sidebar">
+				<div class="sidebar-divider-line"></div>
+			</div>
+
 			<!-- Activity Timeline Sidebar -->
-			<aside id="timeline-sidebar" class="timeline-panel flex flex-col border-l border-gray-700 bg-gray-800/30">
+			<aside id="timeline-sidebar" class="timeline-panel flex flex-col bg-gray-800/30">
 				<div class="flex items-center justify-between px-4 py-3 border-b border-gray-700/50 flex-shrink-0">
 					<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Activity Timeline <span class="text-gray-600 normal-case">(24h)</span></h2>
-					<button onclick="toggleTimeline()" class="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors ml-2" title="Toggle timeline (T)">
-						<svg class="w-4 h-4 transition-transform" id="timeline-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
-						</svg>
-					</button>
 				</div>
 				<div class="flex items-center gap-1.5 px-4 py-2 border-b border-gray-700/50 flex-shrink-0">
 					<button onclick="filterActivity(this, 'all')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
@@ -113,67 +113,66 @@ templ Dashboard(data views.DashboardData) {
 				</div>
 			</aside>
 
-			<!-- Toggle button when sidebar is collapsed -->
-			<button id="timeline-reopen" onclick="toggleTimeline()" class="hidden fixed bottom-6 right-6 z-40 p-2.5 rounded-lg bg-gray-800 border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 shadow-lg transition-colors" title="Open Activity Timeline (T)">
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
-				</svg>
-			</button>
-		</div>
+			</div>
 
 		<script>
-		// --- Timeline sidebar toggle ---
-		function toggleTimeline() {
+		// --- Sidebar drag-to-resize ---
+		(function() {
+			var divider = document.getElementById('sidebar-divider');
 			var sidebar = document.getElementById('timeline-sidebar');
-			var reopenBtn = document.getElementById('timeline-reopen');
-			var isOpen = !sidebar.classList.contains('collapsed');
-			if (isOpen) {
-				sidebar.classList.add('collapsed');
-				reopenBtn.classList.remove('hidden');
-				localStorage.setItem('beacon-timeline-open', 'false');
-			} else {
-				sidebar.classList.remove('collapsed');
-				reopenBtn.classList.add('hidden');
-				localStorage.setItem('beacon-timeline-open', 'true');
+			var wrap = document.getElementById('dashboard-wrap');
+			var MIN_WIDTH = 200;
+			var MAX_WIDTH = 700;
+			var DEFAULT_WIDTH = 380;
+			var dragging = false;
+
+			// Restore saved width
+			var savedWidth = parseInt(localStorage.getItem('beacon-timeline-width'), 10);
+			if (savedWidth && savedWidth >= MIN_WIDTH && savedWidth <= MAX_WIDTH) {
+				sidebar.style.width = savedWidth + 'px';
+				sidebar.style.minWidth = savedWidth + 'px';
 			}
-			// Resize charts after sidebar CSS transition completes
-			setTimeout(function() {
+
+			divider.addEventListener('mousedown', function(e) {
+				e.preventDefault();
+				dragging = true;
+				document.body.style.cursor = 'col-resize';
+				document.body.style.userSelect = 'none';
+				wrap.classList.add('sidebar-resizing');
+			});
+
+			document.addEventListener('mousemove', function(e) {
+				if (!dragging) return;
+				var wrapRect = wrap.getBoundingClientRect();
+				var newWidth = wrapRect.right - e.clientX;
+				if (newWidth < MIN_WIDTH) newWidth = MIN_WIDTH;
+				if (newWidth > MAX_WIDTH) newWidth = MAX_WIDTH;
+				sidebar.style.width = newWidth + 'px';
+				sidebar.style.minWidth = newWidth + 'px';
+			});
+
+			document.addEventListener('mouseup', function() {
+				if (!dragging) return;
+				dragging = false;
+				document.body.style.cursor = '';
+				document.body.style.userSelect = '';
+				wrap.classList.remove('sidebar-resizing');
+				var currentWidth = parseInt(sidebar.style.width, 10);
+				localStorage.setItem('beacon-timeline-width', currentWidth);
+				// Resize charts after drag
 				if (window.dashboardTotalTokensChart) window.dashboardTotalTokensChart.resize();
 				if (window.dashboardTokensByModelChart) window.dashboardTokensByModelChart.resize();
-			}, 300);
-		}
+			});
 
-		// Restore sidebar state
-		(function() {
-			var saved = localStorage.getItem('beacon-timeline-open');
-			if (saved === 'false') {
-				document.getElementById('timeline-sidebar').classList.add('collapsed');
-				document.getElementById('timeline-reopen').classList.remove('hidden');
-			}
-			if (window.innerWidth < 1024) {
-				document.getElementById('timeline-sidebar').classList.add('collapsed');
-				document.getElementById('timeline-reopen').classList.remove('hidden');
-			}
+			// Double-click to reset to default width
+			divider.addEventListener('dblclick', function() {
+				sidebar.style.width = DEFAULT_WIDTH + 'px';
+				sidebar.style.minWidth = DEFAULT_WIDTH + 'px';
+				localStorage.setItem('beacon-timeline-width', DEFAULT_WIDTH);
+				if (window.dashboardTotalTokensChart) window.dashboardTotalTokensChart.resize();
+				if (window.dashboardTokensByModelChart) window.dashboardTokensByModelChart.resize();
+			});
 		})();
-
-		// Keyboard shortcut: T
-		document.addEventListener('keydown', function(e) {
-			if (e.key === 'T' || e.key === 't') {
-				if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
-				e.preventDefault();
-				toggleTimeline();
-			}
-		});
-
-		// Responsive auto-collapse
-		window.addEventListener('resize', function() {
-			var sidebar = document.getElementById('timeline-sidebar');
-			var reopenBtn = document.getElementById('timeline-reopen');
-			if (window.innerWidth < 1024 && !sidebar.classList.contains('collapsed')) {
-				sidebar.classList.add('collapsed');
-				reopenBtn.classList.remove('hidden');
-			}
-		});
 
 		// --- Activity filter chips ---
 		var currentActivityFilter = 'all';
