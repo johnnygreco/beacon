@@ -14,13 +14,9 @@ import (
 	"github.com/johnnygreco/beacon/internal/web"
 )
 
-// testDB creates a seeded in-memory database for benchmarks.
-// It uses TestMain-level caching so the seed runs once per test binary invocation.
+// Shared database seeded once in TestMain for all benchmarks.
 var (
 	sharedDB    *database.DB
-	seedStats   perf.Stats
-	seedErr     error
-	seedSize    perf.SeedSize
 	benchLogger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 )
 
@@ -31,21 +27,22 @@ func TestMain(m *testing.M) {
 	if sizeStr == "" {
 		sizeStr = "small"
 	}
-	seedSize = perf.ParseSeedSize(sizeStr)
+	seedSize := perf.ParseSeedSize(sizeStr)
 
-	sharedDB, seedErr = database.Open("", 4)
-	if seedErr != nil {
-		fmt.Fprintf(os.Stderr, "failed to open db: %v\n", seedErr)
+	var err error
+	sharedDB, err = database.Open("", 4)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open db: %v\n", err)
 		os.Exit(1)
 	}
 
-	seedStats, seedErr = perf.Seed(ctx, sharedDB, seedSize)
-	if seedErr != nil {
-		fmt.Fprintf(os.Stderr, "failed to seed: %v\n", seedErr)
+	stats, err := perf.Seed(ctx, sharedDB, seedSize)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to seed: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Fprintf(os.Stderr, "Seeded %s dataset: %s\n", seedSize, seedStats)
+	fmt.Fprintf(os.Stderr, "Seeded %s dataset: %s\n", seedSize, stats)
 	code := m.Run()
 	sharedDB.Close()
 	os.Exit(code)

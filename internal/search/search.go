@@ -160,6 +160,7 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 	hasIndex := s.indexExists
 	s.mu.RUnlock()
 
+	searchStart := time.Now()
 	var bm25Results []SearchResult
 	var recencyResults []SearchResult
 
@@ -234,7 +235,7 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 		"query", q.Query,
 		"bm25_results", len(bm25Results), "bm25_duration", bm25Dur,
 		"ilike_results", len(recencyResults), "ilike_duration", ilikeDur,
-		"merged_results", len(merged), "total_duration", time.Since(bm25Start))
+		"merged_results", len(merged), "total_duration", time.Since(searchStart))
 
 	return merged, nil
 }

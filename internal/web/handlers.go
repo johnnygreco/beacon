@@ -98,6 +98,9 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	sessionID := r.URL.Query().Get("session_id")
 	eventKind := r.URL.Query().Get("event_kind")
+	defer func() {
+		h.logger.Debug("SearchResults handler complete", "query", query, "duration", time.Since(start))
+	}()
 
 	// Show placeholder only when there's no query AND no filters
 	if query == "" && sessionID == "" && eventKind == "" {
@@ -177,7 +180,6 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 	if err := partials.SearchResultsWithCount(viewResults, len(viewResults), hasMore).Render(r.Context(), w); err != nil {
 		h.logger.Debug("render search results failed", "error", err)
 	}
-	h.logger.Debug("SearchResults handler complete", "query", query, "results", len(viewResults), "duration", time.Since(start))
 }
 
 // DashboardSessions returns paginated completed sessions as an HTMX partial.
