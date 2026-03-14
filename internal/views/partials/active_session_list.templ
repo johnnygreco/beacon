@@ -1,18 +1,37 @@
 package partials
 
 import (
+	"fmt"
 	"github.com/johnnygreco/beacon/internal/views"
 	"github.com/johnnygreco/beacon/internal/views/components"
 )
 
 templ ActiveSessionList(sessions []views.SessionSummary) {
-	for _, s := range sessions {
-		@components.ActiveSessionCard(s)
-	}
-	if len(sessions) == 0 {
-		<div class="text-center py-6">
-			<p class="text-sm text-gray-500">No active sessions</p>
-			<p class="text-xs text-gray-600 mt-1">Sessions appear here when agents are running</p>
-		</div>
-	}
+	<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
+		if len(sessions) > 0 {
+			<span class="relative flex h-2 w-2">
+				<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+				<span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+			</span>
+		} else {
+			<span class="relative flex h-2 w-2">
+				<span class="relative inline-flex rounded-full h-2 w-2 bg-gray-600"></span>
+			</span>
+		}
+		Active Sessions
+		if len(sessions) > 0 {
+			<span class="text-xs font-normal text-gray-500">({ fmt.Sprintf("%d", len(sessions)) })</span>
+		}
+	</h2>
+	<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+		for _, s := range sessions {
+			@components.ActiveSessionCard(s)
+		}
+		if len(sessions) == 0 {
+			<div class="text-center py-6 col-span-full">
+				<p class="text-sm text-gray-500">No active sessions</p>
+				<p class="text-xs text-gray-600 mt-1">Sessions appear here when agents are running</p>
+			</div>
+		}
+	</div>
 }

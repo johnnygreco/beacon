@@ -72,6 +72,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Start batcher
 	go batcher.Run(ctx)
 
+	// Periodic dashboard refresh for time-based session state transitions
+	go updater.RunPeriodicRefresh(ctx, 10*time.Second)
+
 	// Start watcher
 	if cfg.Watch.Enabled {
 		sources := buildSources(cfg)

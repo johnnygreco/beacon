@@ -29,6 +29,24 @@ func NewUpdater(db *sql.DB, broker *sse.Broker, logger *slog.Logger) *Updater {
 	return &Updater{db: db, broker: broker, logger: logger}
 }
 
+// RunPeriodicRefresh re-broadcasts dashboard state every interval so that
+// time-based transitions (active → idle → completed) appear without
+// requiring new events. It only queries when there are SSE subscribers.
+func (u *Updater) RunPeriodicRefresh(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if u.broker.SubscriberCount() > 0 {
+				u.NotifyDashboard()
+			}
+		}
+	}
+}
+
 // Snapshot returns the latest cached dashboard data, or nil if not yet computed.
 func (u *Updater) Snapshot() *views.DashboardData {
 	return u.snapshot.Load()
