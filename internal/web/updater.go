@@ -54,8 +54,12 @@ func (u *Updater) Snapshot() *views.DashboardData {
 
 // NotifyDashboard is the callback invoked after each batcher flush.
 func (u *Updater) NotifyDashboard() {
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	defer func() {
+		u.logger.Debug("NotifyDashboard complete", "duration", time.Since(start))
+	}()
 
 	var activeSessions, completedSessions []views.SessionSummary
 	var hasMoreSessions bool

@@ -85,6 +85,7 @@ func (b *Batcher) Run(ctx context.Context) {
 }
 
 func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
+	start := time.Now()
 	for _, evt := range events {
 		uid := eventUID(evt.SourceFile, evt.SourceLineNo, evt.SourceOffset, evt.RawPayload)
 
@@ -161,6 +162,7 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 			}
 		}
 	}
+	b.logger.Debug("flushInserts complete", "rows", len(events), "duration", time.Since(start))
 }
 
 // eventUID generates a deterministic UID for idempotent replay.

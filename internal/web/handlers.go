@@ -31,6 +31,7 @@ func NewHandlers(db *sql.DB, searcher *search.Searcher, logger *slog.Logger, upd
 
 // Dashboard renders the main dashboard page with live metrics.
 func (h *Handlers) Dashboard(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	var data views.DashboardData
 	if snap := h.updater.Snapshot(); snap != nil {
 		data = *snap
@@ -40,6 +41,7 @@ func (h *Handlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	if err := pages.Dashboard(data).Render(r.Context(), w); err != nil {
 		h.logger.Debug("render dashboard failed", "error", err)
 	}
+	h.logger.Debug("Dashboard handler complete", "duration", time.Since(start))
 }
 
 // Sessions redirects to dashboard (sessions are shown on the dashboard).
@@ -63,6 +65,7 @@ func (h *Handlers) SessionDetail(w http.ResponseWriter, r *http.Request) {
 
 // SessionConversation returns the conversation trace partial for lazy loading.
 func (h *Handlers) SessionConversation(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	id := chi.URLParam(r, "id")
 	chatTurns, turns := QuerySessionConversation(r.Context(), h.db, id)
 	childSessions := QueryChildSessions(r.Context(), h.db, id)
@@ -70,6 +73,11 @@ func (h *Handlers) SessionConversation(w http.ResponseWriter, r *http.Request) {
 	if err := partials.SessionConversationWithContext(chatTurns, turns, ctx).Render(r.Context(), w); err != nil {
 		h.logger.Debug("render conversation failed", "error", err)
 	}
+	eventCount := 0
+	for _, t := range turns {
+		eventCount += len(t.Events)
+	}
+	h.logger.Debug("SessionConversation handler complete", "session_id", id, "events", eventCount, "duration", time.Since(start))
 }
 
 // Health is a lightweight endpoint for connectivity checks.
@@ -86,6 +94,7 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 
 // SearchResults handles HTMX partial requests for search results.
 func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	query := r.URL.Query().Get("q")
 	sessionID := r.URL.Query().Get("session_id")
 	eventKind := r.URL.Query().Get("event_kind")
@@ -168,6 +177,7 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 	if err := partials.SearchResultsWithCount(viewResults, len(viewResults), hasMore).Render(r.Context(), w); err != nil {
 		h.logger.Debug("render search results failed", "error", err)
 	}
+	h.logger.Debug("SearchResults handler complete", "query", query, "results", len(viewResults), "duration", time.Since(start))
 }
 
 // DashboardSessions returns paginated completed sessions as an HTMX partial.

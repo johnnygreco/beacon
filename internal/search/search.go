@@ -164,6 +164,7 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 	var recencyResults []SearchResult
 
 	// BM25 path
+	bm25Start := time.Now()
 	if hasIndex && s.ftsConn != nil {
 		results, err := s.bm25Search(ctx, q)
 		if err != nil {
@@ -172,11 +173,13 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 			bm25Results = results
 		}
 	}
+	bm25Dur := time.Since(bm25Start)
 
 	// ILIKE path: always run without time constraint.
 	// BM25 only indexes text_content, so events matched by tool_name or
 	// error_message (e.g. tool_call, error events) need the ILIKE path.
 	// Deduplication below handles any overlap with BM25 results.
+	ilikeStart := time.Now()
 	{
 		results, err := s.ilikeSearch(ctx, q, time.Time{})
 		if err != nil {
@@ -185,6 +188,7 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 			recencyResults = results
 		}
 	}
+	ilikeDur := time.Since(ilikeStart)
 
 	// Merge: BM25 first, then recency (deduped)
 	seen := make(map[string]bool)
@@ -225,6 +229,12 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 	if len(merged) > q.Limit {
 		merged = merged[:q.Limit]
 	}
+
+	s.logger.Debug("Search complete",
+		"query", q.Query,
+		"bm25_results", len(bm25Results), "bm25_duration", bm25Dur,
+		"ilike_results", len(recencyResults), "ilike_duration", ilikeDur,
+		"merged_results", len(merged), "total_duration", time.Since(bm25Start))
 
 	return merged, nil
 }

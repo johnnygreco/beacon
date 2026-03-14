@@ -93,6 +93,8 @@ func (b *Broker) Broadcast(topic string, msg SSEMessage) {
 		msg.Formatted = FormatSSE(msg.Event, msg.Data)
 	}
 
+	b.logger.Debug("SSE broadcast", "topic", topic, "event", msg.Event, "payload_bytes", len(msg.Formatted))
+
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
