@@ -206,6 +206,7 @@ nav a.active {
   z-index: 10;
   background: transparent;
   transition: background 0.15s ease;
+  touch-action: none;
 }
 .sidebar-divider:hover,
 .sidebar-resizing .sidebar-divider {

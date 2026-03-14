@@ -121,37 +121,74 @@ templ Dashboard(data views.DashboardData) {
 			var divider = document.getElementById('sidebar-divider');
 			var sidebar = document.getElementById('timeline-sidebar');
 			var wrap = document.getElementById('dashboard-wrap');
+			var DIVIDER_WIDTH = 8;
 			var MIN_WIDTH = 200;
 			var MAX_WIDTH = 700;
 			var DEFAULT_WIDTH = 380;
 			var dragging = false;
+			var resizeRAF = 0;
+
+			function resizeCharts() {
+				if (window.dashboardTotalTokensChart) window.dashboardTotalTokensChart.resize();
+				if (window.dashboardTokensByModelChart) window.dashboardTokensByModelChart.resize();
+			}
+
+			function setSidebarWidth(w) {
+				sidebar.style.width = w + 'px';
+				sidebar.style.minWidth = w + 'px';
+			}
 
 			// Restore saved width
 			var savedWidth = parseInt(localStorage.getItem('beacon-timeline-width'), 10);
 			if (savedWidth && savedWidth >= MIN_WIDTH && savedWidth <= MAX_WIDTH) {
-				sidebar.style.width = savedWidth + 'px';
-				sidebar.style.minWidth = savedWidth + 'px';
+				setSidebarWidth(savedWidth);
 			}
 
-			divider.addEventListener('mousedown', function(e) {
+			// Responsive: constrain sidebar on small screens
+			function constrainForViewport() {
+				var maxAllowed = Math.floor(wrap.offsetWidth * 0.5);
+				if (maxAllowed < MIN_WIDTH) {
+					setSidebarWidth(MIN_WIDTH);
+					return;
+				}
+				var current = parseInt(sidebar.style.width, 10) || DEFAULT_WIDTH;
+				if (current > maxAllowed) {
+					setSidebarWidth(maxAllowed);
+				}
+			}
+			constrainForViewport();
+			window.addEventListener('resize', function() {
+				constrainForViewport();
+				resizeCharts();
+			});
+
+			// Use pointer events for unified mouse + touch support
+			divider.addEventListener('pointerdown', function(e) {
 				e.preventDefault();
+				divider.setPointerCapture(e.pointerId);
 				dragging = true;
 				document.body.style.cursor = 'col-resize';
 				document.body.style.userSelect = 'none';
 				wrap.classList.add('sidebar-resizing');
 			});
 
-			document.addEventListener('mousemove', function(e) {
+			document.addEventListener('pointermove', function(e) {
 				if (!dragging) return;
 				var wrapRect = wrap.getBoundingClientRect();
-				var newWidth = wrapRect.right - e.clientX;
+				var newWidth = wrapRect.right - e.clientX - DIVIDER_WIDTH;
 				if (newWidth < MIN_WIDTH) newWidth = MIN_WIDTH;
 				if (newWidth > MAX_WIDTH) newWidth = MAX_WIDTH;
-				sidebar.style.width = newWidth + 'px';
-				sidebar.style.minWidth = newWidth + 'px';
+				setSidebarWidth(newWidth);
+				// Debounced chart resize during drag
+				if (!resizeRAF) {
+					resizeRAF = requestAnimationFrame(function() {
+						resizeCharts();
+						resizeRAF = 0;
+					});
+				}
 			});
 
-			document.addEventListener('mouseup', function() {
+			document.addEventListener('pointerup', function() {
 				if (!dragging) return;
 				dragging = false;
 				document.body.style.cursor = '';
@@ -159,18 +196,33 @@ templ Dashboard(data views.DashboardData) {
 				wrap.classList.remove('sidebar-resizing');
 				var currentWidth = parseInt(sidebar.style.width, 10);
 				localStorage.setItem('beacon-timeline-width', currentWidth);
-				// Resize charts after drag
-				if (window.dashboardTotalTokensChart) window.dashboardTotalTokensChart.resize();
-				if (window.dashboardTokensByModelChart) window.dashboardTokensByModelChart.resize();
+				resizeCharts();
 			});
 
 			// Double-click to reset to default width
 			divider.addEventListener('dblclick', function() {
-				sidebar.style.width = DEFAULT_WIDTH + 'px';
-				sidebar.style.minWidth = DEFAULT_WIDTH + 'px';
+				setSidebarWidth(DEFAULT_WIDTH);
 				localStorage.setItem('beacon-timeline-width', DEFAULT_WIDTH);
-				if (window.dashboardTotalTokensChart) window.dashboardTotalTokensChart.resize();
-				if (window.dashboardTokensByModelChart) window.dashboardTokensByModelChart.resize();
+				resizeCharts();
+			});
+
+			// Keyboard shortcut: T toggles between min-width and current/default
+			document.addEventListener('keydown', function(e) {
+				if (e.key === 'T' || e.key === 't') {
+					if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+					e.preventDefault();
+					var current = parseInt(sidebar.style.width, 10) || DEFAULT_WIDTH;
+					if (current > MIN_WIDTH) {
+						localStorage.setItem('beacon-timeline-prev-width', current);
+						setSidebarWidth(MIN_WIDTH);
+						localStorage.setItem('beacon-timeline-width', MIN_WIDTH);
+					} else {
+						var restored = parseInt(localStorage.getItem('beacon-timeline-prev-width'), 10) || DEFAULT_WIDTH;
+						setSidebarWidth(restored);
+						localStorage.setItem('beacon-timeline-width', restored);
+					}
+					resizeCharts();
+				}
 			});
 		})();
 
