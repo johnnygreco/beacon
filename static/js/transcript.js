@@ -18,26 +18,23 @@
     }
   };
 
-  // --- Syntax highlighting (lazy) ---
+  // --- Syntax highlighting (visibility-driven) ---
   function initHighlighting(root) {
     root = root || document;
     if (typeof hljs === 'undefined') return;
     var blocks = root.querySelectorAll('pre code:not(.hljs)');
     if (blocks.length === 0) return;
 
-    var i = 0;
-    function highlightNext(deadline) {
-      while (i < blocks.length && (deadline.timeRemaining() > 5 || deadline.didTimeout)) {
-        hljs.highlightElement(blocks[i]);
-        i++;
-      }
-      if (i < blocks.length) {
-        requestIdleCallback(highlightNext, { timeout: 1000 });
-      }
-    }
-
-    if (typeof requestIdleCallback !== 'undefined') {
-      requestIdleCallback(highlightNext, { timeout: 2000 });
+    if (typeof IntersectionObserver !== 'undefined') {
+      var observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) {
+            hljs.highlightElement(entry.target);
+            observer.unobserve(entry.target);
+          }
+        });
+      });
+      blocks.forEach(function(el) { observer.observe(el); });
     } else {
       blocks.forEach(function(el) { hljs.highlightElement(el); });
     }
