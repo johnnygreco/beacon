@@ -299,11 +299,11 @@ templ toolCardBash(item views.ToolChainItem) {
 			<pre class="bg-gray-950 rounded-b-lg p-3 text-xs text-gray-200 font-mono overflow-x-auto border-x border-b border-gray-800"><code class="language-bash">{ item.Params.Command }</code></pre>
 			@copyButton()
 		</div>
-		if item.OutputPreview != "" {
+		if toolOutputText(item) != "" {
 			<div>
 				<p class="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">Output</p>
-				@truncatableBlock("#111827", shouldTruncate(item.OutputPreview)) {
-					<pre class="bg-gray-900 rounded-lg p-3 text-xs text-gray-300 font-mono overflow-x-auto border border-gray-800">{ views.CleanSystemTags(item.OutputPreview) }</pre>
+				@truncatableBlock("#111827", shouldTruncate(toolOutputText(item))) {
+					<pre class="bg-gray-900 rounded-lg p-3 text-xs text-gray-300 font-mono overflow-x-auto border border-gray-800">{ toolOutputText(item) }</pre>
 				}
 			</div>
 		}
@@ -365,9 +365,9 @@ templ toolCardRead(item views.ToolChainItem) {
 				<span class="px-2 py-0.5 bg-gray-800 rounded text-gray-300 font-mono tool-filepath" title={ item.Params.FilePath }>{ item.Params.FilePath }</span>
 			</div>
 		}
-		if item.OutputPreview != "" {
-			@truncatableBlock("#111827", shouldTruncate(item.OutputPreview)) {
-				<pre class="bg-gray-900 rounded-lg p-3 text-xs text-gray-300 font-mono overflow-x-auto border border-gray-800">{ item.OutputPreview }</pre>
+		if toolOutputText(item) != "" {
+			@truncatableBlock("#111827", shouldTruncate(toolOutputText(item))) {
+				<pre class="bg-gray-900 rounded-lg p-3 text-xs text-gray-300 font-mono overflow-x-auto border border-gray-800">{ toolOutputText(item) }</pre>
 			}
 		}
 	</div>
@@ -387,9 +387,9 @@ templ toolCardSearch(item views.ToolChainItem) {
 				<span class="text-gray-400 font-mono">{ item.Params.Path }</span>
 			}
 		</div>
-		if item.OutputPreview != "" {
-			@truncatableBlock("#111827", shouldTruncate(item.OutputPreview)) {
-				<pre class="bg-gray-900 rounded-lg p-3 text-xs text-gray-300 font-mono overflow-x-auto border border-gray-800">{ item.OutputPreview }</pre>
+		if toolOutputText(item) != "" {
+			@truncatableBlock("#111827", shouldTruncate(toolOutputText(item))) {
+				<pre class="bg-gray-900 rounded-lg p-3 text-xs text-gray-300 font-mono overflow-x-auto border border-gray-800">{ toolOutputText(item) }</pre>
 			}
 		}
 	</div>
@@ -403,15 +403,15 @@ templ toolCardGeneric(item views.ToolChainItem) {
 				<pre class="bg-gray-900 rounded-lg p-3 text-xs text-gray-300 font-mono overflow-x-auto border border-gray-800"><code class="language-json">{ item.InputPreview }</code></pre>
 			</div>
 		}
-		if item.OutputPreview != "" {
+		if toolOutputText(item) != "" {
 			<div>
 				<p class="text-xs text-gray-500 mb-1 font-medium uppercase tracking-wide">Output</p>
-				@truncatableBlock("#111827", shouldTruncate(item.OutputPreview)) {
-					<pre class="bg-gray-900 rounded-lg p-3 text-xs text-gray-300 font-mono overflow-x-auto border border-gray-800">{ item.OutputPreview }</pre>
+				@truncatableBlock("#111827", shouldTruncate(toolOutputText(item))) {
+					<pre class="bg-gray-900 rounded-lg p-3 text-xs text-gray-300 font-mono overflow-x-auto border border-gray-800">{ toolOutputText(item) }</pre>
 				}
 			</div>
 		}
-		if item.InputPreview == "" && item.OutputPreview == "" {
+		if item.InputPreview == "" && toolOutputText(item) == "" {
 			<p class="text-xs text-gray-600 italic">No preview available</p>
 		}
 	</div>
@@ -478,7 +478,7 @@ func agentID(item views.ToolChainItem) string {
 		sources[n] = item.ResultEvent.TextPreview
 		n++
 	}
-	sources[n] = item.OutputPreview
+	sources[n] = toolOutputText(item)
 	n++
 
 	for _, output := range sources[:n] {
@@ -526,6 +526,16 @@ func chatDisplayText(e views.EventSummary) string {
 
 func chatCleanUserText(e views.EventSummary) string {
 	return views.CleanSystemTags(chatDisplayText(e))
+}
+
+// toolOutputText returns the full tool output for display, preferring the
+// complete output_json over the 320-char truncated OutputPreview.
+// System tags are stripped so they don't leak into the rendered transcript.
+func toolOutputText(item views.ToolChainItem) string {
+	if item.OutputJSON != "" {
+		return views.CleanSystemTags(item.OutputJSON)
+	}
+	return views.CleanSystemTags(item.OutputPreview)
 }
 
 // shouldTruncate decides whether content should start collapsed.

@@ -366,6 +366,7 @@ type EventSummary struct {
 	InputPreview  string
 	OutputPreview string
 	InputJSON     string
+	OutputJSON    string
 }
 
 type TurnDetail struct {
@@ -463,6 +464,7 @@ type ToolChainItem struct {
 	InputPreview  string
 	OutputPreview string
 	InputJSON     string          // full JSON from tool_io.input_json
+	OutputJSON    string          // full JSON from tool_io.output_json
 	Params        *ToolCallParams // parsed tool input for specialized rendering
 }
 

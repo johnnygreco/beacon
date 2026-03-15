@@ -517,7 +517,7 @@ func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]vie
 		        COALESCE(e.tool_name, ''), COALESCE(e.tool_use_id, ''), COALESCE(e.model, ''),
 		        e.input_tokens + e.output_tokens, e.duration_ms, e.timestamp, turn_seq,
 		        COALESCE(tio.input_preview, ''), COALESCE(tio.output_preview, ''),
-		        COALESCE(tio.input_json, '')
+		        COALESCE(tio.input_json, ''), COALESCE(tio.output_json, '')
 		 FROM v_conversation_trace e
 		 LEFT JOIN tool_io tio ON e.event_uid = tio.event_uid
 		 WHERE e.session_id = $1
@@ -536,7 +536,7 @@ func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]vie
 		if err := traceRows.Scan(&es.EventUID, &es.EventKind, &es.PayloadType, &es.ActorRole,
 			&es.TextContent, &es.TextPreview,
 			&es.ToolName, &es.ToolUseID, &es.Model, &es.Tokens, &es.DurationMs, &es.Timestamp, &turnSeq,
-			&es.InputPreview, &es.OutputPreview, &es.InputJSON); err != nil {
+			&es.InputPreview, &es.OutputPreview, &es.InputJSON, &es.OutputJSON); err != nil {
 			continue
 		}
 
@@ -671,6 +671,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 						if item.OutputPreview == "" {
 							item.OutputPreview = result.TextPreview
 						}
+						item.OutputJSON = result.OutputJSON
 						consumedResults[ridx] = true
 					}
 				} else {
@@ -685,6 +686,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 							if item.OutputPreview == "" {
 								item.OutputPreview = result.TextPreview
 							}
+							item.OutputJSON = result.OutputJSON
 							break
 						} else if t.Events[j].EventKind == "event_msg" {
 							continue // skip intermediate log events
@@ -704,6 +706,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 					CallEvent:     e,
 					ToolName:      e.ToolName,
 					OutputPreview: e.OutputPreview,
+					OutputJSON:    e.OutputJSON,
 				}
 				if item.OutputPreview == "" {
 					item.OutputPreview = e.TextPreview
