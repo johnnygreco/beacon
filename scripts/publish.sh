@@ -56,9 +56,20 @@ fi
 
 echo "Publishing beacon $TAG..."
 
+# Create tag locally first (don't push yet)
 git tag -a "$TAG" -m "Release $TAG"
-git push origin "$TAG"
 
+# Verify the build succeeds before pushing anything
+echo "Verifying build..."
+if ! goreleaser build --clean; then
+    echo ""
+    echo "Error: build failed. Removing local tag $TAG."
+    git tag -d "$TAG"
+    exit 1
+fi
+
+# Build passed — push the tag and publish the release
+git push origin "$TAG"
 goreleaser release --clean
 
 echo ""
