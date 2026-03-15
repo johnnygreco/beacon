@@ -62,7 +62,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		2*time.Second,
 		cfg.Pricing.DefaultInputCost,
 		cfg.Pricing.DefaultOutputCost,
-		updater.NotifyDashboard,
+		updater.MarkDirty,
 		logger,
 	)
 
@@ -72,8 +72,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Start batcher
 	go batcher.Run(ctx)
 
-	// Periodic dashboard refresh for time-based session state transitions
-	go updater.RunPeriodicRefresh(ctx, 10*time.Second)
+	// Start updater (debounced dirty-signal loop + periodic refresh)
+	go updater.Run(ctx)
 
 	// Start watcher
 	if cfg.Watch.Enabled {
