@@ -366,7 +366,7 @@ func (s *Searcher) buildFilters(q SearchQuery, nextParam int) (string, []any) {
 	if q.ExcludeMCPSelf {
 		clauses = append(clauses, fmt.Sprintf("AND e.text_content NOT ILIKE $%d", nextParam))
 		args = append(args, "%beacon%")
-		nextParam++
+		nextParam++ //nolint:ineffassign // keep nextParam consistent so future filters get the right $N
 		clauses = append(clauses, "AND (e.tool_name IS NULL OR e.tool_name NOT IN ('search', 'open', 'list_sessions'))")
 	}
 
