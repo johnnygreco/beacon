@@ -85,6 +85,20 @@ func (b *Batcher) Run(ctx context.Context) {
 }
 
 func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
+	start := time.Now()
+
+	tx, err := b.db.WriteConn().BeginTx(ctx, nil)
+	if err != nil {
+		b.logger.Error("begin tx failed", "error", err)
+		return
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
 	for _, evt := range events {
 		uid := eventUID(evt.SourceFile, evt.SourceLineNo, evt.SourceOffset, evt.RawPayload)
 
@@ -128,7 +142,7 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 			SourceOffset:      evt.SourceOffset,
 		}
 
-		if err := database.InsertEvent(ctx, b.db, event); err != nil {
+		if err := database.InsertEventTx(ctx, tx, event); err != nil {
 			b.logger.Error("insert event failed", "uid", uid, "source", evt.SourceName, "kind", evt.EventKind, "error", err)
 			continue
 		}
@@ -140,7 +154,7 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 				LinkedEventUID: evt.ParentUUID,
 				LinkType:       "parent",
 			}
-			if err := database.InsertEventLink(ctx, b.db, el); err != nil {
+			if err := database.InsertEventLinkTx(ctx, tx, el); err != nil {
 				b.logger.Error("insert event link failed", "error", err)
 			}
 		}
@@ -156,11 +170,18 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 				InputPreview:  truncate(evt.ToolInput, previewMaxLen),
 				OutputPreview: truncate(evt.ToolOutput, previewMaxLen),
 			}
-			if err := database.InsertToolIO(ctx, b.db, tio); err != nil {
+			if err := database.InsertToolIOTx(ctx, tx, tio); err != nil {
 				b.logger.Error("insert tool io failed", "error", err)
 			}
 		}
 	}
+
+	if err := tx.Commit(); err != nil {
+		b.logger.Error("commit tx failed", "error", err)
+		return
+	}
+	committed = true
+	b.logger.Debug("flushInserts complete", "rows", len(events), "duration", time.Since(start))
 }
 
 // eventUID generates a deterministic UID for idempotent replay.

@@ -135,6 +135,9 @@ templ SessionDetail(data views.SessionDetailData) {
 				</div>
 			}
 
+			<link rel="stylesheet" href="/static/css/vendor/github-dark.min.css"/>
+			<script src="/static/js/vendor/highlight.min.js"></script>
+
 			<!-- Conversation (lazy-loaded for fast initial render) -->
 			<div>
 				<div class="flex items-center justify-between mb-4">
@@ -212,6 +215,10 @@ templ SessionDetail(data views.SessionDetailData) {
 			if len(data.TokensByModel) > 0 {
 				@templ.JSONScript("session-tokens-by-model-data", tokensByModelData(data.TokensByModel))
 			}
+
+			<script src="/static/js/vendor/chart.umd.min.js"></script>
+			<script src="/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js"></script>
+			<script src="/static/js/charts.js"></script>
 		</div>
 	}
 }

@@ -509,14 +509,14 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<!-- Conversation (lazy-loaded for fast initial render) --><div><div class=\"flex items-center justify-between mb-4\"><h2 class=\"text-lg font-semibold text-gray-200\">Conversation</h2><div class=\"flex items-center gap-2\"><button id=\"btn-expand-all\" onclick=\"expandAll()\" class=\"px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors\">Expand All</button> <button id=\"btn-collapse-all\" onclick=\"collapseAll()\" class=\"px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors\">Collapse All</button><div class=\"w-px h-5 bg-gray-700\"></div><button onclick=\"switchView('chat', this)\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-blue-500/20 text-blue-400 border-blue-500/40\">Chat</button> <button onclick=\"switchView('timeline', this)\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700\">Timeline</button></div></div><div id=\"conversation-container\" hx-get=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<link rel=\"stylesheet\" href=\"/static/css/vendor/github-dark.min.css\"><script src=\"/static/js/vendor/highlight.min.js\"></script><!-- Conversation (lazy-loaded for fast initial render) --><div><div class=\"flex items-center justify-between mb-4\"><h2 class=\"text-lg font-semibold text-gray-200\">Conversation</h2><div class=\"flex items-center gap-2\"><button id=\"btn-expand-all\" onclick=\"expandAll()\" class=\"px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors\">Expand All</button> <button id=\"btn-collapse-all\" onclick=\"collapseAll()\" class=\"px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors\">Collapse All</button><div class=\"w-px h-5 bg-gray-700\"></div><button onclick=\"switchView('chat', this)\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-blue-500/20 text-blue-400 border-blue-500/40\">Chat</button> <button onclick=\"switchView('timeline', this)\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700\">Timeline</button></div></div><div id=\"conversation-container\" hx-get=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var29 string
 			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/sessions/%s/conversation", data.Session.ID))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 159, Col: 72}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 162, Col: 72}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 			if templ_7745c5c3_Err != nil {
@@ -536,7 +536,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<script src=\"/static/js/vendor/chart.umd.min.js\"></script><script src=\"/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js\"></script><script src=\"/static/js/charts.js\"></script></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

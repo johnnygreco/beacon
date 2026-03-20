@@ -7,8 +7,13 @@ import (
 	"github.com/johnnygreco/beacon/internal/models"
 )
 
-func InsertEvent(ctx context.Context, db *DB, e *models.Event) error {
-	_, err := db.writeConn.ExecContext(ctx,
+// Executor is satisfied by *sql.Tx, *sql.Conn, and *sql.DB.
+type Executor interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func insertEvent(ctx context.Context, exec Executor, e *models.Event) error {
+	_, err := exec.ExecContext(ctx,
 		`INSERT OR IGNORE INTO events (
 			event_uid, session_id, session_date, source_name, provider,
 			event_kind, payload_type, actor_role, timestamp,
@@ -29,8 +34,8 @@ func InsertEvent(ctx context.Context, db *DB, e *models.Event) error {
 	return err
 }
 
-func InsertEventLink(ctx context.Context, db *DB, el *models.EventLink) error {
-	_, err := db.writeConn.ExecContext(ctx,
+func insertEventLink(ctx context.Context, exec Executor, el *models.EventLink) error {
+	_, err := exec.ExecContext(ctx,
 		`INSERT OR IGNORE INTO event_links (event_uid, linked_event_uid, link_type)
 		 VALUES (?, ?, ?)`,
 		el.EventUID, el.LinkedEventUID, el.LinkType,
@@ -38,13 +43,41 @@ func InsertEventLink(ctx context.Context, db *DB, el *models.EventLink) error {
 	return err
 }
 
-func InsertToolIO(ctx context.Context, db *DB, tio *models.ToolIO) error {
-	_, err := db.writeConn.ExecContext(ctx,
+func insertToolIO(ctx context.Context, exec Executor, tio *models.ToolIO) error {
+	_, err := exec.ExecContext(ctx,
 		`INSERT OR IGNORE INTO tool_io (event_uid, tool_name, tool_phase, input_json, output_json, input_preview, output_preview)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		tio.EventUID, tio.ToolName, tio.ToolPhase, tio.InputJSON, tio.OutputJSON, tio.InputPreview, tio.OutputPreview,
 	)
 	return err
+}
+
+// Public API: *DB variants for non-transactional callers (tests, single inserts).
+
+func InsertEvent(ctx context.Context, db *DB, e *models.Event) error {
+	return insertEvent(ctx, db.writeConn, e)
+}
+
+func InsertEventLink(ctx context.Context, db *DB, el *models.EventLink) error {
+	return insertEventLink(ctx, db.writeConn, el)
+}
+
+func InsertToolIO(ctx context.Context, db *DB, tio *models.ToolIO) error {
+	return insertToolIO(ctx, db.writeConn, tio)
+}
+
+// Public API: *sql.Tx variants for transactional batch inserts.
+
+func InsertEventTx(ctx context.Context, tx *sql.Tx, e *models.Event) error {
+	return insertEvent(ctx, tx, e)
+}
+
+func InsertEventLinkTx(ctx context.Context, tx *sql.Tx, el *models.EventLink) error {
+	return insertEventLink(ctx, tx, el)
+}
+
+func InsertToolIOTx(ctx context.Context, tx *sql.Tx, tio *models.ToolIO) error {
+	return insertToolIO(ctx, tx, tio)
 }
 
 func InsertIngestError(ctx context.Context, db *DB, ie *models.IngestError) error {
