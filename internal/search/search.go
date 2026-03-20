@@ -176,20 +176,20 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 	}
 	bm25Dur := time.Since(bm25Start)
 
-	// ILIKE path: always run without time constraint.
-	// BM25 only indexes text_content, so events matched by tool_name or
-	// error_message (e.g. tool_call, error events) need the ILIKE path.
-	// Deduplication below handles any overlap with BM25 results.
-	ilikeStart := time.Now()
-	{
+	// Skip ILIKE when BM25 already returned enough results. BM25 only
+	// indexes text_content, so tool_name/error_message matches need the
+	// ILIKE path — but if BM25 filled the limit, extra results won't help.
+	var ilikeDur time.Duration
+	if len(bm25Results) < q.Limit {
+		ilikeStart := time.Now()
 		results, err := s.ilikeSearch(ctx, q, time.Time{})
 		if err != nil {
 			s.logger.Warn("ILIKE search failed", "error", err)
 		} else {
 			recencyResults = results
 		}
+		ilikeDur = time.Since(ilikeStart)
 	}
-	ilikeDur := time.Since(ilikeStart)
 
 	// Merge: BM25 first, then recency (deduped)
 	seen := make(map[string]bool)
@@ -248,6 +248,7 @@ func (s *Searcher) LegacySearch(ctx context.Context, query string, limit int) ([
 func (s *Searcher) bm25Search(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
 	// DuckDB v1.4+ FTS creates a schema (not a table) named fts_main_events.
 	// Use fts_main_events.match_bm25() as a scalar function on the events table.
+	filterSQL, filterArgs := s.buildFilters(q, 3) // $1=query, $2=limit
 	query := fmt.Sprintf(
 		`SELECT e.event_uid, e.session_id, e.event_kind, e.text_preview,
 		        fts_main_events.match_bm25(e.event_uid, $1, fields := 'text_content') AS score,
@@ -256,10 +257,11 @@ func (s *Searcher) bm25Search(ctx context.Context, q SearchQuery) ([]SearchResul
 		 WHERE score IS NOT NULL %s
 		 ORDER BY score DESC
 		 LIMIT $2`,
-		s.buildFilters(q),
+		filterSQL,
 	)
 
-	rows, err := s.ftsConn.QueryContext(ctx, query, q.Query, q.Limit)
+	args := append([]any{q.Query, q.Limit}, filterArgs...)
+	rows, err := s.ftsConn.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -268,18 +270,31 @@ func (s *Searcher) bm25Search(ctx context.Context, q SearchQuery) ([]SearchResul
 	return scanResults(rows)
 }
 
+// escapeLike escapes LIKE/ILIKE wildcard characters so they match literally.
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, "%", "\\%")
+	s = strings.ReplaceAll(s, "_", "\\_")
+	return s
+}
+
 func (s *Searcher) ilikeSearch(ctx context.Context, q SearchQuery, since time.Time) ([]SearchResult, error) {
-	pattern := "%" + strings.ReplaceAll(strings.ReplaceAll(q.Query, "%", "\\%"), "_", "\\_") + "%"
+	pattern := "%" + escapeLike(q.Query) + "%"
 
 	var whereExtra string
 	var args []any
 	args = append(args, pattern)
+	nextParam := 2
 
 	if !since.IsZero() {
-		whereExtra = " AND e.timestamp > $2"
+		whereExtra = fmt.Sprintf(" AND e.timestamp > $%d", nextParam)
 		args = append(args, since)
+		nextParam++
 	}
-	whereExtra += " " + s.buildFilters(q)
+
+	filterSQL, filterArgs := s.buildFilters(q, nextParam)
+	args = append(args, filterArgs...)
+	nextParam += len(filterArgs)
+	whereExtra += " " + filterSQL
 
 	// Search text_content, tool_name, and error_message so that
 	// tool_call and error events are discoverable.
@@ -297,9 +312,10 @@ func (s *Searcher) ilikeSearch(ctx context.Context, q SearchQuery, since time.Ti
 		        OR e.tool_name ILIKE $1
 		        OR e.error_message ILIKE $1) %s
 		 ORDER BY e.timestamp DESC
-		 LIMIT %d`,
-		whereExtra, q.Limit,
+		 LIMIT $%d`,
+		whereExtra, nextParam,
 	)
+	args = append(args, q.Limit)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -310,38 +326,49 @@ func (s *Searcher) ilikeSearch(ctx context.Context, q SearchQuery, since time.Ti
 	return scanResults(rows)
 }
 
-func (s *Searcher) buildFilters(q SearchQuery) string {
+// buildFilters constructs parameterized WHERE clauses from SearchQuery filters.
+// nextParam is the next available $N placeholder number. Returns the SQL
+// fragment and the corresponding parameter values.
+func (s *Searcher) buildFilters(q SearchQuery, nextParam int) (string, []any) {
 	var clauses []string
+	var args []any
 
 	if q.SessionID != "" {
 		// Prefix match supports both partial (8-char truncated) and full UUIDs
-		escaped := strings.ReplaceAll(q.SessionID, "'", "''")
-		escaped = strings.ReplaceAll(escaped, "%", "\\%")
-		escaped = strings.ReplaceAll(escaped, "_", "\\_")
-		clauses = append(clauses, fmt.Sprintf("AND e.session_id LIKE '%s%%'", escaped))
+		clauses = append(clauses, fmt.Sprintf("AND e.session_id LIKE $%d", nextParam))
+		args = append(args, escapeLike(q.SessionID)+"%")
+		nextParam++
 	}
 
 	if len(q.EventKinds) > 0 {
-		quoted := make([]string, len(q.EventKinds))
+		placeholders := make([]string, len(q.EventKinds))
 		for i, k := range q.EventKinds {
-			quoted[i] = fmt.Sprintf("'%s'", strings.ReplaceAll(k, "'", "''"))
+			placeholders[i] = fmt.Sprintf("$%d", nextParam)
+			args = append(args, k)
+			nextParam++
 		}
-		clauses = append(clauses, fmt.Sprintf("AND e.event_kind IN (%s)", strings.Join(quoted, ",")))
+		clauses = append(clauses, fmt.Sprintf("AND e.event_kind IN (%s)", strings.Join(placeholders, ",")))
 	}
 
 	if !q.FromTime.IsZero() {
-		clauses = append(clauses, fmt.Sprintf("AND e.timestamp >= '%s'", q.FromTime.UTC().Format(time.RFC3339)))
+		clauses = append(clauses, fmt.Sprintf("AND e.timestamp >= $%d", nextParam))
+		args = append(args, q.FromTime.UTC())
+		nextParam++
 	}
 	if !q.ToTime.IsZero() {
-		clauses = append(clauses, fmt.Sprintf("AND e.timestamp <= '%s'", q.ToTime.UTC().Format(time.RFC3339)))
+		clauses = append(clauses, fmt.Sprintf("AND e.timestamp <= $%d", nextParam))
+		args = append(args, q.ToTime.UTC())
+		nextParam++
 	}
 
 	if q.ExcludeMCPSelf {
-		clauses = append(clauses, "AND e.text_content NOT ILIKE '%beacon%'")
+		clauses = append(clauses, fmt.Sprintf("AND e.text_content NOT ILIKE $%d", nextParam))
+		args = append(args, "%beacon%")
+		nextParam++
 		clauses = append(clauses, "AND (e.tool_name IS NULL OR e.tool_name NOT IN ('search', 'open', 'list_sessions'))")
 	}
 
-	return strings.Join(clauses, " ")
+	return strings.Join(clauses, " "), args
 }
 
 // Browse returns events matching filters without requiring a text query.
@@ -354,7 +381,9 @@ func (s *Searcher) Browse(ctx context.Context, q SearchQuery) ([]SearchResult, e
 		q.Limit = 25
 	}
 
-	filters := s.buildFilters(q)
+	filterSQL, filterArgs := s.buildFilters(q, 1)
+	nextParam := 1 + len(filterArgs)
+
 	query := fmt.Sprintf(
 		`SELECT e.event_uid, e.session_id, e.event_kind,
 		        COALESCE(NULLIF(e.text_preview, ''), e.tool_name, '') AS preview,
@@ -362,11 +391,12 @@ func (s *Searcher) Browse(ctx context.Context, q SearchQuery) ([]SearchResult, e
 		 FROM events e
 		 WHERE 1=1 %s
 		 ORDER BY e.timestamp %s
-		 LIMIT %d`,
-		filters, browseSortOrder(q.SortBy), q.Limit,
+		 LIMIT $%d`,
+		filterSQL, browseSortOrder(q.SortBy), nextParam,
 	)
 
-	rows, err := s.db.QueryContext(ctx, query)
+	args := append(filterArgs, q.Limit)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
