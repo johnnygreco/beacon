@@ -95,7 +95,7 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 	committed := false
 	defer func() {
 		if !committed {
-			tx.Rollback()
+			_ = tx.Rollback()
 		}
 	}()
 
