@@ -255,9 +255,9 @@ func (s *Searcher) bm25Search(ctx context.Context, q SearchQuery) ([]SearchResul
 		        e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, ''), COALESCE(e.provider, '')
 		 FROM events e
 		 WHERE score IS NOT NULL %s
-		 ORDER BY score DESC
+		 ORDER BY %s
 		 LIMIT $2`,
-		filterSQL,
+		filterSQL, bm25SortOrder(q.SortBy),
 	)
 
 	args := append([]any{q.Query, q.Limit}, filterArgs...)
@@ -313,9 +313,9 @@ func (s *Searcher) ilikeSearch(ctx context.Context, q SearchQuery, since time.Ti
 		 WHERE (e.text_content ILIKE $1
 		        OR e.tool_name ILIKE $1
 		        OR e.error_message ILIKE $1) %s
-		 ORDER BY e.timestamp DESC
+		 ORDER BY e.timestamp %s
 		 LIMIT $%d`,
-		whereExtra, nextParam,
+		whereExtra, browseSortOrder(q.SortBy), nextParam,
 	)
 	args = append(args, q.Limit)
 
@@ -413,6 +413,20 @@ func browseSortOrder(sortBy string) string {
 		return "ASC"
 	default:
 		return "DESC"
+	}
+}
+
+// bm25SortOrder returns the SQL ORDER BY clause for BM25 search results.
+// For time-based sorts, order by timestamp so the SQL LIMIT captures the
+// correct slice before the in-memory merge.
+func bm25SortOrder(sortBy string) string {
+	switch sortBy {
+	case "newest":
+		return "e.timestamp DESC"
+	case "oldest":
+		return "e.timestamp ASC"
+	default:
+		return "score DESC"
 	}
 }
 
