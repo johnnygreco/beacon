@@ -54,15 +54,21 @@ func (u *Updater) Run(ctx context.Context) {
 	periodic := time.NewTicker(periodicInterval)
 	defer periodic.Stop()
 
-	var (
-		debounce   <-chan time.Time // nil until dirty
-		firstDirty time.Time
-	)
+	debounce := time.NewTimer(debounceDelay)
+	debounce.Stop()
+	defer debounce.Stop()
 
-	refresh := func() {
-		u.NotifyDashboard()
-		debounce = nil
-		firstDirty = time.Time{}
+	var firstDirty time.Time
+
+	// stopDrain stops the debounce timer and drains its channel if already
+	// fired. Safe to call when the timer is already stopped or expired.
+	stopDrain := func() {
+		if !debounce.Stop() {
+			select {
+			case <-debounce.C:
+			default:
+			}
+		}
 	}
 
 	for {
@@ -74,13 +80,16 @@ func (u *Updater) Run(ctx context.Context) {
 			if firstDirty.IsZero() {
 				firstDirty = now
 			}
+			stopDrain()
 			if now.Sub(firstDirty) >= maxStale {
-				refresh()
+				u.NotifyDashboard()
+				firstDirty = time.Time{}
 			} else {
-				debounce = time.After(debounceDelay)
+				debounce.Reset(debounceDelay)
 			}
-		case <-debounce:
-			refresh()
+		case <-debounce.C:
+			u.NotifyDashboard()
+			firstDirty = time.Time{}
 		case <-periodic.C:
 			if u.broker.SubscriberCount() > 0 {
 				u.NotifyDashboard()

@@ -270,10 +270,12 @@ func (s *Searcher) bm25Search(ctx context.Context, q SearchQuery) ([]SearchResul
 	return scanResults(rows)
 }
 
-// escapeLike escapes LIKE/ILIKE wildcard characters so they match literally.
+// escapeLike escapes LIKE/ILIKE special characters so they match literally.
+// Backslash must be escaped first to avoid double-escaping.
 func escapeLike(s string) string {
-	s = strings.ReplaceAll(s, "%", "\\%")
-	s = strings.ReplaceAll(s, "_", "\\_")
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, "%", `\%`)
+	s = strings.ReplaceAll(s, "_", `\_`)
 	return s
 }
 
