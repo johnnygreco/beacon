@@ -367,7 +367,6 @@ func (s *Searcher) buildFilters(q SearchQuery, nextParam int) (string, []any) {
 		clauses = append(clauses, fmt.Sprintf("AND e.text_content NOT ILIKE $%d", nextParam))
 		args = append(args, "%beacon%")
 		clauses = append(clauses, "AND (e.tool_name IS NULL OR e.tool_name NOT IN ('search', 'open', 'list_sessions'))")
-		nextParam++
 	}
 
 	return strings.Join(clauses, " "), args
