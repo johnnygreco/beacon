@@ -26,10 +26,15 @@ func setupTestDB(t *testing.T) *database.DB {
 
 func insertEvent(t *testing.T, db *database.DB, uid, sessionID, kind, text, model string) {
 	t.Helper()
+	insertEventAt(t, db, uid, sessionID, kind, text, model, time.Now())
+}
+
+func insertEventAt(t *testing.T, db *database.DB, uid, sessionID, kind, text, model string, ts time.Time) {
+	t.Helper()
 	_, err := db.WriteConn().ExecContext(context.Background(),
 		`INSERT INTO events (event_uid, session_id, event_kind, text_content, text_preview, model, timestamp)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		uid, sessionID, kind, text, text, model, time.Now())
+		uid, sessionID, kind, text, text, model, ts)
 	if err != nil {
 		t.Fatalf("insert: %v", err)
 	}
@@ -195,5 +200,142 @@ func TestSearch_WithEventKindFilter(t *testing.T) {
 	}
 	if results[0].EventUID != "evt-tool" {
 		t.Errorf("expected evt-tool, got %s", results[0].EventUID)
+	}
+}
+
+func TestSearch_NewestSortConsistentAcrossTimeRanges(t *testing.T) {
+	db := setupTestDB(t)
+	logger := testLogger
+
+	now := time.Now()
+	// Insert events at different timestamps, all matching "deploy"
+	insertEventAt(t, db, "evt-old", "sess-1", "message", "deploy to staging env", "gpt-4", now.Add(-20*24*time.Hour))
+	insertEventAt(t, db, "evt-mid", "sess-2", "message", "deploy to production env", "gpt-4", now.Add(-2*time.Hour))
+	insertEventAt(t, db, "evt-new", "sess-3", "message", "deploy hotfix to prod", "gpt-4", now.Add(-10*time.Minute))
+
+	s := search.NewSearcher(db.ReadPool, logger, 25, 0)
+
+	// Search with 30d range, sorted by newest
+	results30d, err := s.Search(context.Background(), search.SearchQuery{
+		Query:    "deploy",
+		Limit:    10,
+		SortBy:   "newest",
+		FromTime: now.Add(-30 * 24 * time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("Search 30d error: %v", err)
+	}
+
+	// Search with 1h range, sorted by newest
+	results1h, err := s.Search(context.Background(), search.SearchQuery{
+		Query:    "deploy",
+		Limit:    10,
+		SortBy:   "newest",
+		FromTime: now.Add(-time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("Search 1h error: %v", err)
+	}
+
+	// The newest result (evt-new) should be first in both queries
+	if len(results30d) < 1 {
+		t.Fatal("expected at least 1 result for 30d range")
+	}
+	if results30d[0].EventUID != "evt-new" {
+		t.Errorf("30d newest: expected evt-new first, got %s", results30d[0].EventUID)
+	}
+
+	if len(results1h) < 1 {
+		t.Fatal("expected at least 1 result for 1h range")
+	}
+	if results1h[0].EventUID != "evt-new" {
+		t.Errorf("1h newest: expected evt-new first, got %s", results1h[0].EventUID)
+	}
+
+	// 30d should return all 3, 1h should return only 1
+	if len(results30d) != 3 {
+		t.Errorf("30d: expected 3 results, got %d", len(results30d))
+	}
+	if len(results1h) != 1 {
+		t.Errorf("1h: expected 1 result, got %d", len(results1h))
+	}
+
+	// Verify 30d is properly sorted newest-first
+	for i := 1; i < len(results30d); i++ {
+		if results30d[i].Timestamp.After(results30d[i-1].Timestamp) {
+			t.Errorf("30d results not sorted newest-first: index %d (%v) is after index %d (%v)",
+				i, results30d[i].Timestamp, i-1, results30d[i-1].Timestamp)
+		}
+	}
+}
+
+func TestSearch_OldestSort(t *testing.T) {
+	db := setupTestDB(t)
+	logger := testLogger
+
+	now := time.Now()
+	insertEventAt(t, db, "evt-1", "sess-1", "message", "build step one", "gpt-4", now.Add(-3*time.Hour))
+	insertEventAt(t, db, "evt-2", "sess-1", "message", "build step two", "gpt-4", now.Add(-2*time.Hour))
+	insertEventAt(t, db, "evt-3", "sess-1", "message", "build step three", "gpt-4", now.Add(-1*time.Hour))
+
+	s := search.NewSearcher(db.ReadPool, logger, 25, 0)
+
+	results, err := s.Search(context.Background(), search.SearchQuery{
+		Query:  "build step",
+		Limit:  10,
+		SortBy: "oldest",
+	})
+	if err != nil {
+		t.Fatalf("Search error: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+	if results[0].EventUID != "evt-1" {
+		t.Errorf("oldest sort: expected evt-1 first, got %s", results[0].EventUID)
+	}
+	if results[2].EventUID != "evt-3" {
+		t.Errorf("oldest sort: expected evt-3 last, got %s", results[2].EventUID)
+	}
+}
+
+func TestBrowse_SortOrder(t *testing.T) {
+	db := setupTestDB(t)
+	logger := testLogger
+
+	now := time.Now()
+	insertEventAt(t, db, "evt-a", "sess-1", "message", "alpha event", "gpt-4", now.Add(-3*time.Hour))
+	insertEventAt(t, db, "evt-b", "sess-1", "message", "beta event", "gpt-4", now.Add(-2*time.Hour))
+	insertEventAt(t, db, "evt-c", "sess-1", "message", "gamma event", "gpt-4", now.Add(-1*time.Hour))
+
+	s := search.NewSearcher(db.ReadPool, logger, 25, 0)
+
+	// Browse newest
+	results, err := s.Browse(context.Background(), search.SearchQuery{
+		Limit:     10,
+		SortBy:    "newest",
+		SessionID: "sess-1",
+	})
+	if err != nil {
+		t.Fatalf("Browse newest error: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+	if results[0].EventUID != "evt-c" {
+		t.Errorf("browse newest: expected evt-c first, got %s", results[0].EventUID)
+	}
+
+	// Browse oldest
+	results, err = s.Browse(context.Background(), search.SearchQuery{
+		Limit:     10,
+		SortBy:    "oldest",
+		SessionID: "sess-1",
+	})
+	if err != nil {
+		t.Fatalf("Browse oldest error: %v", err)
+	}
+	if results[0].EventUID != "evt-a" {
+		t.Errorf("browse oldest: expected evt-a first, got %s", results[0].EventUID)
 	}
 }
