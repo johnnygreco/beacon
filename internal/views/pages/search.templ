@@ -27,6 +27,7 @@ templ Search(results []views.SearchResult) {
 						hx-target="#search-results"
 						hx-include="#search-filters"
 						hx-indicator="#search-spinner"
+						hx-sync="this:replace"
 					/>
 					<div class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
 						<button type="button" id="search-clear" onclick="clearSearch()" class="hidden text-gray-500 hover:text-gray-300 transition-colors" title="Clear search">
