@@ -10,10 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/johnnygreco/beacon/internal/config"
-
-	_ "github.com/duckdb/duckdb-go/v2"
+	"github.com/johnnygreco/beacon/internal/store"
+	"github.com/spf13/cobra"
 )
 
 func newStatusCmd() *cobra.Command {
@@ -48,32 +47,24 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
-	// Database stats
-	dbPath := resolveDBPath(cfg)
-	fi, err := os.Stat(dbPath)
+	// Store stats
+	opts := storeOptionsFromConfig(cfg)
+	ch, err := store.Open(cmd.Context(), opts)
 	if err != nil {
-		fmt.Printf("Database: not found at %s\n", dbPath)
+		fmt.Printf("ClickHouse: unavailable at %s (%v)\n", strings.Join(opts.Addrs, ","), err)
 		return nil
 	}
+	defer ch.Close()
 
-	db, err := sql.Open("duckdb", dbPath+"?access_mode=read_only")
-	if err != nil {
-		fmt.Printf("Database: %s (%.1f MB, locked by server)\n", dbPath, float64(fi.Size())/(1024*1024))
-		return nil
-	}
-	// Verify the connection works (Open may succeed but queries fail due to lock)
-	if err := db.Ping(); err != nil {
-		db.Close()
-		fmt.Printf("Database: %s (%.1f MB, locked by server)\n", dbPath, float64(fi.Size())/(1024*1024))
-		return nil
-	}
-	defer db.Close()
-
-	fmt.Printf("Database: %s (%.1f MB)\n", dbPath, float64(fi.Size())/(1024*1024))
+	fmt.Printf("ClickHouse: connected at %s database=%s\n", strings.Join(opts.Addrs, ","), opts.Database)
 
 	// Last event
 	var lastEvent sql.NullTime
-	if err := db.QueryRow("SELECT MAX(timestamp) FROM events").Scan(&lastEvent); err != nil {
+	if err := ch.DB.QueryRow(`SELECT max(ended_at) FROM (
+		SELECT session_id, argMax(ended_at, updated_at) AS ended_at
+		FROM session_projection
+		GROUP BY session_id
+	)`).Scan(&lastEvent); err != nil {
 		fmt.Println("Last event: unavailable")
 	} else if lastEvent.Valid {
 		fmt.Printf("Last event: %s\n", lastEvent.Time.Format(time.RFC3339))
@@ -87,17 +78,20 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		label string
 		query string
 	}{
-		{"Events", "SELECT COUNT(*) FROM events"},
-		{"Sessions", "SELECT COUNT(DISTINCT session_id) FROM events"},
+		{"Raw Records", "SELECT count() FROM raw_records"},
+		{"Activity Events", "SELECT count() FROM activity_events"},
+		{"Sessions", "SELECT uniqExact(session_id) FROM session_projection"},
 		{"Event Links", "SELECT COUNT(*) FROM event_links"},
-		{"Tool I/O", "SELECT COUNT(*) FROM tool_io"},
-		{"Ingest Errors", "SELECT COUNT(*) FROM ingest_errors"},
-		{"Checkpoints", "SELECT COUNT(*) FROM ingest_checkpoints"},
+		{"Tool Payloads", "SELECT COUNT(*) FROM tool_payloads"},
+		{"Capture Errors", "SELECT COUNT(*) FROM capture_errors"},
+		{"Checkpoints", "SELECT COUNT(*) FROM capture_checkpoints"},
+		{"Search Docs", "SELECT COUNT(*) FROM search_documents"},
+		{"Search Postings", "SELECT COUNT(*) FROM search_postings"},
 	}
 
 	for _, c := range counts {
 		var count int64
-		if err := db.QueryRow(c.query).Scan(&count); err != nil {
+		if err := ch.DB.QueryRow(c.query).Scan(&count); err != nil {
 			fmt.Printf("%-18s error\n", c.label+":")
 		} else {
 			fmt.Printf("%-18s %d\n", c.label+":", count)
@@ -106,32 +100,24 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	// Active sessions in last hour
 	var active int64
-	if err := db.QueryRow("SELECT COUNT(DISTINCT session_id) FROM events WHERE timestamp > current_timestamp - INTERVAL '1 hour'").Scan(&active); err != nil {
+	if err := ch.DB.QueryRow(`SELECT count() FROM (
+		SELECT session_id,
+		       argMax(ended_at, updated_at) AS ended_at,
+		       argMax(has_session_end, updated_at) AS has_session_end
+		FROM session_projection
+		GROUP BY session_id
+	) WHERE ended_at > now() - INTERVAL 1 HOUR AND has_session_end = 0`).Scan(&active); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: active sessions query failed: %v\n", err)
 	}
 	fmt.Printf("%-18s %d active in last hour\n", "", active)
 
-	// FTS status
 	fmt.Println()
-	ftsAvailable := true
-	if _, err := db.Exec("INSTALL fts"); err != nil {
-		ftsAvailable = false
-	}
-	if ftsAvailable {
-		if _, err := db.Exec("LOAD fts"); err != nil {
-			ftsAvailable = false
-		}
-	}
-	if ftsAvailable {
-		var ftsCount int
-		err = db.QueryRow("SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'fts_main_events'").Scan(&ftsCount)
-		if err == nil && ftsCount > 0 {
-			fmt.Println("FTS Index: available")
-		} else {
-			fmt.Println("FTS Index: not built (run 'beacon serve' to build)")
-		}
+	var docs, postings int64
+	if err := ch.DB.QueryRow("SELECT count() FROM search_documents").Scan(&docs); err == nil {
+		_ = ch.DB.QueryRow("SELECT count() FROM search_postings").Scan(&postings)
+		fmt.Printf("Search Index: %d documents, %d postings\n", docs, postings)
 	} else {
-		fmt.Println("FTS Index: extension not available")
+		fmt.Println("Search Index: unavailable")
 	}
 
 	return nil

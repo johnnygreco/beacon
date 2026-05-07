@@ -1,28 +1,27 @@
-package ingestion
+package capture
 
 import (
 	"context"
-	"database/sql"
 	"os"
+	"sync"
 	"syscall"
 
-	"github.com/johnnygreco/beacon/internal/database"
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/store"
 )
 
 // CheckpointManager loads and saves file processing checkpoints.
 type CheckpointManager struct {
-	db         *database.DB
-	readDB     *sql.DB
+	store      *store.Store
 	sourceName string
+	mu         sync.RWMutex
 	cache      map[string]*models.Checkpoint
 }
 
 // NewCheckpointManager creates a checkpoint manager for a given source.
-func NewCheckpointManager(db *database.DB, readDB *sql.DB, sourceName string) *CheckpointManager {
+func NewCheckpointManager(ch *store.Store, sourceName string) *CheckpointManager {
 	return &CheckpointManager{
-		db:         db,
-		readDB:     readDB,
+		store:      ch,
 		sourceName: sourceName,
 		cache:      make(map[string]*models.Checkpoint),
 	}
@@ -30,24 +29,30 @@ func NewCheckpointManager(db *database.DB, readDB *sql.DB, sourceName string) *C
 
 // Load reads all checkpoints for this source from the database.
 func (cm *CheckpointManager) Load(ctx context.Context) error {
-	cps, err := database.LoadCheckpoints(ctx, cm.readDB, cm.sourceName)
+	cps, err := cm.store.LoadCheckpoints(ctx, cm.sourceName)
 	if err != nil {
 		return err
 	}
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 	cm.cache = cps
 	return nil
 }
 
 // Get returns the checkpoint for a file, or nil if none exists.
 func (cm *CheckpointManager) Get(file string) *models.Checkpoint {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 	return cm.cache[file]
 }
 
 // Save persists a checkpoint to the database and updates the cache.
 func (cm *CheckpointManager) Save(ctx context.Context, cp *models.Checkpoint) error {
-	if err := database.UpsertCheckpoint(ctx, cm.db, cp); err != nil {
+	if err := cm.store.UpsertCheckpoint(ctx, *cp); err != nil {
 		return err
 	}
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 	cm.cache[cp.SourceFile] = cp
 	return nil
 }
@@ -55,6 +60,8 @@ func (cm *CheckpointManager) Save(ctx context.Context, cp *models.Checkpoint) er
 // CheckRotation detects log rotation by comparing inode and file size.
 // Returns true if the file was rotated/truncated and the checkpoint should reset.
 func (cm *CheckpointManager) CheckRotation(file string, fi os.FileInfo) bool {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
 	cp := cm.cache[file]
 	if cp == nil {
 		return false

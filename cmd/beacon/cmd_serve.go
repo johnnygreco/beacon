@@ -13,20 +13,20 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spf13/cobra"
 	beacon "github.com/johnnygreco/beacon"
+	"github.com/johnnygreco/beacon/internal/capture"
 	"github.com/johnnygreco/beacon/internal/config"
-	"github.com/johnnygreco/beacon/internal/database"
-	"github.com/johnnygreco/beacon/internal/ingestion"
 	"github.com/johnnygreco/beacon/internal/search"
 	"github.com/johnnygreco/beacon/internal/sse"
+	"github.com/johnnygreco/beacon/internal/store"
 	"github.com/johnnygreco/beacon/internal/web"
+	"github.com/spf13/cobra"
 )
 
 func newServeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "serve",
-		Short: "Start the web dashboard and JSONL watcher",
+		Short: "Start the web dashboard and capture service",
 		RunE:  runServe,
 	}
 }
@@ -39,25 +39,26 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	dbPath := resolveDBPath(cfg)
+	storeOpts := storeOptionsFromConfig(cfg)
 
 	logger.Info("starting beacon",
 		"host", cfg.Server.Host,
 		"port", cfg.Server.Port,
-		"db", dbPath,
+		"clickhouse", storeOpts.Addrs,
+		"database", storeOpts.Database,
 	)
 
-	db, err := database.Open(dbPath, cfg.Database.ReadPoolSize)
+	ch, err := store.Open(context.Background(), storeOpts)
 	if err != nil {
-		return fmt.Errorf("opening database: %w", err)
+		return fmt.Errorf("opening clickhouse store: %w", err)
 	}
-	defer db.Close()
+	defer ch.Close()
 
 	broker := sse.NewBroker(cfg.SSE.SubscriberBuffer, logger)
-	updater := web.NewUpdater(db.ReadPool, broker, logger)
+	updater := web.NewUpdater(broker, logger)
 
-	batcher := ingestion.NewBatcher(
-		db,
+	batcher := capture.NewBatcher(
+		ch,
 		500,
 		2*time.Second,
 		cfg.Pricing.DefaultInputCost,
@@ -75,34 +76,35 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Start updater (debounced dirty-signal loop + periodic refresh)
 	go updater.Run(ctx)
 
-	// Start watcher
-	if cfg.Watch.Enabled {
+	// Start capture watcher
+	if cfg.Capture.Enabled {
 		sources := buildSources(cfg)
 		for _, s := range sources {
-			logger.Info("watch source configured", "name", s.Name, "provider", s.Provider, "globs", s.Globs)
+			logger.Info("capture source configured", "name", s.Name, "runtime", s.Runtime, "provider", s.Provider, "globs", s.Globs)
 		}
-		watcher := ingestion.NewWatcher(
+		watcher := capture.NewWatcher(
 			sources,
 			batcher.EventCh(),
-			db,
+			ch,
 			logger,
-			time.Duration(cfg.Watch.DebounceMs)*time.Millisecond,
-			cfg.Watch.ReconcileInterval,
+			time.Duration(cfg.Capture.DebounceMs)*time.Millisecond,
+			cfg.Capture.ReconcileInterval,
+			cfg.Capture.BackfillOnStart,
+			cfg.Capture.BackfillWorkers,
 		)
 		go func() {
 			if err := watcher.Run(ctx); err != nil {
-				logger.Error("watcher stopped", "error", err)
+				logger.Error("capture stopped", "error", err)
 			}
 		}()
 	}
 
-	// Start FTS indexer
-	searcher := search.NewSearcher(db.ReadPool, logger, cfg.Search.MaxResults, cfg.Search.RebuildInterval)
+	searcher := search.NewSearcher(ch.DB, logger, cfg.Search.MaxResults, cfg.Search.RebuildInterval)
 	go searcher.RunIndexer(ctx)
 
 	// Web server
-	handlers := web.NewHandlers(db.ReadPool, searcher, logger, updater)
-	apiHandlers := web.NewAPIHandlers(db.ReadPool, searcher, logger)
+	handlers := web.NewHandlers(ch.DB, searcher, logger)
+	apiHandlers := web.NewAPIHandlers(ch.DB, searcher, logger)
 	staticFS, err := fs.Sub(beacon.StaticFS, "static")
 	if err != nil {
 		return fmt.Errorf("preparing static filesystem: %w", err)
@@ -155,19 +157,21 @@ func pidfilePath() string {
 	return filepath.Join(home, ".beacon", "beacon.pid")
 }
 
-func buildSources(cfg *config.Config) []ingestion.WatchSource {
-	var sources []ingestion.WatchSource
-	for _, sc := range cfg.Watch.Sources {
-		var parser func(line []byte, file string, lineNo int, offset int64) ([]ingestion.NormalizedEvent, error)
-		switch sc.Name {
+func buildSources(cfg *config.Config) []capture.WatchSource {
+	var sources []capture.WatchSource
+	for _, sc := range cfg.Capture.Sources {
+		var parser func(line []byte, file string, lineNo int, offset int64) ([]capture.NormalizedEvent, error)
+		switch sc.Runtime {
 		case "codex":
-			parser = ingestion.ParseCodexJSONL
+			parser = capture.ParseCodexJSONL
 		default:
-			parser = ingestion.ParseClaudeJSONL
+			parser = capture.ParseClaudeJSONL
 		}
-		sources = append(sources, ingestion.WatchSource{
+		sources = append(sources, capture.WatchSource{
 			Name:     sc.Name,
+			Runtime:  sc.Runtime,
 			Provider: sc.Provider,
+			Format:   sc.Format,
 			Globs:    []string{sc.Glob},
 			Parser:   parser,
 		})

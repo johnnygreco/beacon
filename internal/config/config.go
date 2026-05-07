@@ -9,7 +9,7 @@ import (
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
-	Watch    WatchConfig
+	Capture  CaptureConfig
 	SSE      SSEConfig
 	Search   SearchConfig
 	Pricing  PricingConfig
@@ -22,22 +22,30 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Path         string
+	Addrs        []string
+	Database     string
+	Username     string
+	Password     string
+	Secure       bool
 	ReadPoolSize int `mapstructure:"read_pool_size"`
 }
 
-type WatchConfig struct {
-	Enabled            bool
-	DebounceMs         int           `mapstructure:"debounce_ms"`
-	ReconcileInterval  time.Duration `mapstructure:"reconcile_interval"`
-	BackfillOnStart    bool          `mapstructure:"backfill_on_start"`
-	Sources            []SourceConfig
+type CaptureConfig struct {
+	Enabled           bool
+	DebounceMs        int           `mapstructure:"debounce_ms"`
+	ReconcileInterval time.Duration `mapstructure:"reconcile_interval"`
+	BackfillOnStart   bool          `mapstructure:"backfill_on_start"`
+	BackfillWorkers   int           `mapstructure:"backfill_workers"`
+	Sources           []SourceConfig
 }
 
 type SourceConfig struct {
-	Name     string
-	Provider string
-	Glob     string
+	Name      string
+	Runtime   string
+	Provider  string
+	Glob      string
+	WatchRoot string `mapstructure:"watch_root"`
+	Format    string
 }
 
 type SSEConfig struct {
@@ -70,12 +78,17 @@ func Load(cfgFile string) (*Config, error) {
 
 	viper.SetDefault("server.host", "0.0.0.0")
 	viper.SetDefault("server.port", 4600)
-	viper.SetDefault("database.path", "~/.beacon/beacon.duckdb")
-	viper.SetDefault("database.read_pool_size", 4)
-	viper.SetDefault("watch.enabled", true)
-	viper.SetDefault("watch.debounce_ms", 50)
-	viper.SetDefault("watch.reconcile_interval", "30s")
-	viper.SetDefault("watch.backfill_on_start", true)
+	viper.SetDefault("database.addrs", []string{"127.0.0.1:9000"})
+	viper.SetDefault("database.database", "beacon")
+	viper.SetDefault("database.username", "default")
+	viper.SetDefault("database.password", "")
+	viper.SetDefault("database.secure", false)
+	viper.SetDefault("database.read_pool_size", 8)
+	viper.SetDefault("capture.enabled", true)
+	viper.SetDefault("capture.debounce_ms", 50)
+	viper.SetDefault("capture.reconcile_interval", "30s")
+	viper.SetDefault("capture.backfill_on_start", true)
+	viper.SetDefault("capture.backfill_workers", 4)
 	viper.SetDefault("sse.subscriber_buffer", 64)
 	viper.SetDefault("search.max_results", 25)
 	viper.SetDefault("search.rebuild_interval", "5m")
@@ -95,11 +108,11 @@ func Load(cfgFile string) (*Config, error) {
 		return nil, err
 	}
 
-	// Default watch sources if none configured
-	if len(cfg.Watch.Sources) == 0 {
-		cfg.Watch.Sources = []SourceConfig{
-			{Name: "claude", Provider: "anthropic", Glob: "~/.claude/projects/**/*.jsonl"},
-			{Name: "codex", Provider: "openai", Glob: "~/.codex/sessions/**/*.jsonl"},
+	// Default capture sources if none configured
+	if len(cfg.Capture.Sources) == 0 {
+		cfg.Capture.Sources = []SourceConfig{
+			{Name: "claude", Runtime: "claude-code", Provider: "anthropic", Glob: "~/.claude/projects/**/*.jsonl", WatchRoot: "~/.claude/projects", Format: "jsonl"},
+			{Name: "codex", Runtime: "codex", Provider: "openai", Glob: "~/.codex/sessions/**/*.jsonl", WatchRoot: "~/.codex/sessions", Format: "jsonl"},
 		}
 	}
 

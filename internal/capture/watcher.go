@@ -1,4 +1,4 @@
-package ingestion
+package capture
 
 import (
 	"bufio"
@@ -7,18 +7,21 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/fsnotify/fsnotify"
-	"github.com/johnnygreco/beacon/internal/database"
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/store"
 )
 
 // WatchSource defines a source to watch for JSONL files.
 type WatchSource struct {
 	Name     string
+	Runtime  string
 	Provider string
+	Format   string
 	Globs    []string
 	Parser   func(line []byte, file string, lineNo int, offset int64) ([]NormalizedEvent, error)
 }
@@ -27,26 +30,33 @@ type WatchSource struct {
 type Watcher struct {
 	sources           []WatchSource
 	eventCh           chan<- BatchEvent
-	db                *database.DB
+	store             *store.Store
 	logger            *slog.Logger
 	debounceDelay     time.Duration
 	reconcileInterval time.Duration
+	backfillOnStart   bool
+	backfillWorkers   int
 	checkpoints       map[string]*CheckpointManager
 }
 
 // NewWatcher creates a new JSONL file watcher.
-func NewWatcher(sources []WatchSource, eventCh chan<- BatchEvent, db *database.DB, logger *slog.Logger, debounce, reconcile time.Duration) *Watcher {
+func NewWatcher(sources []WatchSource, eventCh chan<- BatchEvent, ch *store.Store, logger *slog.Logger, debounce, reconcile time.Duration, backfillOnStart bool, backfillWorkers int) *Watcher {
 	cps := make(map[string]*CheckpointManager)
 	for _, src := range sources {
-		cps[src.Name] = NewCheckpointManager(db, db.ReadPool, src.Name)
+		cps[src.Name] = NewCheckpointManager(ch, src.Name)
+	}
+	if backfillWorkers <= 0 {
+		backfillWorkers = 4
 	}
 	return &Watcher{
 		sources:           sources,
 		eventCh:           eventCh,
-		db:                db,
+		store:             ch,
 		logger:            logger,
 		debounceDelay:     debounce,
 		reconcileInterval: reconcile,
+		backfillOnStart:   backfillOnStart,
+		backfillWorkers:   backfillWorkers,
 		checkpoints:       cps,
 	}
 }
@@ -67,13 +77,15 @@ func (w *Watcher) Run(ctx context.Context) error {
 	}
 
 	// Backfill: process existing files from checkpoint
-	for _, src := range w.sources {
-		files := sourceFiles[src.Name]
-		w.logger.Info("backfill source", "name", src.Name, "files", len(files))
-		for _, f := range files {
-			w.processFile(ctx, src, f)
+	if w.backfillOnStart {
+		for _, src := range w.sources {
+			files := sourceFiles[src.Name]
+			w.logger.Info("backfill source", "name", src.Name, "files", len(files), "workers", w.backfillWorkers)
+			w.processFiles(ctx, src, files)
+			w.logger.Info("backfill source complete", "name", src.Name)
 		}
-		w.logger.Info("backfill source complete", "name", src.Name)
+	} else {
+		w.logger.Info("startup backfill disabled")
 	}
 
 	// Start fsnotify watcher
@@ -155,6 +167,7 @@ func (w *Watcher) Run(ctx context.Context) error {
 			// Reconciliation: re-glob and process new files
 			for _, src := range w.sources {
 				files := w.resolveGlobs(src.Globs)
+				var toProcess []string
 				for _, f := range files {
 					dir := filepath.Dir(f)
 					if !watchedDirs[dir] {
@@ -162,11 +175,57 @@ func (w *Watcher) Run(ctx context.Context) error {
 							watchedDirs[dir] = true
 						}
 					}
-					w.processFile(ctx, src, f)
+					toProcess = append(toProcess, f)
 				}
+				w.processFiles(ctx, src, toProcess)
 			}
 		}
 	}
+}
+
+func (w *Watcher) processFiles(ctx context.Context, src WatchSource, files []string) {
+	if len(files) == 0 {
+		return
+	}
+	if w.backfillWorkers <= 1 || len(files) == 1 {
+		for _, file := range files {
+			w.processFile(ctx, src, file)
+		}
+		return
+	}
+
+	workers := min(w.backfillWorkers, len(files))
+	jobs := make(chan string)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for range workers {
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case file, ok := <-jobs:
+					if !ok {
+						return
+					}
+					w.processFile(ctx, src, file)
+				}
+			}
+		}()
+	}
+
+	for _, file := range files {
+		select {
+		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
+			return
+		case jobs <- file:
+		}
+	}
+	close(jobs)
+	wg.Wait()
 }
 
 func (w *Watcher) findSource(file string) *WatchSource {
@@ -273,22 +332,33 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 		events, err := src.Parser(lineBytes, file, lineNo, offset)
 		if err != nil {
 			w.logger.Warn("parse error", "file", file, "line", lineNo, "error", err)
-			// Record ingest error
-			ie := &models.IngestError{
+			// Record capture error
+			ce := &models.CaptureError{
 				ID:              genID(),
+				SourceName:      src.Name,
 				SourceFile:      file,
 				SourceLineNo:    lineNo,
+				SourceOffset:    offset,
 				ErrorClass:      "parse_error",
 				ErrorMessage:    err.Error(),
 				ContextFragment: truncate(string(lineBytes), 500),
 			}
-			if err := database.InsertIngestError(ctx, w.db, ie); err != nil {
-				w.logger.Error("record ingest error failed", "error", err)
+			if err := w.store.InsertCaptureError(ctx, *ce); err != nil {
+				w.logger.Error("record capture error failed", "error", err)
 			}
 			offset += lineLen
 			continue
 		}
 
+		for i := range events {
+			events[i].SourceName = firstNonEmpty(events[i].SourceName, src.Name)
+			events[i].Runtime = firstNonEmpty(events[i].Runtime, src.Runtime)
+			events[i].Provider = firstNonEmpty(events[i].Provider, src.Provider)
+			events[i].Format = firstNonEmpty(events[i].Format, src.Format)
+			if cp != nil {
+				events[i].SourceGeneration = cp.SourceGeneration
+			}
+		}
 		allEvents = append(allEvents, events...)
 		offset += lineLen
 	}
@@ -308,11 +378,11 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 
 	// Save checkpoint after processing
 	newCP := &models.Checkpoint{
-		SourceName: src.Name,
-		SourceFile: file,
+		SourceName:  src.Name,
+		SourceFile:  file,
 		SourceInode: fileInode(fi),
-		LastOffset: offset,
-		LastLineNo: lineNo,
+		LastOffset:  offset,
+		LastLineNo:  lineNo,
 	}
 	if cp != nil {
 		newCP.SourceGeneration = cp.SourceGeneration
@@ -320,6 +390,13 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 	if err := cm.Save(ctx, newCP); err != nil {
 		w.logger.Error("save checkpoint failed", "file", file, "error", err)
 	}
+}
+
+func firstNonEmpty(value, fallback string) string {
+	if value != "" {
+		return value
+	}
+	return fallback
 }
 
 func expandHome(path string) string {

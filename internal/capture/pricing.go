@@ -1,4 +1,4 @@
-package ingestion
+package capture
 
 // ModelPricing holds per-1M-token costs.
 type ModelPricing struct {

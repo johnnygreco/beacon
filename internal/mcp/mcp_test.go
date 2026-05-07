@@ -131,7 +131,7 @@ func TestDispatch_ToolsList(t *testing.T) {
 		name, _ := tool["name"].(string)
 		names[name] = true
 	}
-	for _, expected := range []string{"search", "open", "list_sessions"} {
+	for _, expected := range []string{"search_sessions", "open", "list_sessions"} {
 		if !names[expected] {
 			t.Errorf("missing tool: %s", expected)
 		}
@@ -174,8 +174,8 @@ func TestDispatch_UnknownMethodNotification(t *testing.T) {
 
 func TestFormatSearchResults_Empty(t *testing.T) {
 	result := FormatSearchResults(nil)
-	if result != "No results found." {
-		t.Errorf("expected 'No results found.', got %q", result)
+	if !strings.Contains(result, `"schema":"beacon.mcp.search_sessions.v1"`) || !strings.Contains(result, `"results":[]`) {
+		t.Errorf("expected structured empty search results, got %q", result)
 	}
 }
 
@@ -194,29 +194,10 @@ func TestFormatSearchResults_WithResults(t *testing.T) {
 	}
 
 	output := FormatSearchResults(results)
-	if !strings.Contains(output, "Found 1 results") {
-		t.Error("expected 'Found 1 results' in output")
-	}
-	if !strings.Contains(output, "[message]") {
-		t.Error("expected '[message]' in output")
-	}
-	if !strings.Contains(output, "session:session-1234") {
-		t.Error("expected truncated session ID in output")
-	}
-	if !strings.Contains(output, "tool:grep") {
-		t.Error("expected 'tool:grep' in output")
-	}
-	if !strings.Contains(output, "model:gpt-4") {
-		t.Error("expected 'model:gpt-4' in output")
-	}
-	if !strings.Contains(output, "score: 1.50") {
-		t.Error("expected 'score: 1.50' in output")
-	}
-	if !strings.Contains(output, "Hello world preview") {
-		t.Error("expected text preview in output")
-	}
-	if !strings.Contains(output, `open(event_uid="uid-abc-123")`) {
-		t.Error("expected open link in output")
+	for _, expected := range []string{`"event_id":"event:uid-abc-123"`, `"session_id":"session:session-123456789012"`, `"event_kind":"message"`, `"tool_name":"grep"`, `"model":"gpt-4"`, `"score":1.5`, "Hello world preview"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("expected %q in output", expected)
+		}
 	}
 }
 
@@ -250,43 +231,17 @@ func TestFormatOpenContext(t *testing.T) {
 	}
 
 	output := FormatOpenContext(events, 1) // target is the assistant message
-	if !strings.Contains(output, ">>>") {
-		t.Error("expected '>>>' target marker in output")
-	}
-	if !strings.Contains(output, ">>> TARGET <<<") {
-		t.Error("expected '>>> TARGET <<<' in output")
-	}
-	if !strings.Contains(output, "tool:weather") {
-		t.Error("expected 'tool:weather' in output")
-	}
-	if !strings.Contains(output, "model:gpt-4") {
-		t.Error("expected 'model:gpt-4' in output")
-	}
-	if !strings.Contains(output, "150 tok") {
-		t.Error("expected '150 tok' in output")
-	}
-
-	// The non-target events should have "  " prefix (two spaces), not ">>>"
-	lines := strings.Split(output, "\n")
-	firstEventLine := ""
-	for _, l := range lines {
-		if strings.Contains(l, "[message] user") {
-			firstEventLine = l
-			break
+	for _, expected := range []string{`"schema":"beacon.mcp.open.v1"`, `"event_id":"event:uid-2"`, `"tool_name":"weather"`, `"model":"gpt-4"`, `"tokens":150`, `"target":true`} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("expected %q in output", expected)
 		}
-	}
-	if firstEventLine == "" {
-		t.Fatal("could not find first event line")
-	}
-	if strings.HasPrefix(firstEventLine, ">>>") {
-		t.Error("first event should not have target marker")
 	}
 }
 
 func TestFormatSessionList_Empty(t *testing.T) {
 	result := FormatSessionList(nil)
-	if result != "No sessions found." {
-		t.Errorf("expected 'No sessions found.', got %q", result)
+	if !strings.Contains(result, `"schema":"beacon.mcp.list_sessions.v1"`) || !strings.Contains(result, `"results":[]`) {
+		t.Errorf("expected structured empty session list, got %q", result)
 	}
 }
 
@@ -308,38 +263,10 @@ func TestFormatSessionList_WithSessions(t *testing.T) {
 	}
 
 	output := FormatSessionList(sessions)
-	if !strings.Contains(output, "1 sessions") {
-		t.Error("expected '1 sessions' in output")
-	}
-	if !strings.Contains(output, "[claude-code]") {
-		t.Error("expected '[claude-code]' in output")
-	}
-	if !strings.Contains(output, "sess-abcdef1") {
-		t.Error("expected truncated session ID in output")
-	}
-	if !strings.Contains(output, "events:42") {
-		t.Error("expected 'events:42' in output")
-	}
-	if !strings.Contains(output, "turns:10") {
-		t.Error("expected 'turns:10' in output")
-	}
-	if !strings.Contains(output, "tokens:5000") {
-		t.Error("expected 'tokens:5000' in output")
-	}
-	if !strings.Contains(output, "tools:8") {
-		t.Error("expected 'tools:8' in output")
-	}
-	if !strings.Contains(output, "mcp:2") {
-		t.Error("expected 'mcp:2' in output")
-	}
-	if !strings.Contains(output, "errors:1") {
-		t.Error("expected 'errors:1' in output")
-	}
-	if !strings.Contains(output, "model:gpt-4") {
-		t.Error("expected 'model:gpt-4' in output")
-	}
-	if !strings.Contains(output, "dur:30m0s") {
-		t.Error("expected duration in output")
+	for _, expected := range []string{`"session_id":"session:sess-abcdef123456"`, `"source_name":"claude-code"`, `"event_count":42`, `"turn_count":10`, `"total_tokens":5000`, `"tool_call_count":8`, `"mcp_call_count":2`, `"error_count":1`, `"last_model":"gpt-4"`} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("expected %q in output", expected)
+		}
 	}
 }
 
@@ -362,7 +289,7 @@ func TestToolDefinitions(t *testing.T) {
 		}
 	}
 
-	for _, expected := range []string{"search", "open", "list_sessions"} {
+	for _, expected := range []string{"search_sessions", "open", "list_sessions"} {
 		if !names[expected] {
 			t.Errorf("missing tool definition: %s", expected)
 		}

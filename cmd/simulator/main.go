@@ -95,8 +95,8 @@ func main() {
 				"usage": map[string]any{
 					"input_tokens":                inputTokens,
 					"output_tokens":               outputTokens,
-					"cache_read_input_tokens":      cacheRead,
-					"cache_creation_input_tokens":  0,
+					"cache_read_input_tokens":     cacheRead,
+					"cache_creation_input_tokens": 0,
 				},
 			},
 		})

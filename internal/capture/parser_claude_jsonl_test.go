@@ -1,4 +1,4 @@
-package ingestion
+package capture
 
 import (
 	"encoding/json"
@@ -322,7 +322,7 @@ func TestParseClaudeJSONL_CWDExtracted(t *testing.T) {
 		"sessionId": "sess-1",
 		"timestamp": "2025-01-01T00:00:00Z",
 		"type":      "user",
-		"cwd":       "/Users/donnie/projects/code/technodrome",
+		"cwd":       "/Users/donnie/projects/code/beacon",
 		"message": map[string]any{
 			"role":    "user",
 			"content": "hello",
@@ -336,7 +336,7 @@ func TestParseClaudeJSONL_CWDExtracted(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(events))
 	}
-	if events[0].CWD != "/Users/donnie/projects/code/technodrome" {
+	if events[0].CWD != "/Users/donnie/projects/code/beacon" {
 		t.Errorf("expected CWD to be set, got %q", events[0].CWD)
 	}
 }
@@ -625,10 +625,10 @@ func TestParseClaudeJSONL_DeduplicateTokensAcrossLines(t *testing.T) {
 				{"type": "thinking", "thinking": "This is a very long thinking block with lots of reasoning..."},
 			},
 			"usage": map[string]any{
-				"input_tokens":                 3,
-				"output_tokens":                8,
-				"cache_read_input_tokens":      5708,
-				"cache_creation_input_tokens":  3882,
+				"input_tokens":                3,
+				"output_tokens":               8,
+				"cache_read_input_tokens":     5708,
+				"cache_creation_input_tokens": 3882,
 			},
 		},
 	})
@@ -646,10 +646,10 @@ func TestParseClaudeJSONL_DeduplicateTokensAcrossLines(t *testing.T) {
 				{"type": "text", "text": "Here is my response."},
 			},
 			"usage": map[string]any{
-				"input_tokens":                 3,
-				"output_tokens":                8,
-				"cache_read_input_tokens":      5708,
-				"cache_creation_input_tokens":  3882,
+				"input_tokens":                3,
+				"output_tokens":               8,
+				"cache_read_input_tokens":     5708,
+				"cache_creation_input_tokens": 3882,
 			},
 		},
 	})

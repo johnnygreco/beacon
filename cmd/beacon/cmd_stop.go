@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/johnnygreco/beacon/internal/config"
+	"github.com/spf13/cobra"
 )
 
 func newStopCmd() *cobra.Command {

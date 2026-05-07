@@ -18,7 +18,9 @@ type Event struct {
 	ParentSessionID   string     `json:"parent_session_id,omitempty"`
 	SessionDate       *time.Time `json:"session_date,omitempty"`
 	SourceName        string     `json:"source_name"`
+	Runtime           string     `json:"runtime"`
 	Provider          string     `json:"provider"`
+	Format            string     `json:"format"`
 	EventKind         string     `json:"event_kind"`
 	PayloadType       string     `json:"payload_type"`
 	ActorRole         string     `json:"actor_role"`
@@ -42,7 +44,23 @@ type Event struct {
 	SourceFile        string     `json:"source_file"`
 	SourceLineNo      int        `json:"source_line_no"`
 	SourceOffset      int64      `json:"source_offset"`
+	SourceGeneration  int        `json:"source_generation"`
 	CreatedAt         time.Time  `json:"created_at"`
+}
+
+type RawRecord struct {
+	RecordUID        string    `json:"record_uid"`
+	SourceName       string    `json:"source_name"`
+	Runtime          string    `json:"runtime"`
+	Provider         string    `json:"provider"`
+	Format           string    `json:"format"`
+	SourceFile       string    `json:"source_file"`
+	SourceLineNo     int       `json:"source_line_no"`
+	SourceOffset     int64     `json:"source_offset"`
+	SourceGeneration int       `json:"source_generation"`
+	SessionID        string    `json:"session_id"`
+	PayloadJSON      string    `json:"payload_json"`
+	CapturedAt       time.Time `json:"captured_at"`
 }
 
 type EventLink struct {
@@ -51,7 +69,7 @@ type EventLink struct {
 	LinkType       string `json:"link_type"`
 }
 
-type ToolIO struct {
+type ToolPayload struct {
 	EventUID      string `json:"event_uid"`
 	ToolName      string `json:"tool_name"`
 	ToolPhase     string `json:"tool_phase"`
@@ -61,10 +79,12 @@ type ToolIO struct {
 	OutputPreview string `json:"output_preview"`
 }
 
-type IngestError struct {
+type CaptureError struct {
 	ID              string    `json:"id"`
+	SourceName      string    `json:"source_name"`
 	SourceFile      string    `json:"source_file"`
 	SourceLineNo    int       `json:"source_line_no"`
+	SourceOffset    int64     `json:"source_offset"`
 	ErrorClass      string    `json:"error_class"`
 	ErrorMessage    string    `json:"error_message"`
 	ContextFragment string    `json:"context_fragment"`
@@ -78,4 +98,33 @@ type Checkpoint struct {
 	SourceGeneration int    `json:"source_generation"`
 	LastOffset       int64  `json:"last_offset"`
 	LastLineNo       int    `json:"last_line_no"`
+}
+
+type SearchDocument struct {
+	EventUID       string    `json:"event_uid"`
+	SessionID      string    `json:"session_id"`
+	EventKind      string    `json:"event_kind"`
+	Timestamp      time.Time `json:"timestamp"`
+	TextPreview    string    `json:"text_preview"`
+	ToolName       string    `json:"tool_name"`
+	Model          string    `json:"model"`
+	Provider       string    `json:"provider"`
+	SearchableText string    `json:"searchable_text"`
+	DocumentLength int       `json:"document_length"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+type SearchPosting struct {
+	Token          string    `json:"token"`
+	EventUID       string    `json:"event_uid"`
+	SessionID      string    `json:"session_id"`
+	EventKind      string    `json:"event_kind"`
+	Timestamp      time.Time `json:"timestamp"`
+	TermFrequency  int       `json:"term_frequency"`
+	DocumentLength int       `json:"document_length"`
+	TextPreview    string    `json:"text_preview"`
+	ToolName       string    `json:"tool_name"`
+	Model          string    `json:"model"`
+	Provider       string    `json:"provider"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
