@@ -8,7 +8,7 @@ Keep a signal on your long-running AI coding agents. Beacon gives you a live das
 
 - **Live dashboard** — see active sessions, token usage, and a real-time activity feed
 - **Session replay** — review full conversations with turn timelines and tool call details
-- **Full-text search** — find anything across all your agent conversations
+- **Precomputed search** — find anything across all agent conversations without rebuilding an FTS index
 - **Multi-agent support** — monitors Claude Code and OpenAI Codex sessions
 - **Token tracking** — input, output, and cache token counts per session
 - **MCP server** — give your agents access to search and review their own history
@@ -48,31 +48,46 @@ curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
 ## Quick start
 
 ```bash
-beacon serve
+beacon db up
+beacon up
 ```
 
-The dashboard opens at [http://localhost:4600](http://localhost:4600). Beacon picks up Claude Code and Codex sessions automatically — no configuration needed.
+The dashboard opens at [http://localhost:4600](http://localhost:4600). Beacon captures Claude Code and Codex sessions automatically from the configured sources.
 
 ### Build from source
 
-Requires Go 1.24+.
+Requires Go 1.24+ and Docker or a local ClickHouse server.
 
 ```bash
 git clone https://github.com/johnnygreco/beacon.git
 cd beacon
 make build
-./bin/beacon serve
+./bin/beacon up
+```
+
+If you already run ClickHouse yourself, point `[database]` at it and run `beacon db migrate`.
+
+To run the live ClickHouse smoke and perf tests:
+
+```bash
+BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/store ./internal/search ./internal/web
+BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/perf -bench . -run '^$'
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `beacon serve` | Start the dashboard and begin monitoring |
-| `beacon watch` | Monitor without the dashboard (headless) |
-| `beacon mcp` | Start the MCP server (stdin/stdout) |
-| `beacon status` | Show database and index stats |
-| `beacon db reset --force` | Reset the database |
+| `beacon up` | Start the dashboard and capture services |
+| `beacon down` | Stop the running Beacon server |
+| `beacon run capture` | Capture without the dashboard |
+| `beacon run web` | Run web and capture services |
+| `beacon run mcp` | Start the MCP server (stdin/stdout) |
+| `beacon status` | Show ClickHouse and index stats |
+| `beacon db up` | Start a local ClickHouse container and migrate tables |
+| `beacon db down` | Stop the local ClickHouse container |
+| `beacon db migrate` | Create or update ClickHouse tables |
+| `beacon db reset --force` | Reset the ClickHouse schema |
 
 ## Configuration
 
@@ -95,7 +110,7 @@ Add Beacon to your agent's MCP config to give it access to its own conversation 
 }
 ```
 
-Available tools: **search**, **open** (retrieve context around an event), and **list_sessions**.
+Available tools: **search_sessions**, **open** (retrieve context around an event), and **list_sessions**.
 
 ## Acknowledgements
 
