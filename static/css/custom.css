@@ -242,6 +242,42 @@ nav a.active {
   pointer-events: auto !important;
 }
 
+@media (max-width: 900px) {
+  #main-content {
+    padding: 1rem;
+  }
+
+  #dashboard-wrap {
+    flex-direction: column;
+    height: auto !important;
+    min-height: calc(100vh - 2rem);
+  }
+
+  #dashboard-main {
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  #sidebar-divider {
+    display: none;
+  }
+
+  .timeline-panel {
+    width: 100%;
+    min-width: 0;
+    max-height: 440px;
+    border-top: 1px solid rgba(55, 65, 81, 0.5);
+  }
+
+  .timeline-panel .activity-filter-btn {
+    flex-shrink: 0;
+  }
+
+  #timeline-sidebar > .flex.items-center.gap-1\.5 {
+    overflow-x: auto;
+  }
+}
+
 /* Activity feed type filters */
 #activity-feed.filter-message [data-type]:not([data-type="message"]) { display: none; }
 #activity-feed.filter-tool-call [data-type]:not([data-type="tool_call"]) { display: none; }
