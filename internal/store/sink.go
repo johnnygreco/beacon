@@ -12,8 +12,6 @@ import (
 	"github.com/johnnygreco/beacon/internal/textindex"
 )
 
-const payloadPreviewMaxLen = 320
-
 type RowBatch struct {
 	RawRecords     []models.RawRecord
 	ActivityEvents []models.Event
