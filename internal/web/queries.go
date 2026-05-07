@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	defaultSessionPageSize  = 30
-	defaultActivityPageSize = 30
-	defaultSearchPageSize   = 30
+	defaultSessionPageSize   = 30
+	defaultActivityPageSize  = 30
+	defaultSearchPageSize    = 30
+	recentActivityCandidates = 2000
 )
 
 func latestActivityEventsSubquery(where string) string {
@@ -47,6 +48,36 @@ func latestActivityEventsSubquery(where string) string {
 	               max(captured_at) AS latest_captured_at
 	        FROM activity_events AS ae ` + sqlWhereClause(where) + `
 	        GROUP BY event_uid)`
+}
+
+func recentActivityEventsSubquery(where string) string {
+	return fmt.Sprintf(`(SELECT event_uid,
+	               argMax(session_id, captured_at) AS session_id,
+	               argMax(provider, captured_at) AS provider,
+	               argMax(timestamp, captured_at) AS timestamp,
+	               argMax(event_kind, captured_at) AS event_kind,
+	               argMax(actor_role, captured_at) AS actor_role,
+	               argMax(text_preview, captured_at) AS text_preview,
+	               argMax(tool_name, captured_at) AS tool_name,
+	               argMax(error_code, captured_at) AS error_code,
+	               argMax(error_message, captured_at) AS error_message
+	        FROM (
+			SELECT event_uid,
+			       session_id,
+			       provider,
+			       timestamp,
+			       event_kind,
+			       actor_role,
+			       text_preview,
+			       tool_name,
+			       error_code,
+			       error_message,
+			       captured_at
+			FROM activity_events AS ae `+sqlWhereClause(where)+`
+			ORDER BY timestamp DESC
+			LIMIT %d
+	        )
+	        GROUP BY event_uid)`, recentActivityCandidates)
 }
 
 func sqlWhereClause(where string) string {
@@ -333,7 +364,7 @@ func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *t
 		        COALESCE(session_id, ''),
 		        COALESCE(provider, ''),
 		        timestamp
-		 FROM ` + latestActivityEventsSubquery(where)
+		 FROM ` + recentActivityEventsSubquery(where)
 	query += ` ORDER BY timestamp DESC LIMIT 200`
 
 	rows, err := db.QueryContext(ctx, query, args...)
@@ -954,26 +985,25 @@ var sessionProjectionSQL = sessionProjectionSubquery("")
 func sessionProjectionSubquery(where string) string {
 	return `(SELECT
 		session_id,
-		argMax(source_name, updated_at) AS source_name,
-		argMax(provider, updated_at) AS provider,
-		argMax(started_at, updated_at) AS started_at,
-		argMax(ended_at, updated_at) AS ended_at,
-		argMax(event_count, updated_at) AS event_count,
-		argMax(turn_count, updated_at) AS turn_count,
-		argMax(total_input_tokens, updated_at) AS total_input_tokens,
-		argMax(total_output_tokens, updated_at) AS total_output_tokens,
-		argMax(total_cache_read_tokens, updated_at) AS total_cache_read_tokens,
-		argMax(total_cache_create_tokens, updated_at) AS total_cache_create_tokens,
-		argMax(total_tokens, updated_at) AS total_tokens,
-		argMax(tool_call_count, updated_at) AS tool_call_count,
-		argMax(mcp_call_count, updated_at) AS mcp_call_count,
-		argMax(error_count, updated_at) AS error_count,
-		argMax(last_model, updated_at) AS last_model,
-		argMax(working_dir, updated_at) AS working_dir,
-		argMax(parent_session_id, updated_at) AS parent_session_id,
-		argMax(has_session_end, updated_at) AS has_session_end
-	FROM session_projection ` + sqlWhereClause(where) + `
-	GROUP BY session_id)`
+		source_name,
+		provider,
+		started_at,
+		ended_at,
+		event_count,
+		turn_count,
+		total_input_tokens,
+		total_output_tokens,
+		total_cache_read_tokens,
+		total_cache_create_tokens,
+		total_tokens,
+		tool_call_count,
+		mcp_call_count,
+		error_count,
+		last_model,
+		working_dir,
+		parent_session_id,
+		has_session_end
+	FROM session_projection FINAL ` + sqlWhereClause(where) + `)`
 }
 
 var analyticsProjectionSQL = analyticsProjectionSubquery("")
@@ -986,18 +1016,17 @@ func analyticsProjectionSubquery(where string) string {
 		model,
 		tool_name,
 		event_kind,
-		argMax(event_count, updated_at) AS event_count,
-		argMax(call_count, updated_at) AS call_count,
-		argMax(tool_call_count, updated_at) AS tool_call_count,
-		argMax(tool_result_count, updated_at) AS tool_result_count,
-		argMax(input_tokens, updated_at) AS input_tokens,
-		argMax(output_tokens, updated_at) AS output_tokens,
-		argMax(cache_read_tokens, updated_at) AS cache_read_tokens,
-		argMax(cache_create_tokens, updated_at) AS cache_create_tokens,
-		argMax(total_tokens, updated_at) AS total_tokens,
-		argMax(duration_ms_sum, updated_at) AS duration_ms_sum
-	FROM analytics_projection ` + sqlWhereClause(where) + `
-	GROUP BY session_id, minute, provider, model, tool_name, event_kind)`
+		event_count,
+		call_count,
+		tool_call_count,
+		tool_result_count,
+		input_tokens,
+		output_tokens,
+		cache_read_tokens,
+		cache_create_tokens,
+		total_tokens,
+		duration_ms_sum
+	FROM analytics_projection FINAL ` + sqlWhereClause(where) + `)`
 }
 
 // sessionSummaryColumns is the shared SELECT column list for session projection queries.

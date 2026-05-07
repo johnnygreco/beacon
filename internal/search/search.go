@@ -40,6 +40,7 @@ type Searcher struct {
 	db              *sql.DB
 	logger          *slog.Logger
 	maxResults      int
+	logSem          chan struct{}
 	mu              sync.RWMutex
 	lastIndexBuild  time.Time
 	indexExists     bool
@@ -56,6 +57,7 @@ func NewSearcher(db *sql.DB, logger *slog.Logger, maxResults int, rebuildInterva
 		db:              db,
 		logger:          logger,
 		maxResults:      maxResults,
+		logSem:          make(chan struct{}, 4),
 		rebuildInterval: rebuildInterval,
 	}
 }
@@ -101,13 +103,35 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 		return nil, err
 	}
 
-	_, _ = s.db.ExecContext(ctx,
-		`INSERT INTO search_query_log (query, normalized_terms, result_count, duration_ms)
-		 VALUES (?, ?, ?, ?)`,
-		q.Query, tokens, uint32(len(results)), uint64(time.Since(start).Milliseconds()))
+	s.logQuery(q.Query, tokens, len(results), time.Since(start))
 
 	s.logger.Debug("search complete", "query", q.Query, "tokens", tokens, "results", len(results), "duration", time.Since(start))
 	return results, nil
+}
+
+func (s *Searcher) logQuery(query string, tokens []string, resultCount int, duration time.Duration) {
+	if s.db == nil || s.logSem == nil {
+		return
+	}
+	select {
+	case s.logSem <- struct{}{}:
+	default:
+		s.logger.Debug("search query log dropped", "query", query)
+		return
+	}
+
+	tokenCopy := append([]string(nil), tokens...)
+	go func() {
+		defer func() { <-s.logSem }()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if _, err := s.db.ExecContext(ctx,
+			`INSERT INTO search_query_log (query, normalized_terms, result_count, duration_ms)
+			 VALUES (?, ?, ?, ?)`,
+			query, tokenCopy, uint32(resultCount), uint64(duration.Milliseconds())); err != nil {
+			s.logger.Debug("search query log insert failed", "query", query, "error", err)
+		}
+	}()
 }
 
 func (s *Searcher) LegacySearch(ctx context.Context, query string, limit int) ([]SearchResult, error) {
@@ -139,24 +163,10 @@ func (s *Searcher) postingsSearch(ctx context.Context, q SearchQuery, tokens []s
 			any(p.model) AS model,
 			any(p.provider) AS provider
 		FROM (
-			SELECT postings.*,
+			SELECT *,
 			       toFloat64(count() OVER (PARTITION BY token)) AS doc_freq
-			FROM (
-				SELECT token,
-				       event_uid,
-				       argMax(session_id, updated_at) AS session_id,
-				       argMax(event_kind, updated_at) AS event_kind,
-				       argMax(timestamp, updated_at) AS timestamp,
-				       argMax(term_frequency, updated_at) AS term_frequency,
-				       argMax(document_len, updated_at) AS document_len,
-				       argMax(text_preview, updated_at) AS text_preview,
-				       argMax(tool_name, updated_at) AS tool_name,
-				       argMax(model, updated_at) AS model,
-				       argMax(provider, updated_at) AS provider
-				FROM search_postings
-				WHERE token IN (%s)
-				GROUP BY token, event_uid
-			) postings
+			FROM search_postings FINAL
+			WHERE token IN (%s)
 		) p
 		WHERE 1 = 1 %s
 		GROUP BY p.event_uid
@@ -202,11 +212,7 @@ func (s *Searcher) refreshStats(ctx context.Context) (int64, float64, error) {
 	err := s.db.QueryRowContext(ctx,
 		`SELECT count() AS documents,
 		        if(count() = 0, 1, greatest(avg(document_len), 1)) AS avg_doc_len
-		 FROM (
-			SELECT event_uid, argMax(document_len, updated_at) AS document_len
-			FROM search_documents
-			GROUP BY event_uid
-		 )`).Scan(&documents, &avgDocLen)
+		 FROM search_documents FINAL`).Scan(&documents, &avgDocLen)
 	if err != nil {
 		return 1, 1, err
 	}
@@ -238,18 +244,7 @@ func (s *Searcher) Browse(ctx context.Context, q SearchQuery) ([]SearchResult, e
 	query := fmt.Sprintf(`
 		SELECT event_uid, session_id, event_kind, text_preview, 0.0 AS score,
 		       timestamp, tool_name, model, provider
-		FROM (
-			SELECT event_uid,
-			       argMax(session_id, updated_at) AS session_id,
-			       argMax(event_kind, updated_at) AS event_kind,
-			       argMax(text_preview, updated_at) AS text_preview,
-			       argMax(timestamp, updated_at) AS timestamp,
-			       argMax(tool_name, updated_at) AS tool_name,
-			       argMax(model, updated_at) AS model,
-			       argMax(provider, updated_at) AS provider
-			FROM search_documents
-			GROUP BY event_uid
-		)
+		FROM search_documents FINAL
 		WHERE 1 = 1 %s
 		ORDER BY timestamp %s
 		LIMIT ?`,
