@@ -6,10 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
-
-	"strings"
 
 	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/views"
@@ -20,6 +19,42 @@ const (
 	defaultActivityPageSize = 30
 	defaultSearchPageSize   = 30
 )
+
+func latestActivityEventsSubquery(where string) string {
+	return `(SELECT event_uid,
+	               argMax(session_id, captured_at) AS session_id,
+	               argMax(parent_session_id, captured_at) AS parent_session_id,
+	               argMax(source_name, captured_at) AS source_name,
+	               argMax(provider, captured_at) AS provider,
+	               argMax(timestamp, captured_at) AS timestamp,
+	               argMax(event_kind, captured_at) AS event_kind,
+	               argMax(payload_type, captured_at) AS payload_type,
+	               argMax(actor_role, captured_at) AS actor_role,
+	               argMax(text_content, captured_at) AS text_content,
+	               argMax(text_preview, captured_at) AS text_preview,
+	               argMax(tool_name, captured_at) AS tool_name,
+	               argMax(tool_use_id, captured_at) AS tool_use_id,
+	               argMax(model, captured_at) AS model,
+	               argMax(input_tokens, captured_at) AS input_tokens,
+	               argMax(output_tokens, captured_at) AS output_tokens,
+	               argMax(cache_read_tokens, captured_at) AS cache_read_tokens,
+	               argMax(cache_create_tokens, captured_at) AS cache_create_tokens,
+	               argMax(duration_ms, captured_at) AS duration_ms,
+	               argMax(cost_usd, captured_at) AS cost_usd,
+	               argMax(error_code, captured_at) AS error_code,
+	               argMax(error_message, captured_at) AS error_message,
+	               argMax(cwd, captured_at) AS cwd,
+	               max(captured_at) AS latest_captured_at
+	        FROM activity_events AS ae ` + sqlWhereClause(where) + `
+	        GROUP BY event_uid)`
+}
+
+func sqlWhereClause(where string) string {
+	if strings.TrimSpace(where) == "" {
+		return ""
+	}
+	return "WHERE " + where
+}
 
 // parseRange converts a range string ("1h", "24h", "7d", "30d") to a *time.Time cutoff.
 func parseRange(v string) *time.Time {
@@ -64,15 +99,15 @@ func QueryDashboardData(ctx context.Context, db *sql.DB) views.DashboardData {
 func QueryTokensByModelSummary(ctx context.Context, db *sql.DB) []views.ModelTokens {
 	rows, err := db.QueryContext(ctx,
 		`SELECT COALESCE(model, 'unknown'),
-		        COALESCE(MAX(provider), ''),
+		        COALESCE(provider, ''),
 		        COALESCE(SUM(input_tokens), 0),
 		        COALESCE(SUM(output_tokens), 0),
 		        COALESCE(SUM(cache_read_tokens), 0),
-		        COALESCE(SUM(input_tokens + output_tokens), 0)
-		 FROM events
+		        COALESCE(SUM(total_tokens), 0)
+		 FROM `+analyticsProjectionSQL+`
 		 WHERE model IS NOT NULL AND model != '' AND model != '<synthetic>'
-		 GROUP BY model
-		 ORDER BY COALESCE(SUM(input_tokens + output_tokens), 0) DESC
+		 GROUP BY provider, model
+		 ORDER BY COALESCE(SUM(total_tokens), 0) DESC
 		 LIMIT 10`)
 	if err != nil {
 		return nil
@@ -98,16 +133,17 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 	var totalSessions, activeSessions int
 	var inputTokens, outputTokens, cacheReadTokens int64
 	var toolCalls, mcpCalls int
+	activeCutoff := time.Now().Add(-idleThreshold)
 
 	if err := db.QueryRowContext(ctx,
-		`SELECT COUNT(DISTINCT session_id),
-		        COUNT(DISTINCT CASE WHEN timestamp > current_timestamp - INTERVAL '24 hours' THEN session_id END),
-		        COALESCE(SUM(input_tokens), 0),
-		        COALESCE(SUM(output_tokens), 0),
-		        COALESCE(SUM(cache_read_tokens), 0),
-		        COUNT(CASE WHEN event_kind = 'tool_call' THEN 1 END),
-		        COUNT(CASE WHEN event_kind = 'tool_call' AND tool_name LIKE 'mcp__%' THEN 1 END)
-		 FROM events`,
+		`SELECT count(),
+		        countIf(ended_at >= ? AND COALESCE(has_session_end, 0) = 0),
+		        COALESCE(SUM(total_input_tokens), 0),
+		        COALESCE(SUM(total_output_tokens), 0),
+		        COALESCE(SUM(total_cache_read_tokens), 0),
+		        COALESCE(SUM(tool_call_count), 0),
+		        COALESCE(SUM(mcp_call_count), 0)
+		 FROM `+sessionProjectionSQL, activeCutoff,
 	).Scan(&totalSessions, &activeSessions, &inputTokens, &outputTokens, &cacheReadTokens, &toolCalls, &mcpCalls); err != nil {
 		return nil
 	}
@@ -116,7 +152,7 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 
 	return []views.MetricData{
 		{Label: "Total Sessions", Value: fmt.Sprintf("%d", totalSessions)},
-		{Label: "Sessions (24h)", Value: fmt.Sprintf("%d", activeSessions)},
+		{Label: "Active Sessions", Value: fmt.Sprintf("%d", activeSessions)},
 		{Label: "Total Tokens", Value: views.FormatTokens(totalTokens),
 			Sublabel: fmt.Sprintf("In: %s  Out: %s  Cache: %s", views.FormatTokens(inputTokens), views.FormatTokens(outputTokens), views.FormatTokens(cacheReadTokens))},
 		{Label: "Tool Calls", Value: fmt.Sprintf("%d", toolCalls),
@@ -124,10 +160,9 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 	}
 }
 
-// QueryDashboardSessions returns session summaries split into active and completed.
-// Active sessions are those with last activity within activeSessionThreshold.
-// Completed sessions are fetched separately with LIMIT+1 to determine hasMore.
-func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed []views.SessionSummary, hasMore bool) {
+// QueryActiveSessions returns active session summaries only.
+// Active sessions are those with recent activity and no definitive end signal.
+func QueryActiveSessions(ctx context.Context, db *sql.DB) []views.SessionSummary {
 	now := time.Now()
 	// Use Go's time.Now() (UTC-aware) instead of SQL current_timestamp to avoid
 	// timezone mismatch — stored timestamps are UTC but current_timestamp is local.
@@ -136,14 +171,15 @@ func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed 
 	// Fetch active sessions: recent activity AND not explicitly ended.
 	activeRows, err := db.QueryContext(ctx,
 		`SELECT `+sessionSummaryColumns+`
-		 FROM v_session_summary
-		 WHERE ended_at >= $1
+		 FROM `+sessionProjectionSQL+`
+		 WHERE ended_at >= ?
 		   AND COALESCE(has_session_end, 0) = 0
 		 ORDER BY ended_at DESC`, cutoff)
 	if err != nil {
-		return nil, nil, false
+		return nil
 	}
 	defer activeRows.Close()
+	var active []views.SessionSummary
 	for activeRows.Next() {
 		s, err := scanSessionSummary(activeRows, now)
 		if err != nil {
@@ -152,12 +188,16 @@ func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed 
 		active = append(active, s)
 	}
 	if err := activeRows.Err(); err != nil {
-		return nil, nil, false
+		return nil
 	}
 
-	// Group subagents under their parent sessions
-	active = views.GroupActiveSessions(active)
+	return views.GroupActiveSessions(active)
+}
 
+// QueryDashboardSessions returns session summaries split into active and completed.
+// Completed sessions are fetched separately with LIMIT+1 to determine hasMore.
+func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed []views.SessionSummary, hasMore bool) {
+	active = QueryActiveSessions(ctx, db)
 	// Fetch completed sessions with LIMIT+1 for hasMore detection
 	completed, hasMore = QueryCompletedSessions(ctx, db, nil, 0, defaultSessionPageSize)
 	return active, completed, hasMore
@@ -186,13 +226,13 @@ func QueryRecentActivity(ctx context.Context, db *sql.DB) []views.ActivityItem {
 func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int) ([]views.SessionSummary, bool) {
 	cutoff := time.Now().Add(-idleThreshold)
 	query := `SELECT ` + sessionSummaryColumns + `
-		 FROM v_session_summary
-		 WHERE (ended_at < $1
+		 FROM ` + sessionProjectionSQL + `
+		 WHERE (ended_at < ?
 		    OR COALESCE(has_session_end, 0) = 1)
 		   AND (parent_session_id = '' OR parent_session_id IS NULL)`
 	args := []any{cutoff}
 	if since != nil {
-		query += " AND ended_at >= $2"
+		query += " AND ended_at >= ?"
 		args = append(args, *since)
 	}
 	query += ` ORDER BY ended_at DESC`
@@ -233,11 +273,11 @@ func attachSubagentCounts(ctx context.Context, db *sql.DB, sessions []views.Sess
 	placeholders := make([]string, len(sessions))
 	args := make([]any, len(sessions))
 	for i, s := range sessions {
-		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		placeholders[i] = "?"
 		args[i] = s.ID
 	}
 	query := `SELECT parent_session_id, COUNT(*)
-		 FROM v_session_summary
+		 FROM ` + sessionProjectionSQL + `
 		 WHERE parent_session_id IN (` + strings.Join(placeholders, ",") + `)
 		 GROUP BY parent_session_id`
 	rows, err := db.QueryContext(ctx, query, args...)
@@ -280,20 +320,21 @@ func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *t
 		kindFilter = "('message', 'tool_call', 'error', 'tool_error', 'session_meta')"
 	}
 
+	where := "ae.event_kind IN " + kindFilter
+	var args []any
+	if since != nil {
+		where += " AND ae.timestamp >= ?"
+		args = append(args, *since)
+	}
+
 	query := `SELECT event_uid,
 		        event_kind,
 		        ` + activitySummaryExpr + ` AS summary,
 		        COALESCE(session_id, ''),
 		        COALESCE(provider, ''),
 		        timestamp
-		 FROM events
-		 WHERE event_kind IN ` + kindFilter
-	var args []any
-	if since != nil {
-		query += " AND timestamp >= $1"
-		args = append(args, *since)
-	}
-	query += ` ORDER BY timestamp DESC`
+		 FROM ` + latestActivityEventsSubquery(where)
+	query += ` ORDER BY timestamp DESC LIMIT 200`
 
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -349,11 +390,15 @@ func QueryChartData(ctx context.Context, db *sql.DB) views.MultiSeriesChart {
 
 	rows, err := db.QueryContext(ctx,
 		`SELECT minute, total_input, total_output, total_cache_read FROM (
-		   SELECT minute, total_input, total_output, total_cache_read
-		   FROM v_tokens_per_minute
+		   SELECT minute,
+		          sum(input_tokens) AS total_input,
+		          sum(output_tokens) AS total_output,
+		          sum(cache_read_tokens) AS total_cache_read
+		   FROM `+analyticsProjectionSQL+`
+		   GROUP BY minute
 		   ORDER BY minute DESC
 		   LIMIT 60
-		 ) sub ORDER BY minute ASC`)
+		 ) ORDER BY minute ASC`)
 	if err != nil {
 		return chart
 	}
@@ -384,12 +429,14 @@ func QueryTotalTokensTimeSeries(ctx context.Context, db *sql.DB) views.MultiSeri
 		Datasets: []views.ChartDataset{{Label: "Total Tokens"}},
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT minute, total_tokens FROM (
-		   SELECT minute, total_tokens
-		   FROM v_tokens_per_minute
+		`SELECT minute, tokens_total FROM (
+		   SELECT minute,
+		          sum(total_tokens) AS tokens_total
+		   FROM `+analyticsProjectionSQL+`
+		   GROUP BY minute
 		   ORDER BY minute DESC
 		   LIMIT 60
-		 ) sub ORDER BY minute ASC`)
+		 ) ORDER BY minute ASC`)
 	if err != nil {
 		return chart
 	}
@@ -417,7 +464,7 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 	// Session info from view
 	row := db.QueryRowContext(ctx,
 		`SELECT `+sessionSummaryColumns+`
-		 FROM v_session_summary WHERE session_id = $1`, id)
+		 FROM `+sessionProjectionSubquery("session_id = ?"), id)
 	session, err := scanSessionSummary(row, time.Now())
 	if err != nil {
 		return data, err
@@ -433,36 +480,39 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 	}
 
 	rows, err := db.QueryContext(ctx,
-		`WITH session_events AS (
-			SELECT * FROM events WHERE session_id = $1
+		`WITH session_analytics AS (
+			SELECT * FROM `+analyticsProjectionSubquery("session_id = ?")+`
 		),
 		token_series AS (
-			SELECT timestamp, (input_tokens + output_tokens) AS total_tokens
-			FROM session_events
-			WHERE (input_tokens + output_tokens) > 0
-			ORDER BY timestamp
+			SELECT minute AS timestamp, sum(total_tokens) AS tokens_total
+			FROM session_analytics
+			WHERE total_tokens > 0
+			GROUP BY minute
+			ORDER BY minute
 		),
 		tool_stats AS (
-			SELECT tool_name, COUNT(*) AS calls, COALESCE(AVG(duration_ms), 0) AS avg_duration
-			FROM session_events
-			WHERE event_kind = 'tool_call' AND tool_name IS NOT NULL AND tool_name != ''
+			SELECT tool_name,
+			       sum(tool_call_count) AS calls,
+			       if(sum(tool_call_count) > 0, sumIf(duration_ms_sum, event_kind = 'tool_call') / sum(tool_call_count), 0) AS avg_duration
+			FROM session_analytics
+			WHERE tool_name IS NOT NULL AND tool_name != ''
 			GROUP BY tool_name ORDER BY calls DESC
 		),
 		model_breakdown AS (
 			SELECT COALESCE(model, 'unknown') AS model,
-			       COALESCE(MAX(provider), '') AS provider,
+			       COALESCE(provider, '') AS provider,
 			       COALESCE(SUM(input_tokens), 0) AS input,
 			       COALESCE(SUM(output_tokens), 0) AS output,
 			       COALESCE(SUM(cache_read_tokens), 0) AS cache_read
-			FROM session_events
+			FROM session_analytics
 			WHERE model IS NOT NULL AND model != '' AND model != '<synthetic>'
-			GROUP BY model ORDER BY (input + output) DESC
+			GROUP BY provider, model ORDER BY (input + output) DESC
 		)
-		SELECT 'token' AS kind, timestamp, total_tokens, '' AS tool_name, 0 AS calls, 0 AS avg_dur, '' AS model, '' AS provider, 0 AS input, 0 AS output, 0 AS cache_read FROM token_series
+		SELECT 'token' AS kind, timestamp, toInt64(tokens_total), '' AS tool_name, toInt64(0) AS calls, toFloat64(0) AS avg_dur, '' AS model, '' AS provider, toInt64(0) AS input, toInt64(0) AS output, toInt64(0) AS cache_read FROM token_series
 		UNION ALL
-		SELECT 'tool', NULL, 0, tool_name, calls, avg_duration, '', '', 0, 0, 0 FROM tool_stats
+		SELECT 'tool', toDateTime64(0, 3), toInt64(0), tool_name, toInt64(calls), toFloat64(avg_duration), '', '', toInt64(0), toInt64(0), toInt64(0) FROM tool_stats
 		UNION ALL
-		SELECT 'model', NULL, 0, '', 0, 0, model, provider, input, output, cache_read FROM model_breakdown`, id)
+		SELECT 'model', toDateTime64(0, 3), toInt64(0), '', toInt64(0), toFloat64(0), model, provider, toInt64(input), toInt64(output), toInt64(cache_read) FROM model_breakdown`, id)
 	if err != nil {
 		return data, nil // Return partial data on query error
 	}
@@ -470,34 +520,32 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 
 	for rows.Next() {
 		var kind string
-		var ts *time.Time
+		var ts time.Time
 		var totalTokens int64
 		var toolName string
-		var calls int
+		var calls int64
 		var avgDur float64
 		var model, provider string
-		var input, output, cacheRead float64
+		var input, output, cacheRead int64
 		if err := rows.Scan(&kind, &ts, &totalTokens, &toolName, &calls, &avgDur, &model, &provider, &input, &output, &cacheRead); err != nil {
 			continue
 		}
 		switch kind {
 		case "token":
-			if ts != nil {
-				data.TokensChart.Labels = append(data.TokensChart.Labels, ts.Local().Format(time.RFC3339))
-				data.TokensChart.Datasets[0].Values = append(data.TokensChart.Datasets[0].Values, float64(totalTokens))
-			}
+			data.TokensChart.Labels = append(data.TokensChart.Labels, ts.Local().Format(time.RFC3339))
+			data.TokensChart.Datasets[0].Values = append(data.TokensChart.Datasets[0].Values, float64(totalTokens))
 		case "tool":
-			stat := views.ToolStat{Name: toolName, Calls: calls, AvgDuration: avgDur}
+			stat := views.ToolStat{Name: toolName, Calls: int(calls), AvgDuration: avgDur}
 			stat.IsMCP = models.IsMCPTool(toolName)
 			data.ToolStats = append(data.ToolStats, stat)
 		case "model":
 			mt := views.ModelTokens{
-				Model:    model,
-				Provider: provider,
-				Input:    int64(input),
-				Output:   int64(output),
-				CacheRead: int64(cacheRead),
-				Total:    int64(input + output),
+				Model:     model,
+				Provider:  provider,
+				Input:     input,
+				Output:    output,
+				CacheRead: cacheRead,
+				Total:     input + output,
 			}
 			data.TokensByModel = append(data.TokensByModel, mt)
 		}
@@ -512,15 +560,29 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 // QuerySessionConversation returns the conversation trace for a session.
 func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]views.ChatTurn, []views.TurnDetail) {
 	traceRows, err := db.QueryContext(ctx,
-		`SELECT e.event_uid, e.event_kind, COALESCE(e.payload_type, ''), COALESCE(e.actor_role, ''),
+		`WITH trace AS (
+			SELECT e.*,
+			       row_number() OVER (PARTITION BY session_id ORDER BY timestamp, event_uid) AS event_order,
+			       sum(if(event_kind = 'message' AND actor_role = 'user', 1, 0))
+			         OVER (PARTITION BY session_id ORDER BY timestamp, event_uid) AS turn_seq
+			FROM `+latestActivityEventsSubquery("ae.session_id = ?")+` e
+		),
+		payload_previews AS (
+			SELECT event_uid,
+			       argMax(input_preview, captured_at) AS input_preview,
+			       argMax(output_preview, captured_at) AS output_preview
+			FROM tool_payloads
+			WHERE event_uid IN (SELECT event_uid FROM trace)
+			GROUP BY event_uid
+		)
+		 SELECT e.event_uid, e.event_kind, COALESCE(e.payload_type, ''), COALESCE(e.actor_role, ''),
 		        COALESCE(e.text_content, ''), COALESCE(e.text_preview, ''),
 		        COALESCE(e.tool_name, ''), COALESCE(e.tool_use_id, ''), COALESCE(e.model, ''),
 		        e.input_tokens + e.output_tokens, e.duration_ms, e.timestamp, turn_seq,
 		        COALESCE(tio.input_preview, ''), COALESCE(tio.output_preview, ''),
-		        COALESCE(tio.input_json, ''), COALESCE(tio.output_json, '')
-		 FROM v_conversation_trace e
-		 LEFT JOIN tool_io tio ON e.event_uid = tio.event_uid
-		 WHERE e.session_id = $1
+		        '' AS input_json, '' AS output_json
+		 FROM trace e
+		 LEFT JOIN payload_previews tio ON e.event_uid = tio.event_uid
 		 ORDER BY event_order`, id)
 	if err != nil {
 		return nil, nil
@@ -650,13 +712,17 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 
 			switch e.EventKind {
 			case "tool_call":
+				inputForParams := e.InputJSON
+				if inputForParams == "" {
+					inputForParams = e.InputPreview
+				}
 				item := views.ToolChainItem{
 					CallEvent:    e,
 					ToolName:     e.ToolName,
 					InputPreview: e.InputPreview,
 					InputJSON:    e.InputJSON,
 				}
-				item.Params = parseToolParams(e.InputJSON)
+				item.Params = parseToolParams(inputForParams)
 
 				// Try call_id-based matching first
 				if e.ToolUseID != "" {
@@ -840,7 +906,7 @@ func deduplicateTurns(turns []views.TurnDetail) []views.TurnDetail {
 			case e.EventKind == "message" && e.TextContent != "":
 				key = e.EventKind + "|" + e.ActorRole + "|" + e.TextContent
 			default:
-				key = e.EventUID + "|" + e.EventKind + "|" + e.ActorRole + "|" + e.TextContent + "|" + e.ToolName + "|" + e.InputJSON
+				key = e.EventUID + "|" + e.EventKind + "|" + e.ActorRole + "|" + e.TextContent + "|" + e.ToolName + "|" + e.InputJSON + "|" + e.InputPreview
 			}
 			if seen[key] {
 				continue
@@ -860,8 +926,8 @@ func deduplicateTurns(turns []views.TurnDetail) []views.TurnDetail {
 func QueryChildSessions(ctx context.Context, db *sql.DB, parentID string) []views.SessionSummary {
 	rows, err := db.QueryContext(ctx,
 		`SELECT `+sessionSummaryColumns+`
-		 FROM v_session_summary
-		 WHERE parent_session_id = $1
+		 FROM `+sessionProjectionSQL+`
+		 WHERE parent_session_id = ?
 		 ORDER BY started_at ASC`, parentID)
 	if err != nil {
 		return nil
@@ -883,7 +949,58 @@ func QueryChildSessions(ctx context.Context, db *sql.DB, parentID string) []view
 	return children
 }
 
-// sessionSummaryColumns is the shared SELECT column list for v_session_summary queries.
+var sessionProjectionSQL = sessionProjectionSubquery("")
+
+func sessionProjectionSubquery(where string) string {
+	return `(SELECT
+		session_id,
+		argMax(source_name, updated_at) AS source_name,
+		argMax(provider, updated_at) AS provider,
+		argMax(started_at, updated_at) AS started_at,
+		argMax(ended_at, updated_at) AS ended_at,
+		argMax(event_count, updated_at) AS event_count,
+		argMax(turn_count, updated_at) AS turn_count,
+		argMax(total_input_tokens, updated_at) AS total_input_tokens,
+		argMax(total_output_tokens, updated_at) AS total_output_tokens,
+		argMax(total_cache_read_tokens, updated_at) AS total_cache_read_tokens,
+		argMax(total_cache_create_tokens, updated_at) AS total_cache_create_tokens,
+		argMax(total_tokens, updated_at) AS total_tokens,
+		argMax(tool_call_count, updated_at) AS tool_call_count,
+		argMax(mcp_call_count, updated_at) AS mcp_call_count,
+		argMax(error_count, updated_at) AS error_count,
+		argMax(last_model, updated_at) AS last_model,
+		argMax(working_dir, updated_at) AS working_dir,
+		argMax(parent_session_id, updated_at) AS parent_session_id,
+		argMax(has_session_end, updated_at) AS has_session_end
+	FROM session_projection ` + sqlWhereClause(where) + `
+	GROUP BY session_id)`
+}
+
+var analyticsProjectionSQL = analyticsProjectionSubquery("")
+
+func analyticsProjectionSubquery(where string) string {
+	return `(SELECT
+		session_id,
+		minute,
+		provider,
+		model,
+		tool_name,
+		event_kind,
+		argMax(event_count, updated_at) AS event_count,
+		argMax(call_count, updated_at) AS call_count,
+		argMax(tool_call_count, updated_at) AS tool_call_count,
+		argMax(tool_result_count, updated_at) AS tool_result_count,
+		argMax(input_tokens, updated_at) AS input_tokens,
+		argMax(output_tokens, updated_at) AS output_tokens,
+		argMax(cache_read_tokens, updated_at) AS cache_read_tokens,
+		argMax(cache_create_tokens, updated_at) AS cache_create_tokens,
+		argMax(total_tokens, updated_at) AS total_tokens,
+		argMax(duration_ms_sum, updated_at) AS duration_ms_sum
+	FROM analytics_projection ` + sqlWhereClause(where) + `
+	GROUP BY session_id, minute, provider, model, tool_name, event_kind)`
+}
+
+// sessionSummaryColumns is the shared SELECT column list for session projection queries.
 const sessionSummaryColumns = `session_id, COALESCE(source_name, ''), started_at, ended_at,
 		COALESCE(turn_count, 0), COALESCE(total_tokens, 0),
 		COALESCE(total_input_tokens, 0), COALESCE(total_output_tokens, 0),
@@ -895,7 +1012,7 @@ const sessionSummaryColumns = `session_id, COALESCE(source_name, ''), started_at
 		COALESCE(has_session_end, 0),
 		COALESCE(provider, '')`
 
-// scanSessionSummary scans a row from v_session_summary into a SessionSummary.
+// scanSessionSummary scans a row from session_projection into a SessionSummary.
 func scanSessionSummary(scanner interface{ Scan(dest ...any) error }, now time.Time) (views.SessionSummary, error) {
 	var s views.SessionSummary
 	var source, model string
@@ -979,4 +1096,3 @@ func formatDuration(d time.Duration) string {
 	}
 	return fmt.Sprintf("%ds", s)
 }
-
