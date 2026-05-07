@@ -1006,6 +1006,7 @@ const sessionSummaryColumns = `session_id, COALESCE(source_name, ''), started_at
 		COALESCE(total_input_tokens, 0), COALESCE(total_output_tokens, 0),
 		COALESCE(total_cache_read_tokens, 0), COALESCE(total_cache_create_tokens, 0),
 		COALESCE(tool_call_count, 0), COALESCE(mcp_call_count, 0),
+		COALESCE(error_count, 0),
 		COALESCE(last_model, ''),
 		COALESCE(working_dir, ''),
 		COALESCE(parent_session_id, ''),
@@ -1021,7 +1022,7 @@ func scanSessionSummary(scanner interface{ Scan(dest ...any) error }, now time.T
 	err := scanner.Scan(&s.ID, &source, &startedAt, &endedAt,
 		&s.TurnCount, &s.TotalTokens, &s.InputTokens, &s.OutputTokens,
 		&s.CacheReadTokens, &s.CacheCreateTokens,
-		&s.ToolCallCount, &s.MCPCallCount, &model, &s.WorkingDir,
+		&s.ToolCallCount, &s.MCPCallCount, &s.ErrorCount, &model, &s.WorkingDir,
 		&s.ParentSessionID, &hasSessionEnd, &s.Provider)
 	if err != nil {
 		return s, err

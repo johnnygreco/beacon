@@ -53,13 +53,9 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 		return nil, fmt.Errorf("migrate clickhouse: %w", err)
 	}
 
-	db := clickhouse.OpenDB(clickhouseOptions(opts, opts.Database))
-	db.SetMaxOpenConns(opts.ReadPoolSize)
-	db.SetMaxIdleConns(opts.ReadPoolSize)
-	db.SetConnMaxLifetime(time.Hour)
-	if err := db.PingContext(ctx); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("connect beacon database: %w", err)
+	db, err := openDatabase(ctx, opts)
+	if err != nil {
+		return nil, err
 	}
 
 	native, err := clickhouse.Open(clickhouseOptions(opts, opts.Database))
@@ -74,6 +70,31 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 	}
 
 	return &Store{DB: db, native: native, database: opts.Database}, nil
+}
+
+// OpenReadOnly opens the configured Beacon database without migrations or writer setup.
+func OpenReadOnly(ctx context.Context, opts Options) (*Store, error) {
+	opts = normalizeOptions(opts)
+
+	db, err := openDatabase(ctx, opts)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Store{DB: db, database: opts.Database}, nil
+}
+
+func openDatabase(ctx context.Context, opts Options) (*sql.DB, error) {
+	db := clickhouse.OpenDB(clickhouseOptions(opts, opts.Database))
+	db.SetMaxOpenConns(opts.ReadPoolSize)
+	db.SetMaxIdleConns(opts.ReadPoolSize)
+	db.SetConnMaxLifetime(time.Hour)
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("connect beacon database: %w", err)
+	}
+
+	return db, nil
 }
 
 func (s *Store) Close() error {

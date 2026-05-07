@@ -231,9 +231,15 @@ templ Dashboard(data views.DashboardData) {
 			};
 
 			window.goToSession = function(url) {
-				var id = String(url || '').split('/sessions/')[1];
-				if (id) {
-					openSessionInspector(decodeURIComponent(id));
+				try {
+					var parsed = new URL(String(url || ''), window.location.origin);
+					var segments = parsed.pathname.split('/');
+					var idx = segments.indexOf('sessions');
+					var id = idx >= 0 && idx + 1 < segments.length ? segments[idx + 1] : '';
+					if (id) {
+						openSessionInspector(decodeURIComponent(id));
+					}
+				} catch (err) {
 				}
 			};
 

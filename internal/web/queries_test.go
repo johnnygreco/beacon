@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -362,6 +363,100 @@ func TestSetSessionTiming_Active(t *testing.T) {
 	if s.EndedAt != end {
 		t.Errorf("expected EndedAt to be set")
 	}
+}
+
+func TestScanSessionSummaryIncludesErrorCount(t *testing.T) {
+	now := time.Now()
+	start := now.Add(-10 * time.Minute)
+	end := now.Add(-6 * time.Minute)
+	scanner := stubScanner{values: []any{
+		"session-1",
+		"codex",
+		start,
+		end,
+		int64(3),
+		int64(120),
+		int64(70),
+		int64(50),
+		int64(10),
+		int64(5),
+		int64(4),
+		int64(1),
+		int64(2),
+		"gpt-5.4",
+		"/repo",
+		"parent-1",
+		1,
+		"openai",
+	}}
+
+	s, err := scanSessionSummary(scanner, now)
+	if err != nil {
+		t.Fatalf("scanSessionSummary: %v", err)
+	}
+	if s.ErrorCount != 2 {
+		t.Fatalf("ErrorCount = %d, want 2", s.ErrorCount)
+	}
+	if s.ActiveModel != "gpt-5.4" || s.Provider != "openai" || !s.HasSessionEnd {
+		t.Fatalf("summary fields shifted during scan: %#v", s)
+	}
+}
+
+func TestAPISessionSummaryFromViewIncludesErrorCount(t *testing.T) {
+	api := apiSessionSummaryFromView(views.SessionSummary{
+		ID:         "session-1",
+		ErrorCount: 2,
+	})
+	if api.ErrorCount != 2 {
+		t.Fatalf("ErrorCount = %d, want 2", api.ErrorCount)
+	}
+}
+
+type stubScanner struct {
+	values []any
+}
+
+func (s stubScanner) Scan(dest ...any) error {
+	if len(dest) != len(s.values) {
+		return fmt.Errorf("scan destinations = %d, values = %d", len(dest), len(s.values))
+	}
+	for i, value := range s.values {
+		switch d := dest[i].(type) {
+		case *string:
+			v, ok := value.(string)
+			if !ok {
+				return fmt.Errorf("value %d is %T, want string", i, value)
+			}
+			*d = v
+		case *time.Time:
+			v, ok := value.(time.Time)
+			if !ok {
+				return fmt.Errorf("value %d is %T, want time.Time", i, value)
+			}
+			*d = v
+		case *int:
+			switch v := value.(type) {
+			case int:
+				*d = v
+			case int64:
+				*d = int(v)
+			default:
+				return fmt.Errorf("value %d is %T, want int", i, value)
+			}
+		case *int64:
+			switch v := value.(type) {
+			case int64:
+				*d = v
+			case int:
+				*d = int64(v)
+			default:
+				return fmt.Errorf("value %d is %T, want int64", i, value)
+			}
+		default:
+			return fmt.Errorf("unsupported destination %d: %T", i, dest[i])
+		}
+	}
+	return nil
 }
 
 func TestSetSessionTiming_Completed(t *testing.T) {

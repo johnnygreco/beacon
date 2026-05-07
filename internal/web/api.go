@@ -518,6 +518,7 @@ func apiSessionSummaryFromView(s views.SessionSummary) APISessionSummary {
 		CacheCreateTokens: s.CacheCreateTokens,
 		ToolCallCount:     s.ToolCallCount,
 		MCPCallCount:      s.MCPCallCount,
+		ErrorCount:        s.ErrorCount,
 		LastModel:         s.ActiveModel,
 		WorkingDir:        s.WorkingDir,
 		ParentSessionID:   s.ParentSessionID,

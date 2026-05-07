@@ -138,6 +138,7 @@ type SessionSummary struct {
 	TurnCount         int64
 	ToolCallCount     int64
 	MCPCallCount      int64
+	ErrorCount        int64
 	ActiveModel       string
 	WorkingDir        string           // full working directory path from cwd field
 	ParentSessionID   string           // non-empty if this is a subagent session

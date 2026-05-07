@@ -41,9 +41,9 @@ func runMCP(cmd *cobra.Command, args []string) error {
 	if mcpClickHouseAddr != "" {
 		opts.Addrs = []string{mcpClickHouseAddr}
 	}
-	ch, err := store.Open(context.Background(), opts)
+	ch, err := store.OpenReadOnly(context.Background(), opts)
 	if err != nil {
-		return fmt.Errorf("opening clickhouse store: %w", err)
+		return fmt.Errorf("opening read-only clickhouse store: %w", err)
 	}
 	defer ch.Close()
 
