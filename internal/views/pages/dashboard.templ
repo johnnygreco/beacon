@@ -26,12 +26,12 @@ templ Dashboard(data views.DashboardData) {
 								<button type="button" onclick="setDashboardRange(this, '30d')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">30d</button>
 							</div>
 						</div>
-						<div id="dashboard-analytics-summary" class="grid grid-cols-2 xl:grid-cols-4 gap-3"></div>
-						<div class="grid grid-cols-1 xl:grid-cols-5 gap-4">
-							<div class="xl:col-span-3 min-w-0">
+						<div id="dashboard-analytics-summary" class="dashboard-summary-grid"></div>
+						<div class="dashboard-analytics-grid">
+							<div class="min-w-0">
 								@components.ChartContainerWithOptions("dashboardTokenCumulativeChart", "320px", "Cumulative Tokens by Model", true, false)
 							</div>
-							<div class="xl:col-span-2 min-w-0 bg-gray-800 rounded-lg p-4 border border-gray-700">
+							<div class="min-w-0 bg-gray-800 rounded-lg p-4 border border-gray-700">
 								<div class="flex flex-wrap items-center justify-between gap-2 mb-2">
 									<h3 class="text-sm font-medium text-gray-400">Model Health</h3>
 									<div id="dashboard-model-metric-control" class="inline-flex overflow-hidden rounded border border-gray-700">

@@ -306,7 +306,7 @@ function createDashboardModelChart(el, payload, metricKind) {
 function updateDashboardModelChart(chartName, payload, metricKind) {
   var canvas = document.getElementById(chartName);
   if (!canvas || !payload) return;
-  if (!window[chartName]) {
+  if (!window[chartName] || !window[chartName].data) {
     window[chartName] = createDashboardModelChart(canvas, payload, metricKind);
     applyDefaultLog(window[chartName], canvas);
   } else {
@@ -344,7 +344,7 @@ function updateDashboardModelActivityChart(payload, metricKey) {
   var selected = dashboardActivityMetricPayload(payload, metricKey || 'error_rate');
   var canvas = document.getElementById('dashboardModelActivityChart');
   if (!canvas) return;
-  if (!window.dashboardModelActivityChart) {
+  if (!window.dashboardModelActivityChart || !window.dashboardModelActivityChart.data) {
     window.dashboardModelActivityChart = createDashboardModelChart(canvas, selected, metricKey || 'error_rate');
   }
   var chart = window.dashboardModelActivityChart;
@@ -399,15 +399,24 @@ function setupSeriesModelFilters(chartName, payload) {
   var savedHidden = [];
   try { savedHidden = JSON.parse(localStorage.getItem(storageKey)) || []; } catch(e) {}
   var validLabels = new Set(labels);
+  var previousLabels = new Set(chart._seriesLabels || []);
   savedHidden = savedHidden.filter(function(label) { return validLabels.has(label); });
   chart._seriesLabels = labels;
   chart._seriesFilterSignature = signature;
-  chart._activeModels = chart._activeModels || new Set(labels.filter(function(label) {
-    return savedHidden.indexOf(label) === -1;
-  }));
-  chart._activeModels = new Set(Array.from(chart._activeModels).filter(function(label) {
-    return validLabels.has(label);
-  }));
+  if (chart._activeModels) {
+    chart._activeModels = new Set(Array.from(chart._activeModels).filter(function(label) {
+      return validLabels.has(label);
+    }));
+    labels.forEach(function(label) {
+      if (!previousLabels.has(label) && savedHidden.indexOf(label) === -1) {
+        chart._activeModels.add(label);
+      }
+    });
+  } else {
+    chart._activeModels = new Set(labels.filter(function(label) {
+      return savedHidden.indexOf(label) === -1;
+    }));
+  }
   if (chart._activeModels.size === 0 && savedHidden.length === 0) {
     chart._activeModels = new Set(labels);
   }
