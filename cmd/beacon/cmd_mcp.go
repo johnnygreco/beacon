@@ -2,22 +2,20 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/spf13/cobra"
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/mcp"
 	"github.com/johnnygreco/beacon/internal/search"
-
-	_ "github.com/duckdb/duckdb-go/v2"
+	"github.com/johnnygreco/beacon/internal/store"
+	"github.com/spf13/cobra"
 )
 
-var mcpDBPath string
+var mcpClickHouseAddr string
 
 func newMCPCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -25,7 +23,7 @@ func newMCPCmd() *cobra.Command {
 		Short: "Start the MCP server (stdin/stdout JSON-RPC)",
 		RunE:  runMCP,
 	}
-	cmd.Flags().StringVar(&mcpDBPath, "db", "", "database path (overrides config)")
+	cmd.Flags().StringVar(&mcpClickHouseAddr, "clickhouse", "", "ClickHouse address (overrides config)")
 	return cmd
 }
 
@@ -39,35 +37,25 @@ func runMCP(cmd *cobra.Command, args []string) error {
 		cfg = &config.Config{}
 	}
 
-	if mcpDBPath != "" {
-		cfg.Database.Path = mcpDBPath
+	opts := storeOptionsFromConfig(cfg)
+	if mcpClickHouseAddr != "" {
+		opts.Addrs = []string{mcpClickHouseAddr}
 	}
-	dbPath := resolveDBPath(cfg)
-
-	// Open DB read-only
-	db, err := sql.Open("duckdb", dbPath+"?access_mode=read_only")
+	ch, err := store.OpenReadOnly(context.Background(), opts)
 	if err != nil {
-		return fmt.Errorf("opening database: %w", err)
+		return fmt.Errorf("opening read-only clickhouse store: %w", err)
 	}
-	defer db.Close()
-
-	// Load FTS extension
-	if _, err := db.Exec("INSTALL fts"); err != nil {
-		logger.Debug("fts install", "error", err)
-	}
-	if _, err := db.Exec("LOAD fts"); err != nil {
-		logger.Debug("fts load", "error", err)
-	}
+	defer ch.Close()
 
 	maxResults := cfg.MCP.MaxResults
 	if maxResults <= 0 {
 		maxResults = 25
 	}
 
-	searcher := search.NewSearcher(db, logger, maxResults, 0)
+	searcher := search.NewSearcher(ch.DB, logger, maxResults, 0)
 	searcher.ProbeIndex()
 
-	server := mcp.NewServer(db, searcher, logger)
+	server := mcp.NewServer(ch.DB, searcher, logger)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

@@ -9,16 +9,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/spf13/cobra"
+	"github.com/johnnygreco/beacon/internal/capture"
 	"github.com/johnnygreco/beacon/internal/config"
-	"github.com/johnnygreco/beacon/internal/database"
-	"github.com/johnnygreco/beacon/internal/ingestion"
+	"github.com/johnnygreco/beacon/internal/store"
+	"github.com/spf13/cobra"
 )
 
 func newWatchCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "watch",
-		Short: "Run the JSONL watcher only (headless, no web server)",
+		Short: "Run capture only (headless, no web server)",
 		RunE:  runWatch,
 	}
 }
@@ -31,16 +31,14 @@ func runWatch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	dbPath := resolveDBPath(cfg)
-
-	db, err := database.Open(dbPath, cfg.Database.ReadPoolSize)
+	ch, err := store.Open(context.Background(), storeOptionsFromConfig(cfg))
 	if err != nil {
-		return fmt.Errorf("opening database: %w", err)
+		return fmt.Errorf("opening clickhouse store: %w", err)
 	}
-	defer db.Close()
+	defer ch.Close()
 
-	batcher := ingestion.NewBatcher(
-		db, 500, 2*time.Second,
+	batcher := capture.NewBatcher(
+		ch, 500, 2*time.Second,
 		cfg.Pricing.DefaultInputCost, cfg.Pricing.DefaultOutputCost,
 		nil, // no SSE notify
 		logger,
@@ -52,20 +50,22 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	go batcher.Run(ctx)
 
 	sources := buildSources(cfg)
-	watcher := ingestion.NewWatcher(
-		sources, batcher.EventCh(), db, logger,
-		time.Duration(cfg.Watch.DebounceMs)*time.Millisecond,
-		cfg.Watch.ReconcileInterval,
+	watcher := capture.NewWatcher(
+		sources, batcher.EventCh(), ch, logger,
+		time.Duration(cfg.Capture.DebounceMs)*time.Millisecond,
+		cfg.Capture.ReconcileInterval,
+		cfg.Capture.BackfillOnStart,
+		cfg.Capture.BackfillWorkers,
 	)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		logger.Info("shutting down watcher...")
+		logger.Info("shutting down capture...")
 		cancel()
 	}()
 
-	logger.Info("starting headless watcher")
+	logger.Info("starting headless capture")
 	return watcher.Run(ctx)
 }

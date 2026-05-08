@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/johnnygreco/beacon/internal/database"
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/store"
 )
 
 // SeedSize controls the dataset size.
@@ -38,13 +38,13 @@ func ParseSeedSize(s string) SeedSize {
 type Stats struct {
 	Sessions int
 	Events   int
-	ToolIO   int
+	Payloads int
 	Duration time.Duration
 }
 
 func (s Stats) String() string {
-	return fmt.Sprintf("sessions=%d events=%d tool_io=%d duration=%s",
-		s.Sessions, s.Events, s.ToolIO, s.Duration.Truncate(time.Millisecond))
+	return fmt.Sprintf("sessions=%d events=%d payloads=%d duration=%s",
+		s.Sessions, s.Events, s.Payloads, s.Duration.Truncate(time.Millisecond))
 }
 
 type seedConfig struct {
@@ -85,27 +85,11 @@ func configFor(size SeedSize) seedConfig {
 	}
 }
 
-const eventInsertSQL = `INSERT OR IGNORE INTO events (
-	event_uid, session_id, session_date, source_name, provider,
-	event_kind, payload_type, actor_role, timestamp,
-	text_content, text_preview, tool_name, tool_use_id, model,
-	input_tokens, output_tokens, cache_read_tokens, cache_create_tokens,
-	duration_ms, cost_usd, error_code, error_message,
-	event_version, payload_json, cwd, source_file, source_line_no, source_offset,
-	parent_session_id
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
-
-const toolIOInsertSQL = `INSERT OR IGNORE INTO tool_io (
-	event_uid, tool_name, tool_phase, input_json, output_json, input_preview, output_preview
-) VALUES (?,?,?,?,?,?,?)`
-
-// seedBatchSize is the number of sessions per transaction commit to keep
-// DuckDB memory usage bounded during large seeds.
+// seedBatchSize is the number of sessions per ClickHouse flush.
 const seedBatchSize = 50
 
 // Seed populates the database with deterministic test data.
-// Sessions are committed in batches to avoid DuckDB OOM on large datasets.
-func Seed(ctx context.Context, db *database.DB, size SeedSize) (Stats, error) {
+func Seed(ctx context.Context, ch *store.Store, size SeedSize) (Stats, error) {
 	start := time.Now()
 	cfg := configFor(size)
 	rng := rand.New(rand.NewSource(42))
@@ -132,7 +116,7 @@ func Seed(ctx context.Context, db *database.DB, size SeedSize) (Stats, error) {
 			batchEnd = cfg.sessions
 		}
 
-		if err := seedBatch(ctx, db, rng, cfg, sessionEvents, baseTime, batchStart, batchEnd, &stats); err != nil {
+		if err := seedBatch(ctx, ch, rng, cfg, sessionEvents, baseTime, batchStart, batchEnd, &stats); err != nil {
 			return stats, err
 		}
 	}
@@ -141,25 +125,8 @@ func Seed(ctx context.Context, db *database.DB, size SeedSize) (Stats, error) {
 	return stats, nil
 }
 
-func seedBatch(ctx context.Context, db *database.DB, rng *rand.Rand, cfg seedConfig, sessionEvents []int, baseTime time.Time, batchStart, batchEnd int, stats *Stats) error {
-	tx, err := db.WriteConn().BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	eventStmt, err := tx.PrepareContext(ctx, eventInsertSQL)
-	if err != nil {
-		return fmt.Errorf("prepare event stmt: %w", err)
-	}
-	defer eventStmt.Close()
-
-	toolStmt, err := tx.PrepareContext(ctx, toolIOInsertSQL)
-	if err != nil {
-		return fmt.Errorf("prepare tool_io stmt: %w", err)
-	}
-	defer toolStmt.Close()
-
+func seedBatch(ctx context.Context, ch *store.Store, rng *rand.Rand, cfg seedConfig, sessionEvents []int, baseTime time.Time, batchStart, batchEnd int, stats *Stats) error {
+	var batch store.RowBatch
 	for s := batchStart; s < batchEnd; s++ {
 		sessionID := fmt.Sprintf("perf-sess-%05d", s)
 		parentSessID := ""
@@ -168,9 +135,11 @@ func seedBatch(ctx context.Context, db *database.DB, rng *rand.Rand, cfg seedCon
 		}
 
 		source := "claude"
+		runtime := "claude-code"
 		provider := "anthropic"
 		if rng.Float64() < 0.15 {
 			source = "codex"
+			runtime = "codex"
 			provider = "openai"
 		}
 
@@ -178,7 +147,6 @@ func seedBatch(ctx context.Context, db *database.DB, rng *rand.Rand, cfg seedCon
 		if rng.Float64() < 0.3 {
 			sessionStart = time.Now().Add(-time.Duration(rng.Int63n(int64(12 * time.Hour))))
 		}
-		sessionDate := sessionStart.Truncate(24 * time.Hour)
 
 		eventTime := sessionStart
 		model := pickModel(rng, provider)
@@ -189,18 +157,7 @@ func seedBatch(ctx context.Context, db *database.DB, rng *rand.Rand, cfg seedCon
 
 		// session_meta event
 		uid := seedUID(s, eventIdx)
-		if _, err := eventStmt.ExecContext(ctx,
-			uid, sessionID, sessionDate, source, provider,
-			"session_meta", "init", "", eventTime,
-			"", "", "", "", model,
-			int64(0), int64(0), int64(0), int64(0),
-			int64(0), 0.0, "", "",
-			1, "", cwd, "perf-seed", s, int64(eventIdx),
-			parentSessID,
-		); err != nil {
-			return fmt.Errorf("insert session_meta: %w", err)
-		}
-		stats.Events++
+		appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, "session_meta", "init", "", eventTime, "", "", "", model, 0, 0, 0, 0, 0, "", "", cwd, s, eventIdx)
 		eventIdx++
 
 		// Generate conversation turns until we reach numEvents
@@ -214,19 +171,7 @@ func seedBatch(ctx context.Context, db *database.DB, rng *rand.Rand, cfg seedCon
 			// User message
 			uid = seedUID(s, eventIdx)
 			userText := userTexts[rng.Intn(len(userTexts))]
-			preview := truncateSeed(userText, 320)
-			if _, err := eventStmt.ExecContext(ctx,
-				uid, sessionID, sessionDate, source, provider,
-				"message", "text", "user", eventTime,
-				userText, preview, "", "", "",
-				int64(0), int64(0), int64(0), int64(0),
-				int64(0), 0.0, "", "",
-				1, "", cwd, "perf-seed", s, int64(eventIdx),
-				parentSessID,
-			); err != nil {
-				return fmt.Errorf("insert user msg: %w", err)
-			}
-			stats.Events++
+			appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, "message", "text", "user", eventTime, userText, "", "", "", 0, 0, 0, 0, 0, "", "", cwd, s, eventIdx)
 			eventIdx++
 			if eventIdx >= numEvents {
 				break
@@ -239,23 +184,11 @@ func seedBatch(ctx context.Context, db *database.DB, rng *rand.Rand, cfg seedCon
 			if rng.Float64() < 0.15 {
 				asstText += "\n\n" + largeCodeBlock
 			}
-			preview = truncateSeed(asstText, 320)
 			inTok := int64(rng.Intn(50000) + 1000)
 			outTok := int64(rng.Intn(4000) + 100)
 			cacheRead := int64(rng.Intn(30000))
 			cacheCreate := int64(rng.Intn(5000))
-			if _, err := eventStmt.ExecContext(ctx,
-				uid, sessionID, sessionDate, source, provider,
-				"message", "text", "assistant", eventTime,
-				asstText, preview, "", "", turnModel,
-				inTok, outTok, cacheRead, cacheCreate,
-				int64(rng.Intn(5000)+100), 0.0, "", "",
-				1, "", cwd, "perf-seed", s, int64(eventIdx),
-				parentSessID,
-			); err != nil {
-				return fmt.Errorf("insert assistant msg: %w", err)
-			}
-			stats.Events++
+			appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, "message", "text", "assistant", eventTime, asstText, "", "", turnModel, inTok, outTok, cacheRead, cacheCreate, int64(rng.Intn(5000)+100), "", "", cwd, s, eventIdx)
 			eventIdx++
 			if eventIdx >= numEvents {
 				break
@@ -272,26 +205,9 @@ func seedBatch(ctx context.Context, db *database.DB, rng *rand.Rand, cfg seedCon
 				uid = seedUID(s, eventIdx)
 				inputJSON := toolInputs[rng.Intn(len(toolInputs))]
 				inputPreview := truncateSeed(inputJSON, 320)
-				if _, err := eventStmt.ExecContext(ctx,
-					uid, sessionID, sessionDate, source, provider,
-					"tool_call", "tool_use", "", eventTime,
-					"", "", toolName, toolUseID, turnModel,
-					int64(0), int64(0), int64(0), int64(0),
-					int64(rng.Intn(2000)), 0.0, "", "",
-					1, "", cwd, "perf-seed", s, int64(eventIdx),
-					parentSessID,
-				); err != nil {
-					return fmt.Errorf("insert tool_call: %w", err)
-				}
-				stats.Events++
-
-				// tool_io for the call
-				if _, err := toolStmt.ExecContext(ctx,
-					uid, toolName, "call", inputJSON, "", inputPreview, "",
-				); err != nil {
-					return fmt.Errorf("insert tool_io call: %w", err)
-				}
-				stats.ToolIO++
+				appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, "tool_call", "tool_use", "", eventTime, "", toolName, toolUseID, turnModel, 0, 0, 0, 0, int64(rng.Intn(2000)), "", "", cwd, s, eventIdx)
+				batch.ToolPayloads = append(batch.ToolPayloads, models.ToolPayload{EventUID: uid, ToolName: toolName, ToolPhase: "call", InputJSON: inputJSON, InputPreview: inputPreview})
+				stats.Payloads++
 				eventIdx++
 
 				// tool_result event
@@ -299,26 +215,9 @@ func seedBatch(ctx context.Context, db *database.DB, rng *rand.Rand, cfg seedCon
 				resultUID := seedUID(s, eventIdx)
 				outputText := toolOutputs[rng.Intn(len(toolOutputs))]
 				outputPreview := truncateSeed(outputText, 320)
-				if _, err := eventStmt.ExecContext(ctx,
-					resultUID, sessionID, sessionDate, source, provider,
-					"tool_result", "tool_result", "", eventTime,
-					outputText, outputPreview, toolName, toolUseID, "",
-					int64(0), int64(0), int64(0), int64(0),
-					int64(0), 0.0, "", "",
-					1, "", cwd, "perf-seed", s, int64(eventIdx),
-					parentSessID,
-				); err != nil {
-					return fmt.Errorf("insert tool_result: %w", err)
-				}
-				stats.Events++
-
-				// tool_io for the result
-				if _, err := toolStmt.ExecContext(ctx,
-					resultUID, toolName, "result", "", outputText, "", outputPreview,
-				); err != nil {
-					return fmt.Errorf("insert tool_io result: %w", err)
-				}
-				stats.ToolIO++
+				appendSeedEvent(&batch, stats, resultUID, sessionID, parentSessID, source, runtime, provider, "tool_result", "tool_result", "", eventTime, outputText, toolName, toolUseID, "", 0, 0, 0, 0, 0, "", "", cwd, s, eventIdx)
+				batch.ToolPayloads = append(batch.ToolPayloads, models.ToolPayload{EventUID: resultUID, ToolName: toolName, ToolPhase: "result", OutputJSON: outputText, OutputPreview: outputPreview})
+				stats.Payloads++
 				eventIdx++
 			}
 
@@ -327,18 +226,7 @@ func seedBatch(ctx context.Context, db *database.DB, rng *rand.Rand, cfg seedCon
 				eventTime = eventTime.Add(time.Duration(rng.Intn(500)+50) * time.Millisecond)
 				uid = seedUID(s, eventIdx)
 				errMsg := errorMessages[rng.Intn(len(errorMessages))]
-				if _, err := eventStmt.ExecContext(ctx,
-					uid, sessionID, sessionDate, source, provider,
-					"error", "error", "system", eventTime,
-					errMsg, truncateSeed(errMsg, 320), "", "", "",
-					int64(0), int64(0), int64(0), int64(0),
-					int64(0), 0.0, "rate_limit", errMsg,
-					1, "", cwd, "perf-seed", s, int64(eventIdx),
-					parentSessID,
-				); err != nil {
-					return fmt.Errorf("insert error: %w", err)
-				}
-				stats.Events++
+				appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, "error", "error", "system", eventTime, errMsg, "", "", "", 0, 0, 0, 0, 0, "rate_limit", errMsg, cwd, s, eventIdx)
 				eventIdx++
 			}
 		}
@@ -346,10 +234,43 @@ func seedBatch(ctx context.Context, db *database.DB, rng *rand.Rand, cfg seedCon
 		stats.Sessions++
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit batch: %w", err)
+	return ch.Flush(ctx, batch)
+}
+
+func appendSeedEvent(batch *store.RowBatch, stats *Stats, uid, sessionID, parentSessionID, source, runtime, provider, kind, payloadType, role string, ts time.Time, text, toolName, toolUseID, model string, inputTokens, outputTokens, cacheRead, cacheCreate, durationMs int64, errorCode, errorMessage, cwd string, sessionIndex, eventIndex int) {
+	event := models.Event{
+		EventUID:          uid,
+		SessionID:         sessionID,
+		ParentSessionID:   parentSessionID,
+		SourceName:        source,
+		Runtime:           runtime,
+		Provider:          provider,
+		Format:            "jsonl",
+		EventKind:         kind,
+		PayloadType:       payloadType,
+		ActorRole:         role,
+		Timestamp:         ts,
+		TextContent:       text,
+		TextPreview:       truncateSeed(text, 320),
+		ToolName:          toolName,
+		ToolUseID:         toolUseID,
+		Model:             model,
+		InputTokens:       inputTokens,
+		OutputTokens:      outputTokens,
+		CacheReadTokens:   cacheRead,
+		CacheCreateTokens: cacheCreate,
+		DurationMs:        durationMs,
+		ErrorCode:         errorCode,
+		ErrorMessage:      errorMessage,
+		EventVersion:      1,
+		CWD:               cwd,
+		SourceFile:        "perf-seed",
+		SourceLineNo:      sessionIndex,
+		SourceOffset:      int64(eventIndex),
 	}
-	return nil
+	batch.ActivityEvents = append(batch.ActivityEvents, event)
+	batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	stats.Events++
 }
 
 func seedUID(session, event int) string {
@@ -465,11 +386,11 @@ var errorMessages = []string{
 }
 
 // ResetAndSeed clears the database and seeds it with test data.
-func ResetAndSeed(ctx context.Context, db *database.DB, size SeedSize) (Stats, error) {
-	if err := database.ResetSchema(ctx, db); err != nil {
+func ResetAndSeed(ctx context.Context, ch *store.Store, size SeedSize) (Stats, error) {
+	if err := store.Reset(ctx, ch.DB, ch.Database()); err != nil {
 		return Stats{}, fmt.Errorf("reset schema: %w", err)
 	}
-	return Seed(ctx, db, size)
+	return Seed(ctx, ch, size)
 }
 
 // SeedEvent creates a single event for testing. Exported for use in test helpers.

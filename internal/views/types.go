@@ -138,12 +138,13 @@ type SessionSummary struct {
 	TurnCount         int64
 	ToolCallCount     int64
 	MCPCallCount      int64
+	ErrorCount        int64
 	ActiveModel       string
-	WorkingDir        string // full working directory path from cwd field
-	ParentSessionID   string // non-empty if this is a subagent session
+	WorkingDir        string           // full working directory path from cwd field
+	ParentSessionID   string           // non-empty if this is a subagent session
 	ChildSessions     []SessionSummary // subagent sessions spawned from this session
-	HasSessionEnd     bool   // true if session has a definitive end signal (last-prompt)
-	SubagentCount     int    // number of subagent sessions for this parent (completed table)
+	HasSessionEnd     bool             // true if session has a definitive end signal (last-prompt)
+	SubagentCount     int              // number of subagent sessions for this parent (completed table)
 }
 
 // IsSubagent returns true if this session is a subagent of another session.
@@ -334,8 +335,8 @@ type SearchResult struct {
 	SessionID string
 	EventKind string
 	Snippet   string
-	ToolName  string  // tool name for tool_call/tool_result events
-	Provider  string  // "anthropic", "openai", etc.
+	ToolName  string // tool name for tool_call/tool_result events
+	Provider  string // "anthropic", "openai", etc.
 	Score     float64
 	MatchType string // "bm25", "keyword"
 	Timestamp time.Time
@@ -418,22 +419,22 @@ type DashboardData struct {
 }
 
 type SessionDetailData struct {
-	Session        SessionSummary
-	Turns          []TurnDetail
-	ChatTurns      []ChatTurn
-	TokensChart    MultiSeriesChart
-	ToolStats      []ToolStat
-	TokensByModel  []ModelTokens
+	Session       SessionSummary
+	Turns         []TurnDetail
+	ChatTurns     []ChatTurn
+	TokensChart   MultiSeriesChart
+	ToolStats     []ToolStat
+	TokensByModel []ModelTokens
 }
 
 const (
-	ChatBlockUserMessage        = "user_message"
-	ChatBlockAssistantMessage   = "assistant_message"
-	ChatBlockToolChain          = "tool_chain"
-	ChatBlockReasoning          = "reasoning"
-	ChatBlockError              = "error"
-	ChatBlockToolError          = "tool_error"
-	ChatBlockSubagentDispatch   = "subagent_dispatch"
+	ChatBlockUserMessage      = "user_message"
+	ChatBlockAssistantMessage = "assistant_message"
+	ChatBlockToolChain        = "tool_chain"
+	ChatBlockReasoning        = "reasoning"
+	ChatBlockError            = "error"
+	ChatBlockToolError        = "tool_error"
+	ChatBlockSubagentDispatch = "subagent_dispatch"
 )
 
 // ToolCallParams holds parsed tool input for specialized rendering.
@@ -463,15 +464,15 @@ type ToolChainItem struct {
 	ToolName      string
 	InputPreview  string
 	OutputPreview string
-	InputJSON     string          // full JSON from tool_io.input_json
-	OutputJSON    string          // full JSON from tool_io.output_json
+	InputJSON     string          // full JSON from tool_payloads.input_json
+	OutputJSON    string          // full JSON from tool_payloads.output_json
 	Params        *ToolCallParams // parsed tool input for specialized rendering
 }
 
 type ChatBlock struct {
 	Kind      string // "user_message", "assistant_message", "tool_chain", "reasoning", "error"
 	Message   *EventSummary
-	Messages  []EventSummary  // for grouped reasoning blocks
+	Messages  []EventSummary // for grouped reasoning blocks
 	ToolChain []ToolChainItem
 }
 

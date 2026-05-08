@@ -3,24 +3,35 @@ host = "0.0.0.0"
 port = 4600
 
 [database]
-path = "~/.beacon/beacon.duckdb"
-read_pool_size = 4
+addrs = ["127.0.0.1:9000"]
+database = "beacon"
+username = "default"
+password = ""
+secure = false
+read_pool_size = 8
 
-[watch]
+[capture]
 enabled = true
 debounce_ms = 50
 reconcile_interval = "30s"
 backfill_on_start = true
+backfill_workers = 4
 
-[[watch.sources]]
+[[capture.sources]]
 name = "claude"
+runtime = "claude-code"
 provider = "anthropic"
 glob = "~/.claude/projects/**/*.jsonl"
+watch_root = "~/.claude/projects"
+format = "jsonl"
 
-[[watch.sources]]
+[[capture.sources]]
 name = "codex"
+runtime = "codex"
 provider = "openai"
 glob = "~/.codex/sessions/**/*.jsonl"
+watch_root = "~/.codex/sessions"
+format = "jsonl"
 
 [sse]
 subscriber_buffer = 64

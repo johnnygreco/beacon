@@ -1,54 +1,55 @@
 package mcp
 
 import (
-	"fmt"
-	"strings"
+	"encoding/json"
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/search"
 )
 
-// FormatSearchResults formats search results as prose for agent consumption.
 func FormatSearchResults(results []search.SearchResult) string {
-	if len(results) == 0 {
-		return "No results found."
+	type result struct {
+		EventID     string    `json:"event_id"`
+		SessionID   string    `json:"session_id"`
+		EventKind   string    `json:"event_kind"`
+		TextPreview string    `json:"text_preview"`
+		Score       float64   `json:"score"`
+		Timestamp   time.Time `json:"timestamp"`
+		ToolName    string    `json:"tool_name,omitempty"`
+		Model       string    `json:"model,omitempty"`
+		Provider    string    `json:"provider,omitempty"`
 	}
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "Found %d results:\n\n", len(results))
-
-	for i, r := range results {
-		idPreview := r.SessionID
-		if len(idPreview) > 12 {
-			idPreview = idPreview[:12]
-		}
-
-		fmt.Fprintf(&b, "%d. [%s] session:%s", i+1, r.EventKind, idPreview)
-		if r.ToolName != "" {
-			fmt.Fprintf(&b, " tool:%s", r.ToolName)
-		}
-		if r.Model != "" {
-			fmt.Fprintf(&b, " model:%s", r.Model)
-		}
-		if r.Score > 0 {
-			fmt.Fprintf(&b, " (score: %.2f)", r.Score)
-		}
-		fmt.Fprintf(&b, "\n   %s\n", r.Timestamp.Format(time.RFC3339))
-
-		preview := r.TextPreview
-		if len(preview) > 200 {
-			preview = preview[:200] + "..."
-		}
-		if preview != "" {
-			fmt.Fprintf(&b, "   %s\n", preview)
-		}
-		fmt.Fprintf(&b, "   -> open(event_uid=\"%s\")\n\n", r.EventUID)
+	payload := struct {
+		Schema      string         `json:"schema"`
+		Tool        string         `json:"tool"`
+		Results     []result       `json:"results"`
+		Warnings    []string       `json:"warnings"`
+		Performance map[string]any `json:"performance"`
+	}{
+		Schema:      "beacon.mcp.search_sessions.v1",
+		Tool:        "search_sessions",
+		Results:     []result{},
+		Warnings:    []string{},
+		Performance: map[string]any{"result_count": len(results)},
 	}
 
-	return b.String()
+	for _, r := range results {
+		payload.Results = append(payload.Results, result{
+			EventID:     "event:" + r.EventUID,
+			SessionID:   "session:" + r.SessionID,
+			EventKind:   r.EventKind,
+			TextPreview: r.TextPreview,
+			Score:       r.Score,
+			Timestamp:   r.Timestamp,
+			ToolName:    r.ToolName,
+			Model:       r.Model,
+			Provider:    r.Provider,
+		})
+	}
+	return mustJSON(payload)
 }
 
-// contextEvent matches the struct used in toolOpen.
 type contextEvent struct {
 	EventUID    string
 	EventKind   string
@@ -60,46 +61,45 @@ type contextEvent struct {
 	Timestamp   time.Time
 }
 
-// FormatOpenContext formats a context window with the target event marked.
 func FormatOpenContext(events []contextEvent, targetIdx int) string {
-	var b strings.Builder
-
-	for i, e := range events {
-		marker := "  "
-		if i == targetIdx {
-			marker = ">>>"
-		}
-
-		fmt.Fprintf(&b, "%s [%s] %s", marker, e.EventKind, e.ActorRole)
-		if e.ToolName != "" {
-			fmt.Fprintf(&b, " tool:%s", e.ToolName)
-		}
-		if e.Model != "" {
-			fmt.Fprintf(&b, " model:%s", e.Model)
-		}
-		if e.Tokens > 0 {
-			fmt.Fprintf(&b, " (%d tok)", e.Tokens)
-		}
-		fmt.Fprintf(&b, " %s\n", e.Timestamp.Format("15:04:05"))
-
-		if e.TextPreview != "" {
-			preview := e.TextPreview
-			if len(preview) > 300 {
-				preview = preview[:300] + "..."
-			}
-			fmt.Fprintf(&b, "    %s\n", preview)
-		}
-
-		if i == targetIdx {
-			fmt.Fprintf(&b, "    >>> TARGET <<<\n")
-		}
-		fmt.Fprintln(&b)
+	type event struct {
+		EventID     string    `json:"event_id"`
+		EventKind   string    `json:"event_kind"`
+		ActorRole   string    `json:"actor_role"`
+		TextPreview string    `json:"text_preview"`
+		ToolName    string    `json:"tool_name,omitempty"`
+		Model       string    `json:"model,omitempty"`
+		Tokens      int64     `json:"tokens"`
+		Timestamp   time.Time `json:"timestamp"`
+		Target      bool      `json:"target"`
 	}
-
-	return b.String()
+	payload := struct {
+		Schema   string   `json:"schema"`
+		Tool     string   `json:"tool"`
+		Events   []event  `json:"events"`
+		Warnings []string `json:"warnings"`
+	}{
+		Schema:   "beacon.mcp.open.v1",
+		Tool:     "open",
+		Events:   []event{},
+		Warnings: []string{},
+	}
+	for i, e := range events {
+		payload.Events = append(payload.Events, event{
+			EventID:     "event:" + e.EventUID,
+			EventKind:   e.EventKind,
+			ActorRole:   e.ActorRole,
+			TextPreview: e.TextPreview,
+			ToolName:    e.ToolName,
+			Model:       e.Model,
+			Tokens:      e.Tokens,
+			Timestamp:   e.Timestamp,
+			Target:      i == targetIdx,
+		})
+	}
+	return mustJSON(payload)
 }
 
-// sessionInfo matches the struct used in toolListSessions.
 type sessionInfo struct {
 	SessionID     string
 	SourceName    string
@@ -114,34 +114,53 @@ type sessionInfo struct {
 	LastModel     string
 }
 
-// FormatSessionList formats a list of sessions as prose.
 func FormatSessionList(sessions []sessionInfo) string {
-	if len(sessions) == 0 {
-		return "No sessions found."
+	type session struct {
+		SessionID     string    `json:"session_id"`
+		SourceName    string    `json:"source_name"`
+		StartedAt     time.Time `json:"started_at"`
+		EndedAt       time.Time `json:"ended_at"`
+		EventCount    int64     `json:"event_count"`
+		TurnCount     int64     `json:"turn_count"`
+		TotalTokens   int64     `json:"total_tokens"`
+		ToolCallCount int64     `json:"tool_call_count"`
+		MCPCallCount  int64     `json:"mcp_call_count"`
+		ErrorCount    int64     `json:"error_count"`
+		LastModel     string    `json:"last_model,omitempty"`
 	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d sessions:\n\n", len(sessions))
-
-	for i, s := range sessions {
-		idPreview := s.SessionID
-		if len(idPreview) > 12 {
-			idPreview = idPreview[:12]
-		}
-
-		duration := s.EndedAt.Sub(s.StartedAt)
-		if s.EndedAt.IsZero() || s.EndedAt.Before(s.StartedAt) {
-			duration = time.Since(s.StartedAt)
-		}
-
-		fmt.Fprintf(&b, "%d. [%s] %s  %s  dur:%s\n", i+1, s.SourceName, idPreview, s.StartedAt.Format(time.RFC3339), duration.Truncate(time.Second))
-		fmt.Fprintf(&b, "   events:%d  turns:%d  tokens:%d  tools:%d  mcp:%d  errors:%d\n",
-			s.EventCount, s.TurnCount, s.TotalTokens, s.ToolCallCount, s.MCPCallCount, s.ErrorCount)
-		if s.LastModel != "" {
-			fmt.Fprintf(&b, "   model:%s\n", s.LastModel)
-		}
-		fmt.Fprintln(&b)
+	payload := struct {
+		Schema   string    `json:"schema"`
+		Tool     string    `json:"tool"`
+		Results  []session `json:"results"`
+		Warnings []string  `json:"warnings"`
+	}{
+		Schema:   "beacon.mcp.list_sessions.v1",
+		Tool:     "list_sessions",
+		Results:  []session{},
+		Warnings: []string{},
 	}
+	for _, s := range sessions {
+		payload.Results = append(payload.Results, session{
+			SessionID:     "session:" + s.SessionID,
+			SourceName:    s.SourceName,
+			StartedAt:     s.StartedAt,
+			EndedAt:       s.EndedAt,
+			EventCount:    s.EventCount,
+			TurnCount:     s.TurnCount,
+			TotalTokens:   s.TotalTokens,
+			ToolCallCount: s.ToolCallCount,
+			MCPCallCount:  s.MCPCallCount,
+			ErrorCount:    s.ErrorCount,
+			LastModel:     s.LastModel,
+		})
+	}
+	return mustJSON(payload)
+}
 
-	return b.String()
+func mustJSON(v any) string {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return `{"schema":"beacon.mcp.error.v1","error":"json marshal failed"}`
+	}
+	return string(data)
 }

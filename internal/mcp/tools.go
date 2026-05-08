@@ -13,16 +13,15 @@ import (
 func toolDefinitions() []map[string]any {
 	return []map[string]any{
 		{
-			"name":        "search",
-			"description": "Search across all monitored AI agent conversations using BM25 full-text search. Returns ranked results with text previews.",
+			"name":        "search_sessions",
+			"description": "Search Beacon's precomputed activity index. Returns structured session and event IDs.",
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"query":        map[string]any{"type": "string", "description": "Search query text"},
-					"limit":        map[string]any{"type": "integer", "description": "Max results (default 25)"},
-					"session_id":   map[string]any{"type": "string", "description": "Filter to a specific session"},
-					"event_kinds":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Filter by event kinds"},
-					"exclude_self": map[string]any{"type": "boolean", "description": "Exclude beacon's own events (default true)"},
+					"query":       map[string]any{"type": "string", "description": "Search query text"},
+					"limit":       map[string]any{"type": "integer", "description": "Max results (default 25)"},
+					"session_id":  map[string]any{"type": "string", "description": "Filter to a Beacon session ID"},
+					"event_kinds": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Filter by event kinds"},
 				},
 				"required": []string{"query"},
 			},
@@ -33,7 +32,8 @@ func toolDefinitions() []map[string]any {
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"event_uid": map[string]any{"type": "string", "description": "Event UID to open"},
+					"id":        map[string]any{"type": "string", "description": "Beacon event ID, e.g. event:<id>"},
+					"event_uid": map[string]any{"type": "string", "description": "Raw event UID"},
 					"before":    map[string]any{"type": "integer", "description": "Number of events before target (default 3)"},
 					"after":     map[string]any{"type": "integer", "description": "Number of events after target (default 3)"},
 				},
@@ -56,7 +56,7 @@ func toolDefinitions() []map[string]any {
 
 func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage) (string, error) {
 	switch name {
-	case "search":
+	case "search_sessions":
 		return s.toolSearch(ctx, args)
 	case "open":
 		return s.toolOpen(ctx, args)
@@ -69,11 +69,10 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 
 func (s *Server) toolSearch(ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
-		Query       string   `json:"query"`
-		Limit       int      `json:"limit"`
-		SessionID   string   `json:"session_id"`
-		EventKinds  []string `json:"event_kinds"`
-		ExcludeSelf *bool    `json:"exclude_self"`
+		Query      string   `json:"query"`
+		Limit      int      `json:"limit"`
+		SessionID  string   `json:"session_id"`
+		EventKinds []string `json:"event_kinds"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", fmt.Errorf("invalid arguments: %w", err)
@@ -85,17 +84,12 @@ func (s *Server) toolSearch(ctx context.Context, args json.RawMessage) (string, 
 		params.Limit = 25
 	}
 
-	excludeSelf := true
-	if params.ExcludeSelf != nil {
-		excludeSelf = *params.ExcludeSelf
-	}
-
 	results, err := s.searcher.Search(ctx, search.SearchQuery{
 		Query:          params.Query,
 		Limit:          params.Limit,
-		SessionID:      params.SessionID,
+		SessionID:      stripBeaconPrefix(params.SessionID, "session:"),
 		EventKinds:     params.EventKinds,
-		ExcludeMCPSelf: excludeSelf,
+		ExcludeMCPSelf: true,
 	})
 	if err != nil {
 		return "", err
@@ -106,6 +100,7 @@ func (s *Server) toolSearch(ctx context.Context, args json.RawMessage) (string, 
 
 func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
+		ID       string `json:"id"`
 		EventUID string `json:"event_uid"`
 		Before   int    `json:"before"`
 		After    int    `json:"after"`
@@ -113,7 +108,11 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", fmt.Errorf("invalid arguments: %w", err)
 	}
-	if params.EventUID == "" {
+	eventUID := params.EventUID
+	if eventUID == "" {
+		eventUID = stripBeaconPrefix(params.ID, "event:")
+	}
+	if eventUID == "" {
 		return "", fmt.Errorf("event_uid is required")
 	}
 	if params.Before <= 0 {
@@ -127,24 +126,42 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 	// avoiding a full session scan for sessions with thousands of events.
 	rows, err := s.db.QueryContext(ctx,
 		`WITH target AS (
-		    SELECT session_id, timestamp, event_uid
-		    FROM events WHERE event_uid = $1
+		    SELECT event_uid,
+		           argMax(session_id, captured_at) AS target_session_id,
+		           argMax(timestamp, captured_at) AS timestamp
+		    FROM activity_events
+		    WHERE event_uid = ?
+		    GROUP BY event_uid
+		 ),
+		 session_events AS (
+		    SELECT event_uid,
+		           argMax(ae.session_id, captured_at) AS event_session_id,
+		           argMax(event_kind, captured_at) AS event_kind,
+		           argMax(actor_role, captured_at) AS actor_role,
+		           argMax(text_preview, captured_at) AS text_preview,
+		           argMax(tool_name, captured_at) AS tool_name,
+		           argMax(model, captured_at) AS model,
+		           argMax(input_tokens, captured_at) + argMax(output_tokens, captured_at) AS tokens,
+		           argMax(timestamp, captured_at) AS timestamp
+		    FROM activity_events AS ae
+		    WHERE ae.session_id IN (SELECT target_session_id FROM target)
+		    GROUP BY event_uid
 		 ),
 		 numbered AS (
 		    SELECT e.event_uid, e.event_kind, COALESCE(e.actor_role, '') AS actor_role,
 		           COALESCE(e.text_preview, '') AS text_preview,
 		           COALESCE(e.tool_name, '') AS tool_name, COALESCE(e.model, '') AS model,
-		           e.input_tokens + e.output_tokens AS tokens, e.timestamp,
-		           ROW_NUMBER() OVER (ORDER BY e.timestamp, e.event_uid) AS rn
-		    FROM events e, target t
-		    WHERE e.session_id = t.session_id
+		           e.tokens, e.timestamp,
+			   ROW_NUMBER() OVER (ORDER BY e.timestamp, e.event_uid) AS rn
+		    FROM session_events e, target t
+		    WHERE e.event_session_id = t.target_session_id
 		 )
 		 SELECT n.event_uid, n.event_kind, n.actor_role, n.text_preview,
 		        n.tool_name, n.model, n.tokens, n.timestamp
-		 FROM numbered n, (SELECT rn FROM numbered WHERE event_uid = $1) t
-		 WHERE n.rn BETWEEN t.rn - $2 AND t.rn + $3
+		 FROM numbered n, (SELECT rn FROM numbered WHERE event_uid = ?) t
+		 WHERE n.rn BETWEEN t.rn - ? AND t.rn + ?
 		 ORDER BY n.rn`,
-		params.EventUID, params.Before, params.After)
+		eventUID, eventUID, params.Before, params.After)
 	if err != nil {
 		return "", err
 	}
@@ -157,7 +174,7 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 		if err := rows.Scan(&e.EventUID, &e.EventKind, &e.ActorRole, &e.TextPreview, &e.ToolName, &e.Model, &e.Tokens, &e.Timestamp); err != nil {
 			continue
 		}
-		if e.EventUID == params.EventUID {
+		if e.EventUID == eventUID {
 			targetIdx = len(window)
 		}
 		window = append(window, e)
@@ -167,7 +184,7 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 	}
 
 	if targetIdx == -1 {
-		return "", fmt.Errorf("event not found: %s", params.EventUID)
+		return "", fmt.Errorf("event not found: %s", eventUID)
 	}
 
 	return FormatOpenContext(window, targetIdx), nil
@@ -198,15 +215,14 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 		rows, err = s.db.QueryContext(ctx,
 			`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
 			        event_count, turn_count, total_tokens, tool_call_count, mcp_call_count, error_count, COALESCE(last_model, '')
-			 FROM v_session_summary
-			 WHERE started_at >= $1
-			 ORDER BY started_at DESC LIMIT $2`, since, params.Limit)
+			 FROM `+mcpSessionProjectionSubquery("started_at >= ?")+`
+			 ORDER BY started_at DESC LIMIT ?`, since, params.Limit)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
 			`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
 			        event_count, turn_count, total_tokens, tool_call_count, mcp_call_count, error_count, COALESCE(last_model, '')
-			 FROM v_session_summary
-			 ORDER BY started_at DESC LIMIT $1`, params.Limit)
+			 FROM `+mcpSessionProjectionSQL+`
+			 ORDER BY started_at DESC LIMIT ?`, params.Limit)
 	}
 	if err != nil {
 		return "", err
@@ -227,4 +243,33 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 	}
 
 	return FormatSessionList(sessions), nil
+}
+
+var mcpSessionProjectionSQL = mcpSessionProjectionSubquery("")
+
+func mcpSessionProjectionSubquery(where string) string {
+	if where != "" {
+		where = "WHERE " + where
+	}
+	return `(SELECT
+		session_id,
+		argMax(source_name, updated_at) AS source_name,
+		argMax(started_at, updated_at) AS started_at,
+		argMax(ended_at, updated_at) AS ended_at,
+		argMax(event_count, updated_at) AS event_count,
+		argMax(turn_count, updated_at) AS turn_count,
+		argMax(total_tokens, updated_at) AS total_tokens,
+		argMax(tool_call_count, updated_at) AS tool_call_count,
+		argMax(mcp_call_count, updated_at) AS mcp_call_count,
+		argMax(error_count, updated_at) AS error_count,
+		argMax(last_model, updated_at) AS last_model
+	FROM session_projection ` + where + `
+	GROUP BY session_id)`
+}
+
+func stripBeaconPrefix(id, prefix string) string {
+	if len(id) >= len(prefix) && id[:len(prefix)] == prefix {
+		return id[len(prefix):]
+	}
+	return id
 }

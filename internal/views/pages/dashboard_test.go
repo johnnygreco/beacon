@@ -1,6 +1,9 @@
 package pages
 
 import (
+	"bytes"
+	"context"
+	"strings"
 	"testing"
 
 	"github.com/johnnygreco/beacon/internal/views"
@@ -55,6 +58,26 @@ func TestDashboardTokensByModelData(t *testing.T) {
 	}
 	if datasets[2]["label"] != "Cache" {
 		t.Errorf("expected third dataset label 'Cache', got %v", datasets[2]["label"])
+	}
+}
+
+func TestDashboardGoToSessionUsesParsedPathname(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Dashboard(views.DashboardData{}).Render(context.Background(), &buf); err != nil {
+		t.Fatalf("render dashboard: %v", err)
+	}
+	html := buf.String()
+	for _, expected := range []string{
+		"new URL(String(url || ''), window.location.origin)",
+		"parsed.pathname.split('/')",
+		"openSessionInspector(decodeURIComponent(id))",
+	} {
+		if !strings.Contains(html, expected) {
+			t.Fatalf("dashboard script missing %q", expected)
+		}
+	}
+	if strings.Contains(html, "split('/sessions/')[1]") {
+		t.Fatal("dashboard script still parses the full href")
 	}
 }
 

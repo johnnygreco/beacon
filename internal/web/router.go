@@ -33,9 +33,6 @@ func NewRouter(
 	r.Get("/sessions/{id}/conversation", handlers.SessionConversation)
 	r.Get("/search", handlers.Search)
 	r.Get("/search/results", handlers.SearchResults)
-	r.Get("/dashboard/sessions", handlers.DashboardSessions)
-	r.Get("/dashboard/sessions/{id}/subagents", handlers.DashboardSubagentSessions)
-	r.Get("/dashboard/activity", handlers.DashboardActivity)
 	r.Get("/health", handlers.Health)
 
 	// SSE endpoints
@@ -44,9 +41,19 @@ func NewRouter(
 
 	// JSON API endpoints
 	r.Route("/api", func(r chi.Router) {
+		r.Get("/health", handlers.Health)
+		r.Get("/status", apiHandlers.GetMetrics)
+		r.Get("/analytics", apiHandlers.GetTokensByModel)
 		r.Get("/metrics", apiHandlers.GetMetrics)
 		r.Get("/sessions", apiHandlers.GetSessions)
+		r.Get("/dashboard/sessions", apiHandlers.GetDashboardSessions)
+		r.Get("/dashboard/activity", apiHandlers.GetActivity)
+		r.Get("/dashboard/charts", apiHandlers.GetDashboardCharts)
 		r.Get("/sessions/{id}", apiHandlers.GetSessionDetail)
+		r.Get("/sessions/{id}/subagents", apiHandlers.GetSessionSubagents)
+		r.Get("/sessions/{id}/events", apiHandlers.GetSessionEvents)
+		r.Get("/events/{event_id}", apiHandlers.GetEvent)
+		r.Get("/tool-payloads/{event_id}", apiHandlers.GetToolPayload)
 		r.Get("/search", apiHandlers.SearchEvents)
 		r.Get("/tokens-per-minute", apiHandlers.GetTokensPerMinute)
 		r.Get("/tool-stats", apiHandlers.GetToolStats)

@@ -1,4 +1,4 @@
-package ingestion
+package capture
 
 // DeduplicateTokens removes duplicate token counts that arise from
 // providers writing multiple JSONL lines for the same logical usage event.

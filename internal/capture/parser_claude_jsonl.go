@@ -1,4 +1,4 @@
-package ingestion
+package capture
 
 import (
 	"encoding/json"
@@ -301,4 +301,3 @@ func jsonInt64(m map[string]any, key string) int64 {
 	}
 	return 0
 }
-

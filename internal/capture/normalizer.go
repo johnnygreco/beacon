@@ -1,4 +1,4 @@
-package ingestion
+package capture
 
 import "time"
 
@@ -6,7 +6,9 @@ import "time"
 type NormalizedEvent struct {
 	SessionID  string
 	SourceName string // "claude" or "codex"
+	Runtime    string // "claude-code" or "codex"
 	Provider   string // "anthropic" or "openai"
+	Format     string // "jsonl"
 
 	EventKind   string // message, tool_call, tool_result, reasoning, session_meta, turn_context, event_msg, error, context_snapshot
 	PayloadType string // sub-type within event_kind
@@ -54,7 +56,10 @@ type NormalizedEvent struct {
 	SourceFile   string
 	SourceLineNo int
 	SourceOffset int64
-	RawPayload   string
+	// SourceGeneration increments when a watched file rotates so replayed byte
+	// coordinates from a new file do not collide with earlier records.
+	SourceGeneration int
+	RawPayload       string
 }
 
 // InsertEvent is sent to the batcher for INSERT operations.

@@ -5,11 +5,11 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
+
+	"github.com/johnnygreco/beacon/internal/textindex"
 )
 
 type SearchQuery struct {
@@ -38,284 +38,218 @@ type SearchResult struct {
 
 type Searcher struct {
 	db              *sql.DB
-	ftsConn         *sql.Conn // dedicated connection for FTS operations
 	logger          *slog.Logger
-	rebuildInterval time.Duration
 	maxResults      int
-	mu             sync.RWMutex
-	lastIndexBuild time.Time
-	indexExists    bool
-	lastEventCount atomic.Int64
+	logSem          chan struct{}
+	mu              sync.RWMutex
+	lastIndexBuild  time.Time
+	indexExists     bool
+	statsRefreshed  time.Time
+	totalDocs       int64
+	avgDocLen       float64
+	rebuildInterval time.Duration
 }
+
+const searchStatsTTL = 30 * time.Second
 
 func NewSearcher(db *sql.DB, logger *slog.Logger, maxResults int, rebuildInterval time.Duration) *Searcher {
 	return &Searcher{
 		db:              db,
 		logger:          logger,
 		maxResults:      maxResults,
+		logSem:          make(chan struct{}, 4),
 		rebuildInterval: rebuildInterval,
 	}
 }
 
-// initFTSConn pins a dedicated connection and loads the FTS extension on it.
-// Both index rebuilds and BM25 queries use this same connection.
-func (s *Searcher) initFTSConn(ctx context.Context) error {
-	conn, err := s.db.Conn(ctx)
-	if err != nil {
-		return fmt.Errorf("pin FTS conn: %w", err)
-	}
-	conn.ExecContext(ctx, "INSTALL fts") //nolint:errcheck // may already be installed
-	if _, err := conn.ExecContext(ctx, "LOAD fts"); err != nil {
-		conn.Close()
-		return fmt.Errorf("LOAD fts: %w", err)
-	}
-	s.ftsConn = conn
-	return nil
-}
-
-// RunIndexer rebuilds the FTS index periodically. Call from a goroutine.
+// RunIndexer is retained for caller compatibility; Beacon's search index is now
+// built at ingest time into search_documents and search_postings.
 func (s *Searcher) RunIndexer(ctx context.Context) {
-	if err := s.initFTSConn(ctx); err != nil {
-		s.logger.Error("failed to init FTS connection", "error", err)
-		return
-	}
-
-	s.RebuildIndex(ctx)
-
+	s.ProbeIndex()
 	if s.rebuildInterval <= 0 {
 		return
 	}
-
 	ticker := time.NewTicker(s.rebuildInterval)
 	defer ticker.Stop()
-
 	for {
 		select {
 		case <-ctx.Done():
-			if s.ftsConn != nil {
-				s.ftsConn.Close()
-			}
 			return
 		case <-ticker.C:
-			s.RebuildIndex(ctx)
+			s.ProbeIndex()
 		}
 	}
 }
 
-// RebuildIndex rebuilds the FTS index if the event count has changed.
-func (s *Searcher) RebuildIndex(ctx context.Context) {
-	if s.ftsConn == nil {
-		return
-	}
-
-	// Check if there are any rows
-	var count int64
-	if err := s.ftsConn.QueryRowContext(ctx, "SELECT COUNT(*) FROM events WHERE text_content IS NOT NULL AND text_content != ''").Scan(&count); err != nil {
-		s.logger.Error("FTS row count check failed", "error", err)
-		return
-	}
-	if count == 0 {
-		return
-	}
-	if count == s.lastEventCount.Load() {
-		return
-	}
-
-	_, err := s.ftsConn.ExecContext(ctx, "PRAGMA create_fts_index('events', 'event_uid', 'text_content', overwrite=1)")
-	if err != nil {
-		s.logger.Error("FTS index rebuild failed", "error", err)
-		return
-	}
-
-	s.mu.Lock()
-	s.lastIndexBuild = time.Now()
-	s.indexExists = true
-	s.mu.Unlock()
-	s.lastEventCount.Store(count)
-
-	s.logger.Info("FTS index rebuilt", "documents", count)
-}
-
-// ProbeIndex checks if an FTS index exists (for read-only connections).
 func (s *Searcher) ProbeIndex() {
-	row := s.db.QueryRow("SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name = 'fts_main_events'")
-	var count int
-	if err := row.Scan(&count); err == nil && count > 0 {
+	if _, _, err := s.refreshStats(context.Background()); err != nil {
 		s.mu.Lock()
-		s.indexExists = true
+		s.indexExists = false
 		s.mu.Unlock()
 	}
 }
 
-// Search performs BM25 + ILIKE recency search.
 func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
-	if q.Limit <= 0 {
-		q.Limit = s.maxResults
+	q = s.normalize(q)
+	tokens := textindex.Tokenize(q.Query)
+	if len(tokens) == 0 {
+		return s.Browse(ctx, q)
 	}
-	if q.Limit <= 0 {
-		q.Limit = 25
-	}
+	tokens = uniq(tokens)
 
-	s.mu.RLock()
-	hasIndex := s.indexExists
-	s.mu.RUnlock()
-
-	searchStart := time.Now()
-	var bm25Results []SearchResult
-	var recencyResults []SearchResult
-
-	// BM25 path
-	bm25Start := time.Now()
-	if hasIndex && s.ftsConn != nil {
-		results, err := s.bm25Search(ctx, q)
-		if err != nil {
-			s.logger.Warn("BM25 search failed, falling back to ILIKE", "error", err)
-		} else {
-			bm25Results = results
-		}
-	}
-	bm25Dur := time.Since(bm25Start)
-
-	// Skip ILIKE when BM25 already returned enough results. BM25 only
-	// indexes text_content, so tool_name/error_message matches need the
-	// ILIKE path — but if BM25 filled the limit, extra results won't help.
-	var ilikeDur time.Duration
-	if len(bm25Results) < q.Limit {
-		ilikeStart := time.Now()
-		results, err := s.ilikeSearch(ctx, q, time.Time{})
-		if err != nil {
-			s.logger.Warn("ILIKE search failed", "error", err)
-		} else {
-			recencyResults = results
-		}
-		ilikeDur = time.Since(ilikeStart)
+	start := time.Now()
+	results, err := s.postingsSearch(ctx, q, tokens)
+	if err != nil {
+		return nil, err
 	}
 
-	// Merge: BM25 first, then recency (deduped)
-	seen := make(map[string]bool)
-	var merged []SearchResult
-	for _, r := range bm25Results {
-		if !seen[r.EventUID] {
-			seen[r.EventUID] = true
-			merged = append(merged, r)
-		}
-	}
-	for _, r := range recencyResults {
-		if !seen[r.EventUID] {
-			seen[r.EventUID] = true
-			merged = append(merged, r)
-		}
-	}
+	s.logQuery(q.Query, tokens, len(results), time.Since(start))
 
-	// Apply sort order
-	switch q.SortBy {
-	case "newest":
-		sort.Slice(merged, func(i, j int) bool {
-			return merged[i].Timestamp.After(merged[j].Timestamp)
-		})
-	case "oldest":
-		sort.Slice(merged, func(i, j int) bool {
-			return merged[i].Timestamp.Before(merged[j].Timestamp)
-		})
-	default: // "relevance" — BM25 scores first, then by timestamp for unscored
-		sort.SliceStable(merged, func(i, j int) bool {
-			si, sj := merged[i].Score, merged[j].Score
-			if si != sj {
-				return si > sj
-			}
-			return merged[i].Timestamp.After(merged[j].Timestamp)
-		})
-	}
-
-	if len(merged) > q.Limit {
-		merged = merged[:q.Limit]
-	}
-
-	s.logger.Debug("Search complete",
-		"query", q.Query,
-		"bm25_results", len(bm25Results), "bm25_duration", bm25Dur,
-		"ilike_results", len(recencyResults), "ilike_duration", ilikeDur,
-		"merged_results", len(merged), "total_duration", time.Since(searchStart))
-
-	return merged, nil
+	s.logger.Debug("search complete", "query", q.Query, "tokens", tokens, "results", len(results), "duration", time.Since(start))
+	return results, nil
 }
 
-// LegacySearch provides a simple interface for web handlers.
+func (s *Searcher) logQuery(query string, tokens []string, resultCount int, duration time.Duration) {
+	if s.db == nil || s.logSem == nil {
+		return
+	}
+	select {
+	case s.logSem <- struct{}{}:
+	default:
+		s.logger.Debug("search query log dropped", "query", query)
+		return
+	}
+
+	tokenCopy := append([]string(nil), tokens...)
+	go func() {
+		defer func() { <-s.logSem }()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if _, err := s.db.ExecContext(ctx,
+			`INSERT INTO search_query_log (query, normalized_terms, result_count, duration_ms)
+			 VALUES (?, ?, ?, ?)`,
+			query, tokenCopy, uint32(resultCount), uint64(duration.Milliseconds())); err != nil {
+			s.logger.Debug("search query log insert failed", "query", query, "error", err)
+		}
+	}()
+}
+
 func (s *Searcher) LegacySearch(ctx context.Context, query string, limit int) ([]SearchResult, error) {
 	return s.Search(ctx, SearchQuery{Query: query, Limit: limit})
 }
 
-func (s *Searcher) bm25Search(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
-	// DuckDB v1.4+ FTS creates a schema (not a table) named fts_main_events.
-	// Use fts_main_events.match_bm25() as a scalar function on the events table.
-	filterSQL, filterArgs := s.buildFilters(q, 3) // $1=query, $2=limit
-	query := fmt.Sprintf(
-		`SELECT e.event_uid, e.session_id, e.event_kind, e.text_preview,
-		        fts_main_events.match_bm25(e.event_uid, $1, fields := 'text_content') AS score,
-		        e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, ''), COALESCE(e.provider, '')
-		 FROM events e
-		 WHERE score IS NOT NULL %s
-		 ORDER BY %s
-		 LIMIT $2`,
-		filterSQL, bm25SortOrder(q.SortBy),
+func (s *Searcher) postingsSearch(ctx context.Context, q SearchQuery, tokens []string) ([]SearchResult, error) {
+	totalDocs, avgDocLen, err := s.cachedStats(ctx)
+	if err != nil {
+		return nil, err
+	}
+	tokenPlaceholders := placeholders(len(tokens))
+	filterSQL, filterArgs := buildPostingFilters(q)
+
+	query := fmt.Sprintf(`
+		WITH
+			toFloat64(?) AS total_docs,
+			toFloat64(?) AS avg_doc_len
+		SELECT
+			p.event_uid,
+			any(p.session_id) AS session_id,
+			any(p.event_kind) AS event_kind,
+			any(p.text_preview) AS text_preview,
+			sum(log(1 + ((greatest(total_docs, p.doc_freq) - p.doc_freq + 0.5) / (p.doc_freq + 0.5))) *
+			    ((p.term_frequency * 2.2) /
+			     (p.term_frequency + 1.2 * (0.25 + 0.75 * (p.document_len / avg_doc_len))))) AS score,
+			max(p.timestamp) AS timestamp,
+			any(p.tool_name) AS tool_name,
+			any(p.model) AS model,
+			any(p.provider) AS provider
+		FROM (
+			SELECT *,
+			       toFloat64(count() OVER (PARTITION BY token)) AS doc_freq
+			FROM search_postings FINAL
+			WHERE token IN (%s)
+		) p
+		WHERE 1 = 1 %s
+		GROUP BY p.event_uid
+		HAVING score >= ?
+		ORDER BY %s
+		LIMIT ?`,
+		tokenPlaceholders,
+		filterSQL,
+		searchSortOrder(q.SortBy),
 	)
 
-	args := append([]any{q.Query, q.Limit}, filterArgs...)
-	rows, err := s.ftsConn.QueryContext(ctx, query, args...)
+	args := make([]any, 0, len(tokens)+len(filterArgs)+4)
+	args = append(args, float64(totalDocs), avgDocLen)
+	for _, token := range tokens {
+		args = append(args, token)
+	}
+	args = append(args, filterArgs...)
+	args = append(args, q.MinScore, q.Limit)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-
 	return scanResults(rows)
 }
 
-// escapeLike escapes LIKE/ILIKE special characters so they match literally.
-// Backslash must be escaped first to avoid double-escaping.
-func escapeLike(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, "%", `\%`)
-	s = strings.ReplaceAll(s, "_", `\_`)
-	return s
+func (s *Searcher) cachedStats(ctx context.Context) (int64, float64, error) {
+	s.mu.RLock()
+	if !s.statsRefreshed.IsZero() && time.Since(s.statsRefreshed) < searchStatsTTL {
+		totalDocs := s.totalDocs
+		avgDocLen := s.avgDocLen
+		s.mu.RUnlock()
+		return totalDocs, avgDocLen, nil
+	}
+	s.mu.RUnlock()
+	return s.refreshStats(ctx)
 }
 
-func (s *Searcher) ilikeSearch(ctx context.Context, q SearchQuery, since time.Time) ([]SearchResult, error) {
-	pattern := "%" + escapeLike(q.Query) + "%"
-
-	var whereExtra string
-	var args []any
-	args = append(args, pattern)
-	nextParam := 2
-
-	if !since.IsZero() {
-		whereExtra = fmt.Sprintf(" AND e.timestamp > $%d", nextParam)
-		args = append(args, since)
-		nextParam++
+func (s *Searcher) refreshStats(ctx context.Context) (int64, float64, error) {
+	var documents int64
+	var avgDocLen float64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT count() AS documents,
+		        if(count() = 0, 1, greatest(avg(document_len), 1)) AS avg_doc_len
+		 FROM search_documents FINAL`).Scan(&documents, &avgDocLen)
+	if err != nil {
+		return 1, 1, err
+	}
+	totalDocs := documents
+	if totalDocs < 1 {
+		totalDocs = 1
+	}
+	if avgDocLen < 1 {
+		avgDocLen = 1
 	}
 
-	filterSQL, filterArgs := s.buildFilters(q, nextParam)
-	args = append(args, filterArgs...)
-	nextParam += len(filterArgs)
-	whereExtra += " " + filterSQL
+	s.mu.Lock()
+	s.totalDocs = totalDocs
+	s.avgDocLen = avgDocLen
+	s.statsRefreshed = time.Now()
+	s.indexExists = documents > 0
+	if s.indexExists {
+		s.lastIndexBuild = s.statsRefreshed
+	}
+	s.mu.Unlock()
 
-	// Search text_content, tool_name, and error_message so that
-	// tool_call and error events are discoverable.
-	// Join tool_io for richer snippets on tool_call events.
-	query := fmt.Sprintf(
-		`SELECT e.event_uid, e.session_id, e.event_kind,
-		        CASE WHEN e.event_kind = 'tool_call'
-		             THEN COALESCE(e.tool_name || ': ' || NULLIF(tio.input_preview, ''), e.tool_name, '')
-		             ELSE COALESCE(NULLIF(e.text_preview, ''), e.tool_name, '')
-		        END AS preview,
-		        0.0 AS score, e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, ''), COALESCE(e.provider, '')
-		 FROM events e
-		 LEFT JOIN tool_io tio ON e.event_uid = tio.event_uid
-		 WHERE (e.text_content ILIKE $1
-		        OR e.tool_name ILIKE $1
-		        OR e.error_message ILIKE $1) %s
-		 ORDER BY e.timestamp %s
-		 LIMIT $%d`,
-		whereExtra, browseSortOrder(q.SortBy), nextParam,
+	return totalDocs, avgDocLen, nil
+}
+
+func (s *Searcher) Browse(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
+	q = s.normalize(q)
+	filterSQL, args := buildDocumentFilters(q)
+
+	query := fmt.Sprintf(`
+		SELECT event_uid, session_id, event_kind, text_preview, 0.0 AS score,
+		       timestamp, tool_name, model, provider
+		FROM search_documents FINAL
+		WHERE 1 = 1 %s
+		ORDER BY timestamp %s
+		LIMIT ?`,
+		filterSQL,
+		browseSortOrder(q.SortBy),
 	)
 	args = append(args, q.Limit)
 
@@ -324,87 +258,77 @@ func (s *Searcher) ilikeSearch(ctx context.Context, q SearchQuery, since time.Ti
 		return nil, err
 	}
 	defer rows.Close()
-
 	return scanResults(rows)
 }
 
-// buildFilters constructs parameterized WHERE clauses from SearchQuery filters.
-// nextParam is the next available $N placeholder number. Returns the SQL
-// fragment and the corresponding parameter values.
-func (s *Searcher) buildFilters(q SearchQuery, nextParam int) (string, []any) {
-	var clauses []string
-	var args []any
-
-	if q.SessionID != "" {
-		// Prefix match supports both partial (8-char truncated) and full UUIDs
-		clauses = append(clauses, fmt.Sprintf("AND e.session_id LIKE $%d", nextParam))
-		args = append(args, escapeLike(q.SessionID)+"%")
-		nextParam++
-	}
-
-	if len(q.EventKinds) > 0 {
-		placeholders := make([]string, len(q.EventKinds))
-		for i, k := range q.EventKinds {
-			placeholders[i] = fmt.Sprintf("$%d", nextParam)
-			args = append(args, k)
-			nextParam++
-		}
-		clauses = append(clauses, fmt.Sprintf("AND e.event_kind IN (%s)", strings.Join(placeholders, ",")))
-	}
-
-	if !q.FromTime.IsZero() {
-		clauses = append(clauses, fmt.Sprintf("AND e.timestamp >= $%d", nextParam))
-		args = append(args, q.FromTime.UTC())
-		nextParam++
-	}
-	if !q.ToTime.IsZero() {
-		clauses = append(clauses, fmt.Sprintf("AND e.timestamp <= $%d", nextParam))
-		args = append(args, q.ToTime.UTC())
-		nextParam++
-	}
-
-	if q.ExcludeMCPSelf {
-		clauses = append(clauses, fmt.Sprintf("AND e.text_content NOT ILIKE $%d", nextParam))
-		args = append(args, "%beacon%")
-		nextParam++ //nolint:ineffassign // keep nextParam consistent so future filters get the right $N
-		clauses = append(clauses, "AND (e.tool_name IS NULL OR e.tool_name NOT IN ('search', 'open', 'list_sessions'))")
-	}
-
-	return strings.Join(clauses, " "), args
-}
-
-// Browse returns events matching filters without requiring a text query.
-// Used when session_id or other filters are set but no search term is entered.
-func (s *Searcher) Browse(ctx context.Context, q SearchQuery) ([]SearchResult, error) {
+func (s *Searcher) normalize(q SearchQuery) SearchQuery {
 	if q.Limit <= 0 {
 		q.Limit = s.maxResults
 	}
 	if q.Limit <= 0 {
 		q.Limit = 25
 	}
-
-	filterSQL, filterArgs := s.buildFilters(q, 1)
-	nextParam := 1 + len(filterArgs)
-
-	query := fmt.Sprintf(
-		`SELECT e.event_uid, e.session_id, e.event_kind,
-		        COALESCE(NULLIF(e.text_preview, ''), e.tool_name, '') AS preview,
-		        0.0 AS score, e.timestamp, COALESCE(e.tool_name, ''), COALESCE(e.model, ''), COALESCE(e.provider, '')
-		 FROM events e
-		 WHERE 1=1 %s
-		 ORDER BY e.timestamp %s
-		 LIMIT $%d`,
-		filterSQL, browseSortOrder(q.SortBy), nextParam,
-	)
-
-	args := append(filterArgs, q.Limit)
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
+	if q.MinScore < 0 {
+		q.MinScore = 0
 	}
-	defer rows.Close()
+	return q
+}
 
-	return scanResults(rows)
+func buildPostingFilters(q SearchQuery) (string, []any) {
+	return buildFilters("p", q)
+}
+
+func buildDocumentFilters(q SearchQuery) (string, []any) {
+	return buildFilters("", q)
+}
+
+func buildFilters(alias string, q SearchQuery) (string, []any) {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+
+	var clauses []string
+	var args []any
+
+	if q.SessionID != "" {
+		clauses = append(clauses, "AND startsWith("+prefix+"session_id, ?)")
+		args = append(args, q.SessionID)
+	}
+
+	if len(q.EventKinds) > 0 {
+		clauses = append(clauses, "AND "+prefix+"event_kind IN ("+placeholders(len(q.EventKinds))+")")
+		for _, kind := range q.EventKinds {
+			args = append(args, kind)
+		}
+	}
+
+	if !q.FromTime.IsZero() {
+		clauses = append(clauses, "AND "+prefix+"timestamp >= ?")
+		args = append(args, q.FromTime.UTC())
+	}
+	if !q.ToTime.IsZero() {
+		clauses = append(clauses, "AND "+prefix+"timestamp <= ?")
+		args = append(args, q.ToTime.UTC())
+	}
+
+	if q.ExcludeMCPSelf {
+		clauses = append(clauses, "AND "+prefix+"tool_name NOT IN ('search_sessions', 'open', 'list_sessions')")
+		clauses = append(clauses, "AND positionCaseInsensitive("+prefix+"text_preview, 'beacon') = 0")
+	}
+
+	return " " + strings.Join(clauses, " "), args
+}
+
+func searchSortOrder(sortBy string) string {
+	switch sortBy {
+	case "newest":
+		return "timestamp DESC"
+	case "oldest":
+		return "timestamp ASC"
+	default:
+		return "score DESC, timestamp DESC"
+	}
 }
 
 func browseSortOrder(sortBy string) string {
@@ -413,20 +337,6 @@ func browseSortOrder(sortBy string) string {
 		return "ASC"
 	default:
 		return "DESC"
-	}
-}
-
-// bm25SortOrder returns the SQL ORDER BY clause for BM25 search results.
-// For time-based sorts, order by timestamp so the SQL LIMIT captures the
-// correct slice before the in-memory merge.
-func bm25SortOrder(sortBy string) string {
-	switch sortBy {
-	case "newest":
-		return "e.timestamp DESC"
-	case "oldest":
-		return "e.timestamp ASC"
-	default:
-		return "score DESC"
 	}
 }
 
@@ -442,16 +352,34 @@ func scanResults(rows *sql.Rows) ([]SearchResult, error) {
 	return results, rows.Err()
 }
 
-// LastIndexBuild returns when the FTS index was last rebuilt.
 func (s *Searcher) LastIndexBuild() time.Time {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.lastIndexBuild
 }
 
-// IndexExists returns whether an FTS index exists.
 func (s *Searcher) IndexExists() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.indexExists
+}
+
+func placeholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.TrimRight(strings.Repeat("?,", n), ",")
+}
+
+func uniq(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }

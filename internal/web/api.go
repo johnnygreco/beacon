@@ -6,11 +6,14 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/search"
+	"github.com/johnnygreco/beacon/internal/views"
 )
 
 // APIHandlers serves JSON API endpoints.
@@ -44,15 +47,16 @@ func (a *APIHandlers) jsonError(w http.ResponseWriter, msg string, code int) {
 func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 	var totalSessions, activeCount, toolCalls, mcpCalls int
 	var inputTokens, outputTokens int64
+	activeCutoff := time.Now().Add(-idleThreshold)
 
 	if err := a.db.QueryRowContext(r.Context(),
-		`SELECT COUNT(DISTINCT session_id),
-		        COUNT(DISTINCT CASE WHEN timestamp > current_timestamp - INTERVAL '1 hour' THEN session_id END),
-		        COALESCE(SUM(input_tokens), 0),
-		        COALESCE(SUM(output_tokens), 0),
-		        COUNT(CASE WHEN event_kind = 'tool_call' THEN 1 END),
-		        COUNT(CASE WHEN event_kind = 'tool_call' AND tool_name LIKE 'mcp__%' THEN 1 END)
-		 FROM events`,
+		`SELECT count(),
+		        countIf(ended_at >= ? AND COALESCE(has_session_end, 0) = 0),
+		        COALESCE(SUM(total_input_tokens), 0),
+		        COALESCE(SUM(total_output_tokens), 0),
+		        COALESCE(SUM(tool_call_count), 0),
+		        COALESCE(SUM(mcp_call_count), 0)
+		 FROM `+sessionProjectionSQL, activeCutoff,
 	).Scan(&totalSessions, &activeCount, &inputTokens, &outputTokens, &toolCalls, &mcpCalls); err != nil {
 		a.jsonError(w, "failed to query metrics", http.StatusInternalServerError)
 		return
@@ -78,13 +82,10 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := a.db.QueryContext(r.Context(),
-		`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
-		        turn_count, total_tokens, total_input_tokens, total_output_tokens,
-		        total_cache_read_tokens, total_cache_create_tokens,
-		        tool_call_count, mcp_call_count, error_count, COALESCE(last_model, '')
-		 FROM v_session_summary
+		`SELECT `+sessionSummaryColumns+`
+		 FROM `+sessionProjectionSQL+`
 		 ORDER BY started_at DESC
-		 LIMIT $1`, limit)
+		 LIMIT ?`, limit)
 	if err != nil {
 		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -93,26 +94,124 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 
 	var sessions []APISessionSummary
 	for rows.Next() {
-		var s APISessionSummary
-		var endedAt time.Time
-		if err := rows.Scan(&s.ID, &s.Source, &s.StartedAt, &endedAt,
-			&s.TurnCount, &s.TotalTokens, &s.InputTokens, &s.OutputTokens,
-			&s.CacheReadTokens, &s.CacheCreateTokens,
-			&s.ToolCallCount, &s.MCPCallCount, &s.ErrorCount, &s.LastModel); err != nil {
+		s, err := scanSessionSummary(rows, time.Now())
+		if err != nil {
 			continue
 		}
-		if !endedAt.IsZero() && endedAt.After(s.StartedAt) {
-			s.Duration = endedAt.Sub(s.StartedAt).String()
-		} else {
-			s.Duration = "active"
-		}
-		sessions = append(sessions, s)
+		sessions = append(sessions, apiSessionSummaryFromView(s))
 	}
 	if err := rows.Err(); err != nil {
 		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	a.jsonResponse(w, sessions)
+}
+
+// GetDashboardSessions returns dashboard session rows as JSON for client-side rendering.
+func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Request) {
+	state := r.URL.Query().Get("state")
+	if state == "" {
+		state = "completed"
+	}
+	rangeVal := r.URL.Query().Get("range")
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 200 {
+		limit = defaultSessionPageSize
+	}
+
+	var sessions []views.SessionSummary
+	hasMore := false
+	switch state {
+	case "active":
+		sessions = QueryActiveSessions(r.Context(), a.db)
+	default:
+		sessions, hasMore = QueryCompletedSessions(r.Context(), a.db, parseRange(rangeVal), offset, limit)
+		state = "completed"
+	}
+
+	items := make([]APISessionSummary, 0, len(sessions))
+	for _, session := range sessions {
+		items = append(items, apiSessionSummaryFromView(session))
+	}
+	a.jsonResponse(w, APIDashboardSessionsResponse{
+		State:   state,
+		Range:   rangeVal,
+		Offset:  offset,
+		Limit:   limit,
+		HasMore: hasMore,
+		Items:   items,
+	})
+}
+
+// GetSessionSubagents returns child sessions for a parent session as JSON.
+func (a *APIHandlers) GetSessionSubagents(w http.ResponseWriter, r *http.Request) {
+	parentID := chi.URLParam(r, "id")
+	sessions := QueryChildSessions(r.Context(), a.db, parentID)
+	items := make([]APISessionSummary, 0, len(sessions))
+	for _, session := range sessions {
+		items = append(items, apiSessionSummaryFromView(session))
+	}
+	a.jsonResponse(w, items)
+}
+
+// GetActivity returns recent activity items as JSON for client-side rendering.
+func (a *APIHandlers) GetActivity(w http.ResponseWriter, r *http.Request) {
+	rangeVal := r.URL.Query().Get("range")
+	since := parseRange(rangeVal)
+	if since == nil {
+		t := time.Now().Add(-24 * time.Hour)
+		since = &t
+	}
+
+	var eventKinds []string
+	for _, ek := range r.URL.Query()["event_kind"] {
+		for _, k := range strings.Split(ek, ",") {
+			if k = strings.TrimSpace(k); k != "" {
+				eventKinds = append(eventKinds, k)
+			}
+		}
+	}
+
+	items := QueryRecentActivityFilteredByKind(r.Context(), a.db, since, eventKinds)
+	result := make([]APIActivityItem, 0, len(items))
+	for _, item := range items {
+		result = append(result, APIActivityItem{
+			ID:           item.ID,
+			Type:         item.Type,
+			Summary:      item.Summary,
+			SessionID:    item.SessionID,
+			Provider:     item.Provider,
+			Timestamp:    item.Timestamp,
+			RelativeTime: views.RelativeTime(item.Timestamp),
+		})
+	}
+	a.jsonResponse(w, result)
+}
+
+// GetDashboardCharts returns the dashboard chart payloads as JSON.
+func (a *APIHandlers) GetDashboardCharts(w http.ResponseWriter, r *http.Request) {
+	var tokensChart views.MultiSeriesChart
+	var tokensByModel []views.ModelTokens
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		tokensChart = QueryTotalTokensTimeSeries(r.Context(), a.db)
+	}()
+	go func() {
+		defer wg.Done()
+		tokensByModel = QueryTokensByModelSummary(r.Context(), a.db)
+	}()
+	wg.Wait()
+
+	a.jsonResponse(w, APIDashboardCharts{
+		TotalTokens:   tokensChart,
+		TokensByModel: tokensByModelChartData(tokensByModel),
+	})
 }
 
 // GetSessionDetail returns detailed info for a single session.
@@ -124,8 +223,150 @@ func (a *APIHandlers) GetSessionDetail(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, "session not found", http.StatusNotFound)
 		return
 	}
-	data.ChatTurns, data.Turns = QuerySessionConversation(r.Context(), a.db, id)
 	a.jsonResponse(w, data)
+}
+
+// GetSessionEvents returns bounded event detail for a session.
+func (a *APIHandlers) GetSessionEvents(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+
+	rows, err := a.db.QueryContext(r.Context(),
+		`WITH session_events AS (
+			SELECT event_uid, session_id, event_kind, payload_type, actor_role,
+			       timestamp, text_preview, tool_name, tool_use_id, model,
+			       tokens, duration_ms
+			FROM (
+				SELECT event_uid,
+				       argMax(ae.session_id, captured_at) AS session_id,
+				       argMax(event_kind, captured_at) AS event_kind,
+				       argMax(payload_type, captured_at) AS payload_type,
+				       argMax(actor_role, captured_at) AS actor_role,
+				       argMax(timestamp, captured_at) AS timestamp,
+				       argMax(text_preview, captured_at) AS text_preview,
+				       argMax(tool_name, captured_at) AS tool_name,
+				       argMax(tool_use_id, captured_at) AS tool_use_id,
+				       argMax(model, captured_at) AS model,
+				       argMax(input_tokens, captured_at) + argMax(output_tokens, captured_at) AS tokens,
+				       argMax(duration_ms, captured_at) AS duration_ms
+				FROM activity_events AS ae
+				WHERE ae.session_id = ?
+				GROUP BY event_uid
+			)
+			ORDER BY timestamp, event_uid
+			LIMIT ? OFFSET ?
+		 ),
+		 payload_previews AS (
+			SELECT event_uid,
+			       argMax(input_preview, captured_at) AS input_preview,
+			       argMax(output_preview, captured_at) AS output_preview
+			FROM tool_payloads
+			WHERE event_uid IN (SELECT event_uid FROM session_events)
+			GROUP BY event_uid
+		 )
+		 SELECT e.event_uid, e.session_id, e.event_kind, e.payload_type, e.actor_role,
+		        e.timestamp, e.text_preview, e.tool_name, e.tool_use_id, e.model,
+		        e.tokens, e.duration_ms,
+		        COALESCE(p.input_preview, ''), COALESCE(p.output_preview, '')
+		 FROM session_events e
+		 LEFT JOIN payload_previews p ON e.event_uid = p.event_uid
+		 ORDER BY e.timestamp, e.event_uid`, id, limit, offset)
+	if err != nil {
+		a.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var events []APISessionEvent
+	for rows.Next() {
+		var e APISessionEvent
+		if err := rows.Scan(&e.EventUID, &e.SessionID, &e.EventKind, &e.PayloadType, &e.ActorRole,
+			&e.Timestamp, &e.TextPreview, &e.ToolName, &e.ToolUseID, &e.Model, &e.Tokens, &e.DurationMs,
+			&e.InputPreview, &e.OutputPreview); err != nil {
+			continue
+		}
+		events = append(events, e)
+	}
+	if err := rows.Err(); err != nil {
+		a.jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	a.jsonResponse(w, events)
+}
+
+// GetEvent returns bounded detail for one event.
+func (a *APIHandlers) GetEvent(w http.ResponseWriter, r *http.Request) {
+	eventID := chi.URLParam(r, "event_id")
+	var e APISessionEvent
+	err := a.db.QueryRowContext(r.Context(),
+		`WITH latest_event AS (
+			SELECT event_uid,
+			       argMax(session_id, captured_at) AS session_id,
+			       argMax(event_kind, captured_at) AS event_kind,
+			       argMax(payload_type, captured_at) AS payload_type,
+			       argMax(actor_role, captured_at) AS actor_role,
+			       argMax(timestamp, captured_at) AS timestamp,
+			       argMax(text_preview, captured_at) AS text_preview,
+			       argMax(tool_name, captured_at) AS tool_name,
+			       argMax(tool_use_id, captured_at) AS tool_use_id,
+			       argMax(model, captured_at) AS model,
+			       argMax(input_tokens, captured_at) + argMax(output_tokens, captured_at) AS tokens,
+			       argMax(duration_ms, captured_at) AS duration_ms
+			FROM activity_events
+			WHERE event_uid = ?
+			GROUP BY event_uid
+		 ),
+		 payload_previews AS (
+			SELECT event_uid,
+			       argMax(input_preview, captured_at) AS input_preview,
+			       argMax(output_preview, captured_at) AS output_preview
+			FROM tool_payloads
+			WHERE event_uid = ?
+			GROUP BY event_uid
+		 )
+		 SELECT e.event_uid, e.session_id, e.event_kind, e.payload_type, e.actor_role,
+		        e.timestamp, e.text_preview, e.tool_name, e.tool_use_id, e.model,
+		        e.tokens, e.duration_ms,
+		        COALESCE(p.input_preview, ''), COALESCE(p.output_preview, '')
+		 FROM latest_event e
+		 LEFT JOIN payload_previews p ON e.event_uid = p.event_uid
+		 LIMIT 1`, eventID, eventID).Scan(&e.EventUID, &e.SessionID, &e.EventKind, &e.PayloadType, &e.ActorRole,
+		&e.Timestamp, &e.TextPreview, &e.ToolName, &e.ToolUseID, &e.Model, &e.Tokens, &e.DurationMs,
+		&e.InputPreview, &e.OutputPreview)
+	if err != nil {
+		a.jsonError(w, "event not found", http.StatusNotFound)
+		return
+	}
+	a.jsonResponse(w, e)
+}
+
+// GetToolPayload returns large tool input/output lazily.
+func (a *APIHandlers) GetToolPayload(w http.ResponseWriter, r *http.Request) {
+	eventID := chi.URLParam(r, "event_id")
+	var p APIToolPayload
+	err := a.db.QueryRowContext(r.Context(),
+		`SELECT event_uid,
+		        argMax(tool_name, captured_at),
+		        argMax(tool_phase, captured_at),
+		        argMax(input_json, captured_at),
+		        argMax(output_json, captured_at),
+		        argMax(input_preview, captured_at),
+		        argMax(output_preview, captured_at)
+		 FROM tool_payloads
+		 WHERE event_uid = ?
+		 GROUP BY event_uid`, eventID).Scan(&p.EventUID, &p.ToolName, &p.ToolPhase, &p.InputJSON, &p.OutputJSON, &p.InputPreview, &p.OutputPreview)
+	if err != nil {
+		a.jsonError(w, "payload not found", http.StatusNotFound)
+		return
+	}
+	a.jsonResponse(w, p)
 }
 
 // SearchEvents performs keyword search.
@@ -151,8 +392,18 @@ func (a *APIHandlers) SearchEvents(w http.ResponseWriter, r *http.Request) {
 // GetTokensPerMinute returns time-series token data with breakdown.
 func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.QueryContext(r.Context(),
-		`SELECT minute, total_input, total_output, total_cache_read, total_tokens, call_count
-		 FROM v_tokens_per_minute LIMIT 60`)
+		`SELECT minute, total_input, total_output, total_cache_read, tokens_total, call_count FROM (
+			SELECT minute,
+			       sum(input_tokens) AS total_input,
+			       sum(output_tokens) AS total_output,
+			       sum(cache_read_tokens) AS total_cache_read,
+			       sum(total_tokens) AS tokens_total,
+			       sum(call_count) AS call_count
+			FROM `+analyticsProjectionSQL+`
+			GROUP BY minute
+			ORDER BY minute DESC
+			LIMIT 60
+		 ) ORDER BY minute ASC`)
 	if err != nil {
 		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -162,9 +413,11 @@ func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request)
 	points := make([]APITokensPerMinute, 0, 60)
 	for rows.Next() {
 		var p APITokensPerMinute
-		if err := rows.Scan(&p.Minute, &p.InputTokens, &p.OutputTokens, &p.CacheReadTokens, &p.TotalTokens, &p.CallCount); err != nil {
+		var minute time.Time
+		if err := rows.Scan(&minute, &p.InputTokens, &p.OutputTokens, &p.CacheReadTokens, &p.TotalTokens, &p.CallCount); err != nil {
 			continue
 		}
+		p.Minute = minute.UTC().Format(time.RFC3339)
 		points = append(points, p)
 	}
 	if err := rows.Err(); err != nil {
@@ -177,7 +430,15 @@ func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request)
 // GetToolStats returns tool usage statistics.
 func (a *APIHandlers) GetToolStats(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.QueryContext(r.Context(),
-		`SELECT tool_name, calls, results, total, avg_duration_ms FROM v_tool_stats`)
+		`SELECT tool_name,
+		        sum(tool_call_count) AS calls,
+		        sum(tool_result_count) AS results,
+		        sum(event_count) AS total,
+		        if(sum(tool_call_count) > 0, sumIf(duration_ms_sum, event_kind = 'tool_call') / sum(tool_call_count), 0) AS avg_duration_ms
+		 FROM `+analyticsProjectionSQL+`
+		 WHERE tool_name != ''
+		 GROUP BY tool_name
+		 ORDER BY total DESC`)
 	if err != nil {
 		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -203,8 +464,17 @@ func (a *APIHandlers) GetToolStats(w http.ResponseWriter, r *http.Request) {
 // GetTokensByModel returns token usage broken down by model.
 func (a *APIHandlers) GetTokensByModel(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.QueryContext(r.Context(),
-		`SELECT model, total_input, total_output, total_cache_read, total_cache_create, total_tokens, call_count
-		 FROM v_tokens_by_model`)
+		`SELECT model,
+		        sum(input_tokens) AS total_input,
+		        sum(output_tokens) AS total_output,
+		        sum(cache_read_tokens) AS total_cache_read,
+		        sum(cache_create_tokens) AS total_cache_create,
+		        sum(total_tokens) AS tokens_total,
+		        sum(call_count) AS call_count
+		 FROM `+analyticsProjectionSQL+`
+		 WHERE model != '' AND model != '<synthetic>'
+		 GROUP BY model
+		 ORDER BY tokens_total DESC`)
 	if err != nil {
 		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -224,4 +494,101 @@ func (a *APIHandlers) GetTokensByModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.jsonResponse(w, items)
+}
+
+func apiSessionSummaryFromView(s views.SessionSummary) APISessionSummary {
+	children := make([]APISessionSummary, 0, len(s.ChildSessions))
+	for _, child := range s.ChildSessions {
+		children = append(children, apiSessionSummaryFromView(child))
+	}
+	return APISessionSummary{
+		ID:                s.ID,
+		Title:             views.SessionTitle(s, false),
+		Source:            s.Actor,
+		Provider:          s.Provider,
+		Status:            s.Status,
+		StartedAt:         s.StartedAt,
+		EndedAt:           s.EndedAt,
+		Duration:          s.Duration,
+		TurnCount:         s.TurnCount,
+		TotalTokens:       s.TotalTokens,
+		InputTokens:       s.InputTokens,
+		OutputTokens:      s.OutputTokens,
+		CacheReadTokens:   s.CacheReadTokens,
+		CacheCreateTokens: s.CacheCreateTokens,
+		ToolCallCount:     s.ToolCallCount,
+		MCPCallCount:      s.MCPCallCount,
+		ErrorCount:        s.ErrorCount,
+		LastModel:         s.ActiveModel,
+		WorkingDir:        s.WorkingDir,
+		ParentSessionID:   s.ParentSessionID,
+		HasSessionEnd:     s.HasSessionEnd,
+		SubagentCount:     s.SubagentCount,
+		ChildSessions:     children,
+	}
+}
+
+func tokensByModelChartData(models []views.ModelTokens) map[string]any {
+	sorted := views.SortModelsByProvider(models)
+	multiProvider := len(providerSet(sorted)) > 1
+
+	var labels []string
+	var inputData, outputData, cacheData []int64
+	var providerGroups []map[string]any
+
+	lastProvider := ""
+	groupStart := 0
+	for i, m := range sorted {
+		provider := m.Provider
+		if provider == "" {
+			provider = "unknown"
+		}
+		if multiProvider && lastProvider != "" && provider != lastProvider {
+			providerGroups = append(providerGroups, map[string]any{
+				"provider": views.ProviderShort(lastProvider),
+				"start":    groupStart,
+				"end":      len(labels) - 1,
+			})
+			groupStart = len(labels)
+		}
+		lastProvider = provider
+
+		labels = append(labels, views.ShortModelName(m.Model))
+		inputData = append(inputData, m.Input)
+		outputData = append(outputData, m.Output)
+		cacheData = append(cacheData, m.CacheRead)
+
+		if multiProvider && i == len(sorted)-1 {
+			providerGroups = append(providerGroups, map[string]any{
+				"provider": views.ProviderShort(provider),
+				"start":    groupStart,
+				"end":      len(labels) - 1,
+			})
+		}
+	}
+
+	result := map[string]any{
+		"labels": labels,
+		"datasets": []map[string]any{
+			{"label": "Input", "data": inputData},
+			{"label": "Output", "data": outputData},
+			{"label": "Cache", "data": cacheData},
+		},
+	}
+	if len(providerGroups) > 0 {
+		result["providerGroups"] = providerGroups
+	}
+	return result
+}
+
+func providerSet(models []views.ModelTokens) map[string]struct{} {
+	set := make(map[string]struct{})
+	for _, m := range models {
+		provider := m.Provider
+		if provider == "" {
+			provider = "unknown"
+		}
+		set[provider] = struct{}{}
+	}
+	return set
 }

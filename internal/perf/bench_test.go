@@ -4,24 +4,39 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/johnnygreco/beacon/internal/database"
 	"github.com/johnnygreco/beacon/internal/perf"
 	"github.com/johnnygreco/beacon/internal/search"
+	"github.com/johnnygreco/beacon/internal/store"
 	"github.com/johnnygreco/beacon/internal/web"
 )
 
 // Shared database seeded once in TestMain for all benchmarks.
 var (
-	sharedDB    *database.DB
+	sharedStore *store.Store
 	benchLogger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 )
 
+func requirePerfStore(b *testing.B) *store.Store {
+	b.Helper()
+	if sharedStore == nil {
+		b.Skip("set BEACON_TEST_CLICKHOUSE to run ClickHouse perf benchmarks")
+	}
+	return sharedStore
+}
+
 func TestMain(m *testing.M) {
 	ctx := context.Background()
+	addr := os.Getenv("BEACON_TEST_CLICKHOUSE")
+	if addr == "" {
+		fmt.Fprintln(os.Stderr, "BEACON_TEST_CLICKHOUSE not set; skipping perf benchmarks")
+		os.Exit(m.Run())
+	}
 
 	sizeStr := os.Getenv("PERF_SIZE")
 	if sizeStr == "" {
@@ -30,13 +45,13 @@ func TestMain(m *testing.M) {
 	seedSize := perf.ParseSeedSize(sizeStr)
 
 	var err error
-	sharedDB, err = database.Open("", 4)
+	sharedStore, err = store.Open(ctx, store.Options{Addrs: []string{addr}, Database: "beacon_perf", ReadPoolSize: 4})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to open db: %v\n", err)
+		fmt.Fprintf(os.Stderr, "failed to open store: %v\n", err)
 		os.Exit(1)
 	}
 
-	stats, err := perf.Seed(ctx, sharedDB, seedSize)
+	stats, err := perf.ResetAndSeed(ctx, sharedStore, seedSize)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to seed: %v\n", err)
 		os.Exit(1)
@@ -44,49 +59,63 @@ func TestMain(m *testing.M) {
 
 	fmt.Fprintf(os.Stderr, "Seeded %s dataset: %s\n", seedSize, stats)
 	code := m.Run()
-	sharedDB.Close()
+	sharedStore.Close()
 	os.Exit(code)
 }
 
 func BenchmarkQueryDashboardData(b *testing.B) {
+	ch := requirePerfStore(b)
 	ctx := context.Background()
 	b.ResetTimer()
 	for b.Loop() {
-		_ = web.QueryDashboardData(ctx, sharedDB.ReadPool)
+		_ = web.QueryDashboardData(ctx, ch.DB)
 	}
 }
 
 func BenchmarkQueryDashboardSessions(b *testing.B) {
+	ch := requirePerfStore(b)
 	ctx := context.Background()
 	b.ResetTimer()
 	for b.Loop() {
-		web.QueryDashboardSessions(ctx, sharedDB.ReadPool)
+		web.QueryDashboardSessions(ctx, ch.DB)
+	}
+}
+
+func BenchmarkQueryActiveSessions(b *testing.B) {
+	ch := requirePerfStore(b)
+	ctx := context.Background()
+	b.ResetTimer()
+	for b.Loop() {
+		web.QueryActiveSessions(ctx, ch.DB)
 	}
 }
 
 func BenchmarkQuerySessionConversation_Small(b *testing.B) {
+	ch := requirePerfStore(b)
 	// Use a normal-sized session (index beyond very-large and large)
 	ctx := context.Background()
 	sessionID := perf.SessionIDForBench(100)
 	b.ResetTimer()
 	for b.Loop() {
-		web.QuerySessionConversation(ctx, sharedDB.ReadPool, sessionID)
+		web.QuerySessionConversation(ctx, ch.DB, sessionID)
 	}
 }
 
 func BenchmarkQuerySessionConversation_Large(b *testing.B) {
+	ch := requirePerfStore(b)
 	// Use a very-large session (index 0)
 	ctx := context.Background()
 	sessionID := perf.SessionIDForBench(0)
 	b.ResetTimer()
 	for b.Loop() {
-		web.QuerySessionConversation(ctx, sharedDB.ReadPool, sessionID)
+		web.QuerySessionConversation(ctx, ch.DB, sessionID)
 	}
 }
 
 func BenchmarkSearchBM25(b *testing.B) {
+	ch := requirePerfStore(b)
 	ctx := context.Background()
-	s := search.NewSearcher(sharedDB.ReadPool, benchLogger, 25, 0)
+	s := search.NewSearcher(ch.DB, benchLogger, 25, 0)
 	s.RunIndexer(ctx)
 
 	q := search.SearchQuery{Query: "binary search", Limit: 25}
@@ -97,9 +126,9 @@ func BenchmarkSearchBM25(b *testing.B) {
 }
 
 func BenchmarkSearchILIKE(b *testing.B) {
+	ch := requirePerfStore(b)
 	ctx := context.Background()
-	// Searcher without FTS index forces ILIKE-only path
-	s := search.NewSearcher(sharedDB.ReadPool, benchLogger, 25, 0)
+	s := search.NewSearcher(ch.DB, benchLogger, 25, 0)
 
 	q := search.SearchQuery{Query: "database", Limit: 25}
 	b.ResetTimer()
@@ -109,13 +138,14 @@ func BenchmarkSearchILIKE(b *testing.B) {
 }
 
 func BenchmarkSearchBrowse(b *testing.B) {
+	ch := requirePerfStore(b)
 	ctx := context.Background()
-	s := search.NewSearcher(sharedDB.ReadPool, benchLogger, 25, 0)
+	s := search.NewSearcher(ch.DB, benchLogger, 25, 0)
 
 	q := search.SearchQuery{
-		Limit:     25,
+		Limit:      25,
 		EventKinds: []string{"tool_call"},
-		FromTime:  time.Now().Add(-7 * 24 * time.Hour),
+		FromTime:   time.Now().Add(-7 * 24 * time.Hour),
 	}
 	b.ResetTimer()
 	for b.Loop() {
@@ -124,26 +154,61 @@ func BenchmarkSearchBrowse(b *testing.B) {
 }
 
 func BenchmarkQueryRecentActivity(b *testing.B) {
+	ch := requirePerfStore(b)
 	ctx := context.Background()
 	b.ResetTimer()
 	for b.Loop() {
-		web.QueryRecentActivity(ctx, sharedDB.ReadPool)
+		web.QueryRecentActivity(ctx, ch.DB)
 	}
 }
 
 func BenchmarkQueryTokensTimeSeries(b *testing.B) {
+	ch := requirePerfStore(b)
 	ctx := context.Background()
 	b.ResetTimer()
 	for b.Loop() {
-		web.QueryTotalTokensTimeSeries(ctx, sharedDB.ReadPool)
+		web.QueryTotalTokensTimeSeries(ctx, ch.DB)
 	}
 }
 
 func BenchmarkQuerySessionDetail(b *testing.B) {
+	ch := requirePerfStore(b)
 	ctx := context.Background()
 	sessionID := perf.SessionIDForBench(0)
 	b.ResetTimer()
 	for b.Loop() {
-		_, _ = web.QuerySessionDetail(ctx, sharedDB.ReadPool, sessionID)
+		_, _ = web.QuerySessionDetail(ctx, ch.DB, sessionID)
+	}
+}
+
+func BenchmarkAPIDashboardJSON(b *testing.B) {
+	ch := requirePerfStore(b)
+	api := web.NewAPIHandlers(ch.DB, nil, benchLogger)
+	cases := []struct {
+		name    string
+		target  string
+		handler http.HandlerFunc
+	}{
+		{"Metrics", "/api/metrics", api.GetMetrics},
+		{"ActiveSessions", "/api/dashboard/sessions?state=active", api.GetDashboardSessions},
+		{"CompletedSessions", "/api/dashboard/sessions?state=completed&limit=30", api.GetDashboardSessions},
+		{"Activity", "/api/dashboard/activity?range=24h", api.GetActivity},
+		{"Charts", "/api/dashboard/charts", api.GetDashboardCharts},
+		{"TokensPerMinute", "/api/tokens-per-minute", api.GetTokensPerMinute},
+		{"ToolStats", "/api/tool-stats", api.GetToolStats},
+		{"TokensByModel", "/api/tokens-by-model", api.GetTokensByModel},
+	}
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			for b.Loop() {
+				req := httptest.NewRequest(http.MethodGet, tc.target, nil)
+				rec := httptest.NewRecorder()
+				tc.handler(rec, req)
+				if rec.Code != http.StatusOK {
+					b.Fatalf("%s returned %d: %s", tc.target, rec.Code, rec.Body.String())
+				}
+			}
+		})
 	}
 }

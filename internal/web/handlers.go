@@ -21,24 +21,17 @@ type Handlers struct {
 	db       *sql.DB
 	searcher *search.Searcher
 	logger   *slog.Logger
-	updater  *Updater
 }
 
 // NewHandlers creates page handlers.
-func NewHandlers(db *sql.DB, searcher *search.Searcher, logger *slog.Logger, updater *Updater) *Handlers {
-	return &Handlers{db: db, searcher: searcher, logger: logger, updater: updater}
+func NewHandlers(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) *Handlers {
+	return &Handlers{db: db, searcher: searcher, logger: logger}
 }
 
-// Dashboard renders the main dashboard page with live metrics.
+// Dashboard renders the dashboard shell; data loads through JSON APIs.
 func (h *Handlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	var data views.DashboardData
-	if snap := h.updater.Snapshot(); snap != nil {
-		data = *snap
-	} else {
-		data = QueryDashboardData(r.Context(), h.db)
-	}
-	if err := pages.Dashboard(data).Render(r.Context(), w); err != nil {
+	if err := pages.Dashboard(views.DashboardData{}).Render(r.Context(), w); err != nil {
 		h.logger.Debug("render dashboard failed", "error", err)
 	}
 	h.logger.Debug("Dashboard handler complete", "duration", time.Since(start))
@@ -182,35 +175,6 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// DashboardSessions returns paginated completed sessions as an HTMX partial.
-func (h *Handlers) DashboardSessions(w http.ResponseWriter, r *http.Request) {
-	rangeVal := r.URL.Query().Get("range")
-	since := parseRange(rangeVal)
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	if offset < 0 {
-		offset = 0
-	}
-
-	sessions, hasMore := QueryCompletedSessions(r.Context(), h.db, since, offset, defaultSessionPageSize)
-
-	if err := partials.CompletedSessionListPaginated(sessions, hasMore, rangeVal, offset, defaultSessionPageSize).Render(r.Context(), w); err != nil {
-		h.logger.Debug("render dashboard sessions failed", "error", err)
-	}
-}
-
-// DashboardSubagentSessions returns subagent rows for a parent session (HTMX partial).
-func (h *Handlers) DashboardSubagentSessions(w http.ResponseWriter, r *http.Request) {
-	parentID := chi.URLParam(r, "id")
-	if parentID == "" {
-		http.Error(w, "missing session id", http.StatusBadRequest)
-		return
-	}
-	subagents := QueryChildSessions(r.Context(), h.db, parentID)
-	if err := partials.CompletedSubagentRows(subagents, parentID).Render(r.Context(), w); err != nil {
-		h.logger.Debug("render subagent sessions failed", "error", err)
-	}
-}
-
 // formatToolCallSnippet extracts a human-readable preview from raw tool input JSON.
 // The JSON may be truncated (input_preview is capped at 320 chars), so we also
 // try regex extraction when json.Unmarshal fails.
@@ -293,30 +257,4 @@ func truncateStr(s string, max int) string {
 		return s
 	}
 	return s[:max] + "..."
-}
-
-// DashboardActivity returns activity items as an HTMX partial (24h window, no pagination).
-func (h *Handlers) DashboardActivity(w http.ResponseWriter, r *http.Request) {
-	rangeVal := r.URL.Query().Get("range")
-	since := parseRange(rangeVal)
-	// Default to 24h if no range specified
-	if since == nil {
-		t := time.Now().Add(-24 * time.Hour)
-		since = &t
-	}
-
-	var eventKinds []string
-	for _, ek := range r.URL.Query()["event_kind"] {
-		for _, k := range strings.Split(ek, ",") {
-			if k = strings.TrimSpace(k); k != "" {
-				eventKinds = append(eventKinds, k)
-			}
-		}
-	}
-
-	items := QueryRecentActivityFilteredByKind(r.Context(), h.db, since, eventKinds)
-
-	if err := partials.ActivityTimelineFull(items).Render(r.Context(), w); err != nil {
-		h.logger.Debug("render dashboard activity failed", "error", err)
-	}
 }

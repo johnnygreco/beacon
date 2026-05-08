@@ -5,59 +5,81 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/johnnygreco/beacon/internal/database"
+	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/search"
+	"github.com/johnnygreco/beacon/internal/store"
 )
 
 var testLogger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 
-func setupTestDB(t *testing.T) *database.DB {
+func setupTestStore(t *testing.T) *store.Store {
 	t.Helper()
-	db, err := database.Open("", 2)
-	if err != nil {
-		t.Fatalf("open: %v", err)
+	addr := os.Getenv("BEACON_TEST_CLICKHOUSE")
+	if addr == "" {
+		t.Skip("set BEACON_TEST_CLICKHOUSE to run ClickHouse search integration tests")
 	}
-	t.Cleanup(func() { db.Close() })
-	return db
-}
-
-func insertEvent(t *testing.T, db *database.DB, uid, sessionID, kind, text, model string) {
-	t.Helper()
-	insertEventAt(t, db, uid, sessionID, kind, text, model, time.Now())
-}
-
-func insertEventAt(t *testing.T, db *database.DB, uid, sessionID, kind, text, model string, ts time.Time) {
-	t.Helper()
-	_, err := db.WriteConn().ExecContext(context.Background(),
-		`INSERT INTO events (event_uid, session_id, event_kind, text_content, text_preview, model, timestamp)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		uid, sessionID, kind, text, text, model, ts)
+	ch, err := store.Open(t.Context(), store.Options{Addrs: []string{addr}, Database: "beacon_test", ReadPoolSize: 2})
 	if err != nil {
-		t.Fatalf("insert: %v", err)
+		t.Skipf("clickhouse unavailable: %v", err)
+	}
+	if err := store.Reset(t.Context(), ch.DB, ch.Database()); err != nil {
+		ch.Close()
+		t.Fatalf("reset: %v", err)
+	}
+	t.Cleanup(func() { ch.Close() })
+	return ch
+}
+
+func insertEvent(t *testing.T, ch *store.Store, uid, sessionID, kind, text, model string) {
+	t.Helper()
+	insertEventAt(t, ch, uid, sessionID, kind, text, model, time.Now())
+}
+
+func insertEventAt(t *testing.T, ch *store.Store, uid, sessionID, kind, text, model string, ts time.Time) {
+	t.Helper()
+	event := models.Event{
+		EventUID:     uid,
+		SessionID:    sessionID,
+		SourceName:   "test",
+		Provider:     "test",
+		EventKind:    kind,
+		Timestamp:    ts,
+		TextContent:  text,
+		TextPreview:  text,
+		Model:        model,
+		EventVersion: 1,
+		SourceFile:   "search-test",
+	}
+	err := ch.Flush(context.Background(), store.RowBatch{
+		RawRecords:     []models.RawRecord{store.NewRawRecord(event)},
+		ActivityEvents: []models.Event{event},
+	})
+	if err != nil {
+		t.Fatalf("flush: %v", err)
 	}
 }
 
 func TestNewSearcher(t *testing.T) {
-	db := setupTestDB(t)
 	logger := testLogger
-	s := search.NewSearcher(db.ReadPool, logger, 25, 0)
+	s := search.NewSearcher(nil, logger, 25, 0)
 	if s == nil {
 		t.Fatal("expected non-nil Searcher")
 	}
 }
 
 func TestSearch_NoIndex_ILIKEFallback(t *testing.T) {
-	db := setupTestDB(t)
+	ch := setupTestStore(t)
 	logger := testLogger
 
-	insertEvent(t, db, "evt-1", "sess-1", "message", "The quick brown fox jumps over the lazy dog", "gpt-4")
-	insertEvent(t, db, "evt-2", "sess-1", "message", "Hello world from the test suite", "gpt-4")
-	insertEvent(t, db, "evt-3", "sess-2", "tool_call", "Searching for something else entirely", "claude-3")
+	insertEvent(t, ch, "evt-1", "sess-1", "message", "The quick brown fox jumps over the lazy dog", "gpt-4")
+	insertEvent(t, ch, "evt-2", "sess-1", "message", "Hello world from the test suite", "gpt-4")
+	insertEvent(t, ch, "evt-3", "sess-2", "tool_call", "Searching for something else entirely", "claude-3")
 
-	s := search.NewSearcher(db.ReadPool, logger, 25, 0)
+	s := search.NewSearcher(ch.DB, logger, 25, 0)
 
 	results, err := s.Search(context.Background(), search.SearchQuery{
 		Query: "quick brown fox",
@@ -67,7 +89,7 @@ func TestSearch_NoIndex_ILIKEFallback(t *testing.T) {
 		t.Fatalf("Search error: %v", err)
 	}
 	if len(results) == 0 {
-		t.Fatal("expected at least one result from ILIKE fallback")
+		t.Fatal("expected at least one result from postings search")
 	}
 
 	found := false
@@ -83,9 +105,9 @@ func TestSearch_NoIndex_ILIKEFallback(t *testing.T) {
 }
 
 func TestSearch_EmptyDatabase(t *testing.T) {
-	db := setupTestDB(t)
+	ch := setupTestStore(t)
 	logger := testLogger
-	s := search.NewSearcher(db.ReadPool, logger, 25, 0)
+	s := search.NewSearcher(ch.DB, logger, 25, 0)
 
 	results, err := s.Search(context.Background(), search.SearchQuery{
 		Query: "anything",
@@ -100,15 +122,15 @@ func TestSearch_EmptyDatabase(t *testing.T) {
 }
 
 func TestSearch_LimitResults(t *testing.T) {
-	db := setupTestDB(t)
+	ch := setupTestStore(t)
 	logger := testLogger
 
 	for i := 0; i < 5; i++ {
-		insertEvent(t, db, fmt.Sprintf("evt-%d", i), "sess-1", "message",
+		insertEvent(t, ch, fmt.Sprintf("evt-%d", i), "sess-1", "message",
 			fmt.Sprintf("matching text number %d for search", i), "gpt-4")
 	}
 
-	s := search.NewSearcher(db.ReadPool, logger, 25, 0)
+	s := search.NewSearcher(ch.DB, logger, 25, 0)
 
 	results, err := s.Search(context.Background(), search.SearchQuery{
 		Query: "matching text",
@@ -122,10 +144,99 @@ func TestSearch_LimitResults(t *testing.T) {
 	}
 }
 
-func TestProbeIndex_NoIndex(t *testing.T) {
-	db := setupTestDB(t)
+func TestSearch_BM25RankingDeduplicatesReplayedPostings(t *testing.T) {
+	ch := setupTestStore(t)
 	logger := testLogger
-	s := search.NewSearcher(db.ReadPool, logger, 25, 0)
+
+	now := time.Now()
+	high := models.Event{
+		EventUID:     "evt-rank-high",
+		SessionID:    "sess-rank",
+		SourceName:   "test",
+		Provider:     "test",
+		EventKind:    "message",
+		Timestamp:    now,
+		TextContent:  strings.Repeat("needle ", 12) + "ranking focus",
+		TextPreview:  "needle ranking high",
+		Model:        "gpt-4",
+		EventVersion: 1,
+		SourceFile:   "search-test",
+		SourceLineNo: 1,
+		SourceOffset: 1,
+		PayloadJSON:  `{"event":"high"}`,
+		CreatedAt:    now,
+	}
+	low := models.Event{
+		EventUID:     "evt-rank-low",
+		SessionID:    "sess-rank",
+		SourceName:   "test",
+		Provider:     "test",
+		EventKind:    "message",
+		Timestamp:    now.Add(time.Second),
+		TextContent:  "needle ranking focus",
+		TextPreview:  "needle ranking low",
+		Model:        "gpt-4",
+		EventVersion: 1,
+		SourceFile:   "search-test",
+		SourceLineNo: 2,
+		SourceOffset: 2,
+		PayloadJSON:  `{"event":"low"}`,
+		CreatedAt:    now,
+	}
+	other := models.Event{
+		EventUID:     "evt-rank-other",
+		SessionID:    "sess-rank",
+		SourceName:   "test",
+		Provider:     "test",
+		EventKind:    "message",
+		Timestamp:    now.Add(2 * time.Second),
+		TextContent:  "unrelated ranking focus",
+		TextPreview:  "unrelated ranking other",
+		Model:        "gpt-4",
+		EventVersion: 1,
+		SourceFile:   "search-test",
+		SourceLineNo: 3,
+		SourceOffset: 3,
+		PayloadJSON:  `{"event":"other"}`,
+		CreatedAt:    now,
+	}
+	batch := store.RowBatch{
+		ActivityEvents: []models.Event{high, low, other},
+	}
+	for _, event := range batch.ActivityEvents {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("replay flush: %v", err)
+	}
+
+	s := search.NewSearcher(ch.DB, logger, 25, 0)
+	results, err := s.Search(context.Background(), search.SearchQuery{
+		Query: "needle",
+		Limit: 10,
+	})
+	if err != nil {
+		t.Fatalf("Search error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 needle results, got %d: %#v", len(results), results)
+	}
+	if results[0].EventUID != "evt-rank-high" {
+		t.Fatalf("expected repeated-term document first, got %s", results[0].EventUID)
+	}
+	if results[0].Score <= results[1].Score {
+		t.Fatalf("expected high-frequency document score %.4f to exceed %.4f", results[0].Score, results[1].Score)
+	}
+}
+
+func TestProbeIndex_NoIndex(t *testing.T) {
+	ch := setupTestStore(t)
+	logger := testLogger
+	s := search.NewSearcher(ch.DB, logger, 25, 0)
 
 	s.ProbeIndex()
 	if s.IndexExists() {
@@ -134,12 +245,12 @@ func TestProbeIndex_NoIndex(t *testing.T) {
 }
 
 func TestLegacySearch(t *testing.T) {
-	db := setupTestDB(t)
+	ch := setupTestStore(t)
 	logger := testLogger
 
-	insertEvent(t, db, "evt-legacy-1", "sess-1", "message", "legacy search test content", "gpt-4")
+	insertEvent(t, ch, "evt-legacy-1", "sess-1", "message", "legacy search test content", "gpt-4")
 
-	s := search.NewSearcher(db.ReadPool, logger, 25, 0)
+	s := search.NewSearcher(ch.DB, logger, 25, 0)
 
 	results, err := s.LegacySearch(context.Background(), "legacy search", 10)
 	if err != nil {
@@ -154,13 +265,13 @@ func TestLegacySearch(t *testing.T) {
 }
 
 func TestSearch_WithSessionFilter(t *testing.T) {
-	db := setupTestDB(t)
+	ch := setupTestStore(t)
 	logger := testLogger
 
-	insertEvent(t, db, "evt-a", "sess-alpha", "message", "findme in session alpha", "gpt-4")
-	insertEvent(t, db, "evt-b", "sess-beta", "message", "findme in session beta", "gpt-4")
+	insertEvent(t, ch, "evt-a", "sess-alpha", "message", "findme in session alpha", "gpt-4")
+	insertEvent(t, ch, "evt-b", "sess-beta", "message", "findme in session beta", "gpt-4")
 
-	s := search.NewSearcher(db.ReadPool, logger, 25, 0)
+	s := search.NewSearcher(ch.DB, logger, 25, 0)
 
 	results, err := s.Search(context.Background(), search.SearchQuery{
 		Query:     "findme",
@@ -179,13 +290,13 @@ func TestSearch_WithSessionFilter(t *testing.T) {
 }
 
 func TestSearch_WithEventKindFilter(t *testing.T) {
-	db := setupTestDB(t)
+	ch := setupTestStore(t)
 	logger := testLogger
 
-	insertEvent(t, db, "evt-msg", "sess-1", "message", "filterable content here", "gpt-4")
-	insertEvent(t, db, "evt-tool", "sess-1", "tool_call", "filterable content here", "gpt-4")
+	insertEvent(t, ch, "evt-msg", "sess-1", "message", "filterable content here", "gpt-4")
+	insertEvent(t, ch, "evt-tool", "sess-1", "tool_call", "filterable content here", "gpt-4")
 
-	s := search.NewSearcher(db.ReadPool, logger, 25, 0)
+	s := search.NewSearcher(ch.DB, logger, 25, 0)
 
 	results, err := s.Search(context.Background(), search.SearchQuery{
 		Query:      "filterable content",
@@ -204,16 +315,16 @@ func TestSearch_WithEventKindFilter(t *testing.T) {
 }
 
 func TestSearch_NewestSortConsistentAcrossTimeRanges(t *testing.T) {
-	db := setupTestDB(t)
+	ch := setupTestStore(t)
 	logger := testLogger
 
 	now := time.Now()
 	// Insert events at different timestamps, all matching "deploy"
-	insertEventAt(t, db, "evt-old", "sess-1", "message", "deploy to staging env", "gpt-4", now.Add(-20*24*time.Hour))
-	insertEventAt(t, db, "evt-mid", "sess-2", "message", "deploy to production env", "gpt-4", now.Add(-2*time.Hour))
-	insertEventAt(t, db, "evt-new", "sess-3", "message", "deploy hotfix to prod", "gpt-4", now.Add(-10*time.Minute))
+	insertEventAt(t, ch, "evt-old", "sess-1", "message", "deploy to staging env", "gpt-4", now.Add(-20*24*time.Hour))
+	insertEventAt(t, ch, "evt-mid", "sess-2", "message", "deploy to production env", "gpt-4", now.Add(-2*time.Hour))
+	insertEventAt(t, ch, "evt-new", "sess-3", "message", "deploy hotfix to prod", "gpt-4", now.Add(-10*time.Minute))
 
-	s := search.NewSearcher(db.ReadPool, logger, 25, 0)
+	s := search.NewSearcher(ch.DB, logger, 25, 0)
 
 	// Search with 30d range, sorted by newest
 	results30d, err := s.Search(context.Background(), search.SearchQuery{
@@ -270,15 +381,15 @@ func TestSearch_NewestSortConsistentAcrossTimeRanges(t *testing.T) {
 }
 
 func TestSearch_OldestSort(t *testing.T) {
-	db := setupTestDB(t)
+	ch := setupTestStore(t)
 	logger := testLogger
 
 	now := time.Now()
-	insertEventAt(t, db, "evt-1", "sess-1", "message", "build step one", "gpt-4", now.Add(-3*time.Hour))
-	insertEventAt(t, db, "evt-2", "sess-1", "message", "build step two", "gpt-4", now.Add(-2*time.Hour))
-	insertEventAt(t, db, "evt-3", "sess-1", "message", "build step three", "gpt-4", now.Add(-1*time.Hour))
+	insertEventAt(t, ch, "evt-1", "sess-1", "message", "build step one", "gpt-4", now.Add(-3*time.Hour))
+	insertEventAt(t, ch, "evt-2", "sess-1", "message", "build step two", "gpt-4", now.Add(-2*time.Hour))
+	insertEventAt(t, ch, "evt-3", "sess-1", "message", "build step three", "gpt-4", now.Add(-1*time.Hour))
 
-	s := search.NewSearcher(db.ReadPool, logger, 25, 0)
+	s := search.NewSearcher(ch.DB, logger, 25, 0)
 
 	results, err := s.Search(context.Background(), search.SearchQuery{
 		Query:  "build step",
@@ -300,15 +411,15 @@ func TestSearch_OldestSort(t *testing.T) {
 }
 
 func TestBrowse_SortOrder(t *testing.T) {
-	db := setupTestDB(t)
+	ch := setupTestStore(t)
 	logger := testLogger
 
 	now := time.Now()
-	insertEventAt(t, db, "evt-a", "sess-1", "message", "alpha event", "gpt-4", now.Add(-3*time.Hour))
-	insertEventAt(t, db, "evt-b", "sess-1", "message", "beta event", "gpt-4", now.Add(-2*time.Hour))
-	insertEventAt(t, db, "evt-c", "sess-1", "message", "gamma event", "gpt-4", now.Add(-1*time.Hour))
+	insertEventAt(t, ch, "evt-a", "sess-1", "message", "alpha event", "gpt-4", now.Add(-3*time.Hour))
+	insertEventAt(t, ch, "evt-b", "sess-1", "message", "beta event", "gpt-4", now.Add(-2*time.Hour))
+	insertEventAt(t, ch, "evt-c", "sess-1", "message", "gamma event", "gpt-4", now.Add(-1*time.Hour))
 
-	s := search.NewSearcher(db.ReadPool, logger, 25, 0)
+	s := search.NewSearcher(ch.DB, logger, 25, 0)
 
 	// Browse newest
 	results, err := s.Browse(context.Background(), search.SearchQuery{

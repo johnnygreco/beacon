@@ -1,13 +1,11 @@
 package main
 
 import (
-	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
-	"github.com/spf13/cobra"
 	"github.com/johnnygreco/beacon/internal/config"
+	"github.com/johnnygreco/beacon/internal/store"
+	"github.com/spf13/cobra"
 )
 
 var cfgFile string
@@ -21,6 +19,9 @@ func main() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: beacon.toml)")
 
 	rootCmd.AddCommand(
+		newUpCmd(),
+		newDownCmd(),
+		newRunCmd(),
 		newServeCmd(),
 		newWatchCmd(),
 		newMCPCmd(),
@@ -37,24 +38,62 @@ func main() {
 	}
 }
 
-func expandHome(path string) string {
-	if strings.HasPrefix(path, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, path[2:])
-		}
+func newUpCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "up",
+		Short: "Start Beacon web and capture services",
+		RunE:  runServe,
 	}
-	return path
 }
 
-// resolveDBPath resolves the database path from config with fallback default.
-func resolveDBPath(cfg *config.Config) string {
-	dbPath := cfg.Database.Path
-	if dbPath == "" {
-		dbPath = "~/.beacon/beacon.duckdb"
+func newDownCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "down",
+		Short: "Stop the running Beacon server",
+		RunE:  runStop,
 	}
-	dbPath = expandHome(dbPath)
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: cannot create database directory: %v\n", err)
+}
+
+func newRunCmd() *cobra.Command {
+	runCmd := &cobra.Command{
+		Use:   "run",
+		Short: "Run one Beacon service",
 	}
-	return dbPath
+	runCmd.AddCommand(
+		&cobra.Command{
+			Use:   "capture",
+			Short: "Run capture only",
+			RunE:  runWatch,
+		},
+		&cobra.Command{
+			Use:   "web",
+			Short: "Run web and capture services",
+			RunE:  runServe,
+		},
+		&cobra.Command{
+			Use:   "mcp",
+			Short: "Run the MCP server",
+			RunE:  runMCP,
+		},
+	)
+	return runCmd
+}
+
+func storeOptionsFromConfig(cfg *config.Config) store.Options {
+	opts := store.DefaultOptions()
+	if len(cfg.Database.Addrs) > 0 {
+		opts.Addrs = cfg.Database.Addrs
+	}
+	if cfg.Database.Database != "" {
+		opts.Database = cfg.Database.Database
+	}
+	if cfg.Database.Username != "" {
+		opts.Username = cfg.Database.Username
+	}
+	opts.Password = cfg.Database.Password
+	opts.Secure = cfg.Database.Secure
+	if cfg.Database.ReadPoolSize > 0 {
+		opts.ReadPoolSize = cfg.Database.ReadPoolSize
+	}
+	return opts
 }

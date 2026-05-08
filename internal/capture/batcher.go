@@ -1,4 +1,4 @@
-package ingestion
+package capture
 
 import (
 	"context"
@@ -9,18 +9,18 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/johnnygreco/beacon/internal/database"
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/store"
 )
 
 const previewMaxLen = 320
 
-// Batcher accumulates events and flushes them to DuckDB in batches.
+// Batcher accumulates events and flushes them to ClickHouse in table batches.
 type Batcher struct {
-	eventCh  chan BatchEvent
-	db       *database.DB
-	notify   func() // called after each flush to notify SSE broker
-	logger   *slog.Logger
+	eventCh chan BatchEvent
+	store   *store.Store
+	notify  func() // called after each flush to notify SSE broker
+	logger  *slog.Logger
 
 	batchSize     int
 	flushInterval time.Duration
@@ -29,10 +29,10 @@ type Batcher struct {
 }
 
 // NewBatcher creates a new batcher.
-func NewBatcher(db *database.DB, batchSize int, flushInterval time.Duration, defaultInput, defaultOutput float64, notify func(), logger *slog.Logger) *Batcher {
+func NewBatcher(ch *store.Store, batchSize int, flushInterval time.Duration, defaultInput, defaultOutput float64, notify func(), logger *slog.Logger) *Batcher {
 	return &Batcher{
 		eventCh:       make(chan BatchEvent, batchSize*2),
-		db:            db,
+		store:         ch,
 		notify:        notify,
 		logger:        logger,
 		batchSize:     batchSize,
@@ -87,20 +87,10 @@ func (b *Batcher) Run(ctx context.Context) {
 func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 	start := time.Now()
 
-	tx, err := b.db.WriteConn().BeginTx(ctx, nil)
-	if err != nil {
-		b.logger.Error("begin tx failed", "error", err)
-		return
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
+	var batch store.RowBatch
 
 	for _, evt := range events {
-		uid := eventUID(evt.SourceFile, evt.SourceLineNo, evt.SourceOffset, evt.RawPayload)
+		uid := eventUID(evt.SourceFile, evt.SourceLineNo, evt.SourceOffset, evt.SourceGeneration, evt.RawPayload)
 
 		// Calculate cost if not provided
 		cost := evt.CostUSD
@@ -116,7 +106,9 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 			SessionID:         evt.SessionID,
 			ParentSessionID:   evt.ParentSessionID,
 			SourceName:        evt.SourceName,
+			Runtime:           evt.Runtime,
 			Provider:          evt.Provider,
+			Format:            evt.Format,
 			EventKind:         evt.EventKind,
 			PayloadType:       evt.PayloadType,
 			ActorRole:         evt.ActorRole,
@@ -136,32 +128,28 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 			ErrorMessage:      evt.ErrorMessage,
 			EventVersion:      1,
 			PayloadJSON:       evt.RawPayload,
-			CWD:              evt.CWD,
+			CWD:               evt.CWD,
 			SourceFile:        evt.SourceFile,
 			SourceLineNo:      evt.SourceLineNo,
 			SourceOffset:      evt.SourceOffset,
+			SourceGeneration:  evt.SourceGeneration,
 		}
 
-		if err := database.InsertEventTx(ctx, tx, event); err != nil {
-			b.logger.Error("insert event failed", "uid", uid, "source", evt.SourceName, "kind", evt.EventKind, "error", err)
-			continue
-		}
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(*event))
+		batch.ActivityEvents = append(batch.ActivityEvents, *event)
 
 		// Insert event links if parent UUID exists
 		if evt.ParentUUID != "" {
-			el := &models.EventLink{
+			batch.EventLinks = append(batch.EventLinks, models.EventLink{
 				EventUID:       uid,
 				LinkedEventUID: evt.ParentUUID,
 				LinkType:       "parent",
-			}
-			if err := database.InsertEventLinkTx(ctx, tx, el); err != nil {
-				b.logger.Error("insert event link failed", "error", err)
-			}
+			})
 		}
 
-		// Insert tool I/O for tool_call/tool_result
+		// Insert tool payload for tool_call/tool_result
 		if evt.ToolPhase != "" && (evt.ToolInput != "" || evt.ToolOutput != "") {
-			tio := &models.ToolIO{
+			payload := models.ToolPayload{
 				EventUID:      uid,
 				ToolName:      evt.ToolName,
 				ToolPhase:     evt.ToolPhase,
@@ -170,24 +158,21 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 				InputPreview:  truncate(evt.ToolInput, previewMaxLen),
 				OutputPreview: truncate(evt.ToolOutput, previewMaxLen),
 			}
-			if err := database.InsertToolIOTx(ctx, tx, tio); err != nil {
-				b.logger.Error("insert tool io failed", "error", err)
-			}
+			batch.ToolPayloads = append(batch.ToolPayloads, payload)
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		b.logger.Error("commit tx failed", "error", err)
+	if err := b.store.Flush(ctx, batch); err != nil {
+		b.logger.Error("clickhouse flush failed", "error", err, "rows", len(events))
 		return
 	}
-	committed = true
 	b.logger.Debug("flushInserts complete", "rows", len(events), "duration", time.Since(start))
 }
 
 // eventUID generates a deterministic UID for idempotent replay.
-func eventUID(sourceFile string, lineNo int, offset int64, contentHash string) string {
+func eventUID(sourceFile string, lineNo int, offset int64, generation int, contentHash string) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%d|%d|%s", sourceFile, lineNo, offset, contentHash)
+	fmt.Fprintf(h, "%s|%d|%d|%d|%s", sourceFile, lineNo, offset, generation, contentHash)
 	return hex.EncodeToString(h.Sum(nil))[:32]
 }
 
