@@ -12,10 +12,10 @@ templ Dashboard(data views.DashboardData) {
 			<div id="dashboard-main" class="flex-1 flex flex-col gap-6 overflow-y-auto min-w-0 pr-0">
 				<div class="space-y-6">
 					<!-- Charts: Total Tokens Over Time + Tokens by Model -->
-						<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-							@components.ChartContainerWithOptions("dashboardTotalTokensChart", "200px", "Total Tokens Over Time", true, false)
-							@components.ChartContainerWithOptions("dashboardTokensByModelChart", "200px", "Tokens by Model", true, true)
-						</div>
+					<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+						@components.ChartContainerWithOptions("dashboardTotalTokensChart", "200px", "Total Tokens Over Time", true, false)
+						@components.ChartContainerWithOptions("dashboardTokensByModelChart", "200px", "Tokens by Model", true, true)
+					</div>
 					@templ.JSONScript("dashboard-total-tokens-data", data.TokensChart)
 					@templ.JSONScript("dashboard-tokens-by-model-data", dashboardTokensByModelData(data.TokensByModel))
 
@@ -36,7 +36,7 @@ templ Dashboard(data views.DashboardData) {
 
 					<!-- Completed Sessions Table -->
 					<div class="border-t border-gray-700/50 pt-4">
-						<div class="flex items-center justify-between mb-4">
+						<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
 							<div class="flex items-center gap-2">
 								<span class="text-xs text-gray-500">Time Range</span>
 								<button type="button" onclick="setDashboardRange(this, '')" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
@@ -77,9 +77,9 @@ templ Dashboard(data views.DashboardData) {
 										<th class="text-right py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="ended" onclick="sortCompletedTable(this, 'ended')">
 											Ended <span class="sort-arrow active">▼</span>
 										</th>
-									<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="id" onclick="sortCompletedTable(this, 'id')">
-										Session ID <span class="sort-arrow">▼</span>
-									</th>
+										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="id" onclick="sortCompletedTable(this, 'id')">
+											Session ID <span class="sort-arrow">▼</span>
+										</th>
 									</tr>
 								</thead>
 								<tbody id="completed-sessions">
@@ -106,10 +106,10 @@ templ Dashboard(data views.DashboardData) {
 					<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Activity Timeline <span class="text-gray-600 normal-case">(24h)</span></h2>
 				</div>
 				<div class="flex items-center gap-1.5 px-4 py-2 border-b border-gray-700/50 flex-shrink-0">
-					<button onclick="filterActivity(this, 'all')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
-					<button onclick="filterActivity(this, 'message')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Messages</button>
-					<button onclick="filterActivity(this, 'tool_call')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Tools</button>
-					<button onclick="filterActivity(this, 'error')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Errors</button>
+					<button type="button" onclick="filterActivity(this, 'all')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
+					<button type="button" onclick="filterActivity(this, 'message')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Messages</button>
+					<button type="button" onclick="filterActivity(this, 'tool_call')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Tools</button>
+					<button type="button" onclick="filterActivity(this, 'error')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Errors</button>
 				</div>
 				<div id="activity-feed" class="overflow-y-auto flex-1 min-h-0">
 					<p class="text-sm text-gray-500 text-center py-4">Loading activity...</p>
@@ -124,7 +124,7 @@ templ Dashboard(data views.DashboardData) {
 					</div>
 					<div class="flex items-center gap-2">
 						<a id="inspector-full-link" href="#" class="text-xs px-2 py-1 rounded border border-gray-700 text-gray-400 hover:text-gray-200">Full Page</a>
-						<button type="button" onclick="closeSessionInspector()" class="text-gray-500 hover:text-gray-200" title="Close">✕</button>
+						<button type="button" onclick="closeSessionInspector()" class="text-gray-500 hover:text-gray-200" title="Close" aria-label="Close">✕</button>
 					</div>
 				</div>
 				<div id="inspector-summary" class="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 border-b border-gray-800 text-sm"></div>
@@ -142,6 +142,8 @@ templ Dashboard(data views.DashboardData) {
 			var sessionsStore = [];
 			var sessionsLoaded = false;
 			var selectedSessionId = '';
+			var inspectorSeq = 0;
+			var inspectorController = null;
 			var inspector = document.getElementById('session-inspector');
 			var title = document.getElementById('inspector-title');
 			var subtitle = document.getElementById('inspector-subtitle');
@@ -209,23 +211,39 @@ templ Dashboard(data views.DashboardData) {
 			}
 
 			async function openSessionInspector(id) {
+				var seq = ++inspectorSeq;
+				if (inspectorController) {
+					inspectorController.abort();
+				}
+				inspectorController = window.AbortController ? new AbortController() : null;
 				selectedSessionId = id;
 				inspector.classList.remove('hidden');
 				events.innerHTML = '<div class="text-sm text-gray-500">Loading events...</div>';
 				renderSummary(null);
 				try {
 					await loadSessions();
+					if (seq !== inspectorSeq) return;
 					renderSummary(sessionsStore.find(function(s) { return s.id === id; }));
-					var res = await fetch('/api/sessions/' + encodeURIComponent(id) + '/events?limit=200', {headers: {'Accept': 'application/json'}});
+					var fetchOpts = {headers: {'Accept': 'application/json'}};
+					if (inspectorController) fetchOpts.signal = inspectorController.signal;
+					var res = await fetch('/api/sessions/' + encodeURIComponent(id) + '/events?limit=200', fetchOpts);
 					if (!res.ok) throw new Error('events failed');
 					var items = await res.json();
+					if (seq !== inspectorSeq) return;
 					events.innerHTML = items.length ? items.map(eventRow).join('') : '<div class="text-sm text-gray-500">No events</div>';
 				} catch (err) {
+					if (err && err.name === 'AbortError') return;
+					if (seq !== inspectorSeq) return;
 					events.innerHTML = '<div class="text-sm text-red-400">Unable to load session</div>';
 				}
 			}
 
 			window.closeSessionInspector = function() {
+				inspectorSeq++;
+				if (inspectorController) {
+					inspectorController.abort();
+					inspectorController = null;
+				}
 				inspector.classList.add('hidden');
 				selectedSessionId = '';
 			};
@@ -270,6 +288,13 @@ templ Dashboard(data views.DashboardData) {
 						target.textContent = 'Payload unavailable';
 					});
 			}, true);
+
+			document.addEventListener('keydown', function(evt) {
+				if (evt.key === 'Escape' && !inspector.classList.contains('hidden')) {
+					evt.preventDefault();
+					window.closeSessionInspector();
+				}
+			});
 		})();
 
 		// --- Sidebar drag-to-resize ---
@@ -423,6 +448,8 @@ templ Dashboard(data views.DashboardData) {
 		var currentRange = '';
 		var currentCompletedOffset = 0;
 		var completedPageSize = 30;
+		var dashboardRequestSeq = {};
+		var dashboardControllers = {};
 		window.dashboardSessionIndex = window.dashboardSessionIndex || {};
 
 		function escapeHTML(value) {
@@ -502,12 +529,47 @@ templ Dashboard(data views.DashboardData) {
 			return session.title || shortID(session.id) || 'Session';
 		}
 
+		function setHTMLIfChanged(el, html) {
+			if (!el) return false;
+			if (el.__beaconRenderSignature === html) return false;
+			el.innerHTML = html;
+			el.__beaconRenderSignature = html;
+			return true;
+		}
+
+		async function fetchDashboardJSON(key, url) {
+			dashboardRequestSeq[key] = (dashboardRequestSeq[key] || 0) + 1;
+			var seq = dashboardRequestSeq[key];
+			if (dashboardControllers[key]) {
+				dashboardControllers[key].abort();
+			}
+			var controller = window.AbortController ? new AbortController() : null;
+			dashboardControllers[key] = controller;
+			try {
+				var opts = {headers: {'Accept': 'application/json'}};
+				if (controller) opts.signal = controller.signal;
+				var res = await fetch(url, opts);
+				if (dashboardRequestSeq[key] !== seq || !res.ok) return null;
+				var data = await res.json();
+				if (dashboardRequestSeq[key] !== seq) return null;
+				return data;
+			} catch (err) {
+				if (err && err.name === 'AbortError') return null;
+				return null;
+			} finally {
+				if (dashboardControllers[key] === controller) {
+					dashboardControllers[key] = null;
+				}
+			}
+		}
+
 		function completedRow(session, isSubagent, parentID) {
 			var rowClass = isSubagent ? 'border-b border-gray-800/50 cursor-pointer transition-colors bg-gray-800/20' : 'border-b border-gray-800/50 cursor-pointer transition-colors';
 			var nameCellClass = isSubagent ? 'py-1.5 px-3 text-sm text-gray-400 whitespace-nowrap pl-10' : 'py-2 px-3 text-sm text-gray-300 whitespace-nowrap';
+			var mobileMeta = formatTokens(session.total_tokens) + ' tok · ' + Number(session.turn_count || 0) + ' turns · ' + Number(session.tool_call_count || 0) + ' tools · ' + (session.duration || relativeTime(session.ended_at));
 			var toggle = '';
 			if (!isSubagent && session.subagent_count > 0) {
-				toggle = '<button type="button" class="json-subagent-toggle text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0" data-session-id="' + escapeAttr(session.id) + '" title="' + session.subagent_count + ' subagents"><svg class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg></button>';
+				toggle = '<button type="button" class="json-subagent-toggle text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0" data-session-id="' + escapeAttr(session.id) + '" title="' + session.subagent_count + ' subagents" aria-label="Toggle subagents" aria-expanded="false"><svg class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg></button>';
 			}
 			var subPrefix = isSubagent ? '<span class="w-1.5 h-1.5 rounded-full bg-blue-400/50 flex-shrink-0"></span><span class="text-blue-400/70 text-xs">sub</span>' : '';
 			var subCount = !isSubagent && session.subagent_count > 0 ? '<span class="text-[10px] text-blue-400/60 font-normal">+' + session.subagent_count + ' sub</span>' : '';
@@ -523,7 +585,7 @@ templ Dashboard(data views.DashboardData) {
 				' data-sort-ended="' + Math.floor(new Date(session.ended_at || 0).getTime() / 1000 || 0) + '"' +
 				' data-sort-id="' + escapeAttr(session.id) + '"';
 			return '<tr' + attrs + ' data-session-link="/sessions/' + encodeURIComponent(session.id) + '" class="' + rowClass + '">' +
-				'<td class="' + nameCellClass + '"><span class="inline-flex items-center gap-1.5">' + toggle + subPrefix + '<span>' + escapeHTML(sessionTitle(session)) + '</span>' + subCount + '</span></td>' +
+				'<td class="' + nameCellClass + '"><span class="inline-flex items-center gap-1.5">' + toggle + subPrefix + '<span>' + escapeHTML(sessionTitle(session)) + '</span>' + subCount + '</span><span class="mobile-session-meta hidden">' + escapeHTML(mobileMeta) + '</span></td>' +
 				'<td class="py-2 px-3 text-xs whitespace-nowrap">' + (isSubagent ? '' : providerBadge(session.provider)) + '</td>' +
 				'<td class="py-2 px-3 text-xs text-gray-400">' + escapeHTML(shortModel(session.last_model || '')) + '</td>' +
 				'<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums">' + formatTokens(session.total_tokens) + '</td>' +
@@ -547,8 +609,8 @@ templ Dashboard(data views.DashboardData) {
 			if (rows.length === 0) {
 				rows.push('<tr><td colspan="10" class="text-center py-4"><span class="text-sm text-gray-500">No completed sessions<\/span><\/td><\/tr>');
 			}
-			tbody.innerHTML = rows.join('');
-			if (sortColumn) {
+			var changed = setHTMLIfChanged(tbody, rows.join(''));
+			if (changed && sortColumn) {
 				var th = document.querySelector('#completed-table th[data-sort-key="' + sortColumn + '"]');
 				if (th) sortCompletedTable(th, sortColumn, true);
 			}
@@ -563,7 +625,7 @@ templ Dashboard(data views.DashboardData) {
 			if (!cards) {
 				cards = '<div class="text-center py-6 col-span-full"><p class="text-sm text-gray-500">No active sessions</p><p class="text-xs text-gray-600 mt-1">Sessions appear here when agents are running</p></div>';
 			}
-			wrap.innerHTML = '<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">' + dot + 'Active Sessions ' + count + '</h2><div class="grid grid-cols-1 lg:grid-cols-2 gap-3">' + cards + '</div>';
+			setHTMLIfChanged(wrap, '<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">' + dot + 'Active Sessions ' + count + '</h2><div class="grid grid-cols-1 lg:grid-cols-2 gap-3">' + cards + '</div>');
 		}
 
 		function activeCard(session) {
@@ -614,15 +676,15 @@ templ Dashboard(data views.DashboardData) {
 		function renderActivity(items) {
 			var feed = document.getElementById('activity-feed');
 			if (!items || items.length === 0) {
-				feed.innerHTML = '<p class="text-sm text-gray-500 text-center py-4">No recent activity</p>';
+				setHTMLIfChanged(feed, '<p class="text-sm text-gray-500 text-center py-4">No recent activity</p>');
 				return;
 			}
-			feed.innerHTML = '<div class="relative pl-8"><div class="absolute left-3 top-0 bottom-0 w-px bg-gray-700"></div>' + items.map(function(item) {
+			setHTMLIfChanged(feed, '<div class="relative pl-8"><div class="absolute left-3 top-0 bottom-0 w-px bg-gray-700"></div>' + items.map(function(item) {
 				var url = '/sessions/' + encodeURIComponent(item.session_id || '') + '#' + encodeURIComponent(item.id || '');
 				var provider = item.provider ? '<span class="px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 ' + providerBadgeClasses(item.provider) + '">' + escapeHTML(providerShort(item.provider)) + '</span>' : '';
 				var sid = item.session_id ? '<span class="text-xs text-gray-600 font-mono flex-shrink-0">' + escapeHTML(shortID(item.session_id)) + '</span>' : '';
 				return '<a href="' + url + '" data-type="' + escapeAttr(item.type) + '" class="block relative py-2 pl-4 hover:bg-gray-800/50 rounded-lg transition-colors group"><div class="absolute left-[-8px] top-3.5 w-2.5 h-2.5 rounded-full ring-2 ring-gray-900 ' + activityDotColor(item.type) + '"></div><p class="text-sm text-gray-300 group-hover:text-gray-100 transition-colors mb-1">' + escapeHTML(item.summary) + '</p><div class="flex items-center gap-2 flex-wrap"><span class="px-1.5 py-0.5 rounded text-xs flex-shrink-0 ' + activityBadgeStyle(item.type) + '">' + escapeHTML(activityLabel(item.type)) + '</span>' + provider + sid + '<span class="text-xs text-gray-600 flex-shrink-0">' + escapeHTML(item.relative_time || relativeTime(item.timestamp)) + '</span></div></a>';
-			}).join('') + '</div>';
+			}).join('') + '</div>');
 		}
 
 		function updateMultiSeriesChart(chart, payload) {
@@ -662,17 +724,15 @@ templ Dashboard(data views.DashboardData) {
 		}
 
 		async function loadDashboardCharts() {
-			var res = await fetch('/api/dashboard/charts', {headers: {'Accept': 'application/json'}});
-			if (!res.ok) return;
-			var data = await res.json();
+			var data = await fetchDashboardJSON('charts', '/api/dashboard/charts');
+			if (!data) return;
 			updateMultiSeriesChart(window.dashboardTotalTokensChart, data.total_tokens);
 			updateTokensByModelChart(data.tokens_by_model);
 		}
 
 		async function loadActiveSessions() {
-			var res = await fetch('/api/dashboard/sessions?state=active', {headers: {'Accept': 'application/json'}});
-			if (!res.ok) return;
-			var data = await res.json();
+			var data = await fetchDashboardJSON('active', '/api/dashboard/sessions?state=active');
+			if (!data) return;
 			rememberSessions(data.items);
 			renderActive(data);
 		}
@@ -680,9 +740,8 @@ templ Dashboard(data views.DashboardData) {
 		async function loadCompletedSessions(offset) {
 			currentCompletedOffset = Math.max(0, offset || 0);
 			var url = '/api/dashboard/sessions?state=completed&limit=' + completedPageSize + '&offset=' + currentCompletedOffset + '&range=' + encodeURIComponent(currentRange);
-			var res = await fetch(url, {headers: {'Accept': 'application/json'}});
-			if (!res.ok) return;
-			var data = await res.json();
+			var data = await fetchDashboardJSON('completed', url);
+			if (!data) return;
 			rememberSessions(data.items);
 			renderCompleted(data);
 		}
@@ -692,9 +751,9 @@ templ Dashboard(data views.DashboardData) {
 			if (currentActivityFilter !== 'all') {
 				url += '&event_kind=' + encodeURIComponent(currentActivityFilter === 'error' ? 'error,tool_error' : currentActivityFilter);
 			}
-			var res = await fetch(url, {headers: {'Accept': 'application/json'}});
-			if (!res.ok) return;
-			renderActivity(await res.json());
+			var data = await fetchDashboardJSON('activity', url);
+			if (!data) return;
+			renderActivity(data);
 		}
 
 		function filterActivity(btn, type) {
@@ -730,12 +789,15 @@ templ Dashboard(data views.DashboardData) {
 				var hidden = existing[0].classList.contains('hidden');
 				existing.forEach(function(row) { row.classList.toggle('hidden'); });
 				button.querySelector('svg').style.transform = hidden ? 'rotate(90deg)' : '';
+				button.setAttribute('aria-expanded', hidden ? 'true' : 'false');
 				return;
 			}
 			button.querySelector('svg').style.transform = 'rotate(90deg)';
+			button.setAttribute('aria-expanded', 'true');
 			var res = await fetch('/api/sessions/' + encodeURIComponent(sessionID) + '/subagents', {headers: {'Accept': 'application/json'}});
 			if (!res.ok) {
 				button.querySelector('svg').style.transform = '';
+				button.setAttribute('aria-expanded', 'false');
 				return;
 			}
 			var items = await res.json();

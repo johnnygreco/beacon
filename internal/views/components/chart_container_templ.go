@@ -154,51 +154,64 @@ func ChartContainerWithOptions(id string, height string, title string, logToggle
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\">Log Scale</button>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "\" aria-pressed=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var10 string
+			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(defaultLog))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/chart_container.templ`, Line: 23, Col: 50}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\">Log Scale</button>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div><div style=\"")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var10 string
-		templ_7745c5c3_Var10, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("position:relative;height:" + height)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/chart_container.templ`, Line: 28, Col: 51}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\"><canvas id=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</div><div style=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var11 string
-		templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(id)
+		templ_7745c5c3_Var11, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("position:relative;height:" + height)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/chart_container.templ`, Line: 29, Col: 18}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/chart_container.templ`, Line: 29, Col: 51}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\" data-default-log=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\"><canvas id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var12 string
-		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(defaultLog))
+		templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(id)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/chart_container.templ`, Line: 29, Col: 70}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/chart_container.templ`, Line: 30, Col: 18}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "\"></canvas></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "\" data-default-log=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var13 string
+		templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.FormatBool(defaultLog))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/chart_container.templ`, Line: 30, Col: 70}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\"></canvas></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -208,15 +221,15 @@ func ChartContainerWithOptions(id string, height string, title string, logToggle
 
 func logToggleClass(active bool) string {
 	if active {
-		return "log-scale-toggle px-2 py-1 text-xs rounded border bg-blue-500/20 text-blue-400 border-blue-500/40 hover:text-blue-300 transition-colors"
+		return "log-scale-toggle px-2 py-1 text-xs rounded border bg-blue-500/20 text-blue-400 border-blue-500/40 hover:text-blue-300 transition-colors whitespace-nowrap"
 	}
-	return "log-scale-toggle px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+	return "log-scale-toggle px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors whitespace-nowrap"
 }
 
 func toggleLogScale(chartId string) templ.ComponentScript {
 	return templ.ComponentScript{
-		Name: `__templ_toggleLogScale_7bc4`,
-		Function: `function __templ_toggleLogScale_7bc4(chartId){var chart = window[chartId];
+		Name: `__templ_toggleLogScale_94ab`,
+		Function: `function __templ_toggleLogScale_94ab(chartId){var chart = window[chartId];
 	if (!chart) return;
 	var btn = document.getElementById(chartId + '-log-toggle');
 	var isLog = btn.getAttribute('data-log-active') === 'true';
@@ -227,8 +240,9 @@ func toggleLogScale(chartId string) templ.ComponentScript {
 	} else {
 		delete chart.options.scales.y.min;
 	}
-	chart.update();
+	chart.update('none');
 	btn.setAttribute('data-log-active', String(!isLog));
+	btn.setAttribute('aria-pressed', String(!isLog));
 	if (!isLog) {
 		btn.classList.add('bg-blue-500/20', 'text-blue-400', 'border-blue-500/40');
 		btn.classList.remove('text-gray-400', 'border-gray-600');
@@ -237,8 +251,8 @@ func toggleLogScale(chartId string) templ.ComponentScript {
 		btn.classList.add('text-gray-400', 'border-gray-600');
 	}
 }`,
-		Call:       templ.SafeScript(`__templ_toggleLogScale_7bc4`, chartId),
-		CallInline: templ.SafeScriptInline(`__templ_toggleLogScale_7bc4`, chartId),
+		Call:       templ.SafeScript(`__templ_toggleLogScale_94ab`, chartId),
+		CallInline: templ.SafeScriptInline(`__templ_toggleLogScale_94ab`, chartId),
 	}
 }
 

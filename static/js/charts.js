@@ -8,6 +8,7 @@ const darkTheme = {
 
 Chart.defaults.color = darkTheme.color;
 Chart.defaults.borderColor = darkTheme.borderColor;
+Chart.defaults.animation = false;
 
 const timeScaleOptions = {
   type: 'time',
@@ -113,7 +114,7 @@ function loadMultiSeriesFromJSON(chartName, dataId) {
           chart.data.datasets[i].data = ds.Values || ds.values || ds.data || [];
         }
       });
-      chart.update();
+      chart.update('none');
     }
   } catch(e) {}
 }
@@ -187,6 +188,22 @@ function getModelProvider(fullData, index) {
   return '';
 }
 
+function modelFilterSignature(fullData) {
+  return JSON.stringify({
+    labels: fullData.labels || [],
+    groups: fullData.providerGroups || [],
+    datasets: (fullData.datasets || []).map(function(ds) { return ds.label; })
+  });
+}
+
+function modelProviderMap(fullData) {
+  var providerMap = {};
+  (fullData.labels || []).forEach(function(label, i) {
+    providerMap[label] = getModelProvider(fullData, i);
+  });
+  return providerMap;
+}
+
 function setupModelFilters(chartName, dataEl) {
   var chart = window[chartName];
   if (!chart || !dataEl) return;
@@ -195,8 +212,26 @@ function setupModelFilters(chartName, dataEl) {
   try { fullData = JSON.parse(dataEl.textContent); } catch(e) { return; }
   if (!fullData.labels || fullData.labels.length <= 1) return;
 
-  // Clean up previous dropdown if re-initialized
+  var signature = modelFilterSignature(fullData);
   var existing = document.getElementById(chartName + '-model-dropdown');
+  if (existing && chart._modelFilterSignature === signature) {
+    chart._fullModelData = fullData;
+    chart._hadMultipleProviders = fullData.providerGroups && fullData.providerGroups.length > 1;
+    chart._modelProviderMap = modelProviderMap(fullData);
+    if (chart._activeModels) {
+      var validLabels = new Set(fullData.labels);
+      chart._activeModels = new Set(Array.from(chart._activeModels).filter(function(label) {
+        return validLabels.has(label);
+      }));
+    }
+    syncDropdownState(chartName);
+    if (chart._activeModels && chart._activeModels.size < fullData.labels.length) {
+      rebuildModelChart(chartName);
+    }
+    return;
+  }
+
+  // Clean up previous dropdown if re-initialized
   if (existing) {
     if (chart._modelFilterCloseHandler) {
       document.removeEventListener('click', chart._modelFilterCloseHandler);
@@ -206,11 +241,9 @@ function setupModelFilters(chartName, dataEl) {
 
   // Store full data and build provider map
   chart._fullModelData = fullData;
+  chart._modelFilterSignature = signature;
   chart._hadMultipleProviders = fullData.providerGroups && fullData.providerGroups.length > 1;
-  var providerMap = {};
-  fullData.labels.forEach(function(label, i) {
-    providerMap[label] = getModelProvider(fullData, i);
-  });
+  var providerMap = modelProviderMap(fullData);
   chart._modelProviderMap = providerMap;
 
   // Load saved hidden models from localStorage
@@ -459,7 +492,7 @@ function rebuildModelChart(chartName) {
     pgh.groups = (newGroups.length > 1 || (newGroups.length === 1 && chart._hadMultipleProviders)) ? newGroups : [];
   }
 
-  chart.update();
+  chart.update('none');
 }
 
 function saveModelFilterState(chartName) {
@@ -548,7 +581,7 @@ if (dashboardByModelEl) {
       window.dashboardTokensByModelChart = createTokensByModelChart(dashboardByModelEl, dashboardModelDataEl);
       if (window.dashboardTokensByModelChart) {
         applyDefaultLog(window.dashboardTokensByModelChart, dashboardByModelEl);
-        window.dashboardTokensByModelChart.update();
+        window.dashboardTokensByModelChart.update('none');
       }
     } catch(e) {}
     setupModelFilters('dashboardTokensByModelChart', dashboardModelDataEl);
@@ -575,7 +608,7 @@ if (sessionTokensByModelEl) {
       window.sessionTokensByModelChart = createTokensByModelChart(sessionTokensByModelEl, sessionModelDataEl);
       if (window.sessionTokensByModelChart) {
         applyDefaultLog(window.sessionTokensByModelChart, sessionTokensByModelEl);
-        window.sessionTokensByModelChart.update();
+        window.sessionTokensByModelChart.update('none');
       }
     } catch(e) {}
     setupModelFilters('sessionTokensByModelChart', sessionModelDataEl);
