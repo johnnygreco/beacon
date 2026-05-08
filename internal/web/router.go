@@ -25,6 +25,9 @@ func NewRouter(
 	// Static files
 	fileServer := http.FileServer(http.FS(staticFS))
 	r.Handle("/static/*", http.StripPrefix("/static/", fileServer))
+	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/static/favicon.svg", http.StatusFound)
+	})
 
 	// Page routes (templ rendered)
 	r.Get("/", handlers.Dashboard)

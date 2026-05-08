@@ -77,6 +77,7 @@ func TestChartDatasetJSONTags(t *testing.T) {
 }
 
 func TestRelativeTime(t *testing.T) {
+	old := time.Now().Add(-45 * 24 * time.Hour)
 	tests := []struct {
 		name     string
 		input    time.Time
@@ -87,6 +88,7 @@ func TestRelativeTime(t *testing.T) {
 		{"minutes ago", time.Now().Add(-3 * time.Minute), "3m ago"},
 		{"hours ago", time.Now().Add(-2 * time.Hour), "2h ago"},
 		{"days ago", time.Now().Add(-48 * time.Hour), "2d ago"},
+		{"older dates use absolute time", old, FormatTime(old)},
 	}
 
 	for _, tt := range tests {
@@ -96,6 +98,18 @@ func TestRelativeTime(t *testing.T) {
 				t.Errorf("RelativeTime() = %q, want %q", got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestFormatTimeCompactIncludesYearForOldSessions(t *testing.T) {
+	old := time.Date(2001, time.February, 3, 4, 5, 0, 0, time.Local)
+	if got, want := FormatTimeCompact(old), "2/3/2001 4:05 AM"; got != want {
+		t.Fatalf("FormatTimeCompact(old) = %q, want %q", got, want)
+	}
+
+	recent := time.Date(time.Now().Year(), time.March, 7, 15, 4, 0, 0, time.Local)
+	if got, want := FormatTimeCompact(recent), "3/7 3:04 PM"; got != want {
+		t.Fatalf("FormatTimeCompact(recent) = %q, want %q", got, want)
 	}
 }
 
