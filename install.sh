@@ -2,11 +2,24 @@
 # Usage:
 #   Latest:     curl -sSfL https://johnnygreco.dev/beacon/install.sh | sh
 #   Pinned:     curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=0.1.0 sh
+#   No DB dep:  curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_CLICKHOUSE=0 sh
 #   Uninstall:  curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
 set -euo pipefail
 
 REPO="johnnygreco/beacon"
 INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
+BEACON_HOME="${BEACON_HOME:-${HOME}/.beacon}"
+CLICKHOUSE_INSTALL_DIR="${CLICKHOUSE_INSTALL_DIR:-${BEACON_HOME}/bin}"
+INSTALL_CLICKHOUSE="${INSTALL_CLICKHOUSE:-1}"
+if [ -z "${CLICKHOUSE_VERSION:-}" ]; then
+    if [ -n "${CLICKHOUSE_TAG:-}" ]; then
+        CLICKHOUSE_VERSION="${CLICKHOUSE_TAG#v}"
+        CLICKHOUSE_VERSION="${CLICKHOUSE_VERSION%%-*}"
+    else
+        CLICKHOUSE_VERSION="24.12.6.70"
+    fi
+fi
+CLICKHOUSE_TAG="${CLICKHOUSE_TAG:-v${CLICKHOUSE_VERSION}-stable}"
 
 # Uninstall
 if [ "${UNINSTALL:-}" = "1" ]; then
@@ -44,6 +57,62 @@ case "$ARCH" in
     *)             echo "Error: unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
+install_clickhouse() {
+    if [ "$INSTALL_CLICKHOUSE" = "0" ]; then
+        echo "Skipping ClickHouse install because INSTALL_CLICKHOUSE=0"
+        return 0
+    fi
+
+    if command -v clickhouse >/dev/null 2>&1; then
+        echo "ClickHouse already available at $(command -v clickhouse)"
+        return 0
+    fi
+
+    clickhouse_bin="${CLICKHOUSE_INSTALL_DIR}/clickhouse"
+    if [ -x "$clickhouse_bin" ]; then
+        echo "ClickHouse already installed to ${clickhouse_bin}"
+        return 0
+    fi
+
+    mkdir -p "$CLICKHOUSE_INSTALL_DIR"
+    echo "Installing ClickHouse ${CLICKHOUSE_TAG}..."
+
+    case "$OS" in
+        darwin)
+            clickhouse_asset="clickhouse-macos"
+            if [ "$ARCH" = "arm64" ]; then
+                clickhouse_asset="clickhouse-macos-aarch64"
+            fi
+            clickhouse_url="https://github.com/ClickHouse/ClickHouse/releases/download/${CLICKHOUSE_TAG}/${clickhouse_asset}"
+            curl -sSfL "$clickhouse_url" -o "${tmp_dir}/clickhouse"
+            chmod 755 "${tmp_dir}/clickhouse"
+            mv "${tmp_dir}/clickhouse" "$clickhouse_bin"
+            ;;
+        linux)
+            clickhouse_asset="clickhouse-common-static-${CLICKHOUSE_VERSION}-${ARCH}.tgz"
+            clickhouse_url="https://github.com/ClickHouse/ClickHouse/releases/download/${CLICKHOUSE_TAG}/${clickhouse_asset}"
+            clickhouse_extract_dir="${tmp_dir}/clickhouse-extract"
+            mkdir -p "$clickhouse_extract_dir"
+            curl -sSfL "$clickhouse_url" -o "${tmp_dir}/${clickhouse_asset}"
+            tar -xzf "${tmp_dir}/${clickhouse_asset}" -C "$clickhouse_extract_dir"
+            extracted_bin="$(find "$clickhouse_extract_dir" -type f -path '*/usr/bin/clickhouse' -print -quit)"
+            if [ -z "$extracted_bin" ]; then
+                echo "Error: could not find clickhouse binary in ${clickhouse_asset}"
+                exit 1
+            fi
+            chmod 755 "$extracted_bin"
+            mv "$extracted_bin" "$clickhouse_bin"
+            ;;
+        *)
+            echo "Error: unsupported OS for ClickHouse install: $OS"
+            exit 1
+            ;;
+    esac
+
+    echo "$CLICKHOUSE_TAG" > "${clickhouse_bin}.version"
+    echo "ClickHouse ${CLICKHOUSE_TAG} installed to ${clickhouse_bin}"
+}
+
 # Use provided version or fetch latest
 if [ -z "${VERSION:-}" ]; then
     VERSION="$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)"
@@ -73,6 +142,8 @@ mkdir -p "$INSTALL_DIR"
 mv "${tmp_dir}/beacon" "${INSTALL_DIR}/beacon"
 
 echo "beacon ${VERSION} installed to ${INSTALL_DIR}/beacon"
+
+install_clickhouse
 
 # Check if INSTALL_DIR is in PATH
 case ":$PATH:" in

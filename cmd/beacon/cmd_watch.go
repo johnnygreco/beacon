@@ -31,7 +31,12 @@ func runWatch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	ch, err := store.Open(context.Background(), storeOptionsFromConfig(cfg))
+	storeOpts := storeOptionsFromConfig(cfg)
+	if err := ensureLocalClickHouse(storeOpts); err != nil {
+		return fmt.Errorf("starting clickhouse: %w", err)
+	}
+
+	ch, err := store.Open(context.Background(), storeOpts)
 	if err != nil {
 		return fmt.Errorf("opening clickhouse store: %w", err)
 	}

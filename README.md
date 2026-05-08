@@ -33,11 +33,13 @@ Keep a signal on your long-running AI coding agents. Beacon gives you a live das
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | sh
 ```
 
-By default the binary is placed in `~/.local/bin`. Set `INSTALL_DIR` to change it:
+By default the Beacon binary is placed in `~/.local/bin`, and the installer also provisions a managed ClickHouse binary under `~/.beacon/bin` when ClickHouse is not already available. Set `INSTALL_DIR` to change where `beacon` is installed:
 
 ```bash
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_DIR=/usr/local/bin sh
 ```
+
+Set `INSTALL_CLICKHOUSE=0` if you already manage ClickHouse yourself and only want the Beacon binary.
 
 To uninstall:
 
@@ -48,16 +50,15 @@ curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
 ## Quick start
 
 ```bash
-beacon db up
 beacon up
 ```
 
 The dashboard opens at [http://localhost:4600](http://localhost:4600). Beacon captures Claude Code and Codex sessions automatically from the configured sources.
-`beacon db up` uses an already-running ClickHouse when available, otherwise it can start a local `clickhouse` binary or a Docker container.
+On first run, `beacon up` starts local ClickHouse automatically when the configured database address is local. `beacon db up` and `beacon db down` are available when you want to manage the database lifecycle explicitly.
 
 ### Build from source
 
-Requires Go 1.24+ and one ClickHouse option: a local `clickhouse` binary, Docker, or an already-running ClickHouse server.
+Requires Go 1.24+. For local runs, you also need a ClickHouse runtime: a local `clickhouse` binary, Docker, or an already-running ClickHouse server.
 
 ```bash
 git clone https://github.com/johnnygreco/beacon.git

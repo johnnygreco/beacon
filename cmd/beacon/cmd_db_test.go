@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -62,6 +64,73 @@ func TestNativeClickHouseHostPort(t *testing.T) {
 			}
 			if host != tt.wantHost || port != tt.wantPort {
 				t.Fatalf("got %s:%d, want %s:%d", host, port, tt.wantHost, tt.wantPort)
+			}
+		})
+	}
+}
+
+func TestClickHouseBinaryUsesEnvOverride(t *testing.T) {
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "clickhouse")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatalf("write clickhouse fixture: %v", err)
+	}
+	t.Setenv("BEACON_CLICKHOUSE_BIN", bin)
+	t.Setenv("PATH", filepath.Join(tmp, "empty"))
+
+	got, err := clickHouseBinary()
+	if err != nil {
+		t.Fatalf("clickHouseBinary returned error: %v", err)
+	}
+	if got != bin {
+		t.Fatalf("got %q, want %q", got, bin)
+	}
+}
+
+func TestClickHouseBinaryUsesManagedInstall(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, ".beacon", "bin", "clickhouse")
+	if err := os.MkdirAll(filepath.Dir(bin), 0755); err != nil {
+		t.Fatalf("create managed bin dir: %v", err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatalf("write managed clickhouse fixture: %v", err)
+	}
+	t.Setenv("BEACON_CLICKHOUSE_BIN", "")
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", filepath.Join(home, "empty"))
+
+	got, err := clickHouseBinary()
+	if err != nil {
+		t.Fatalf("clickHouseBinary returned error: %v", err)
+	}
+	if got != bin {
+		t.Fatalf("got %q, want %q", got, bin)
+	}
+}
+
+func TestShouldAutoStartClickHouse(t *testing.T) {
+	tests := []struct {
+		name  string
+		addrs []string
+		want  bool
+	}{
+		{name: "empty defaults to local", want: true},
+		{name: "loopback", addrs: []string{"127.0.0.1:9000"}, want: true},
+		{name: "localhost", addrs: []string{"localhost:9000"}, want: true},
+		{name: "unspecified", addrs: []string{"0.0.0.0:9000"}, want: true},
+		{name: "ipv6 loopback", addrs: []string{"[::1]:9000"}, want: true},
+		{name: "remote host", addrs: []string{"clickhouse.example.com:9000"}, want: false},
+		{name: "remote ip", addrs: []string{"10.0.0.7:9000"}, want: false},
+		{name: "invalid", addrs: []string{"127.0.0.1"}, want: false},
+		{name: "mixed", addrs: []string{"127.0.0.1:9000", "clickhouse.example.com:9000"}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldAutoStartClickHouse(store.Options{Addrs: tt.addrs})
+			if got != tt.want {
+				t.Fatalf("got %v, want %v", got, tt.want)
 			}
 		})
 	}

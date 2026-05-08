@@ -40,6 +40,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	storeOpts := storeOptionsFromConfig(cfg)
+	if err := ensureLocalClickHouse(storeOpts); err != nil {
+		return fmt.Errorf("starting clickhouse: %w", err)
+	}
 
 	logger.Info("starting beacon",
 		"host", cfg.Server.Host,

@@ -100,6 +100,16 @@ func runDBUp(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func ensureLocalClickHouse(opts store.Options) error {
+	if !shouldAutoStartClickHouse(opts) || clickHouseReachable(opts) {
+		return nil
+	}
+	if err := startClickHouse(dbRuntimeAuto, clickHouseImage, opts); err != nil {
+		return err
+	}
+	return waitForClickHouse(opts, 45*time.Second)
+}
+
 func runDBDown(cmd *cobra.Command, args []string) error {
 	stopped := false
 	if pid := readNativeClickHousePID(); pid > 0 {
@@ -176,7 +186,7 @@ func waitForClickHouse(opts store.Options, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		for _, addr := range opts.Addrs {
+		for _, addr := range clickHouseAddrs(opts) {
 			conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 			if err == nil {
 				_ = conn.Close()
@@ -190,7 +200,7 @@ func waitForClickHouse(opts store.Options, timeout time.Duration) error {
 }
 
 func clickHouseReachable(opts store.Options) bool {
-	for _, addr := range opts.Addrs {
+	for _, addr := range clickHouseAddrs(opts) {
 		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 		if err == nil {
 			_ = conn.Close()
@@ -198,6 +208,13 @@ func clickHouseReachable(opts store.Options) bool {
 		}
 	}
 	return false
+}
+
+func clickHouseAddrs(opts store.Options) []string {
+	if len(opts.Addrs) == 0 {
+		return store.DefaultOptions().Addrs
+	}
+	return opts.Addrs
 }
 
 func startClickHouse(runtime, image string, opts store.Options) error {
@@ -214,16 +231,16 @@ func startClickHouse(runtime, image string, opts store.Options) error {
 }
 
 func startClickHouseAuto(image string, opts store.Options) error {
+	if _, err := clickHouseBinary(); err == nil {
+		return startNativeClickHouse(opts)
+	}
 	if _, err := exec.LookPath("docker"); err == nil && containerExists(clickHouseContainerName) {
 		return startDockerClickHouse(image)
-	}
-	if _, err := exec.LookPath("clickhouse"); err == nil {
-		return startNativeClickHouse(opts)
 	}
 	if _, err := exec.LookPath("docker"); err == nil {
 		return startDockerClickHouse(image)
 	}
-	return fmt.Errorf("starting ClickHouse requires either a local clickhouse binary or Docker; install ClickHouse, start ClickHouse yourself and run `beacon db migrate`, or install Docker")
+	return fmt.Errorf("starting ClickHouse requires either a local clickhouse binary or Docker; rerun the Beacon installer, install ClickHouse, start ClickHouse yourself and run `beacon db migrate`, or install Docker")
 }
 
 func startDockerClickHouse(image string) error {
@@ -252,9 +269,9 @@ func startDockerClickHouse(image string) error {
 }
 
 func startNativeClickHouse(opts store.Options) error {
-	bin, err := exec.LookPath("clickhouse")
+	bin, err := clickHouseBinary()
 	if err != nil {
-		return fmt.Errorf("clickhouse binary is required for --runtime native; install ClickHouse or use --runtime docker")
+		return fmt.Errorf("clickhouse binary is required for --runtime native; rerun the Beacon installer, install ClickHouse, or use --runtime docker")
 	}
 
 	baseDir, err := nativeClickHouseDir()
@@ -297,6 +314,62 @@ func startNativeClickHouse(opts store.Options) error {
 	}
 	fmt.Printf("Native ClickHouse started at %s:%d (data: %s).\n", host, tcpPort, dataDir)
 	return nil
+}
+
+func clickHouseBinary() (string, error) {
+	if path := strings.TrimSpace(os.Getenv("BEACON_CLICKHOUSE_BIN")); path != "" {
+		if isExecutableFile(path) {
+			return path, nil
+		}
+		return "", fmt.Errorf("BEACON_CLICKHOUSE_BIN is not executable: %s", path)
+	}
+	if bin, err := exec.LookPath("clickhouse"); err == nil {
+		return bin, nil
+	}
+	for _, path := range managedClickHousePaths() {
+		if isExecutableFile(path) {
+			return path, nil
+		}
+	}
+	return "", fmt.Errorf("clickhouse binary not found")
+}
+
+func managedClickHousePaths() []string {
+	var paths []string
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".beacon", "bin", "clickhouse"))
+	}
+	if exe, err := os.Executable(); err == nil {
+		paths = append(paths, filepath.Join(filepath.Dir(exe), "clickhouse"))
+	}
+	return paths
+}
+
+func isExecutableFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Mode()&0111 != 0
+}
+
+func shouldAutoStartClickHouse(opts store.Options) bool {
+	for _, addr := range clickHouseAddrs(opts) {
+		if !isLocalClickHouseAddr(addr) {
+			return false
+		}
+	}
+	return true
+}
+
+func isLocalClickHouseAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	host = strings.TrimSpace(host)
+	if host == "" || strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && (ip.IsLoopback() || ip.IsUnspecified())
 }
 
 func nativeClickHouseHostPort(opts store.Options) (string, int, error) {
