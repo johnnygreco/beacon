@@ -11,13 +11,43 @@ templ Dashboard(data views.DashboardData) {
 			<!-- Main Content Area -->
 			<div id="dashboard-main" class="flex-1 flex flex-col gap-6 overflow-y-auto min-w-0 pr-0">
 				<div class="space-y-6">
-					<!-- Charts: Total Tokens Over Time + Tokens by Model -->
-					<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-						@components.ChartContainerWithOptions("dashboardTotalTokensChart", "200px", "Total Tokens Over Time", true, false)
-						@components.ChartContainerWithOptions("dashboardTokensByModelChart", "200px", "Tokens by Model", true, true)
-					</div>
-					@templ.JSONScript("dashboard-total-tokens-data", data.TokensChart)
-					@templ.JSONScript("dashboard-tokens-by-model-data", dashboardTokensByModelData(data.TokensByModel))
+					<section class="space-y-4">
+						<div class="flex flex-wrap items-center justify-between gap-3">
+							<div>
+								<h1 class="text-xl font-semibold text-gray-100">Live Analytics</h1>
+								<p id="dashboard-range-caption" class="text-xs text-gray-500 mt-0.5">Last 24 hours</p>
+							</div>
+							<div id="dashboard-range-control" class="flex flex-wrap items-center gap-1.5">
+								<span class="text-xs text-gray-500 mr-1">Time Range</span>
+								<button type="button" onclick="setDashboardRange(this, '')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">All</button>
+								<button type="button" onclick="setDashboardRange(this, '1h')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">1h</button>
+								<button type="button" onclick="setDashboardRange(this, '24h')" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">24h</button>
+								<button type="button" onclick="setDashboardRange(this, '7d')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">7d</button>
+								<button type="button" onclick="setDashboardRange(this, '30d')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">30d</button>
+							</div>
+						</div>
+						<div id="dashboard-analytics-summary" class="grid grid-cols-2 xl:grid-cols-4 gap-3"></div>
+						<div class="grid grid-cols-1 xl:grid-cols-5 gap-4">
+							<div class="xl:col-span-3 min-w-0">
+								@components.ChartContainerWithOptions("dashboardTokenCumulativeChart", "320px", "Cumulative Tokens by Model", true, false)
+							</div>
+							<div class="xl:col-span-2 min-w-0 bg-gray-800 rounded-lg p-4 border border-gray-700">
+								<div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+									<h3 class="text-sm font-medium text-gray-400">Model Health</h3>
+									<div id="dashboard-model-metric-control" class="inline-flex overflow-hidden rounded border border-gray-700">
+										<button type="button" data-dashboard-metric="error_rate" onclick="setDashboardMetric(this, 'error_rate')" class="dashboard-metric-btn px-2 py-1 text-xs bg-blue-500/20 text-blue-400 border-r border-gray-700">Error Rate</button>
+										<button type="button" data-dashboard-metric="errors" onclick="setDashboardMetric(this, 'errors')" class="dashboard-metric-btn px-2 py-1 text-xs text-gray-400 hover:text-gray-200 border-r border-gray-700">Errors</button>
+										<button type="button" data-dashboard-metric="tool_calls" onclick="setDashboardMetric(this, 'tool_calls')" class="dashboard-metric-btn px-2 py-1 text-xs text-gray-400 hover:text-gray-200">Tools</button>
+									</div>
+								</div>
+								<div style="position:relative;height:320px">
+									<canvas id="dashboardModelActivityChart" data-default-log="false"></canvas>
+								</div>
+							</div>
+						</div>
+					</section>
+					@templ.JSONScript("dashboard-token-cumulative-data", data.TokenCumulative)
+					@templ.JSONScript("dashboard-model-activity-data", data.ModelActivity)
 
 					<!-- Active Sessions -->
 					<div id="active-sessions">
@@ -37,13 +67,6 @@ templ Dashboard(data views.DashboardData) {
 					<!-- Completed Sessions Table -->
 					<div class="border-t border-gray-700/50 pt-4">
 						<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-							<div class="flex items-center gap-2">
-								<span class="text-xs text-gray-500">Time Range</span>
-								<button type="button" onclick="setDashboardRange(this, '')" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
-								<button type="button" onclick="setDashboardRange(this, '24h')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">24h</button>
-								<button type="button" onclick="setDashboardRange(this, '7d')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">7d</button>
-								<button type="button" onclick="setDashboardRange(this, '30d')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">30d</button>
-							</div>
 							<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide">Completed Sessions</h2>
 						</div>
 						<div class="overflow-x-auto">
@@ -311,8 +334,8 @@ templ Dashboard(data views.DashboardData) {
 			var resizeRAF = 0;
 
 			function resizeCharts() {
-				if (window.dashboardTotalTokensChart) window.dashboardTotalTokensChart.resize();
-				if (window.dashboardTokensByModelChart) window.dashboardTokensByModelChart.resize();
+				if (window.dashboardTokenCumulativeChart) window.dashboardTokenCumulativeChart.resize();
+				if (window.dashboardModelActivityChart) window.dashboardModelActivityChart.resize();
 			}
 
 			function setSidebarWidth(w) {
@@ -445,7 +468,8 @@ templ Dashboard(data views.DashboardData) {
 
 		// --- JSON dashboard stores ---
 		var currentActivityFilter = 'all';
-		var currentRange = '';
+		var currentRange = '24h';
+		var currentDashboardMetric = 'error_rate';
 		var currentCompletedOffset = 0;
 		var completedPageSize = 30;
 		var dashboardRequestSeq = {};
@@ -687,47 +711,69 @@ templ Dashboard(data views.DashboardData) {
 			}).join('') + '</div>');
 		}
 
-		function updateMultiSeriesChart(chart, payload) {
-			if (!chart || !payload || !payload.labels || !payload.datasets) return;
-			chart.data.labels = payload.labels;
-			payload.datasets.forEach(function(ds, i) {
-				if (chart.data.datasets[i]) {
-					chart.data.datasets[i].data = ds.Values || ds.values || ds.data || [];
-				}
-			});
-			chart.update('none');
+		function rangeLabel(value) {
+			if (value === '1h') return 'Last hour';
+			if (value === '24h') return 'Last 24 hours';
+			if (value === '7d') return 'Last 7 days';
+			if (value === '30d') return 'Last 30 days';
+			return 'All time';
 		}
 
-		function updateTokensByModelChart(payload) {
-			var canvas = document.getElementById('dashboardTokensByModelChart');
-			var dataEl = document.getElementById('dashboard-tokens-by-model-data');
-			if (!canvas || !dataEl || !payload) return;
-			dataEl.textContent = JSON.stringify(payload);
-			if (!window.dashboardTokensByModelChart && typeof createTokensByModelChart === 'function') {
-				window.dashboardTokensByModelChart = createTokensByModelChart(canvas, dataEl);
-				if (window.dashboardTokensByModelChart) {
-					applyDefaultLog(window.dashboardTokensByModelChart, canvas);
-				}
-			} else if (window.dashboardTokensByModelChart) {
-				window.dashboardTokensByModelChart.data.labels = payload.labels || [];
-				(payload.datasets || []).forEach(function(ds, i) {
-					if (window.dashboardTokensByModelChart.data.datasets[i]) {
-						window.dashboardTokensByModelChart.data.datasets[i].data = ds.data || ds.values || [];
-					}
-				});
-				window.dashboardTokensByModelChart.options.plugins.providerGroupHeaders = {groups: payload.providerGroups || []};
-				window.dashboardTokensByModelChart.update('none');
+		function updateRangeCaption() {
+			var caption = document.getElementById('dashboard-range-caption');
+			if (caption) caption.textContent = rangeLabel(currentRange);
+			var title = document.querySelector('#timeline-sidebar h2 span');
+			if (title) title.textContent = '(' + (currentRange || 'all') + ')';
+		}
+
+		function summaryTile(label, value, sublabel) {
+			return '<div class="rounded-lg border border-gray-700 bg-gray-800/70 px-3 py-2 min-w-0">' +
+				'<p class="text-[11px] uppercase tracking-wide text-gray-500">' + escapeHTML(label) + '</p>' +
+				'<p class="text-lg font-semibold text-gray-100 tabular-nums truncate">' + escapeHTML(value) + '</p>' +
+				'<p class="text-xs text-gray-500 truncate">' + escapeHTML(sublabel || rangeLabel(currentRange)) + '</p>' +
+				'</div>';
+		}
+
+		function formatPercent(n) {
+			n = Number(n || 0);
+			if (n >= 10) return n.toFixed(1) + '%';
+			if (n > 0) return n.toFixed(2) + '%';
+			return '0%';
+		}
+
+		function renderAnalyticsSummary(summary) {
+			var wrap = document.getElementById('dashboard-analytics-summary');
+			if (!wrap) return;
+			summary = summary || {};
+			setHTMLIfChanged(wrap, [
+				summaryTile('Tokens', formatTokens(summary.total_tokens), 'Cumulative across shown models'),
+				summaryTile('Models', Number(summary.model_count || 0), 'Selectable series'),
+				summaryTile('Tool Calls', formatTokens(summary.tool_call_count), rangeLabel(currentRange)),
+				summaryTile('Error Rate', formatPercent(summary.error_rate), Number(summary.error_count || 0) + ' errors')
+			].join(''));
+		}
+
+		function updateDashboardCharts(payload) {
+			if (!payload) return;
+			var tokenDataEl = document.getElementById('dashboard-token-cumulative-data');
+			var activityDataEl = document.getElementById('dashboard-model-activity-data');
+			if (tokenDataEl && payload.token_cumulative) tokenDataEl.textContent = JSON.stringify(payload.token_cumulative);
+			if (activityDataEl && payload.model_activity) activityDataEl.textContent = JSON.stringify(payload.model_activity);
+			if (typeof updateDashboardModelChart === 'function') {
+				updateDashboardModelChart('dashboardTokenCumulativeChart', payload.token_cumulative, 'tokens');
 			}
-			if (typeof setupModelFilters === 'function') {
-				setupModelFilters('dashboardTokensByModelChart', dataEl);
+			if (typeof updateDashboardModelActivityChart === 'function') {
+				updateDashboardModelActivityChart(payload.model_activity, currentDashboardMetric);
 			}
+			var summary = payload.token_cumulative && payload.token_cumulative.summary ? payload.token_cumulative.summary : null;
+			if (!summary && payload.model_activity) summary = payload.model_activity.summary;
+			renderAnalyticsSummary(summary);
 		}
 
 		async function loadDashboardCharts() {
-			var data = await fetchDashboardJSON('charts', '/api/dashboard/charts');
+			var data = await fetchDashboardJSON('charts', '/api/dashboard/charts?range=' + encodeURIComponent(currentRange));
 			if (!data) return;
-			updateMultiSeriesChart(window.dashboardTotalTokensChart, data.total_tokens);
-			updateTokensByModelChart(data.tokens_by_model);
+			updateDashboardCharts(data);
 		}
 
 		async function loadActiveSessions() {
@@ -772,12 +818,33 @@ templ Dashboard(data views.DashboardData) {
 		function setDashboardRange(btn, value) {
 			currentRange = value || '';
 			currentCompletedOffset = 0;
-			btn.closest('.flex').querySelectorAll('.dash-range-btn').forEach(function(b) {
+			document.querySelectorAll('#dashboard-range-control .dash-range-btn').forEach(function(b) {
 				b.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
 			});
 			btn.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';
+			updateRangeCaption();
+			loadDashboardCharts();
 			loadCompletedSessions(0);
 			loadActivity();
+		}
+
+		function setDashboardMetric(btn, metric) {
+			currentDashboardMetric = metric || 'error_rate';
+			document.querySelectorAll('.dashboard-metric-btn').forEach(function(b) {
+				b.className = 'dashboard-metric-btn px-2 py-1 text-xs text-gray-400 hover:text-gray-200';
+				if (b.nextElementSibling) b.classList.add('border-r', 'border-gray-700');
+			});
+			btn.className = 'dashboard-metric-btn px-2 py-1 text-xs bg-blue-500/20 text-blue-400';
+			if (btn.nextElementSibling) btn.classList.add('border-r', 'border-gray-700');
+			if (typeof updateDashboardModelActivityChart === 'function') {
+				var dataEl = document.getElementById('dashboard-model-activity-data');
+				if (dataEl) {
+					try {
+						updateDashboardModelActivityChart(JSON.parse(dataEl.textContent), currentDashboardMetric);
+					} catch (err) {
+					}
+				}
+			}
 		}
 
 		async function toggleJSONSubagents(button) {
@@ -845,6 +912,7 @@ templ Dashboard(data views.DashboardData) {
 					dashboardEvents.close();
 				}, {once: true});
 			}
+			updateRangeCaption();
 			loadActiveSessions();
 			loadCompletedSessions(0);
 			loadActivity();

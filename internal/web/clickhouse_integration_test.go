@@ -14,6 +14,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/store"
+	"github.com/johnnygreco/beacon/internal/views"
 )
 
 func setupLiveWebStore(t *testing.T) *store.Store {
@@ -209,34 +210,24 @@ func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T)
 	assertMetric(t, metrics, "MCP Calls", 1)
 
 	chartsBody := recordAPIResponse(t, api.GetDashboardCharts, "/api/dashboard/charts")
-	var charts struct {
-		TotalTokens struct {
-			Labels   []string `json:"labels"`
-			Datasets []struct {
-				Label  string    `json:"label"`
-				Values []float64 `json:"values"`
-			} `json:"datasets"`
-		} `json:"total_tokens"`
-		TokensByModel struct {
-			Labels   []string `json:"labels"`
-			Datasets []struct {
-				Label string    `json:"label"`
-				Data  []float64 `json:"data"`
-			} `json:"datasets"`
-		} `json:"tokens_by_model"`
-	}
+	var charts APIDashboardCharts
 	if err := json.Unmarshal([]byte(chartsBody), &charts); err != nil {
 		t.Fatalf("decode charts: %v\n%s", err, chartsBody)
 	}
-	if len(charts.TotalTokens.Datasets) == 0 {
-		t.Fatalf("dashboard total token chart missing datasets: %#v", charts.TotalTokens)
+	if charts.Range != "24h" {
+		t.Fatalf("dashboard chart default range = %q", charts.Range)
 	}
-	if got := sumFloat64(charts.TotalTokens.Datasets[0].Values); got != 51 {
-		t.Fatalf("dashboard total token chart sum = %v", got)
+	if len(charts.TokenCumulative.Datasets) == 0 {
+		t.Fatalf("dashboard cumulative token chart missing datasets: %#v", charts.TokenCumulative)
 	}
-	if len(charts.TokensByModel.Labels) == 0 || len(charts.TokensByModel.Datasets) < 2 ||
-		sumFloat64(charts.TokensByModel.Datasets[0].Data)+sumFloat64(charts.TokensByModel.Datasets[1].Data) != 45 {
-		t.Fatalf("tokens by model chart = %#v", charts.TokensByModel)
+	if charts.TokenCumulative.Summary.TotalTokens != 51 {
+		t.Fatalf("dashboard cumulative token summary = %#v", charts.TokenCumulative.Summary)
+	}
+	if got := modelSeriesTotal(charts.TokenCumulative.Datasets, "gpt-4.1"); got != 45 {
+		t.Fatalf("gpt-4.1 cumulative total = %v in %#v", got, charts.TokenCumulative.Datasets)
+	}
+	if got := metricSeriesTotal(charts.ModelActivity.Metrics["tool_calls"].Datasets); got != 1 {
+		t.Fatalf("dashboard tool call metric total = %v in %#v", got, charts.ModelActivity.Metrics["tool_calls"].Datasets)
 	}
 
 	tokensBody := recordAPIResponse(t, api.GetTokensPerMinute, "/api/tokens-per-minute")
@@ -326,6 +317,26 @@ func sumFloat64(values []float64) float64 {
 	var total float64
 	for _, value := range values {
 		total += value
+	}
+	return total
+}
+
+func modelSeriesTotal(datasets []views.ModelSeriesDataset, model string) float64 {
+	for _, dataset := range datasets {
+		if dataset.Model == model {
+			if len(dataset.Values) == 0 {
+				return 0
+			}
+			return dataset.Values[len(dataset.Values)-1]
+		}
+	}
+	return 0
+}
+
+func metricSeriesTotal(datasets []views.ModelSeriesDataset) float64 {
+	var total float64
+	for _, dataset := range datasets {
+		total += sumFloat64(dataset.Values)
 	}
 	return total
 }

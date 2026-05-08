@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -160,9 +159,13 @@ func (a *APIHandlers) GetSessionSubagents(w http.ResponseWriter, r *http.Request
 
 // GetActivity returns recent activity items as JSON for client-side rendering.
 func (a *APIHandlers) GetActivity(w http.ResponseWriter, r *http.Request) {
-	rangeVal := r.URL.Query().Get("range")
+	rangeVals, hasRange := r.URL.Query()["range"]
+	rangeVal := ""
+	if len(rangeVals) > 0 {
+		rangeVal = rangeVals[0]
+	}
 	since := parseRange(rangeVal)
-	if since == nil {
+	if !hasRange && since == nil {
 		t := time.Now().Add(-24 * time.Hour)
 		since = &t
 	}
@@ -194,23 +197,20 @@ func (a *APIHandlers) GetActivity(w http.ResponseWriter, r *http.Request) {
 
 // GetDashboardCharts returns the dashboard chart payloads as JSON.
 func (a *APIHandlers) GetDashboardCharts(w http.ResponseWriter, r *http.Request) {
-	var tokensChart views.MultiSeriesChart
-	var tokensByModel []views.ModelTokens
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		tokensChart = QueryTotalTokensTimeSeries(r.Context(), a.db)
-	}()
-	go func() {
-		defer wg.Done()
-		tokensByModel = QueryTokensByModelSummary(r.Context(), a.db)
-	}()
-	wg.Wait()
+	rangeVals, hasRange := r.URL.Query()["range"]
+	rangeVal := "24h"
+	if hasRange {
+		rangeVal = ""
+		if len(rangeVals) > 0 {
+			rangeVal = rangeVals[0]
+		}
+	}
+	tokenCumulative, modelActivity := QueryDashboardModelAnalytics(r.Context(), a.db, parseRange(rangeVal), rangeVal)
 
 	a.jsonResponse(w, APIDashboardCharts{
-		TotalTokens:   tokensChart,
-		TokensByModel: tokensByModelChartData(tokensByModel),
+		Range:           rangeVal,
+		TokenCumulative: tokenCumulative,
+		ModelActivity:   modelActivity,
 	})
 }
 

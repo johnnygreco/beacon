@@ -15,6 +15,58 @@ func TestBuildChatTurns_EmptyInput(t *testing.T) {
 	}
 }
 
+func TestBuildDashboardModelCharts_CumulativeTokensAndActivity(t *testing.T) {
+	t0 := time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC)
+	points := []dashboardModelPoint{
+		{Bucket: t0, Provider: "openai", Model: "gpt-5.4", Tokens: 100, InputTokens: 60, OutputTokens: 40, ToolCalls: 2, Calls: 4},
+		{Bucket: t0.Add(15 * time.Minute), Provider: "openai", Model: "gpt-5.4", Tokens: 50, ToolCalls: 1, Calls: 1, Errors: 1},
+		{Bucket: t0, Provider: "anthropic", Model: "claude-opus-4-6", Tokens: 25, Calls: 1},
+		{Bucket: t0.Add(15 * time.Minute), Provider: "anthropic", Model: "claude-opus-4-6", Tokens: 75, ToolCalls: 3, Calls: 3},
+	}
+
+	tokens, activity := buildDashboardModelCharts(points, 15, "hour")
+
+	if len(tokens.Labels) != 2 || len(tokens.Datasets) != 2 {
+		t.Fatalf("unexpected token chart shape: %#v", tokens)
+	}
+	if tokens.Datasets[0].Label != "gpt-5.4" {
+		t.Fatalf("expected top model first, got %q", tokens.Datasets[0].Label)
+	}
+	if got := tokens.Datasets[0].Values; len(got) != 2 || got[0] != 100 || got[1] != 150 {
+		t.Fatalf("gpt cumulative values = %#v", got)
+	}
+	if got := tokens.Datasets[1].Values; len(got) != 2 || got[0] != 25 || got[1] != 100 {
+		t.Fatalf("claude cumulative values = %#v", got)
+	}
+	if tokens.Summary.TotalTokens != 250 || tokens.Summary.ToolCallCount != 6 || tokens.Summary.ErrorCount != 1 || tokens.Summary.ModelCount != 2 {
+		t.Fatalf("summary = %#v", tokens.Summary)
+	}
+
+	errorRate := activity.Metrics["error_rate"].Datasets[0].Values
+	if len(errorRate) != 2 || errorRate[0] != 0 || errorRate[1] != 50 {
+		t.Fatalf("error rate values = %#v", errorRate)
+	}
+	toolCalls := activity.Metrics["tool_calls"].Datasets[1].Values
+	if len(toolCalls) != 2 || toolCalls[0] != 0 || toolCalls[1] != 3 {
+		t.Fatalf("tool call values = %#v", toolCalls)
+	}
+}
+
+func TestDashboardBucketMinutes(t *testing.T) {
+	cases := map[string]int{
+		"1h":  1,
+		"24h": 15,
+		"7d":  120,
+		"30d": 720,
+		"":    1440,
+	}
+	for rangeVal, want := range cases {
+		if got := dashboardBucketMinutes(rangeVal); got != want {
+			t.Fatalf("dashboardBucketMinutes(%q) = %d, want %d", rangeVal, got, want)
+		}
+	}
+}
+
 func TestBuildChatTurns_SingleUserMessage(t *testing.T) {
 	turns := []views.TurnDetail{{
 		TurnSeq:     1,

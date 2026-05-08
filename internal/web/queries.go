@@ -19,6 +19,7 @@ const (
 	defaultActivityPageSize  = 30
 	defaultSearchPageSize    = 30
 	recentActivityCandidates = 2000
+	dashboardModelLimit      = 12
 )
 
 func latestActivityEventsSubquery(where string) string {
@@ -107,10 +108,37 @@ func parseRange(v string) *time.Time {
 	return nil
 }
 
+func dashboardBucketMinutes(rangeVal string) int {
+	switch rangeVal {
+	case "1h":
+		return 1
+	case "24h":
+		return 15
+	case "7d":
+		return 120
+	case "30d":
+		return 720
+	default:
+		return 1440
+	}
+}
+
+func dashboardTimeUnit(bucketMinutes int) string {
+	switch {
+	case bucketMinutes <= 1:
+		return "minute"
+	case bucketMinutes < 1440:
+		return "hour"
+	default:
+		return "day"
+	}
+}
+
 // QueryDashboardData queries all data needed for the dashboard page.
 func QueryDashboardData(ctx context.Context, db *sql.DB) views.DashboardData {
 	var data views.DashboardData
 	var wg sync.WaitGroup
+	defaultRange := "24h"
 	wg.Add(4)
 	go func() {
 		defer wg.Done()
@@ -121,7 +149,10 @@ func QueryDashboardData(ctx context.Context, db *sql.DB) views.DashboardData {
 		data.RecentActivity = QueryRecentActivity(ctx, db)
 	}()
 	go func() { defer wg.Done(); data.TokensByModel = QueryTokensByModelSummary(ctx, db) }()
-	go func() { defer wg.Done(); data.TokensChart = QueryTotalTokensTimeSeries(ctx, db) }()
+	go func() {
+		defer wg.Done()
+		data.TokenCumulative, data.ModelActivity = QueryDashboardModelAnalytics(ctx, db, parseRange(defaultRange), defaultRange)
+	}()
 	wg.Wait()
 	return data
 }
@@ -157,6 +188,277 @@ func QueryTokensByModelSummary(ctx context.Context, db *sql.DB) []views.ModelTok
 		return nil
 	}
 	return result
+}
+
+type dashboardModelPoint struct {
+	Bucket          time.Time
+	Provider        string
+	Model           string
+	Tokens          int64
+	InputTokens     int64
+	OutputTokens    int64
+	CacheReadTokens int64
+	ToolCalls       int64
+	Calls           int64
+	Errors          int64
+}
+
+type dashboardModelKey struct {
+	Provider string
+	Model    string
+}
+
+// QueryDashboardModelAnalytics returns range-aware model series used by the live
+// dashboard charts. Tokens are cumulative within the selected range; activity
+// metrics remain per bucket so rates and spikes stay visible.
+func QueryDashboardModelAnalytics(ctx context.Context, db *sql.DB, since *time.Time, rangeVal string) (views.ModelSeriesChart, views.ModelMetricChart) {
+	bucketMinutes := dashboardBucketMinutes(rangeVal)
+	timeUnit := dashboardTimeUnit(bucketMinutes)
+	tokenChart, metricChart := emptyDashboardModelCharts(bucketMinutes, timeUnit)
+
+	rangeFilter := ""
+	args := []any{}
+	if since != nil {
+		rangeFilter = " AND minute >= ?"
+		args = append(args, *since)
+	}
+
+	query := fmt.Sprintf(`WITH top_models AS (
+			SELECT COALESCE(NULLIF(provider, ''), 'unknown') AS provider_key,
+			       COALESCE(NULLIF(model, ''), 'unknown') AS model_key
+			FROM `+analyticsProjectionSQL+`
+			WHERE model != '<synthetic>'`+rangeFilter+`
+			GROUP BY provider_key, model_key
+			ORDER BY sum(total_tokens) DESC, sum(tool_call_count) DESC, sum(event_count) DESC
+			LIMIT %d
+		)
+		SELECT toStartOfInterval(minute, INTERVAL %d MINUTE) AS bucket,
+		       COALESCE(NULLIF(provider, ''), 'unknown') AS provider_key,
+		       COALESCE(NULLIF(model, ''), 'unknown') AS model_key,
+		       sum(total_tokens) AS tokens,
+		       sum(input_tokens) AS input_tokens,
+		       sum(output_tokens) AS output_tokens,
+		       sum(cache_read_tokens) AS cache_read_tokens,
+		       sum(tool_call_count) AS tool_calls,
+		       sum(call_count) AS calls,
+		       sumIf(event_count, event_kind IN ('error', 'tool_error')) AS errors
+		FROM `+analyticsProjectionSQL+`
+		WHERE model != '<synthetic>'`+rangeFilter+`
+		  AND (COALESCE(NULLIF(provider, ''), 'unknown'), COALESCE(NULLIF(model, ''), 'unknown')) IN (
+			SELECT provider_key, model_key FROM top_models
+		  )
+		GROUP BY bucket, provider_key, model_key
+		ORDER BY bucket ASC`, dashboardModelLimit, bucketMinutes)
+	if since != nil {
+		args = append(args, *since)
+	}
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return tokenChart, metricChart
+	}
+	defer rows.Close()
+
+	points := make([]dashboardModelPoint, 0, 256)
+	for rows.Next() {
+		var p dashboardModelPoint
+		if err := rows.Scan(&p.Bucket, &p.Provider, &p.Model, &p.Tokens, &p.InputTokens, &p.OutputTokens,
+			&p.CacheReadTokens, &p.ToolCalls, &p.Calls, &p.Errors); err != nil {
+			continue
+		}
+		points = append(points, p)
+	}
+	if err := rows.Err(); err != nil {
+		return tokenChart, metricChart
+	}
+
+	return buildDashboardModelCharts(points, bucketMinutes, timeUnit)
+}
+
+func emptyDashboardModelCharts(bucketMinutes int, timeUnit string) (views.ModelSeriesChart, views.ModelMetricChart) {
+	summary := views.ModelAnalyticsSummary{}
+	tokenChart := views.ModelSeriesChart{
+		Datasets:      []views.ModelSeriesDataset{},
+		Summary:       summary,
+		TimeUnit:      timeUnit,
+		BucketMinutes: bucketMinutes,
+	}
+	metricChart := views.ModelMetricChart{
+		Metrics: map[string]views.ModelMetricSeries{
+			"error_rate": {Label: "Error Rate", Unit: "%", Datasets: []views.ModelSeriesDataset{}},
+			"errors":     {Label: "Errors", Unit: "errors", Datasets: []views.ModelSeriesDataset{}},
+			"tool_calls": {Label: "Tool Calls", Unit: "calls", Datasets: []views.ModelSeriesDataset{}},
+		},
+		Summary:       summary,
+		TimeUnit:      timeUnit,
+		BucketMinutes: bucketMinutes,
+	}
+	return tokenChart, metricChart
+}
+
+func buildDashboardModelCharts(points []dashboardModelPoint, bucketMinutes int, timeUnit string) (views.ModelSeriesChart, views.ModelMetricChart) {
+	tokenChart, metricChart := emptyDashboardModelCharts(bucketMinutes, timeUnit)
+	if len(points) == 0 {
+		return tokenChart, metricChart
+	}
+
+	bucketSeen := make(map[time.Time]bool)
+	var buckets []time.Time
+	modelTotals := make(map[dashboardModelKey]dashboardModelPoint)
+	valuesByBucket := make(map[time.Time]map[dashboardModelKey]dashboardModelPoint)
+
+	for _, p := range points {
+		if p.Provider == "" {
+			p.Provider = "unknown"
+		}
+		if p.Model == "" {
+			p.Model = "unknown"
+		}
+		key := dashboardModelKey{Provider: p.Provider, Model: p.Model}
+		if !bucketSeen[p.Bucket] {
+			bucketSeen[p.Bucket] = true
+			buckets = append(buckets, p.Bucket)
+		}
+		if valuesByBucket[p.Bucket] == nil {
+			valuesByBucket[p.Bucket] = make(map[dashboardModelKey]dashboardModelPoint)
+		}
+		existing := valuesByBucket[p.Bucket][key]
+		existing.Tokens += p.Tokens
+		existing.InputTokens += p.InputTokens
+		existing.OutputTokens += p.OutputTokens
+		existing.CacheReadTokens += p.CacheReadTokens
+		existing.ToolCalls += p.ToolCalls
+		existing.Calls += p.Calls
+		existing.Errors += p.Errors
+		existing.Provider = key.Provider
+		existing.Model = key.Model
+		valuesByBucket[p.Bucket][key] = existing
+
+		total := modelTotals[key]
+		total.Tokens += p.Tokens
+		total.InputTokens += p.InputTokens
+		total.OutputTokens += p.OutputTokens
+		total.CacheReadTokens += p.CacheReadTokens
+		total.ToolCalls += p.ToolCalls
+		total.Calls += p.Calls
+		total.Errors += p.Errors
+		total.Provider = key.Provider
+		total.Model = key.Model
+		modelTotals[key] = total
+	}
+
+	sort.Slice(buckets, func(i, j int) bool { return buckets[i].Before(buckets[j]) })
+	keys := make([]dashboardModelKey, 0, len(modelTotals))
+	for key := range modelTotals {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		a, b := modelTotals[keys[i]], modelTotals[keys[j]]
+		if a.Tokens != b.Tokens {
+			return a.Tokens > b.Tokens
+		}
+		if a.ToolCalls != b.ToolCalls {
+			return a.ToolCalls > b.ToolCalls
+		}
+		return modelDisplayLabel(a.Provider, a.Model, nil) < modelDisplayLabel(b.Provider, b.Model, nil)
+	})
+
+	labelCounts := make(map[string]int)
+	for _, key := range keys {
+		labelCounts[views.ShortModelName(key.Model)]++
+	}
+
+	tokenChart.Labels = make([]string, 0, len(buckets))
+	metricChart.Labels = make([]string, 0, len(buckets))
+	for _, bucket := range buckets {
+		label := bucket.Local().Format(time.RFC3339)
+		tokenChart.Labels = append(tokenChart.Labels, label)
+		metricChart.Labels = append(metricChart.Labels, label)
+	}
+
+	var summary views.ModelAnalyticsSummary
+	for _, key := range keys {
+		total := modelTotals[key]
+		displayLabel := modelDisplayLabel(key.Provider, key.Model, labelCounts)
+		providerLabel := views.ProviderShort(key.Provider)
+		if providerLabel == "" {
+			providerLabel = key.Provider
+		}
+
+		base := views.ModelSeriesDataset{
+			Label:           displayLabel,
+			Model:           key.Model,
+			Provider:        key.Provider,
+			ProviderLabel:   providerLabel,
+			TotalTokens:     total.Tokens,
+			InputTokens:     total.InputTokens,
+			OutputTokens:    total.OutputTokens,
+			CacheReadTokens: total.CacheReadTokens,
+			ToolCallCount:   total.ToolCalls,
+			CallCount:       total.Calls,
+			ErrorCount:      total.Errors,
+		}
+
+		tokenDataset := base
+		errorRateDataset := base
+		errorDataset := base
+		toolDataset := base
+
+		var cumulative int64
+		for _, bucket := range buckets {
+			point := valuesByBucket[bucket][key]
+			cumulative += point.Tokens
+			tokenDataset.Values = append(tokenDataset.Values, float64(cumulative))
+			errorDataset.Values = append(errorDataset.Values, float64(point.Errors))
+			toolDataset.Values = append(toolDataset.Values, float64(point.ToolCalls))
+			attempts := point.Calls + point.Errors
+			if attempts > 0 {
+				errorRateDataset.Values = append(errorRateDataset.Values, (float64(point.Errors)/float64(attempts))*100)
+			} else {
+				errorRateDataset.Values = append(errorRateDataset.Values, 0)
+			}
+		}
+
+		tokenChart.Datasets = append(tokenChart.Datasets, tokenDataset)
+		metricChart.Metrics["error_rate"] = appendMetricDataset(metricChart.Metrics["error_rate"], errorRateDataset)
+		metricChart.Metrics["errors"] = appendMetricDataset(metricChart.Metrics["errors"], errorDataset)
+		metricChart.Metrics["tool_calls"] = appendMetricDataset(metricChart.Metrics["tool_calls"], toolDataset)
+
+		summary.TotalTokens += total.Tokens
+		summary.ToolCallCount += total.ToolCalls
+		summary.CallCount += total.Calls
+		summary.ErrorCount += total.Errors
+	}
+
+	summary.ModelCount = len(keys)
+	if attempts := summary.CallCount + summary.ErrorCount; attempts > 0 {
+		summary.ErrorRate = (float64(summary.ErrorCount) / float64(attempts)) * 100
+	}
+	tokenChart.Summary = summary
+	metricChart.Summary = summary
+	return tokenChart, metricChart
+}
+
+func appendMetricDataset(series views.ModelMetricSeries, dataset views.ModelSeriesDataset) views.ModelMetricSeries {
+	series.Datasets = append(series.Datasets, dataset)
+	return series
+}
+
+func modelDisplayLabel(provider, model string, labelCounts map[string]int) string {
+	label := views.ShortModelName(model)
+	if label == "" {
+		label = "unknown"
+	}
+	if labelCounts != nil && labelCounts[label] > 1 {
+		providerLabel := views.ProviderShort(provider)
+		if providerLabel == "" {
+			providerLabel = provider
+		}
+		if providerLabel != "" {
+			label += " (" + providerLabel + ")"
+		}
+	}
+	return label
 }
 
 // QueryDashboardMetrics returns the top-level metric cards.
