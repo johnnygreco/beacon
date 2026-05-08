@@ -27,7 +27,7 @@ templ Search(results []views.SearchResult) {
 						hx-target="#search-results"
 						hx-include="#search-filters"
 						hx-indicator="#search-spinner"
-						hx-sync="this:queue last"
+						hx-sync="this:replace"
 					/>
 					<div class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
 						<button type="button" id="search-clear" onclick="clearSearch()" class="hidden text-gray-500 hover:text-gray-300 transition-colors" title="Clear search" aria-label="Clear search">
@@ -68,6 +68,32 @@ templ Search(results []views.SearchResult) {
 		// Show/hide clear button based on input content
 		var searchInput = document.getElementById('search-input');
 		var clearBtn = document.getElementById('search-clear');
+		// HTMX logs expected replace-abort events before listeners can cancel them.
+		(function() {
+			if (!window.console || typeof window.console.error !== 'function') return;
+			window.__beaconSearchAbortFilter = window.__beaconSearchAbortFilter || {
+				pending: 0,
+				original: window.console.error.bind(window.console)
+			};
+			var filter = window.__beaconSearchAbortFilter;
+			if (!filter.installed) {
+				window.console.error = function() {
+					var message = arguments.length === 1 ? String(arguments[0]) : '';
+					if (filter.pending > 0 && (message === 'htmx:afterRequest' || message === 'htmx:sendAbort')) {
+						filter.pending--;
+						return;
+					}
+					filter.original.apply(window.console, arguments);
+				};
+				filter.installed = true;
+			}
+			searchInput.addEventListener('htmx:abort', function() {
+				filter.pending += 2;
+				setTimeout(function() {
+					filter.pending = Math.max(0, filter.pending - 2);
+				}, 1000);
+			});
+		})();
 		searchInput.addEventListener('input', function() {
 			clearBtn.classList.toggle('hidden', this.value === '');
 		});
