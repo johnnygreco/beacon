@@ -210,7 +210,7 @@ templ chatSubagentDispatch(item views.ToolChainItem, chatCtx views.ChatContext) 
 			if item.ResultEvent != nil || len(chatCtx.ChildSessions) > 0 {
 				<span class="text-green-500/60 text-xs">&#x2713; completed</span>
 			} else {
-				<span class="text-blue-400/60 text-xs animate-pulse">running...</span>
+				<span class="text-blue-400/60 text-xs">running...</span>
 			}
 		</div>
 		if agentDescription(item) != "" {

@@ -21,14 +21,14 @@
   box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
 }
 
-/* Smooth transitions for HTMX swaps */
+/* HTMX swaps should not fade or pulse during refreshes. */
 .htmx-swapping {
-  opacity: 0;
-  transition: opacity 0.15s ease-out;
+  opacity: 1;
+  transition: none;
 }
 .htmx-settling {
   opacity: 1;
-  transition: opacity 0.15s ease-in;
+  transition: none;
 }
 
 /* HTMX loading indicator */
@@ -101,15 +101,6 @@ nav a.active {
 }
 .truncatable.expanded .truncatable-fade {
   display: none;
-}
-
-/* --- Deep-link anchor highlight --- */
-[id]:target {
-  animation: anchor-highlight 2s ease-out;
-}
-@keyframes anchor-highlight {
-  0% { background-color: rgba(59, 130, 246, 0.2); }
-  100% { background-color: transparent; }
 }
 
 /* --- Code container --- */

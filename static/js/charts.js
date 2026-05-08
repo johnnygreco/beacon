@@ -8,7 +8,43 @@ const darkTheme = {
 
 Chart.defaults.color = darkTheme.color;
 Chart.defaults.borderColor = darkTheme.borderColor;
-Chart.defaults.animation = false;
+Chart.defaults.animation = { duration: 0 };
+Chart.defaults.animations = {
+  colors: { duration: 0 },
+  x: { duration: 0 },
+  y: { duration: 0 }
+};
+Chart.defaults.transitions = {
+  active: { animation: { duration: 0 } },
+  resize: { animation: { duration: 0 } },
+  show: { animations: { x: { duration: 0 }, y: { duration: 0 } } },
+  hide: { animations: { x: { duration: 0 }, y: { duration: 0 } } }
+};
+
+if (Chart.defaults.global) {
+  Chart.defaults.global.responsiveAnimationDuration = 0;
+  if (Chart.defaults.global.animation && typeof Chart.defaults.global.animation === 'object') {
+    Chart.defaults.global.animation.duration = 0;
+  } else {
+    Chart.defaults.global.animation = { duration: 0 };
+  }
+}
+
+const noChartAnimation = {
+  animation: { duration: 0 },
+  responsiveAnimationDuration: 0,
+  animations: {
+    colors: { duration: 0 },
+    x: { duration: 0 },
+    y: { duration: 0 }
+  },
+  transitions: {
+    active: { animation: { duration: 0 } },
+    resize: { animation: { duration: 0 } },
+    show: { animations: { x: { duration: 0 }, y: { duration: 0 } } },
+    hide: { animations: { x: { duration: 0 }, y: { duration: 0 } } }
+  }
+};
 
 const timeScaleOptions = {
   type: 'time',
@@ -81,6 +117,7 @@ function createMultiSeriesChart(el, seriesLabels, yTitle, xScale) {
     type: 'line',
     data: { labels: [], datasets: datasets },
     options: {
+      ...noChartAnimation,
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
@@ -536,6 +573,7 @@ function createTokensByModelChart(el, dataEl) {
     type: 'bar',
     data: { labels: modelData.labels, datasets: datasets },
     options: {
+      ...noChartAnimation,
       responsive: true,
       maintainAspectRatio: false,
       layout: hasGroups ? { padding: { bottom: 25 } } : {},
