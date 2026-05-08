@@ -28,6 +28,7 @@ func TestDispatch_Initialize(t *testing.T) {
 	resp := srv.dispatch(t.Context(), req)
 	if resp == nil {
 		t.Fatal("expected non-nil response")
+		return
 	}
 	if resp.JSONRPC != "2.0" {
 		t.Errorf("expected jsonrpc 2.0, got %s", resp.JSONRPC)
@@ -83,6 +84,7 @@ func TestDispatch_Ping(t *testing.T) {
 	resp := srv.dispatch(t.Context(), req)
 	if resp == nil {
 		t.Fatal("expected non-nil response")
+		return
 	}
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error)
@@ -108,6 +110,7 @@ func TestDispatch_ToolsList(t *testing.T) {
 	resp := srv.dispatch(t.Context(), req)
 	if resp == nil {
 		t.Fatal("expected non-nil response")
+		return
 	}
 	if resp.Error != nil {
 		t.Fatalf("unexpected error: %v", resp.Error)
@@ -149,6 +152,7 @@ func TestDispatch_UnknownMethod(t *testing.T) {
 	resp := srv.dispatch(t.Context(), req)
 	if resp == nil {
 		t.Fatal("expected non-nil response")
+		return
 	}
 	if resp.Error == nil {
 		t.Fatal("expected error response")

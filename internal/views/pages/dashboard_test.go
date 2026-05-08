@@ -81,6 +81,30 @@ func TestDashboardGoToSessionUsesParsedPathname(t *testing.T) {
 	}
 }
 
+func TestDashboardLiveAnalyticsChartsUseSharedRange(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Dashboard(views.DashboardData{}).Render(context.Background(), &buf); err != nil {
+		t.Fatalf("render dashboard: %v", err)
+	}
+	html := buf.String()
+	for _, expected := range []string{
+		"dashboardTokenCumulativeChart",
+		"dashboardModelActivityChart",
+		"dashboard-token-cumulative-data",
+		"dashboard-model-activity-data",
+		"/api/dashboard/charts?range=",
+		"currentRange = '24h'",
+		"setDashboardMetric",
+	} {
+		if !strings.Contains(html, expected) {
+			t.Fatalf("dashboard live analytics missing %q", expected)
+		}
+	}
+	if strings.Contains(html, "dashboardTotalTokensChart") || strings.Contains(html, "dashboardTokensByModelChart") {
+		t.Fatal("dashboard still renders the old redundant chart ids")
+	}
+}
+
 func TestDashboardTokensByModelData_SingleProvider(t *testing.T) {
 	models := []views.ModelTokens{
 		{Model: "claude-opus-4-6", Provider: "anthropic", Input: 100, Output: 200, CacheRead: 300, Total: 600},

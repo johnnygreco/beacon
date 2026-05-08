@@ -1,6 +1,10 @@
 package web
 
-import "time"
+import (
+	"time"
+
+	"github.com/johnnygreco/beacon/internal/views"
+)
 
 type APIMetricData struct {
 	Label string  `json:"label"`
@@ -83,8 +87,9 @@ type APIActivityItem struct {
 }
 
 type APIDashboardCharts struct {
-	TotalTokens   any `json:"total_tokens"`
-	TokensByModel any `json:"tokens_by_model"`
+	Range           string                 `json:"range"`
+	TokenCumulative views.ModelSeriesChart `json:"token_cumulative"`
+	ModelActivity   views.ModelMetricChart `json:"model_activity"`
 }
 
 type APISessionEvent struct {

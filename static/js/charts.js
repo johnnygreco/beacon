@@ -64,6 +64,27 @@ function formatTokenTick(value) {
   return value;
 }
 
+function formatCompactNumber(value) {
+  value = Number(value || 0);
+  if (value >= 1000000) return (value / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (value >= 1000) return (value / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return value.toLocaleString();
+}
+
+function formatRateTick(value) {
+  value = Number(value || 0);
+  if (value >= 10) return value.toFixed(0) + '%';
+  if (value > 0) return value.toFixed(1) + '%';
+  return '0%';
+}
+
+function providerDisplayName(provider) {
+  if (provider === 'anthropic') return 'Claude Code';
+  if (provider === 'openai') return 'Codex';
+  if (provider === 'unknown') return 'Unknown';
+  return provider || '';
+}
+
 const yAxisOptions = {
   grid: { color: '#374151' },
   ticks: { color: '#9ca3af', callback: formatTokenTick },
@@ -84,6 +105,21 @@ const seriesColors = [
   { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.15)' },    // amber
   { border: '#ef4444', bg: 'rgba(239, 68, 68, 0.15)' },     // red
   { border: '#06b6d4', bg: 'rgba(6, 182, 212, 0.15)' },     // cyan
+];
+
+const modelLineColors = [
+  { border: '#22d3ee', bg: 'rgba(34, 211, 238, 0.10)' },
+  { border: '#fb923c', bg: 'rgba(251, 146, 60, 0.10)' },
+  { border: '#34d399', bg: 'rgba(52, 211, 153, 0.10)' },
+  { border: '#60a5fa', bg: 'rgba(96, 165, 250, 0.10)' },
+  { border: '#f43f5e', bg: 'rgba(244, 63, 94, 0.10)' },
+  { border: '#facc15', bg: 'rgba(250, 204, 21, 0.10)' },
+  { border: '#a3e635', bg: 'rgba(163, 230, 53, 0.10)' },
+  { border: '#c084fc', bg: 'rgba(192, 132, 252, 0.10)' },
+  { border: '#2dd4bf', bg: 'rgba(45, 212, 191, 0.10)' },
+  { border: '#f87171', bg: 'rgba(248, 113, 113, 0.10)' },
+  { border: '#818cf8', bg: 'rgba(129, 140, 248, 0.10)' },
+  { border: '#e5e7eb', bg: 'rgba(229, 231, 235, 0.08)' },
 ];
 
 function tokenTooltip(ctx) {
@@ -156,6 +192,393 @@ function loadMultiSeriesFromJSON(chartName, dataId) {
   } catch(e) {}
 }
 
+function readJSONScript(id) {
+  var el = document.getElementById(id);
+  if (!el) return null;
+  try {
+    return JSON.parse(el.textContent || '{}');
+  } catch (e) {
+    return null;
+  }
+}
+
+function dashboardTimeScale(payload) {
+  var unit = payload && payload.time_unit ? payload.time_unit : 'hour';
+  return {
+    type: 'time',
+    time: {
+      unit: unit,
+      displayFormats: {
+        minute: 'h:mm a',
+        hour: 'MMM d h a',
+        day: 'MMM d'
+      }
+    },
+    grid: { color: 'rgba(55, 65, 81, 0.65)' },
+    ticks: { color: '#9ca3af', maxTicksLimit: 7, autoSkip: true, maxRotation: 0 }
+  };
+}
+
+function modelDatasetColor(index) {
+  return modelLineColors[index % modelLineColors.length];
+}
+
+function modelDatasetFromPayload(ds, index, metricKind) {
+  var c = modelDatasetColor(index);
+  return {
+    label: ds.label,
+    data: ds.values || ds.Values || [],
+    borderColor: c.border,
+    backgroundColor: c.bg,
+    borderWidth: metricKind === 'tokens' ? 2.5 : 2,
+    tension: 0.32,
+    pointRadius: 0,
+    pointHoverRadius: 3,
+    fill: metricKind === 'tokens',
+    provider: ds.provider || '',
+    providerLabel: ds.provider_label || providerDisplayName(ds.provider),
+    model: ds.model || ds.label,
+    totalTokens: ds.total_tokens || 0,
+    toolCallCount: ds.tool_call_count || 0,
+    errorCount: ds.error_count || 0,
+    callCount: ds.call_count || 0
+  };
+}
+
+function dashboardModelTooltipLabel(ctx) {
+  var value = ctx.parsed.y || 0;
+  var unit = ctx.chart.$dashboardMetricUnit || '';
+  if (unit === '%') {
+    return ctx.dataset.label + ': ' + value.toFixed(value >= 10 ? 1 : 2) + '%';
+  }
+  if (unit === 'tokens') {
+    return ctx.dataset.label + ': ' + formatCompactNumber(value) + ' tokens';
+  }
+  return ctx.dataset.label + ': ' + formatCompactNumber(value) + (unit ? ' ' + unit : '');
+}
+
+function dashboardModelTooltipFooter(items) {
+  if (!items || !items.length) return [];
+  var ds = items[0].dataset || {};
+  var footer = [];
+  if (ds.providerLabel) footer.push(ds.providerLabel);
+  if (ds.errorCount) footer.push(formatCompactNumber(ds.errorCount) + ' errors in range');
+  if (ds.toolCallCount) footer.push(formatCompactNumber(ds.toolCallCount) + ' tool calls in range');
+  return footer;
+}
+
+function createDashboardModelChart(el, payload, metricKind) {
+  payload = payload || {};
+  var datasets = (payload.datasets || []).map(function(ds, i) {
+    return modelDatasetFromPayload(ds, i, metricKind || 'tokens');
+  });
+  var chart = new Chart(el, {
+    type: 'line',
+    data: { labels: payload.labels || [], datasets: datasets },
+    options: {
+      ...noChartAnimation,
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      scales: {
+        x: dashboardTimeScale(payload),
+        y: {
+          ...yAxisOptions,
+          title: { display: true, text: metricKind === 'tokens' ? 'Cumulative Tokens' : '', color: '#9ca3af' }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: dashboardModelTooltipLabel,
+            footer: dashboardModelTooltipFooter
+          }
+        }
+      }
+    }
+  });
+  chart.$dashboardMetricUnit = metricKind === 'tokens' ? 'tokens' : '';
+  chart.$dashboardMetricKind = metricKind || 'tokens';
+  return chart;
+}
+
+function updateDashboardModelChart(chartName, payload, metricKind) {
+  var canvas = document.getElementById(chartName);
+  if (!canvas || !payload) return;
+  if (!window[chartName] || !window[chartName].data) {
+    window[chartName] = createDashboardModelChart(canvas, payload, metricKind);
+    applyDefaultLog(window[chartName], canvas);
+  } else {
+    var chart = window[chartName];
+    chart.data.labels = payload.labels || [];
+    chart.data.datasets = (payload.datasets || []).map(function(ds, i) {
+      return modelDatasetFromPayload(ds, i, metricKind || chart.$dashboardMetricKind || 'tokens');
+    });
+    chart.options.scales.x = dashboardTimeScale(payload);
+    chart.options.scales.y.ticks.callback = metricKind === 'error_rate' ? formatRateTick : formatTokenTick;
+    chart.options.scales.y.title.text = metricKind === 'tokens' ? 'Cumulative Tokens' : '';
+    chart.$dashboardMetricUnit = metricKind === 'tokens' ? 'tokens' : '';
+    chart.$dashboardMetricKind = metricKind || 'tokens';
+    applyStoredSeriesVisibility(chartName);
+    chart.update('none');
+  }
+  setupSeriesModelFilters(chartName, payload);
+}
+
+function dashboardActivityMetricPayload(payload, metricKey) {
+  payload = payload || {};
+  var metrics = payload.metrics || {};
+  var metric = metrics[metricKey] || metrics.error_rate || { label: '', unit: '', datasets: [] };
+  return {
+    labels: payload.labels || [],
+    datasets: metric.datasets || [],
+    metric: metric,
+    summary: payload.summary || {},
+    time_unit: payload.time_unit,
+    bucket_minutes: payload.bucket_minutes
+  };
+}
+
+function updateDashboardModelActivityChart(payload, metricKey) {
+  var selected = dashboardActivityMetricPayload(payload, metricKey || 'error_rate');
+  var canvas = document.getElementById('dashboardModelActivityChart');
+  if (!canvas) return;
+  if (!window.dashboardModelActivityChart || !window.dashboardModelActivityChart.data) {
+    window.dashboardModelActivityChart = createDashboardModelChart(canvas, selected, metricKey || 'error_rate');
+  }
+  var chart = window.dashboardModelActivityChart;
+  chart.data.labels = selected.labels || [];
+  chart.data.datasets = (selected.datasets || []).map(function(ds, i) {
+    return modelDatasetFromPayload(ds, i, metricKey || 'error_rate');
+  });
+  chart.options.scales.x = dashboardTimeScale(selected);
+  chart.options.scales.y.type = 'linear';
+  delete chart.options.scales.y.min;
+  chart.options.scales.y.title.text = selected.metric.label || '';
+  chart.options.scales.y.ticks.callback = selected.metric.unit === '%' ? formatRateTick : formatTokenTick;
+  chart.$dashboardMetricUnit = selected.metric.unit || '';
+  chart.$dashboardMetricKind = metricKey || 'error_rate';
+  applyStoredSeriesVisibility('dashboardModelActivityChart');
+  chart.update('none');
+  setupSeriesModelFilters('dashboardModelActivityChart', selected);
+}
+
+function setupSeriesModelFilters(chartName, payload) {
+  var chart = window[chartName];
+  if (!chart || !payload) return;
+  var labels = (payload.datasets || []).map(function(ds) { return ds.label; });
+
+  var signature = JSON.stringify(labels.map(function(label, i) {
+    var ds = payload.datasets[i] || {};
+    return [label, ds.provider || '', ds.model || ''];
+  }));
+  var existing = document.getElementById(chartName + '-model-dropdown');
+  if (existing && chart._seriesFilterSignature === signature) {
+    syncSeriesDropdownState(chartName);
+    applyStoredSeriesVisibility(chartName);
+    chart.update('none');
+    return;
+  }
+  if (labels.length <= 1) {
+    if (existing) existing.remove();
+    chart._seriesLabels = labels;
+    chart._activeModels = new Set(labels);
+    applyStoredSeriesVisibility(chartName);
+    chart.update('none');
+    return;
+  }
+  if (existing) {
+    if (chart._seriesFilterCloseHandler) {
+      document.removeEventListener('click', chart._seriesFilterCloseHandler);
+    }
+    existing.remove();
+  }
+
+  var storageKey = 'beacon-model-hidden-' + chartName;
+  var savedHidden = [];
+  try { savedHidden = JSON.parse(localStorage.getItem(storageKey)) || []; } catch(e) {}
+  var validLabels = new Set(labels);
+  var previousLabels = new Set(chart._seriesLabels || []);
+  savedHidden = savedHidden.filter(function(label) { return validLabels.has(label); });
+  chart._seriesLabels = labels;
+  chart._seriesFilterSignature = signature;
+  if (chart._activeModels) {
+    chart._activeModels = new Set(Array.from(chart._activeModels).filter(function(label) {
+      return validLabels.has(label);
+    }));
+    labels.forEach(function(label) {
+      if (!previousLabels.has(label) && savedHidden.indexOf(label) === -1) {
+        chart._activeModels.add(label);
+      }
+    });
+  } else {
+    chart._activeModels = new Set(labels.filter(function(label) {
+      return savedHidden.indexOf(label) === -1;
+    }));
+  }
+  if (chart._activeModels.size === 0 && savedHidden.length === 0) {
+    chart._activeModels = new Set(labels);
+  }
+
+  var headerDiv = chart.canvas.parentElement.parentElement.querySelector('.flex.items-center');
+  if (!headerDiv) return;
+  var wrapper = document.createElement('div');
+  wrapper.className = 'model-dropdown relative ml-auto mr-2';
+  wrapper.id = chartName + '-model-dropdown';
+
+  var trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'model-dropdown-trigger';
+  var triggerLabel = document.createElement('span');
+  triggerLabel.className = 'model-dropdown-label';
+  trigger.appendChild(triggerLabel);
+  var chevronSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  chevronSvg.setAttribute('class', 'model-dropdown-chevron');
+  chevronSvg.setAttribute('width', '10');
+  chevronSvg.setAttribute('height', '10');
+  chevronSvg.setAttribute('viewBox', '0 0 10 10');
+  var chevronPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  chevronPath.setAttribute('d', 'M2 4l3 3 3-3');
+  chevronPath.setAttribute('stroke', 'currentColor');
+  chevronPath.setAttribute('stroke-width', '1.5');
+  chevronPath.setAttribute('fill', 'none');
+  chevronSvg.appendChild(chevronPath);
+  trigger.appendChild(chevronSvg);
+  wrapper.appendChild(trigger);
+
+  var panel = document.createElement('div');
+  panel.className = 'model-dropdown-panel hidden';
+  var allRow = document.createElement('label');
+  allRow.className = 'model-dropdown-item model-dropdown-all';
+  var allCb = document.createElement('input');
+  allCb.type = 'checkbox';
+  allRow.appendChild(allCb);
+  var allDot = document.createElement('span');
+  allDot.className = 'model-dropdown-dot';
+  allDot.style.background = '#60a5fa';
+  allRow.appendChild(allDot);
+  var allLabel = document.createElement('span');
+  allLabel.textContent = 'All Models';
+  allRow.appendChild(allLabel);
+  panel.appendChild(allRow);
+  var divider = document.createElement('div');
+  divider.className = 'model-dropdown-divider';
+  panel.appendChild(divider);
+
+  var lastProvider = '';
+  (payload.datasets || []).forEach(function(ds, i) {
+    var provider = ds.provider_label || providerDisplayName(ds.provider);
+    if (provider && provider !== lastProvider) {
+      var groupHeader = document.createElement('div');
+      groupHeader.className = 'model-dropdown-group';
+      groupHeader.textContent = provider;
+      panel.appendChild(groupHeader);
+      lastProvider = provider;
+    }
+    var row = document.createElement('label');
+    row.className = 'model-dropdown-item';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.dataset.model = ds.label;
+    row.appendChild(cb);
+    var dot = document.createElement('span');
+    dot.className = 'model-dropdown-dot';
+    dot.style.background = modelDatasetColor(i).border;
+    row.appendChild(dot);
+    var nameSpan = document.createElement('span');
+    nameSpan.textContent = ds.label;
+    row.appendChild(nameSpan);
+    panel.appendChild(row);
+  });
+  wrapper.appendChild(panel);
+
+  var logBtn = headerDiv.querySelector('.log-scale-toggle');
+  if (logBtn) {
+    headerDiv.insertBefore(wrapper, logBtn);
+  } else {
+    headerDiv.appendChild(wrapper);
+  }
+
+  trigger.onclick = function(e) {
+    e.stopPropagation();
+    panel.classList.toggle('hidden');
+    trigger.classList.toggle('open', !panel.classList.contains('hidden'));
+  };
+  chart._seriesFilterCloseHandler = function(e) {
+    if (!wrapper.contains(e.target)) {
+      panel.classList.add('hidden');
+      trigger.classList.remove('open');
+    }
+  };
+  document.addEventListener('click', chart._seriesFilterCloseHandler);
+
+  allCb.addEventListener('change', function() {
+    chart._activeModels = allCb.checked ? new Set(labels) : new Set();
+    syncSeriesDropdownState(chartName);
+    applyStoredSeriesVisibility(chartName);
+    saveSeriesModelFilterState(chartName);
+    chart.update('none');
+  });
+  panel.querySelectorAll('input[data-model]').forEach(function(cb) {
+    cb.addEventListener('change', function() {
+      if (cb.checked) chart._activeModels.add(cb.dataset.model);
+      else chart._activeModels.delete(cb.dataset.model);
+      syncSeriesDropdownState(chartName);
+      applyStoredSeriesVisibility(chartName);
+      saveSeriesModelFilterState(chartName);
+      chart.update('none');
+    });
+  });
+
+  syncSeriesDropdownState(chartName);
+  applyStoredSeriesVisibility(chartName);
+  chart.update('none');
+}
+
+function syncSeriesDropdownState(chartName) {
+  var chart = window[chartName];
+  var wrapper = document.getElementById(chartName + '-model-dropdown');
+  if (!chart || !wrapper || !chart._seriesLabels) return;
+  var total = chart._seriesLabels.length;
+  var active = chart._activeModels ? chart._activeModels.size : total;
+  var label = wrapper.querySelector('.model-dropdown-label');
+  if (label) label.textContent = active === total ? 'All Models' : 'Models (' + active + '/' + total + ')';
+  var allCb = wrapper.querySelector('.model-dropdown-all input');
+  if (allCb) {
+    allCb.checked = active === total;
+    allCb.indeterminate = active > 0 && active < total;
+  }
+  wrapper.querySelectorAll('input[data-model]').forEach(function(cb) {
+    cb.checked = chart._activeModels && chart._activeModels.has(cb.dataset.model);
+  });
+}
+
+function applyStoredSeriesVisibility(chartName) {
+  var chart = window[chartName];
+  if (!chart) return;
+  if (!chart._activeModels) {
+    chart._activeModels = new Set((chart.data.datasets || []).map(function(ds) { return ds.label; }));
+  }
+  (chart.data.datasets || []).forEach(function(ds) {
+    ds.hidden = !chart._activeModels.has(ds.label);
+  });
+}
+
+function saveSeriesModelFilterState(chartName) {
+  var chart = window[chartName];
+  if (!chart || !chart._seriesLabels || !chart._activeModels) return;
+  var hidden = chart._seriesLabels.filter(function(label) {
+    return !chart._activeModels.has(label);
+  });
+  var storageKey = 'beacon-model-hidden-' + chartName;
+  if (hidden.length === 0) {
+    localStorage.removeItem(storageKey);
+  } else {
+    localStorage.setItem(storageKey, JSON.stringify(hidden));
+  }
+}
+
 // Apply default log scale if the canvas has data-default-log="true".
 // Does NOT call chart.update() — caller is responsible for triggering a render.
 function applyDefaultLog(chart, el) {
@@ -212,7 +635,29 @@ var providerGroupPlugin = {
   }
 };
 
-Chart.register(providerGroupPlugin);
+var noDataOverlayPlugin = {
+  id: 'noDataOverlay',
+  afterDraw: function(chart, args, opts) {
+    opts = opts || {};
+    if (opts.enabled === false) return;
+    var hasVisibleData = (chart.data.datasets || []).some(function(ds) {
+      return !ds.hidden && ds.data && ds.data.length > 0;
+    });
+    if (hasVisibleData) return;
+    var area = chart.chartArea;
+    if (!area) return;
+    var ctx = chart.ctx;
+    ctx.save();
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(opts.message || 'No data in selected range', (area.left + area.right) / 2, (area.top + area.bottom) / 2);
+    ctx.restore();
+  }
+};
+
+Chart.register(providerGroupPlugin, noDataOverlayPlugin);
 
 // ---- Model filter system for tokens-by-model charts ----
 
@@ -598,32 +1043,21 @@ function createTokensByModelChart(el, dataEl) {
   });
 }
 
-// Dashboard: Total Tokens Over Time (single-curve line chart)
-var dashboardTotalEl = document.getElementById('dashboardTotalTokensChart');
-if (dashboardTotalEl) {
-  window.dashboardTotalTokensChart = createMultiSeriesChart(
-    dashboardTotalEl, ['Total Tokens'], 'Tokens'
-  );
-  // Hide legend — title already describes the single series
-  window.dashboardTotalTokensChart.options.plugins.legend.display = false;
-  applyDefaultLog(window.dashboardTotalTokensChart, dashboardTotalEl);
-  loadMultiSeriesFromJSON('dashboardTotalTokensChart', 'dashboard-total-tokens-data');
+// Dashboard: cumulative tokens by selected model.
+var dashboardCumulativeEl = document.getElementById('dashboardTokenCumulativeChart');
+if (dashboardCumulativeEl) {
+  var cumulativePayload = readJSONScript('dashboard-token-cumulative-data') || {};
+  window.dashboardTokenCumulativeChart = createDashboardModelChart(dashboardCumulativeEl, cumulativePayload, 'tokens');
+  applyDefaultLog(window.dashboardTokenCumulativeChart, dashboardCumulativeEl);
+  window.dashboardTokenCumulativeChart.update('none');
+  setupSeriesModelFilters('dashboardTokenCumulativeChart', cumulativePayload);
 }
 
-// Dashboard: Tokens by Model (grouped bar chart)
-var dashboardByModelEl = document.getElementById('dashboardTokensByModelChart');
-if (dashboardByModelEl) {
-  var dashboardModelDataEl = document.getElementById('dashboard-tokens-by-model-data');
-  if (dashboardModelDataEl) {
-    try {
-      window.dashboardTokensByModelChart = createTokensByModelChart(dashboardByModelEl, dashboardModelDataEl);
-      if (window.dashboardTokensByModelChart) {
-        applyDefaultLog(window.dashboardTokensByModelChart, dashboardByModelEl);
-        window.dashboardTokensByModelChart.update('none');
-      }
-    } catch(e) {}
-    setupModelFilters('dashboardTokensByModelChart', dashboardModelDataEl);
-  }
+// Dashboard: selectable model activity/health metric.
+var dashboardActivityEl = document.getElementById('dashboardModelActivityChart');
+if (dashboardActivityEl) {
+  var activityPayload = readJSONScript('dashboard-model-activity-data') || {};
+  updateDashboardModelActivityChart(activityPayload, 'error_rate');
 }
 
 // Session detail: Total Tokens Over Time (single-curve, matching dashboard)

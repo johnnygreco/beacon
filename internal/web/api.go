@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -160,9 +159,13 @@ func (a *APIHandlers) GetSessionSubagents(w http.ResponseWriter, r *http.Request
 
 // GetActivity returns recent activity items as JSON for client-side rendering.
 func (a *APIHandlers) GetActivity(w http.ResponseWriter, r *http.Request) {
-	rangeVal := r.URL.Query().Get("range")
+	rangeVals, hasRange := r.URL.Query()["range"]
+	rangeVal := ""
+	if len(rangeVals) > 0 {
+		rangeVal = rangeVals[0]
+	}
 	since := parseRange(rangeVal)
-	if since == nil {
+	if !hasRange && since == nil {
 		t := time.Now().Add(-24 * time.Hour)
 		since = &t
 	}
@@ -194,23 +197,20 @@ func (a *APIHandlers) GetActivity(w http.ResponseWriter, r *http.Request) {
 
 // GetDashboardCharts returns the dashboard chart payloads as JSON.
 func (a *APIHandlers) GetDashboardCharts(w http.ResponseWriter, r *http.Request) {
-	var tokensChart views.MultiSeriesChart
-	var tokensByModel []views.ModelTokens
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		tokensChart = QueryTotalTokensTimeSeries(r.Context(), a.db)
-	}()
-	go func() {
-		defer wg.Done()
-		tokensByModel = QueryTokensByModelSummary(r.Context(), a.db)
-	}()
-	wg.Wait()
+	rangeVals, hasRange := r.URL.Query()["range"]
+	rangeVal := "24h"
+	if hasRange {
+		rangeVal = ""
+		if len(rangeVals) > 0 {
+			rangeVal = rangeVals[0]
+		}
+	}
+	tokenCumulative, modelActivity := QueryDashboardModelAnalytics(r.Context(), a.db, parseRange(rangeVal), rangeVal)
 
 	a.jsonResponse(w, APIDashboardCharts{
-		TotalTokens:   tokensChart,
-		TokensByModel: tokensByModelChartData(tokensByModel),
+		Range:           rangeVal,
+		TokenCumulative: tokenCumulative,
+		ModelActivity:   modelActivity,
 	})
 }
 
@@ -526,69 +526,4 @@ func apiSessionSummaryFromView(s views.SessionSummary) APISessionSummary {
 		SubagentCount:     s.SubagentCount,
 		ChildSessions:     children,
 	}
-}
-
-func tokensByModelChartData(models []views.ModelTokens) map[string]any {
-	sorted := views.SortModelsByProvider(models)
-	multiProvider := len(providerSet(sorted)) > 1
-
-	var labels []string
-	var inputData, outputData, cacheData []int64
-	var providerGroups []map[string]any
-
-	lastProvider := ""
-	groupStart := 0
-	for i, m := range sorted {
-		provider := m.Provider
-		if provider == "" {
-			provider = "unknown"
-		}
-		if multiProvider && lastProvider != "" && provider != lastProvider {
-			providerGroups = append(providerGroups, map[string]any{
-				"provider": views.ProviderShort(lastProvider),
-				"start":    groupStart,
-				"end":      len(labels) - 1,
-			})
-			groupStart = len(labels)
-		}
-		lastProvider = provider
-
-		labels = append(labels, views.ShortModelName(m.Model))
-		inputData = append(inputData, m.Input)
-		outputData = append(outputData, m.Output)
-		cacheData = append(cacheData, m.CacheRead)
-
-		if multiProvider && i == len(sorted)-1 {
-			providerGroups = append(providerGroups, map[string]any{
-				"provider": views.ProviderShort(provider),
-				"start":    groupStart,
-				"end":      len(labels) - 1,
-			})
-		}
-	}
-
-	result := map[string]any{
-		"labels": labels,
-		"datasets": []map[string]any{
-			{"label": "Input", "data": inputData},
-			{"label": "Output", "data": outputData},
-			{"label": "Cache", "data": cacheData},
-		},
-	}
-	if len(providerGroups) > 0 {
-		result["providerGroups"] = providerGroups
-	}
-	return result
-}
-
-func providerSet(models []views.ModelTokens) map[string]struct{} {
-	set := make(map[string]struct{})
-	for _, m := range models {
-		provider := m.Provider
-		if provider == "" {
-			provider = "unknown"
-		}
-		set[provider] = struct{}{}
-	}
-	return set
 }

@@ -408,6 +408,52 @@ type ModelTokens struct {
 	Total     int64
 }
 
+type ModelSeriesChart struct {
+	Labels        []string              `json:"labels"`
+	Datasets      []ModelSeriesDataset  `json:"datasets"`
+	Summary       ModelAnalyticsSummary `json:"summary"`
+	TimeUnit      string                `json:"time_unit"`
+	BucketMinutes int                   `json:"bucket_minutes"`
+}
+
+type ModelMetricChart struct {
+	Labels        []string                     `json:"labels"`
+	Metrics       map[string]ModelMetricSeries `json:"metrics"`
+	Summary       ModelAnalyticsSummary        `json:"summary"`
+	TimeUnit      string                       `json:"time_unit"`
+	BucketMinutes int                          `json:"bucket_minutes"`
+}
+
+type ModelMetricSeries struct {
+	Label    string               `json:"label"`
+	Unit     string               `json:"unit"`
+	Datasets []ModelSeriesDataset `json:"datasets"`
+}
+
+type ModelSeriesDataset struct {
+	Label           string    `json:"label"`
+	Model           string    `json:"model"`
+	Provider        string    `json:"provider"`
+	ProviderLabel   string    `json:"provider_label"`
+	Values          []float64 `json:"values"`
+	TotalTokens     int64     `json:"total_tokens,omitempty"`
+	InputTokens     int64     `json:"input_tokens,omitempty"`
+	OutputTokens    int64     `json:"output_tokens,omitempty"`
+	CacheReadTokens int64     `json:"cache_read_tokens,omitempty"`
+	ToolCallCount   int64     `json:"tool_call_count,omitempty"`
+	CallCount       int64     `json:"call_count,omitempty"`
+	ErrorCount      int64     `json:"error_count,omitempty"`
+}
+
+type ModelAnalyticsSummary struct {
+	TotalTokens   int64   `json:"total_tokens"`
+	ToolCallCount int64   `json:"tool_call_count"`
+	CallCount     int64   `json:"call_count"`
+	ErrorCount    int64   `json:"error_count"`
+	ErrorRate     float64 `json:"error_rate"`
+	ModelCount    int     `json:"model_count"`
+}
+
 type DashboardData struct {
 	Metrics           []MetricData
 	ActiveSessions    []SessionSummary
@@ -415,6 +461,8 @@ type DashboardData struct {
 	RecentActivity    []ActivityItem
 	TokensChart       MultiSeriesChart
 	TokensByModel     []ModelTokens
+	TokenCumulative   ModelSeriesChart
+	ModelActivity     ModelMetricChart
 	HasMoreSessions   bool
 }
 
