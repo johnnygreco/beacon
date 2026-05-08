@@ -53,10 +53,11 @@ beacon up
 ```
 
 The dashboard opens at [http://localhost:4600](http://localhost:4600). Beacon captures Claude Code and Codex sessions automatically from the configured sources.
+`beacon db up` uses an already-running ClickHouse when available, otherwise it can start a local `clickhouse` binary or a Docker container.
 
 ### Build from source
 
-Requires Go 1.24+ and Docker or a local ClickHouse server.
+Requires Go 1.24+ and one ClickHouse option: a local `clickhouse` binary, Docker, or an already-running ClickHouse server.
 
 ```bash
 git clone https://github.com/johnnygreco/beacon.git
@@ -84,8 +85,8 @@ BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/perf -bench . -run '^$'
 | `beacon run web` | Run web and capture services |
 | `beacon run mcp` | Start the MCP server (stdin/stdout) |
 | `beacon status` | Show ClickHouse and index stats |
-| `beacon db up` | Start a local ClickHouse container and migrate tables |
-| `beacon db down` | Stop the local ClickHouse container |
+| `beacon db up` | Start local ClickHouse and migrate tables |
+| `beacon db down` | Stop the local ClickHouse managed by Beacon |
 | `beacon db migrate` | Create or update ClickHouse tables |
 | `beacon db reset --force` | Reset the ClickHouse schema |
 
