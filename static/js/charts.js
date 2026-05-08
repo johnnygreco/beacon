@@ -626,7 +626,29 @@ var providerGroupPlugin = {
   }
 };
 
-Chart.register(providerGroupPlugin);
+var noDataOverlayPlugin = {
+  id: 'noDataOverlay',
+  afterDraw: function(chart, args, opts) {
+    opts = opts || {};
+    if (opts.enabled === false) return;
+    var hasVisibleData = (chart.data.datasets || []).some(function(ds) {
+      return !ds.hidden && ds.data && ds.data.length > 0;
+    });
+    if (hasVisibleData) return;
+    var area = chart.chartArea;
+    if (!area) return;
+    var ctx = chart.ctx;
+    ctx.save();
+    ctx.fillStyle = '#6b7280';
+    ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(opts.message || 'No data in selected range', (area.left + area.right) / 2, (area.top + area.bottom) / 2);
+    ctx.restore();
+  }
+};
+
+Chart.register(providerGroupPlugin, noDataOverlayPlugin);
 
 // ---- Model filter system for tokens-by-model charts ----
 

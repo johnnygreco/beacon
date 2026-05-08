@@ -278,12 +278,14 @@ func QueryDashboardModelAnalytics(ctx context.Context, db *sql.DB, since *time.T
 func emptyDashboardModelCharts(bucketMinutes int, timeUnit string) (views.ModelSeriesChart, views.ModelMetricChart) {
 	summary := views.ModelAnalyticsSummary{}
 	tokenChart := views.ModelSeriesChart{
+		Labels:        []string{},
 		Datasets:      []views.ModelSeriesDataset{},
 		Summary:       summary,
 		TimeUnit:      timeUnit,
 		BucketMinutes: bucketMinutes,
 	}
 	metricChart := views.ModelMetricChart{
+		Labels: []string{},
 		Metrics: map[string]views.ModelMetricSeries{
 			"error_rate": {Label: "Error Rate", Unit: "%", Datasets: []views.ModelSeriesDataset{}},
 			"errors":     {Label: "Errors", Unit: "errors", Datasets: []views.ModelSeriesDataset{}},
