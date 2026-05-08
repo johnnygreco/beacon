@@ -17,14 +17,18 @@ func RelativeTime(t time.Time) string {
 	}
 	d := time.Since(t)
 	switch {
+	case d < 0:
+		return FormatTime(t)
 	case d < time.Minute:
 		return "just now"
 	case d < time.Hour:
 		return fmt.Sprintf("%dm ago", int(d.Minutes()))
 	case d < 24*time.Hour:
 		return fmt.Sprintf("%dh ago", int(d.Hours()))
-	default:
+	case d < 30*24*time.Hour:
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	default:
+		return FormatTime(t)
 	}
 }
 
@@ -308,13 +312,26 @@ func FormatTimeShort(t time.Time) string {
 	return t.Local().Format("1/2 3:04 PM")
 }
 
+// FormatTimeCompact keeps recent dates compact but includes the year when it
+// matters for older session history.
+func FormatTimeCompact(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	local := t.Local()
+	if local.Year() != time.Now().Local().Year() {
+		return local.Format("1/2/2006 3:04 PM")
+	}
+	return local.Format("1/2 3:04 PM")
+}
+
 // SessionTitle returns a display title for a session.
 // When detailed is true, date info is appended to the project name.
 func SessionTitle(s SessionSummary, detailed bool) string {
 	if s.WorkingDir != "" {
 		name := projectName(s.WorkingDir)
 		if detailed && !s.StartedAt.IsZero() {
-			return name + " — " + FormatTimeShort(s.StartedAt)
+			return name + " — " + FormatTimeCompact(s.StartedAt)
 		}
 		return name
 	}
@@ -323,9 +340,9 @@ func SessionTitle(s SessionSummary, detailed bool) string {
 	}
 	if !s.StartedAt.IsZero() {
 		if detailed {
-			return "Session — " + FormatTimeShort(s.StartedAt)
+			return "Session — " + FormatTimeCompact(s.StartedAt)
 		}
-		return FormatTimeShort(s.StartedAt)
+		return FormatTimeCompact(s.StartedAt)
 	}
 	return "Session"
 }

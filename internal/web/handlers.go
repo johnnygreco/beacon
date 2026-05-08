@@ -1,8 +1,10 @@
 package web
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -132,6 +134,9 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 		results, err = h.searcher.Search(r.Context(), sq)
 	}
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
 		h.logger.Error("search failed", "error", err)
 		if err := partials.SearchResultsWithCount(nil, 0, false).Render(r.Context(), w); err != nil {
 			h.logger.Debug("render search results failed", "error", err)
