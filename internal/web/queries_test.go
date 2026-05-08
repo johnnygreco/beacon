@@ -272,6 +272,7 @@ func TestParseToolParams_BashCommand(t *testing.T) {
 	result := parseToolParams(`{"command":"ls -la","description":"list files"}`)
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	if result.Command != "ls -la" {
 		t.Errorf("expected command 'ls -la', got '%s'", result.Command)
@@ -285,6 +286,7 @@ func TestParseToolParams_EditTool(t *testing.T) {
 	result := parseToolParams(`{"file_path":"/tmp/test.go","old_string":"foo","new_string":"bar"}`)
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	if result.FilePath != "/tmp/test.go" {
 		t.Errorf("expected file_path '/tmp/test.go', got '%s'", result.FilePath)
@@ -301,6 +303,7 @@ func TestParseToolParams_SearchTool(t *testing.T) {
 	result := parseToolParams(`{"pattern":"func.*Test","path":"./internal"}`)
 	if result == nil {
 		t.Fatal("expected non-nil result")
+		return
 	}
 	if result.Pattern != "func.*Test" {
 		t.Errorf("expected pattern 'func.*Test', got '%s'", result.Pattern)
