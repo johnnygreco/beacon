@@ -41,6 +41,12 @@ curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_DIR=/usr/local/bi
 
 Set `INSTALL_CLICKHOUSE=0` if you already manage ClickHouse yourself and only want the Beacon binary.
 
+To install the latest prerelease instead of the latest stable release:
+
+```bash
+curl -sSfL https://johnnygreco.dev/beacon/install.sh | INCLUDE_PRERELEASE=1 sh
+```
+
 To uninstall:
 
 ```bash

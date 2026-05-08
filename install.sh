@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Usage:
-#   Latest:     curl -sSfL https://johnnygreco.dev/beacon/install.sh | sh
-#   Pinned:     curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=0.1.0 sh
-#   No DB dep:  curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_CLICKHOUSE=0 sh
-#   Uninstall:  curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
+#   Latest stable:     curl -sSfL https://johnnygreco.dev/beacon/install.sh | sh
+#   Latest prerelease: curl -sSfL https://johnnygreco.dev/beacon/install.sh | INCLUDE_PRERELEASE=1 sh
+#   Pinned:            curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=0.1.0 sh
+#   No DB dep:         curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_CLICKHOUSE=0 sh
+#   Uninstall:         curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
 set -euo pipefail
 
 REPO="johnnygreco/beacon"
@@ -11,6 +12,7 @@ INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
 BEACON_HOME="${BEACON_HOME:-${HOME}/.beacon}"
 CLICKHOUSE_INSTALL_DIR="${CLICKHOUSE_INSTALL_DIR:-${BEACON_HOME}/bin}"
 INSTALL_CLICKHOUSE="${INSTALL_CLICKHOUSE:-1}"
+INCLUDE_PRERELEASE="${INCLUDE_PRERELEASE:-0}"
 if [ -z "${CLICKHOUSE_VERSION:-}" ]; then
     if [ -n "${CLICKHOUSE_TAG:-}" ]; then
         CLICKHOUSE_VERSION="${CLICKHOUSE_TAG#v}"
@@ -113,9 +115,37 @@ install_clickhouse() {
     echo "ClickHouse ${CLICKHOUSE_TAG} installed to ${clickhouse_bin}"
 }
 
+latest_release_version() {
+    curl -sSf "https://api.github.com/repos/${REPO}/releases?per_page=50" | awk -v include_prerelease="$INCLUDE_PRERELEASE" '
+        /"tag_name":/ {
+            tag = $0
+            sub(/^.*"tag_name": *"/, "", tag)
+            sub(/".*$/, "", tag)
+            draft = ""
+            prerelease = ""
+        }
+        /"draft":/ && tag != "" && draft == "" {
+            draft = $0
+            sub(/^.*"draft": */, "", draft)
+            sub(/,.*/, "", draft)
+        }
+        /"prerelease":/ && tag != "" && prerelease == "" {
+            prerelease = $0
+            sub(/^.*"prerelease": */, "", prerelease)
+            sub(/,.*/, "", prerelease)
+            if (found == "" && draft == "false" && (include_prerelease == "1" || prerelease == "false")) {
+                found = tag
+            }
+        }
+        END {
+            if (found != "") print found
+        }
+    '
+}
+
 # Use provided version or fetch latest
 if [ -z "${VERSION:-}" ]; then
-    VERSION="$(curl -sSf "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)"
+    VERSION="$(latest_release_version)"
     if [ -z "$VERSION" ]; then
         echo "Error: could not determine latest version."
         exit 1
