@@ -263,8 +263,8 @@ nav a.active {
   }
 
   .timeline-panel {
-    width: 100%;
-    min-width: 0;
+    width: 100% !important;
+    min-width: 0 !important;
     max-height: 440px;
     border-top: 1px solid rgba(55, 65, 81, 0.5);
   }
@@ -275,6 +275,47 @@ nav a.active {
 
   #timeline-sidebar > .flex.items-center.gap-1\.5 {
     overflow-x: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  #completed-table th:nth-child(n+4),
+  #completed-table td:nth-child(n+4) {
+    display: none;
+  }
+
+  #completed-table th:nth-child(1),
+  #completed-table td:nth-child(1) {
+    width: 48%;
+  }
+
+  #completed-table th:nth-child(2),
+  #completed-table td:nth-child(2) {
+    width: 30%;
+  }
+
+  #completed-table th:nth-child(3),
+  #completed-table td:nth-child(3) {
+    width: 22%;
+  }
+
+  #completed-table th,
+  #completed-table td {
+    padding-left: 0.75rem;
+    padding-right: 0.5rem;
+  }
+
+  #completed-sessions td:first-child {
+    white-space: normal;
+  }
+
+  #completed-sessions .mobile-session-meta {
+    display: block;
+    margin-top: 0.2rem;
+    font-size: 0.68rem;
+    line-height: 1rem;
+    color: #6b7280;
+    white-space: normal;
   }
 }
 

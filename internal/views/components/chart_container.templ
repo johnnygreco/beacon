@@ -20,6 +20,7 @@ templ ChartContainerWithOptions(id string, height string, title string, logToggl
 					class={ logToggleClass(defaultLog) }
 					data-chart-id={ id }
 					data-log-active={ strconv.FormatBool(defaultLog) }
+					aria-pressed={ strconv.FormatBool(defaultLog) }
 				>
 					Log Scale
 				</button>
@@ -33,9 +34,9 @@ templ ChartContainerWithOptions(id string, height string, title string, logToggl
 
 func logToggleClass(active bool) string {
 	if active {
-		return "log-scale-toggle px-2 py-1 text-xs rounded border bg-blue-500/20 text-blue-400 border-blue-500/40 hover:text-blue-300 transition-colors"
+		return "log-scale-toggle px-2 py-1 text-xs rounded border bg-blue-500/20 text-blue-400 border-blue-500/40 hover:text-blue-300 transition-colors whitespace-nowrap"
 	}
-	return "log-scale-toggle px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors"
+	return "log-scale-toggle px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors whitespace-nowrap"
 }
 
 script toggleLogScale(chartId string) {
@@ -50,8 +51,9 @@ script toggleLogScale(chartId string) {
 	} else {
 		delete chart.options.scales.y.min;
 	}
-	chart.update();
+	chart.update('none');
 	btn.setAttribute('data-log-active', String(!isLog));
+	btn.setAttribute('aria-pressed', String(!isLog));
 	if (!isLog) {
 		btn.classList.add('bg-blue-500/20', 'text-blue-400', 'border-blue-500/40');
 		btn.classList.remove('text-gray-400', 'border-gray-600');
