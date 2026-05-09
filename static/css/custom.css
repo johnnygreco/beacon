@@ -244,6 +244,11 @@ nav a.active {
 }
 
 @media (max-width: 640px) {
+  .dashboard-analytics-grid > .min-w-0 > .bg-gray-800,
+  .dashboard-analytics-grid > .min-w-0.bg-gray-800 {
+    min-height: 28.125rem;
+  }
+
   .dashboard-analytics-grid .chart-card-header {
     min-height: 5.25rem;
   }
