@@ -70,6 +70,7 @@ type APISessionSummary struct {
 type APIDashboardSessionsResponse struct {
 	State   string              `json:"state"`
 	Range   string              `json:"range"`
+	Query   string              `json:"query,omitempty"`
 	Offset  int                 `json:"offset"`
 	Limit   int                 `json:"limit"`
 	HasMore bool                `json:"has_more"`

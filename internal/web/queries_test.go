@@ -2,6 +2,7 @@ package web
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,23 @@ func TestBuildChatTurns_EmptyInput(t *testing.T) {
 	result := buildChatTurns(nil)
 	if len(result) != 0 {
 		t.Errorf("expected 0 chat turns, got %d", len(result))
+	}
+}
+
+func TestCompletedSessionSearchClause(t *testing.T) {
+	clause, argCount := completedSessionSearchClause()
+	if got := strings.Count(clause, "?"); got != argCount {
+		t.Fatalf("placeholder count = %d, arg count = %d", got, argCount)
+	}
+	for _, expected := range []string{
+		"positionCaseInsensitive(session_id, ?)",
+		"positionCaseInsensitive(COALESCE(working_dir, ''), ?)",
+		"FROM search_documents FINAL",
+		"positionCaseInsensitive(text_preview, ?)",
+	} {
+		if !strings.Contains(clause, expected) {
+			t.Fatalf("search clause missing %q: %s", expected, clause)
+		}
 	}
 }
 

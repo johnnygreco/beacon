@@ -559,6 +559,13 @@ func QueryRecentActivity(ctx context.Context, db *sql.DB) []views.ActivityItem {
 // QueryCompletedSessions returns paginated completed sessions with optional time filter.
 // Only returns parent sessions (excludes subagents); subagent counts are attached.
 func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int) ([]views.SessionSummary, bool) {
+	return QueryCompletedSessionsFiltered(ctx, db, since, offset, limit, "")
+}
+
+// QueryCompletedSessionsFiltered returns paginated completed sessions with optional
+// time and text filters. Search matches session metadata and indexed event previews
+// so the dashboard table covers the old search-page discovery workflow in place.
+func QueryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int, searchText string) ([]views.SessionSummary, bool) {
 	cutoff := time.Now().Add(-idleThreshold)
 	query := `SELECT ` + sessionSummaryColumns + `
 		 FROM ` + sessionProjectionSQL + `
@@ -569,6 +576,13 @@ func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, o
 	if since != nil {
 		query += " AND ended_at >= ?"
 		args = append(args, *since)
+	}
+	if searchText = strings.TrimSpace(searchText); searchText != "" {
+		clause, searchArgCount := completedSessionSearchClause()
+		query += clause
+		for range searchArgCount {
+			args = append(args, searchText)
+		}
 	}
 	query += ` ORDER BY ended_at DESC`
 	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit+1, offset)
@@ -597,6 +611,30 @@ func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, o
 	}
 	attachSubagentCounts(ctx, db, sessions)
 	return sessions, hasMore
+}
+
+func completedSessionSearchClause() (string, int) {
+	columns := []string{
+		"session_id",
+		"COALESCE(source_name, '')",
+		"COALESCE(provider, '')",
+		"COALESCE(last_model, '')",
+		"COALESCE(working_dir, '')",
+	}
+	var metadata []string
+	for _, col := range columns {
+		metadata = append(metadata, "positionCaseInsensitive("+col+", ?) > 0")
+	}
+	return ` AND (` + strings.Join(metadata, " OR ") + `
+		   OR session_id IN (
+		   	SELECT DISTINCT session_id
+		   	FROM search_documents FINAL
+		   	WHERE positionCaseInsensitive(text_preview, ?) > 0
+		   	   OR positionCaseInsensitive(event_kind, ?) > 0
+		   	   OR positionCaseInsensitive(tool_name, ?) > 0
+		   	   OR positionCaseInsensitive(model, ?) > 0
+		   	LIMIT 5000
+		   ))`, len(columns) + 4
 }
 
 // attachSubagentCounts queries subagent counts for the given sessions and attaches them.

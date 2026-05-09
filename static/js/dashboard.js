@@ -11,6 +11,8 @@
 	var summary = document.getElementById('inspector-summary');
 	var events = document.getElementById('inspector-events');
 	var fullLink = document.getElementById('inspector-full-link');
+	var closeButton = inspector && inspector.querySelector('[aria-label="Close"]');
+	var inspectorLauncher = null;
 
 	function escapeHTML(value) {
 		return String(value == null ? '' : value).replace(/[&<>"']/g, function(ch) {
@@ -46,6 +48,22 @@
 		].join('');
 	}
 
+	function normalizeSessionDetail(data) {
+		var session = data && (data.session || data.Session || data);
+		if (!session) return null;
+		return {
+			id: session.id || session.ID || '',
+			duration: session.duration || session.Duration || '',
+			total_tokens: session.total_tokens || session.TotalTokens || 0,
+			turn_count: session.turn_count || session.TurnCount || 0,
+			tool_call_count: session.tool_call_count || session.ToolCallCount || 0,
+			source: session.source || session.Actor || '',
+			last_model: session.last_model || session.ActiveModel || '',
+			input_tokens: session.input_tokens || session.InputTokens || 0,
+			output_tokens: session.output_tokens || session.OutputTokens || 0
+		};
+	}
+
 	function eventRow(event) {
 		var meta = [event.event_kind, event.actor_role, event.tool_name, event.model].filter(Boolean).join(' · ');
 		var payloadButton = event.tool_name ? '<button type="button" class="payload-btn text-xs text-blue-400 hover:text-blue-300" data-event-id="' + escapeHTML(event.event_uid) + '">Payload</button>' : '';
@@ -71,6 +89,21 @@
 		sessionsLoaded = true;
 	}
 
+	async function loadSessionSummary(id, fetchOpts) {
+		await loadSessions();
+		var cached = sessionsStore.find(function(s) { return s.id === id; });
+		if (cached) return cached;
+		var res = await fetch('/api/sessions/' + encodeURIComponent(id), fetchOpts || {headers: {'Accept': 'application/json'}});
+		if (!res.ok) throw new Error('session failed');
+		var detail = await res.json();
+		var normalized = normalizeSessionDetail(detail);
+		if (normalized && normalized.id) {
+			sessionsStore.push(normalized);
+			window.dashboardSessionIndex[normalized.id] = normalized;
+		}
+		return normalized;
+	}
+
 	async function openSessionInspector(id) {
 		var seq = ++inspectorSeq;
 		if (inspectorController) {
@@ -78,15 +111,17 @@
 		}
 		inspectorController = window.AbortController ? new AbortController() : null;
 		selectedSessionId = id;
+		inspectorLauncher = document.activeElement;
 		inspector.classList.remove('hidden');
 		events.innerHTML = '<div class="text-sm text-gray-500">Loading events...</div>';
 		renderSummary(null);
 		try {
-			await loadSessions();
-			if (seq !== inspectorSeq) return;
-			renderSummary(sessionsStore.find(function(s) { return s.id === id; }));
 			var fetchOpts = {headers: {'Accept': 'application/json'}};
 			if (inspectorController) fetchOpts.signal = inspectorController.signal;
+			var session = await loadSessionSummary(id, fetchOpts);
+			if (seq !== inspectorSeq) return;
+			renderSummary(session);
+			if (closeButton) closeButton.focus({preventScroll: true});
 			var res = await fetch('/api/sessions/' + encodeURIComponent(id) + '/events?limit=200', fetchOpts);
 			if (!res.ok) throw new Error('events failed');
 			var items = await res.json();
@@ -107,6 +142,10 @@
 		}
 		inspector.classList.add('hidden');
 		selectedSessionId = '';
+		if (inspectorLauncher && typeof inspectorLauncher.focus === 'function') {
+			inspectorLauncher.focus({preventScroll: true});
+		}
+		inspectorLauncher = null;
 	};
 
 	window.goToSession = function(url) {
@@ -124,7 +163,7 @@
 
 	document.addEventListener('click', function(evt) {
 		var link = evt.target.closest && evt.target.closest('a[href^="/sessions/"]');
-		if (link && link.id !== 'inspector-full-link') {
+		if (link && link.id !== 'inspector-full-link' && !link.closest('#activity-feed')) {
 			evt.preventDefault();
 			window.goToSession(link.getAttribute('href'));
 			return;
@@ -154,6 +193,22 @@
 		if (evt.key === 'Escape' && !inspector.classList.contains('hidden')) {
 			evt.preventDefault();
 			window.closeSessionInspector();
+			return;
+		}
+		if (evt.key === 'Tab' && !inspector.classList.contains('hidden')) {
+			var focusables = Array.from(inspector.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter(function(el) {
+				return el.offsetParent !== null;
+			});
+			if (!focusables.length) return;
+			var first = focusables[0];
+			var last = focusables[focusables.length - 1];
+			if (evt.shiftKey && document.activeElement === first) {
+				evt.preventDefault();
+				last.focus();
+			} else if (!evt.shiftKey && document.activeElement === last) {
+				evt.preventDefault();
+				first.focus();
+			}
 		}
 	});
 })();
@@ -171,9 +226,32 @@
 	var dragging = false;
 	var resizeRAF = 0;
 
+	function storageGet(key) {
+		try { return localStorage.getItem(key); } catch (err) { return null; }
+	}
+
+	function storageSet(key, value) {
+		try { localStorage.setItem(key, value); } catch (err) {}
+	}
+
 	function resizeCharts() {
 		if (window.dashboardTokenCumulativeChart) window.dashboardTokenCumulativeChart.resize();
 		if (window.dashboardModelActivityChart) window.dashboardModelActivityChart.resize();
+	}
+
+	function resizeChartsSoon() {
+		requestAnimationFrame(function() {
+			resizeCharts();
+			setTimeout(resizeCharts, 220);
+		});
+	}
+
+	function syncToggleButton() {
+		var btn = document.getElementById('timeline-toggle-btn');
+		if (!btn) return;
+		var collapsed = isCollapsed();
+		btn.textContent = collapsed ? 'Show Timeline' : 'Hide Timeline';
+		btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
 	}
 
 	function setSidebarWidth(w) {
@@ -184,16 +262,18 @@
 	function collapse() {
 		var current = parseInt(sidebar.style.width, 10) || DEFAULT_WIDTH;
 		if (current > 0) {
-			localStorage.setItem('beacon-timeline-prev-width', current);
+			storageSet('beacon-timeline-prev-width', current);
 		}
 		sidebar.classList.add('collapsed');
-		localStorage.setItem('beacon-timeline-width', '0');
+		storageSet('beacon-timeline-width', '0');
+		syncToggleButton();
 	}
 
 	function expand(w) {
 		sidebar.classList.remove('collapsed');
 		setSidebarWidth(w);
-		localStorage.setItem('beacon-timeline-width', w);
+		storageSet('beacon-timeline-width', w);
+		syncToggleButton();
 	}
 
 	function isCollapsed() {
@@ -201,7 +281,7 @@
 	}
 
 	// Restore saved state
-	var savedWidth = localStorage.getItem('beacon-timeline-width');
+	var savedWidth = storageGet('beacon-timeline-width');
 	if (savedWidth === '0') {
 		sidebar.classList.add('collapsed');
 	} else {
@@ -210,6 +290,7 @@
 			setSidebarWidth(w);
 		}
 	}
+	syncToggleButton();
 
 	// Responsive: constrain sidebar on small screens
 	function constrainForViewport() {
@@ -277,7 +358,8 @@
 		if (currentWidth < SNAP_THRESHOLD) {
 			collapse();
 		} else {
-			localStorage.setItem('beacon-timeline-width', currentWidth);
+			storageSet('beacon-timeline-width', currentWidth);
+			syncToggleButton();
 		}
 		resizeCharts();
 	});
@@ -285,23 +367,33 @@
 	// Double-click to reset to default width (or expand if collapsed)
 	divider.addEventListener('dblclick', function() {
 		expand(DEFAULT_WIDTH);
-		resizeCharts();
+		resizeChartsSoon();
 	});
+
+	window.toggleTimelineSidebar = function() {
+		if (isCollapsed()) {
+			var restored = parseInt(storageGet('beacon-timeline-prev-width'), 10) || DEFAULT_WIDTH;
+			expand(restored);
+		} else {
+			collapse();
+		}
+		resizeChartsSoon();
+	};
 
 	// Keyboard shortcut: T toggles collapsed/expanded
 	document.addEventListener('keydown', function(e) {
 		if (e.key === 'T' || e.key === 't') {
 			if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
-			e.preventDefault();
-			if (isCollapsed()) {
-				var restored = parseInt(localStorage.getItem('beacon-timeline-prev-width'), 10) || DEFAULT_WIDTH;
-				expand(restored);
-			} else {
-				collapse();
+				e.preventDefault();
+				if (isCollapsed()) {
+					var restored = parseInt(storageGet('beacon-timeline-prev-width'), 10) || DEFAULT_WIDTH;
+					expand(restored);
+				} else {
+					collapse();
+				}
+				resizeChartsSoon();
 			}
-			resizeCharts();
-		}
-	});
+		});
 })();
 
 // --- JSON dashboard stores ---
@@ -309,6 +401,8 @@ var currentActivityFilter = 'all';
 var currentRange = '24h';
 var currentDashboardMetric = 'error_rate';
 var currentCompletedOffset = 0;
+var currentSearchQuery = '';
+var dashboardSearchTimer = 0;
 var completedPageSize = 30;
 var dashboardRequestSeq = {};
 var dashboardControllers = {};
@@ -406,6 +500,28 @@ function setHTMLIfChanged(el, html) {
 	return true;
 }
 
+function markDashboardUpdated() {
+	var el = document.getElementById('dashboard-last-updated');
+	if (el) el.textContent = 'Updated ' + new Date().toLocaleTimeString([], {hour: 'numeric', minute: '2-digit', second: '2-digit'});
+}
+
+function setDashboardConnection(status) {
+	var el = document.getElementById('dashboard-connection-label');
+	if (!el) return;
+	el.textContent = status;
+	el.className = status === 'Live' ? 'text-green-400' : (status === 'Disconnected' ? 'text-red-400' : 'text-gray-500');
+}
+
+function requestURL(path, params) {
+	var query = new URLSearchParams();
+	Object.keys(params || {}).forEach(function(key) {
+		var value = params[key];
+		if (value !== undefined && value !== null && value !== '') query.set(key, value);
+	});
+	var qs = query.toString();
+	return path + (qs ? '?' + qs : '');
+}
+
 async function fetchDashboardJSON(key, url) {
 	dashboardRequestSeq[key] = (dashboardRequestSeq[key] || 0) + 1;
 	var seq = dashboardRequestSeq[key];
@@ -418,13 +534,15 @@ async function fetchDashboardJSON(key, url) {
 		var opts = {headers: {'Accept': 'application/json'}};
 		if (controller) opts.signal = controller.signal;
 		var res = await fetch(url, opts);
-		if (dashboardRequestSeq[key] !== seq || !res.ok) return null;
+		if (dashboardRequestSeq[key] !== seq) return {stale: true};
+		if (!res.ok) return {error: true, status: res.status};
 		var data = await res.json();
-		if (dashboardRequestSeq[key] !== seq) return null;
-		return data;
+		if (dashboardRequestSeq[key] !== seq) return {stale: true};
+		markDashboardUpdated();
+		return {data: data};
 	} catch (err) {
-		if (err && err.name === 'AbortError') return null;
-		return null;
+		if (err && err.name === 'AbortError') return {stale: true};
+		return {error: true};
 	} finally {
 		if (dashboardControllers[key] === controller) {
 			dashboardControllers[key] = null;
@@ -470,13 +588,20 @@ function completedRow(session, isSubagent, parentID) {
 function renderCompleted(response) {
 	var tbody = document.getElementById('completed-sessions');
 	var rows = (response.items || []).map(function(session) { return completedRow(session, false, ''); });
+	var status = document.getElementById('completed-session-status');
 	if ((response.items || []).length > 0 || response.offset > 0) {
 		var prev = response.offset > 0 ? '<button type="button" class="json-page-btn px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors" data-offset="' + Math.max(0, response.offset - response.limit) + '">Previous</button>' : '';
 		var next = response.has_more ? '<button type="button" class="json-page-btn px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors" data-offset="' + (response.offset + response.limit) + '">Next</button>' : '';
-		rows.push('<tr class="border-none" data-pagination-row><td colspan="10" class="py-3"><div class="flex items-center justify-center gap-4">' + prev + '<span class="text-xs text-gray-500 tabular-nums">Page ' + (Math.floor(response.offset / response.limit) + 1) + '<\/span>' + next + '<\/div><\/td><\/tr>');
+		var start = response.offset + 1;
+		var end = response.offset + (response.items || []).length;
+		rows.push('<tr class="border-none" data-pagination-row><td colspan="10" class="py-3"><div class="flex items-center justify-center gap-4">' + prev + '<span class="text-xs text-gray-500 tabular-nums">Showing ' + start + '-' + end + (response.has_more ? '+' : '') + '<\/span>' + next + '<\/div><\/td><\/tr>');
 	}
 	if (rows.length === 0) {
-		rows.push('<tr><td colspan="10" class="text-center py-4"><span class="text-sm text-gray-500">No completed sessions<\/span><\/td><\/tr>');
+		rows.push('<tr><td colspan="10" class="text-center py-4"><span class="text-sm text-gray-500">' + (currentSearchQuery ? 'No sessions match your search' : 'No completed sessions') + '<\/span><\/td><\/tr>');
+	}
+	if (status) {
+		var count = (response.items || []).length;
+		status.textContent = currentSearchQuery ? (count + ' search result' + (count === 1 ? '' : 's') + ' in ' + rangeLabel(currentRange)) : (count + ' shown for ' + rangeLabel(currentRange));
 	}
 	var changed = setHTMLIfChanged(tbody, rows.join(''));
 	if (changed && sortColumn) {
@@ -552,7 +677,7 @@ function renderActivity(items) {
 		var url = '/sessions/' + encodeURIComponent(item.session_id || '') + '#' + encodeURIComponent(item.id || '');
 		var provider = item.provider ? '<span class="px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 ' + providerBadgeClasses(item.provider) + '">' + escapeHTML(providerShort(item.provider)) + '</span>' : '';
 		var sid = item.session_id ? '<span class="text-xs text-gray-600 font-mono flex-shrink-0">' + escapeHTML(shortID(item.session_id)) + '</span>' : '';
-		return '<a href="' + url + '" data-type="' + escapeAttr(item.type) + '" class="block relative py-2 pl-4 hover:bg-gray-800/50 rounded-lg transition-colors group"><div class="absolute left-[-8px] top-3.5 w-2.5 h-2.5 rounded-full ring-2 ring-gray-900 ' + activityDotColor(item.type) + '"></div><p class="text-sm text-gray-300 group-hover:text-gray-100 transition-colors mb-1">' + escapeHTML(item.summary) + '</p><div class="flex items-center gap-2 flex-wrap"><span class="px-1.5 py-0.5 rounded text-xs flex-shrink-0 ' + activityBadgeStyle(item.type) + '">' + escapeHTML(activityLabel(item.type)) + '</span>' + provider + sid + '<span class="text-xs text-gray-600 flex-shrink-0">' + escapeHTML(item.relative_time || relativeTime(item.timestamp)) + '</span></div></a>';
+		return '<a href="' + url + '" data-type="' + escapeAttr(item.type) + '" data-transcript-link="true" class="block relative py-2 pl-4 hover:bg-gray-800/50 rounded-lg transition-colors group"><div class="absolute left-[-8px] top-3.5 w-2.5 h-2.5 rounded-full ring-2 ring-gray-900 ' + activityDotColor(item.type) + '"></div><p class="text-sm text-gray-300 group-hover:text-gray-100 transition-colors mb-1">' + escapeHTML(item.summary) + '</p><div class="flex items-center gap-2 flex-wrap"><span class="px-1.5 py-0.5 rounded text-xs flex-shrink-0 ' + activityBadgeStyle(item.type) + '">' + escapeHTML(activityLabel(item.type)) + '</span>' + provider + sid + '<span class="text-xs text-gray-600 flex-shrink-0">' + escapeHTML(item.relative_time || relativeTime(item.timestamp)) + '</span></div></a>';
 	}).join('') + '</div>');
 }
 
@@ -616,43 +741,72 @@ function updateDashboardCharts(payload) {
 }
 
 async function loadDashboardCharts() {
-	var data = await fetchDashboardJSON('charts', '/api/dashboard/charts?range=' + encodeURIComponent(currentRange));
-	if (!data) return;
-	updateDashboardCharts(data);
+	var result = await fetchDashboardJSON('charts', requestURL('/api/dashboard/charts', {range: currentRange}));
+	if (!result || result.stale) return;
+	if (result.error) {
+		renderAnalyticsSummary({});
+		return;
+	}
+	updateDashboardCharts(result.data);
 }
 
 async function loadActiveSessions() {
-	var data = await fetchDashboardJSON('active', '/api/dashboard/sessions?state=active');
-	if (!data) return;
+	var result = await fetchDashboardJSON('active', requestURL('/api/dashboard/sessions', {state: 'active'}));
+	if (!result || result.stale) return;
+	if (result.error) {
+		var wrap = document.getElementById('active-sessions');
+		setHTMLIfChanged(wrap, '<h2 class="text-lg font-semibold text-gray-200 mb-3">Active Sessions</h2><div class="rounded border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">Unable to load active sessions. <button type="button" class="underline" onclick="loadActiveSessions()">Retry</button></div>');
+		return;
+	}
+	var data = result.data;
 	rememberSessions(data.items);
 	renderActive(data);
 }
 
 async function loadCompletedSessions(offset) {
 	currentCompletedOffset = Math.max(0, offset || 0);
-	var url = '/api/dashboard/sessions?state=completed&limit=' + completedPageSize + '&offset=' + currentCompletedOffset + '&range=' + encodeURIComponent(currentRange);
-	var data = await fetchDashboardJSON('completed', url);
-	if (!data) return;
+	var status = document.getElementById('completed-session-status');
+	if (status) status.textContent = currentSearchQuery ? 'Searching sessions...' : 'Loading sessions...';
+	var result = await fetchDashboardJSON('completed', requestURL('/api/dashboard/sessions', {
+		state: 'completed',
+		limit: completedPageSize,
+		offset: currentCompletedOffset,
+		range: currentRange,
+		q: currentSearchQuery
+	}));
+	if (!result || result.stale) return;
+	if (result.error) {
+		var tbody = document.getElementById('completed-sessions');
+		setHTMLIfChanged(tbody, '<tr><td colspan="10" class="text-center py-4"><span class="text-sm text-red-400">Unable to load completed sessions. <button type="button" class="underline" onclick="loadCompletedSessions(currentCompletedOffset)">Retry</button></span></td></tr>');
+		if (status) status.textContent = 'Unable to load sessions';
+		return;
+	}
+	var data = result.data;
 	rememberSessions(data.items);
 	renderCompleted(data);
 }
 
 async function loadActivity() {
-	var url = '/api/dashboard/activity?range=' + encodeURIComponent(currentRange);
-	if (currentActivityFilter !== 'all') {
-		url += '&event_kind=' + encodeURIComponent(currentActivityFilter === 'error' ? 'error,tool_error' : currentActivityFilter);
+	var result = await fetchDashboardJSON('activity', requestURL('/api/dashboard/activity', {
+		range: currentRange,
+		event_kind: currentActivityFilter === 'all' ? '' : (currentActivityFilter === 'error' ? 'error,tool_error' : currentActivityFilter)
+	}));
+	if (!result || result.stale) return;
+	if (result.error) {
+		setHTMLIfChanged(document.getElementById('activity-feed'), '<p class="text-sm text-red-400 text-center py-4">Unable to load activity. <button type="button" class="underline" onclick="loadActivity()">Retry</button></p>');
+		return;
 	}
-	var data = await fetchDashboardJSON('activity', url);
-	if (!data) return;
-	renderActivity(data);
+	renderActivity(result.data);
 }
 
 function filterActivity(btn, type) {
 	currentActivityFilter = type;
 	document.querySelectorAll('.activity-filter-btn').forEach(function(b) {
 		b.className = 'activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
+		b.setAttribute('aria-pressed', 'false');
 	});
 	btn.className = 'activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';
+	btn.setAttribute('aria-pressed', 'true');
 	loadActivity();
 }
 
@@ -665,11 +819,20 @@ function setDashboardRange(btn, value) {
 	currentCompletedOffset = 0;
 	document.querySelectorAll('#dashboard-range-control .dash-range-btn').forEach(function(b) {
 		b.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
+		b.setAttribute('aria-pressed', 'false');
 	});
 	btn.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';
+	btn.setAttribute('aria-pressed', 'true');
 	updateRangeCaption();
 	loadDashboardCharts();
 	loadCompletedSessions(0);
+	loadActivity();
+}
+
+function refreshDashboard() {
+	loadActiveSessions();
+	loadDashboardCharts();
+	loadCompletedSessions(currentCompletedOffset);
 	loadActivity();
 }
 
@@ -678,9 +841,11 @@ function setDashboardMetric(btn, metric) {
 	document.querySelectorAll('.dashboard-metric-btn').forEach(function(b) {
 		b.className = 'dashboard-metric-btn px-2 py-1 text-xs text-gray-400 hover:text-gray-200';
 		if (b.nextElementSibling) b.classList.add('border-r', 'border-gray-700');
+		b.setAttribute('aria-pressed', 'false');
 	});
 	btn.className = 'dashboard-metric-btn px-2 py-1 text-xs bg-blue-500/20 text-blue-400';
 	if (btn.nextElementSibling) btn.classList.add('border-r', 'border-gray-700');
+	btn.setAttribute('aria-pressed', 'true');
 	if (typeof updateDashboardModelActivityChart === 'function') {
 		var dataEl = document.getElementById('dashboard-model-activity-data');
 		if (dataEl) {
@@ -739,8 +904,45 @@ document.addEventListener('click', function(evt) {
 });
 
 (function() {
+	var searchInput = document.getElementById('dashboard-session-search');
+	var searchClear = document.getElementById('dashboard-search-clear');
+	if (searchInput) {
+		searchInput.addEventListener('input', function() {
+			currentSearchQuery = searchInput.value.trim();
+			currentCompletedOffset = 0;
+			if (searchClear) searchClear.classList.toggle('hidden', currentSearchQuery === '');
+			clearTimeout(dashboardSearchTimer);
+			dashboardSearchTimer = setTimeout(function() {
+				loadCompletedSessions(0);
+			}, 250);
+		});
+		searchInput.addEventListener('keydown', function(evt) {
+			if (evt.key === 'Enter') {
+				evt.preventDefault();
+				clearTimeout(dashboardSearchTimer);
+				currentSearchQuery = searchInput.value.trim();
+				loadCompletedSessions(0);
+			}
+		});
+	}
+	if (searchClear) {
+		searchClear.addEventListener('click', function() {
+			if (searchInput) searchInput.value = '';
+			currentSearchQuery = '';
+			currentCompletedOffset = 0;
+			searchClear.classList.add('hidden');
+			loadCompletedSessions(0);
+			if (searchInput) searchInput.focus();
+		});
+	}
 	if (window.EventSource) {
 		var dashboardEvents = new EventSource('/sse/dashboard');
+		dashboardEvents.onopen = function() {
+			setDashboardConnection('Live');
+		};
+		dashboardEvents.onerror = function() {
+			setDashboardConnection('Disconnected');
+		};
 		dashboardEvents.addEventListener('active-sessions-update', function() {
 			loadActiveSessions();
 		});
@@ -756,6 +958,8 @@ document.addEventListener('click', function(evt) {
 		window.addEventListener('beforeunload', function() {
 			dashboardEvents.close();
 		}, {once: true});
+	} else {
+		setDashboardConnection('Static');
 	}
 	updateRangeCaption();
 	loadActiveSessions();

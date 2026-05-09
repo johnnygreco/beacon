@@ -60,7 +60,7 @@ func ChartContainerWithOptions(id string, height string, title string, logToggle
 			templ_7745c5c3_Var2 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"bg-gray-800 rounded-lg p-4 border border-gray-700\"><div class=\"flex items-center justify-between mb-2\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"bg-gray-800 rounded-lg p-4 border border-gray-700\"><div class=\"chart-card-header flex flex-wrap items-start justify-between gap-2 mb-2\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

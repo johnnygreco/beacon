@@ -113,6 +113,7 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 		state = "completed"
 	}
 	rangeVal := r.URL.Query().Get("range")
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	if offset < 0 {
 		offset = 0
@@ -128,7 +129,7 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 	case "active":
 		sessions = QueryActiveSessions(r.Context(), a.db)
 	default:
-		sessions, hasMore = QueryCompletedSessions(r.Context(), a.db, parseRange(rangeVal), offset, limit)
+		sessions, hasMore = QueryCompletedSessionsFiltered(r.Context(), a.db, parseRange(rangeVal), offset, limit, query)
 		state = "completed"
 	}
 
@@ -139,6 +140,7 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 	a.jsonResponse(w, APIDashboardSessionsResponse{
 		State:   state,
 		Range:   rangeVal,
+		Query:   query,
 		Offset:  offset,
 		Limit:   limit,
 		HasMore: hasMore,

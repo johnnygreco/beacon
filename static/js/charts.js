@@ -424,12 +424,14 @@ function setupSeriesModelFilters(chartName, payload) {
   var headerDiv = chart.canvas.parentElement.parentElement.querySelector('.flex.items-center');
   if (!headerDiv) return;
   var wrapper = document.createElement('div');
-  wrapper.className = 'model-dropdown relative ml-auto mr-2';
+  wrapper.className = 'model-dropdown relative ml-auto';
   wrapper.id = chartName + '-model-dropdown';
 
   var trigger = document.createElement('button');
   trigger.type = 'button';
   trigger.className = 'model-dropdown-trigger';
+  trigger.setAttribute('aria-haspopup', 'true');
+  trigger.setAttribute('aria-expanded', 'false');
   var triggerLabel = document.createElement('span');
   triggerLabel.className = 'model-dropdown-label';
   trigger.appendChild(triggerLabel);
@@ -504,11 +506,13 @@ function setupSeriesModelFilters(chartName, payload) {
     e.stopPropagation();
     panel.classList.toggle('hidden');
     trigger.classList.toggle('open', !panel.classList.contains('hidden'));
+    trigger.setAttribute('aria-expanded', panel.classList.contains('hidden') ? 'false' : 'true');
   };
   chart._seriesFilterCloseHandler = function(e) {
     if (!wrapper.contains(e.target)) {
       panel.classList.add('hidden');
       trigger.classList.remove('open');
+      trigger.setAttribute('aria-expanded', 'false');
     }
   };
   document.addEventListener('click', chart._seriesFilterCloseHandler);

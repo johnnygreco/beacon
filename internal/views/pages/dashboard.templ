@@ -14,16 +14,26 @@ templ Dashboard(data views.DashboardData) {
 					<section class="space-y-4">
 						<div class="flex flex-wrap items-center justify-between gap-3">
 							<div>
-								<h1 class="text-xl font-semibold text-gray-100">Live Analytics</h1>
-								<p id="dashboard-range-caption" class="text-xs text-gray-500 mt-0.5">Last 24 hours</p>
+								<h1 class="text-xl font-semibold text-gray-100">Beacon Realtime Dashboard</h1>
+								<p class="text-xs text-gray-500 mt-0.5">
+									<span id="dashboard-range-caption">Last 24 hours</span>
+									<span class="mx-1 text-gray-700">/</span>
+									<span id="dashboard-connection-label">Connecting</span>
+									<span class="mx-1 text-gray-700">/</span>
+									<span id="dashboard-last-updated">Not refreshed yet</span>
+								</p>
 							</div>
-							<div id="dashboard-range-control" class="flex flex-wrap items-center gap-1.5">
-								<span class="text-xs text-gray-500 mr-1">Time Range</span>
-								<button type="button" onclick="setDashboardRange(this, '')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">All</button>
-								<button type="button" onclick="setDashboardRange(this, '1h')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">1h</button>
-								<button type="button" onclick="setDashboardRange(this, '24h')" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">24h</button>
-								<button type="button" onclick="setDashboardRange(this, '7d')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">7d</button>
-								<button type="button" onclick="setDashboardRange(this, '30d')" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">30d</button>
+							<div class="flex flex-wrap items-center gap-2">
+								<div id="dashboard-range-control" class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Dashboard time range">
+									<span class="text-xs text-gray-500 mr-1">Range</span>
+									<button type="button" onclick="setDashboardRange(this, '')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">All</button>
+									<button type="button" onclick="setDashboardRange(this, '1h')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">1h</button>
+									<button type="button" onclick="setDashboardRange(this, '24h')" aria-pressed="true" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">24h</button>
+									<button type="button" onclick="setDashboardRange(this, '7d')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">7d</button>
+									<button type="button" onclick="setDashboardRange(this, '30d')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">30d</button>
+								</div>
+								<button type="button" id="dashboard-refresh-btn" onclick="refreshDashboard()" class="dashboard-icon-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Refresh</button>
+								<button type="button" id="timeline-toggle-btn" onclick="toggleTimelineSidebar()" aria-expanded="true" class="dashboard-icon-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Hide Timeline</button>
 							</div>
 						</div>
 						<div id="dashboard-analytics-summary" class="dashboard-summary-grid"></div>
@@ -32,12 +42,12 @@ templ Dashboard(data views.DashboardData) {
 								@components.ChartContainerWithOptions("dashboardTokenCumulativeChart", "320px", "Cumulative Tokens by Model", true, false)
 							</div>
 							<div class="min-w-0 bg-gray-800 rounded-lg p-4 border border-gray-700">
-								<div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+								<div class="chart-card-header flex flex-wrap items-start justify-between gap-2 mb-2">
 									<h3 class="text-sm font-medium text-gray-400">Model Health</h3>
 									<div id="dashboard-model-metric-control" class="inline-flex overflow-hidden rounded border border-gray-700">
-										<button type="button" data-dashboard-metric="error_rate" onclick="setDashboardMetric(this, 'error_rate')" class="dashboard-metric-btn px-2 py-1 text-xs bg-blue-500/20 text-blue-400 border-r border-gray-700">Error Rate</button>
-										<button type="button" data-dashboard-metric="errors" onclick="setDashboardMetric(this, 'errors')" class="dashboard-metric-btn px-2 py-1 text-xs text-gray-400 hover:text-gray-200 border-r border-gray-700">Errors</button>
-										<button type="button" data-dashboard-metric="tool_calls" onclick="setDashboardMetric(this, 'tool_calls')" class="dashboard-metric-btn px-2 py-1 text-xs text-gray-400 hover:text-gray-200">Tools</button>
+										<button type="button" data-dashboard-metric="error_rate" onclick="setDashboardMetric(this, 'error_rate')" aria-pressed="true" class="dashboard-metric-btn px-2 py-1 text-xs bg-blue-500/20 text-blue-400 border-r border-gray-700">Error Rate</button>
+										<button type="button" data-dashboard-metric="errors" onclick="setDashboardMetric(this, 'errors')" aria-pressed="false" class="dashboard-metric-btn px-2 py-1 text-xs text-gray-400 hover:text-gray-200 border-r border-gray-700">Errors</button>
+										<button type="button" data-dashboard-metric="tool_calls" onclick="setDashboardMetric(this, 'tool_calls')" aria-pressed="false" class="dashboard-metric-btn px-2 py-1 text-xs text-gray-400 hover:text-gray-200">Tools</button>
 									</div>
 								</div>
 								<div style="position:relative;height:320px">
@@ -67,7 +77,15 @@ templ Dashboard(data views.DashboardData) {
 					<!-- Completed Sessions Table -->
 					<div class="border-t border-gray-700/50 pt-4">
 						<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-							<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide">Completed Sessions</h2>
+							<div>
+								<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide">Completed Sessions</h2>
+								<p id="completed-session-status" class="text-xs text-gray-600 mt-1" aria-live="polite">Loading sessions...</p>
+							</div>
+							<div class="dashboard-table-toolbar">
+								<label for="dashboard-session-search" class="sr-only">Search completed sessions</label>
+								<input id="dashboard-session-search" data-dashboard-search type="search" autocomplete="off" placeholder="Search sessions, projects, models, events" class="dashboard-search-input"/>
+								<button type="button" id="dashboard-search-clear" class="dashboard-search-clear hidden" aria-label="Clear search">Clear</button>
+							</div>
 						</div>
 						<div class="overflow-x-auto">
 							<table class="w-full text-sm" id="completed-table">
@@ -129,10 +147,10 @@ templ Dashboard(data views.DashboardData) {
 					<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Activity Timeline <span class="text-gray-600 normal-case">(24h)</span></h2>
 				</div>
 				<div class="flex items-center gap-1.5 px-4 py-2 border-b border-gray-700/50 flex-shrink-0">
-					<button type="button" onclick="filterActivity(this, 'all')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
-					<button type="button" onclick="filterActivity(this, 'message')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Messages</button>
-					<button type="button" onclick="filterActivity(this, 'tool_call')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Tools</button>
-					<button type="button" onclick="filterActivity(this, 'error')" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Errors</button>
+					<button type="button" onclick="filterActivity(this, 'all')" aria-pressed="true" class="activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
+					<button type="button" onclick="filterActivity(this, 'message')" aria-pressed="false" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Messages</button>
+					<button type="button" onclick="filterActivity(this, 'tool_call')" aria-pressed="false" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Tools</button>
+					<button type="button" onclick="filterActivity(this, 'error')" aria-pressed="false" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Errors</button>
 				</div>
 				<div id="activity-feed" class="overflow-y-auto flex-1 min-h-0">
 					<p class="text-sm text-gray-500 text-center py-4">Loading activity...</p>
@@ -146,7 +164,7 @@ templ Dashboard(data views.DashboardData) {
 						<p id="inspector-subtitle" class="text-xs text-gray-500 font-mono truncate"></p>
 					</div>
 					<div class="flex items-center gap-2">
-						<a id="inspector-full-link" href="#" class="text-xs px-2 py-1 rounded border border-gray-700 text-gray-400 hover:text-gray-200">Full Page</a>
+						<a id="inspector-full-link" href="#" class="text-xs px-2 py-1 rounded border border-gray-700 text-gray-400 hover:text-gray-200">View Transcript</a>
 						<button type="button" onclick="closeSessionInspector()" class="text-gray-500 hover:text-gray-200" title="Close" aria-label="Close">✕</button>
 					</div>
 				</div>

@@ -104,7 +104,7 @@ func TestDashboardLiveAnalyticsChartsUseSharedRange(t *testing.T) {
 		}
 	}
 	for _, expected := range []string{
-		"/api/dashboard/charts?range=",
+		"requestURL('/api/dashboard/charts'",
 		"currentRange = '24h'",
 		"setDashboardMetric",
 	} {
