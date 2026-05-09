@@ -16,7 +16,8 @@ cover.html
 coverage.txt
 
 # Dependency
-vendor/
+/vendor/
+node_modules/
 
 # IDE / editor
 .idea/
