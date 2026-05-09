@@ -209,8 +209,27 @@ nav a.active {
   gap: 1rem;
 }
 
+#dashboard-wrap .text-gray-500,
+#dashboard-wrap .text-gray-600,
+#session-inspector .text-gray-500,
+#session-inspector .text-gray-600 {
+  color: #9ca3af !important;
+}
+
+#dashboard-wrap .text-blue-400,
+#dashboard-wrap .text-blue-400\/60,
+#dashboard-wrap .text-blue-400\/70,
+#session-inspector .text-blue-400 {
+  color: #93c5fd !important;
+}
+
+#dashboard-wrap #completed-sessions .mobile-session-meta {
+  color: #9ca3af !important;
+}
+
 .dashboard-analytics-grid > .min-w-0 > .bg-gray-800,
 .dashboard-analytics-grid > .min-w-0.bg-gray-800 {
+  height: 100%;
   min-height: 24.25rem;
 }
 

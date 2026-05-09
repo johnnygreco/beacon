@@ -421,7 +421,7 @@ function setupSeriesModelFilters(chartName, payload) {
     chart._activeModels = new Set(labels);
   }
 
-  var headerDiv = chart.canvas.parentElement.parentElement.querySelector('.flex.items-center');
+  var headerDiv = chart.canvas.parentElement.parentElement.querySelector('.chart-card-header, .flex.items-center');
   if (!headerDiv) return;
   var wrapper = document.createElement('div');
   wrapper.className = 'model-dropdown relative ml-auto';
@@ -746,16 +746,19 @@ function setupModelFilters(chartName, dataEl) {
   // Build dropdown UI
   var canvasWrapper = chart.canvas.parentElement;
   var containerCard = canvasWrapper.parentElement;
-  var headerDiv = containerCard.querySelector('.flex.items-center');
+  var headerDiv = containerCard.querySelector('.chart-card-header, .flex.items-center');
+  if (!headerDiv) return;
 
   // Insert dropdown trigger into the header bar (between title and log toggle)
   var wrapper = document.createElement('div');
-  wrapper.className = 'model-dropdown relative ml-auto mr-2';
+  wrapper.className = 'model-dropdown relative ml-auto';
   wrapper.id = chartName + '-model-dropdown';
 
   var trigger = document.createElement('button');
   trigger.type = 'button';
   trigger.className = 'model-dropdown-trigger';
+  trigger.setAttribute('aria-haspopup', 'true');
+  trigger.setAttribute('aria-expanded', 'false');
   var triggerLabel = document.createElement('span');
   triggerLabel.className = 'model-dropdown-label';
   trigger.appendChild(triggerLabel);
@@ -842,6 +845,7 @@ function setupModelFilters(chartName, dataEl) {
     e.stopPropagation();
     panel.classList.toggle('hidden');
     trigger.classList.toggle('open', !panel.classList.contains('hidden'));
+    trigger.setAttribute('aria-expanded', panel.classList.contains('hidden') ? 'false' : 'true');
   };
 
   // Event: close on outside click (stored for cleanup on re-init)
@@ -849,6 +853,7 @@ function setupModelFilters(chartName, dataEl) {
     if (!wrapper.contains(e.target)) {
       panel.classList.add('hidden');
       trigger.classList.remove('open');
+      trigger.setAttribute('aria-expanded', 'false');
     }
   };
   document.addEventListener('click', chart._modelFilterCloseHandler);
