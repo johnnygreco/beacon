@@ -315,7 +315,12 @@ function completedForRequest(url: URL, scenario: Scenario) {
   const offset = Number(url.searchParams.get('offset') || 0);
   const limit = Number(url.searchParams.get('limit') || 30);
   const source = query
-    ? baseCompletedSessions.filter((s) => [s.id, s.title, s.last_model, s.working_dir, s.provider].join(' ').toLowerCase().includes(query))
+    ? baseCompletedSessions.filter((s) => {
+      const metadata = [s.id, s.title, s.last_model, s.working_dir, s.provider].join(' ').toLowerCase();
+      const indexedEventText = s.id === TEST_SESSION_ID ? 'read dashboard fixture payload' : '';
+      const queryTokens = query.split(/\s+/).filter(Boolean);
+      return metadata.includes(query) || (queryTokens.length > 0 && queryTokens.every((token) => indexedEventText.includes(token)));
+    })
     : baseCompletedSessions;
   return {
     items: source.slice(offset, offset + limit),

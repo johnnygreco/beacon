@@ -91,35 +91,55 @@ templ Dashboard(data views.DashboardData) {
 							<table class="w-full text-sm" id="completed-table">
 								<thead class="sticky top-0 bg-gray-900/95 backdrop-blur">
 									<tr class="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-700">
-										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="name" onclick="sortCompletedTable(this, 'name')">
-											Name <span class="sort-arrow">▼</span>
+										<th scope="col" aria-sort="none" class="text-left py-2 px-3 font-medium select-none" data-sort-key="name">
+											<button type="button" class="dashboard-sort-button" onclick="sortCompletedTable(this, 'name')">
+												Name <span class="sort-arrow" aria-hidden="true">▼</span>
+											</button>
 										</th>
-										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="provider" onclick="sortCompletedTable(this, 'provider')">
-											Provider <span class="sort-arrow">▼</span>
+										<th scope="col" aria-sort="none" class="text-left py-2 px-3 font-medium select-none" data-sort-key="provider">
+											<button type="button" class="dashboard-sort-button" onclick="sortCompletedTable(this, 'provider')">
+												Provider <span class="sort-arrow" aria-hidden="true">▼</span>
+											</button>
 										</th>
-										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="model" onclick="sortCompletedTable(this, 'model')">
-											Model <span class="sort-arrow">▼</span>
+										<th scope="col" aria-sort="none" class="text-left py-2 px-3 font-medium select-none" data-sort-key="model">
+											<button type="button" class="dashboard-sort-button" onclick="sortCompletedTable(this, 'model')">
+												Model <span class="sort-arrow" aria-hidden="true">▼</span>
+											</button>
 										</th>
-										<th class="text-right py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="tokens" onclick="sortCompletedTable(this, 'tokens')">
-											Tokens <span class="sort-arrow">▼</span>
+										<th scope="col" aria-sort="none" class="text-right py-2 px-3 font-medium select-none" data-sort-key="tokens">
+											<button type="button" class="dashboard-sort-button dashboard-sort-button-right" onclick="sortCompletedTable(this, 'tokens')">
+												Tokens <span class="sort-arrow" aria-hidden="true">▼</span>
+											</button>
 										</th>
-										<th class="text-right py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="turns" onclick="sortCompletedTable(this, 'turns')">
-											Turns <span class="sort-arrow">▼</span>
+										<th scope="col" aria-sort="none" class="text-right py-2 px-3 font-medium select-none" data-sort-key="turns">
+											<button type="button" class="dashboard-sort-button dashboard-sort-button-right" onclick="sortCompletedTable(this, 'turns')">
+												Turns <span class="sort-arrow" aria-hidden="true">▼</span>
+											</button>
 										</th>
-										<th class="text-right py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="tools" onclick="sortCompletedTable(this, 'tools')">
-											Tools <span class="sort-arrow">▼</span>
+										<th scope="col" aria-sort="none" class="text-right py-2 px-3 font-medium select-none" data-sort-key="tools">
+											<button type="button" class="dashboard-sort-button dashboard-sort-button-right" onclick="sortCompletedTable(this, 'tools')">
+												Tools <span class="sort-arrow" aria-hidden="true">▼</span>
+											</button>
 										</th>
-										<th class="text-right py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="duration" onclick="sortCompletedTable(this, 'duration')">
-											Duration <span class="sort-arrow">▼</span>
+										<th scope="col" aria-sort="none" class="text-right py-2 px-3 font-medium select-none" data-sort-key="duration">
+											<button type="button" class="dashboard-sort-button dashboard-sort-button-right" onclick="sortCompletedTable(this, 'duration')">
+												Duration <span class="sort-arrow" aria-hidden="true">▼</span>
+											</button>
 										</th>
-										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="project" onclick="sortCompletedTable(this, 'project')">
-											Project <span class="sort-arrow">▼</span>
+										<th scope="col" aria-sort="none" class="text-left py-2 px-3 font-medium select-none" data-sort-key="project">
+											<button type="button" class="dashboard-sort-button" onclick="sortCompletedTable(this, 'project')">
+												Project <span class="sort-arrow" aria-hidden="true">▼</span>
+											</button>
 										</th>
-										<th class="text-right py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="ended" onclick="sortCompletedTable(this, 'ended')">
-											Ended <span class="sort-arrow active">▼</span>
+										<th scope="col" aria-sort="descending" class="text-right py-2 px-3 font-medium select-none" data-sort-key="ended">
+											<button type="button" class="dashboard-sort-button dashboard-sort-button-right" onclick="sortCompletedTable(this, 'ended')">
+												Ended <span class="sort-arrow active" aria-hidden="true">▼</span>
+											</button>
 										</th>
-										<th class="text-left py-2 px-3 font-medium cursor-pointer hover:text-gray-300 select-none" data-sort-key="id" onclick="sortCompletedTable(this, 'id')">
-											Session ID <span class="sort-arrow">▼</span>
+										<th scope="col" aria-sort="none" class="text-left py-2 px-3 font-medium select-none" data-sort-key="id">
+											<button type="button" class="dashboard-sort-button" onclick="sortCompletedTable(this, 'id')">
+												Session ID <span class="sort-arrow" aria-hidden="true">▼</span>
+											</button>
 										</th>
 									</tr>
 								</thead>

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/johnnygreco/beacon/internal/search"
 	"github.com/johnnygreco/beacon/internal/views"
 )
 
@@ -17,19 +18,61 @@ func TestBuildChatTurns_EmptyInput(t *testing.T) {
 }
 
 func TestCompletedSessionSearchClause(t *testing.T) {
-	clause, argCount := completedSessionSearchClause()
-	if got := strings.Count(clause, "?"); got != argCount {
-		t.Fatalf("placeholder count = %d, arg count = %d", got, argCount)
+	clause, args := completedSessionSearchClause("needle", []string{"session-2", "session-1"})
+	if got := strings.Count(clause, "?"); got != len(args) {
+		t.Fatalf("placeholder count = %d, arg count = %d", got, len(args))
 	}
 	for _, expected := range []string{
 		"positionCaseInsensitive(session_id, ?)",
 		"positionCaseInsensitive(COALESCE(working_dir, ''), ?)",
-		"FROM search_documents FINAL",
-		"positionCaseInsensitive(text_preview, ?)",
+		"session_id IN (?,?)",
 	} {
 		if !strings.Contains(clause, expected) {
 			t.Fatalf("search clause missing %q: %s", expected, clause)
 		}
+	}
+	for _, unexpected := range []string{
+		"search_documents FINAL",
+		"positionCaseInsensitive(text_preview, ?)",
+	} {
+		if strings.Contains(clause, unexpected) {
+			t.Fatalf("search clause should not contain %q: %s", unexpected, clause)
+		}
+	}
+	expectedArgs := []any{"needle", "needle", "needle", "needle", "needle", "session-2", "session-1"}
+	if fmt.Sprint(args) != fmt.Sprint(expectedArgs) {
+		t.Fatalf("args = %#v, want %#v", args, expectedArgs)
+	}
+}
+
+func TestCompletedSessionSearchClause_MetadataOnly(t *testing.T) {
+	clause, args := completedSessionSearchClause("metadata", nil)
+	if strings.Contains(clause, "session_id IN") {
+		t.Fatalf("metadata-only search should not include event session IDs: %s", clause)
+	}
+	if strings.Contains(clause, "search_documents FINAL") {
+		t.Fatalf("metadata-only search should not scan search_documents: %s", clause)
+	}
+	if len(args) != 5 {
+		t.Fatalf("arg count = %d, want 5", len(args))
+	}
+	for _, arg := range args {
+		if arg != "metadata" {
+			t.Fatalf("metadata arg = %#v, want metadata", arg)
+		}
+	}
+}
+
+func TestSearchResultSessionIDs_DedupesAndSkipsEmpty(t *testing.T) {
+	ids := searchResultSessionIDs([]search.SearchResult{
+		{SessionID: "session-1"},
+		{SessionID: ""},
+		{SessionID: "session-2"},
+		{SessionID: "session-1"},
+	})
+	expected := []string{"session-1", "session-2"}
+	if fmt.Sprint(ids) != fmt.Sprint(expected) {
+		t.Fatalf("ids = %#v, want %#v", ids, expected)
 	}
 }
 

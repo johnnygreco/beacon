@@ -559,13 +559,13 @@ func QueryRecentActivity(ctx context.Context, db *sql.DB) []views.ActivityItem {
 // QueryCompletedSessions returns paginated completed sessions with optional time filter.
 // Only returns parent sessions (excludes subagents); subagent counts are attached.
 func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int) ([]views.SessionSummary, bool) {
-	return QueryCompletedSessionsFiltered(ctx, db, since, offset, limit, "")
+	return QueryCompletedSessionsFiltered(ctx, db, since, offset, limit, "", nil)
 }
 
 // QueryCompletedSessionsFiltered returns paginated completed sessions with optional
-// time and text filters. Search matches session metadata and indexed event previews
-// so the dashboard table covers the old search-page discovery workflow in place.
-func QueryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int, searchText string) ([]views.SessionSummary, bool) {
+// time and text filters. Search matches session metadata plus session IDs
+// discovered by the tokenized event search path.
+func QueryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int, searchText string, eventSessionIDs []string) ([]views.SessionSummary, bool) {
 	cutoff := time.Now().Add(-idleThreshold)
 	query := `SELECT ` + sessionSummaryColumns + `
 		 FROM ` + sessionProjectionSQL + `
@@ -578,13 +578,11 @@ func QueryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time
 		args = append(args, *since)
 	}
 	if searchText = strings.TrimSpace(searchText); searchText != "" {
-		clause, searchArgCount := completedSessionSearchClause()
+		clause, searchArgs := completedSessionSearchClause(searchText, eventSessionIDs)
 		query += clause
-		for range searchArgCount {
-			args = append(args, searchText)
-		}
+		args = append(args, searchArgs...)
 	}
-	query += ` ORDER BY ended_at DESC`
+	query += ` ORDER BY ended_at DESC, session_id DESC`
 	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit+1, offset)
 
 	rows, err := db.QueryContext(ctx, query, args...)
@@ -613,7 +611,7 @@ func QueryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time
 	return sessions, hasMore
 }
 
-func completedSessionSearchClause() (string, int) {
+func completedSessionSearchClause(searchText string, eventSessionIDs []string) (string, []any) {
 	columns := []string{
 		"session_id",
 		"COALESCE(source_name, '')",
@@ -621,20 +619,19 @@ func completedSessionSearchClause() (string, int) {
 		"COALESCE(last_model, '')",
 		"COALESCE(working_dir, '')",
 	}
-	var metadata []string
+	terms := make([]string, 0, len(columns)+1)
+	args := make([]any, 0, len(columns)+len(eventSessionIDs))
 	for _, col := range columns {
-		metadata = append(metadata, "positionCaseInsensitive("+col+", ?) > 0")
+		terms = append(terms, "positionCaseInsensitive("+col+", ?) > 0")
+		args = append(args, searchText)
 	}
-	return ` AND (` + strings.Join(metadata, " OR ") + `
-		   OR session_id IN (
-		   	SELECT DISTINCT session_id
-		   	FROM search_documents FINAL
-		   	WHERE positionCaseInsensitive(text_preview, ?) > 0
-		   	   OR positionCaseInsensitive(event_kind, ?) > 0
-		   	   OR positionCaseInsensitive(tool_name, ?) > 0
-		   	   OR positionCaseInsensitive(model, ?) > 0
-		   	LIMIT 5000
-		   ))`, len(columns) + 4
+	if len(eventSessionIDs) > 0 {
+		terms = append(terms, "session_id IN ("+strings.TrimRight(strings.Repeat("?,", len(eventSessionIDs)), ",")+")")
+		for _, id := range eventSessionIDs {
+			args = append(args, id)
+		}
+	}
+	return ` AND (` + strings.Join(terms, " OR ") + `)`, args
 }
 
 // attachSubagentCounts queries subagent counts for the given sessions and attaches them.

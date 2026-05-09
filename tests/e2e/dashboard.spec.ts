@@ -36,6 +36,35 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('sorts completed sessions with keyboard-operable headers', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+
+    const endedHeader = page.locator('#completed-table th[data-sort-key="ended"]');
+    const tokensHeader = page.locator('#completed-table th[data-sort-key="tokens"]');
+    const tokensSortButton = tokensHeader.getByRole('button', { name: 'Tokens' });
+
+    await expect(endedHeader).toHaveAttribute('aria-sort', 'descending');
+    const firstIDBeforeSort = await page.locator('#completed-sessions tr[data-session-link]').first().getAttribute('data-sort-id');
+    await tokensSortButton.focus();
+    await expect(tokensSortButton).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(tokensHeader.locator('.sort-arrow')).toHaveClass(/active/);
+    await expect(tokensHeader).toHaveAttribute('aria-sort', 'descending');
+    await expect(endedHeader).toHaveAttribute('aria-sort', 'none');
+    const firstIDAfterEnterSort = await page.locator('#completed-sessions tr[data-session-link]').first().getAttribute('data-sort-id');
+    expect(firstIDAfterEnterSort).not.toBe(firstIDBeforeSort);
+
+    await page.keyboard.press('Space');
+    await expect(tokensHeader).toHaveAttribute('aria-sort', 'ascending');
+    const firstIDAfterSpaceSort = await page.locator('#completed-sessions tr[data-session-link]').first().getAttribute('data-sort-id');
+    expect(firstIDAfterSpaceSort).not.toBe(firstIDAfterEnterSort);
+
+    await guards.expectClean();
+  });
+
   test('exercises dashboard controls, search, sorting, pagination, subagents, and timeline sizing', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);
@@ -48,6 +77,20 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.getByRole('button', { name: '7d' }).click();
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 7 days');
     await expect(page.getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
+
+    const allChartsRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/dashboard/charts' && url.searchParams.has('range') && url.searchParams.get('range') === '';
+    });
+    const allActivityRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/dashboard/activity' && url.searchParams.has('range') && url.searchParams.get('range') === '';
+    });
+    await page.locator('#dashboard-range-control').getByRole('button', { name: 'All' }).click();
+    await allChartsRequest;
+    await allActivityRequest;
+    await expect(page.locator('#dashboard-range-caption')).toHaveText('All time');
+    await expect(page.locator('#dashboard-range-control').getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
 
     await page.locator('#dashboardTokenCumulativeChart-model-dropdown .model-dropdown-trigger').click();
     await expect(page.locator('#dashboardTokenCumulativeChart-model-dropdown .model-dropdown-panel')).toBeVisible();
@@ -72,19 +115,26 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator('#timeline-toggle-btn').click();
     await expect(page.locator('#timeline-sidebar')).not.toHaveClass(/collapsed/);
     await expect(page.locator('#timeline-toggle-btn')).toHaveAttribute('aria-expanded', 'true');
+    await page.waitForFunction(() => {
+      const sidebar = document.getElementById('timeline-sidebar');
+      return sidebar ? Math.round(sidebar.getBoundingClientRect().width) >= 370 : false;
+    });
 
     const divider = page.locator('#sidebar-divider');
     const box = await divider.boundingBox();
     expect(box).not.toBeNull();
     if (box) {
-      await page.mouse.move(box.x + box.width / 2, box.y + 50);
+      const dragY = box.y + box.height / 2;
+      await page.mouse.move(box.x + 1, dragY);
       await page.mouse.down();
-      await page.mouse.move(980, box.y + 50);
+      await page.mouse.move(980, dragY);
       await page.mouse.up();
     }
+    await page.waitForFunction(() => Number(localStorage.getItem('beacon-timeline-width') || 0) > 390);
     await expectEqualDashboardChartHeights(page);
     const savedWidth = await page.evaluate(() => Number(localStorage.getItem('beacon-timeline-width') || 0));
-    expect(savedWidth).toBeGreaterThanOrEqual(200);
+    expect(savedWidth).toBeGreaterThan(390);
+    expect(savedWidth).toBeLessThanOrEqual(700);
 
     await divider.dblclick();
     expect(await page.evaluate(() => localStorage.getItem('beacon-timeline-width'))).toBe('380');
@@ -97,11 +147,29 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator('#dashboard-search-clear').click();
     await waitForCompletedRows(page, 30);
 
+    await page.locator('#dashboard-session-search').fill('dashboard payload');
+    await expect(page.locator('#completed-session-status')).toHaveText(/1 search result/);
+    await waitForCompletedRows(page, 1);
+    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-id', TEST_SESSION_ID);
+    await page.locator('#dashboard-search-clear').click();
+    await waitForCompletedRows(page, 30);
+
+    const tokensHeader = page.locator('#completed-table th[data-sort-key="tokens"]');
+    const tokensSortButton = tokensHeader.getByRole('button', { name: 'Tokens' });
+    await expect(page.locator('#completed-table th[data-sort-key="ended"]')).toHaveAttribute('aria-sort', 'descending');
     const firstIDBeforeSort = await page.locator('#completed-sessions tr[data-session-link]').first().getAttribute('data-sort-id');
-    await page.locator('#completed-table th[data-sort-key="tokens"]').click();
-    await expect(page.locator('#completed-table th[data-sort-key="tokens"] .sort-arrow')).toHaveClass(/active/);
-    const firstIDAfterSort = await page.locator('#completed-sessions tr[data-session-link]').first().getAttribute('data-sort-id');
-    expect(firstIDAfterSort).not.toBe(firstIDBeforeSort);
+    await tokensSortButton.focus();
+    await expect(tokensSortButton).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(tokensHeader.locator('.sort-arrow')).toHaveClass(/active/);
+    await expect(tokensHeader).toHaveAttribute('aria-sort', 'descending');
+    await expect(page.locator('#completed-table th[data-sort-key="ended"]')).toHaveAttribute('aria-sort', 'none');
+    const firstIDAfterEnterSort = await page.locator('#completed-sessions tr[data-session-link]').first().getAttribute('data-sort-id');
+    expect(firstIDAfterEnterSort).not.toBe(firstIDBeforeSort);
+    await page.keyboard.press('Space');
+    await expect(tokensHeader).toHaveAttribute('aria-sort', 'ascending');
+    const firstIDAfterSpaceSort = await page.locator('#completed-sessions tr[data-session-link]').first().getAttribute('data-sort-id');
+    expect(firstIDAfterSpaceSort).not.toBe(firstIDAfterEnterSort);
 
     await page.locator('.json-page-btn', { hasText: 'Next' }).click();
     await waitForCompletedRows(page, 1);

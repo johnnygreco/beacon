@@ -516,7 +516,7 @@ function requestURL(path, params) {
 	var query = new URLSearchParams();
 	Object.keys(params || {}).forEach(function(key) {
 		var value = params[key];
-		if (value !== undefined && value !== null && value !== '') query.set(key, value);
+		if (value !== undefined && value !== null && (value !== '' || key === 'range')) query.set(key, value);
 	});
 	var qs = query.toString();
 	return path + (qs ? '?' + qs : '');
@@ -971,7 +971,9 @@ document.addEventListener('click', function(evt) {
 // --- Table sorting ---
 var sortColumn = 'ended';
 var sortAsc = false;
-function sortCompletedTable(th, column, preserveDirection) {
+function sortCompletedTable(control, column, preserveDirection) {
+	var th = control && control.closest ? control.closest('th[data-sort-key]') : control;
+	if (!th) return;
 	if (sortColumn !== column) {
 		sortColumn = column;
 		// Default ascending for text, descending for numbers
@@ -1021,10 +1023,15 @@ function sortCompletedTable(th, column, preserveDirection) {
 	});
 
 	// Update sort indicators
-	document.querySelectorAll('#completed-table th .sort-arrow').forEach(function(arrow) {
-		arrow.classList.remove('active');
-		arrow.textContent = '▼';
+	document.querySelectorAll('#completed-table th[data-sort-key]').forEach(function(header) {
+		header.setAttribute('aria-sort', 'none');
+		var headerArrow = header.querySelector('.sort-arrow');
+		if (headerArrow) {
+			headerArrow.classList.remove('active');
+			headerArrow.textContent = '▼';
+		}
 	});
+	th.setAttribute('aria-sort', sortAsc ? 'ascending' : 'descending');
 	var arrow = th.querySelector('.sort-arrow');
 	if (arrow) {
 		arrow.classList.add('active');

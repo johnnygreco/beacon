@@ -68,14 +68,20 @@ test.describe('dashboard visual regression baselines', () => {
     });
 
     await page.locator('#timeline-toggle-btn').click();
+    await page.waitForFunction(() => {
+      const sidebar = document.getElementById('timeline-sidebar');
+      return sidebar ? Math.round(sidebar.getBoundingClientRect().width) >= 370 : false;
+    });
     const divider = page.locator('#sidebar-divider');
     const box = await divider.boundingBox();
     if (box) {
-      await page.mouse.move(box.x + box.width / 2, box.y + 50);
+      const dragY = box.y + box.height / 2;
+      await page.mouse.move(box.x + 1, dragY);
       await page.mouse.down();
-      await page.mouse.move(980, box.y + 50);
+      await page.mouse.move(980, dragY);
       await page.mouse.up();
     }
+    await page.waitForFunction(() => Number(localStorage.getItem('beacon-timeline-width') || 0) > 390);
     await expect(page.locator('#dashboard-wrap')).toHaveScreenshot('dashboard-timeline-resized.png', {
       mask: visualMasks(page),
     });
