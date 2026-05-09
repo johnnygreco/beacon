@@ -115,7 +115,15 @@ install_clickhouse() {
     echo "ClickHouse ${CLICKHOUSE_TAG} installed to ${clickhouse_bin}"
 }
 
-latest_release_version() {
+latest_stable_release_version() {
+    latest_url="$(curl -sSfL -o /dev/null -w '%{url_effective}' "https://github.com/${REPO}/releases/latest")"
+    tag="${latest_url##*/}"
+    if [ -n "$tag" ] && [ "$tag" != "latest" ]; then
+        echo "$tag"
+    fi
+}
+
+latest_listed_release_version() {
     curl -sSf "https://api.github.com/repos/${REPO}/releases?per_page=50" | awk -v include_prerelease="$INCLUDE_PRERELEASE" '
         /"tag_name":/ {
             tag = $0
@@ -141,6 +149,14 @@ latest_release_version() {
             if (found != "") print found
         }
     '
+}
+
+latest_release_version() {
+    if [ "$INCLUDE_PRERELEASE" = "1" ]; then
+        latest_listed_release_version
+    else
+        latest_stable_release_version
+    fi
 }
 
 # Use provided version or fetch latest
