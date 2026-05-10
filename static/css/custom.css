@@ -51,6 +51,16 @@ nav a.active {
   border-right: 3px solid #3b82f6;
 }
 
+.beacon-brand-symbol {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
 /* Chat meta strip - subtle by default, full opacity on hover */
 .chat-meta-strip {
   opacity: 0.5;
