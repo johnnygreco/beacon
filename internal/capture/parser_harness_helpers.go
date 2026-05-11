@@ -171,9 +171,7 @@ func decodeHarnessJSON(raw string) any {
 	if raw == "" {
 		return ""
 	}
-	if strings.HasPrefix(raw, hermesJSONContentPrefix) {
-		raw = strings.TrimPrefix(raw, hermesJSONContentPrefix)
-	}
+	raw = strings.TrimPrefix(raw, hermesJSONContentPrefix)
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return ""
@@ -248,15 +246,4 @@ func parseJSONMap(raw string) map[string]any {
 		return nil
 	}
 	return m
-}
-
-func parseJSONArray(raw string) []any {
-	if raw == "" {
-		return nil
-	}
-	var a []any
-	if err := json.Unmarshal([]byte(raw), &a); err != nil {
-		return nil
-	}
-	return a
 }
