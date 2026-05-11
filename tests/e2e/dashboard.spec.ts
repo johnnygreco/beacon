@@ -186,6 +186,18 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.keyboard.press('t');
     await expect(page.locator('#timeline-sidebar')).not.toHaveClass(/collapsed/);
 
+    const themeSelect = page.locator('#dashboard-theme-select');
+    await expect(themeSelect).toBeVisible();
+    expect(await themeSelect.locator('option').count()).toBeGreaterThanOrEqual(20);
+    await themeSelect.selectOption('codex-aurora');
+    await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'codex-aurora');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-theme'))).toBe('codex-aurora');
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dash-accent').trim())).toBe('#7dd3fc');
+
+    await gotoDashboard(page);
+    await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'codex-aurora');
+    await expect(themeSelect).toHaveValue('codex-aurora');
+
     await guards.expectClean();
   });
 

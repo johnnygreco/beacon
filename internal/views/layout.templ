@@ -10,6 +10,16 @@ templ Layout(title string) {
 		<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/>
 		<script>
 		(function() {
+			var theme = 'midnight';
+			try {
+				theme = localStorage.getItem('beacon-dashboard-theme') || theme;
+			} catch (err) {}
+			if (!/^[a-z0-9-]+$/.test(theme)) theme = 'midnight';
+			document.documentElement.setAttribute('data-dashboard-theme', theme);
+		})();
+		</script>
+		<script>
+		(function() {
 			if (!window.console || typeof window.console.error !== 'function' || window.__beaconConsoleFilterInstalled) return;
 			var originalError = window.console.error.bind(window.console);
 			window.__beaconUnloading = false;

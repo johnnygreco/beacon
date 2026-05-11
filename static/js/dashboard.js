@@ -1,3 +1,65 @@
+// --- Dashboard theme selector ---
+(function() {
+	var STORAGE_KEY = 'beacon-dashboard-theme';
+	var FALLBACK = 'midnight';
+	var THEME_IDS = [
+		'codex-aurora', 'codex-dawn', 'codex-terminal', 'codex-cloud',
+		'midnight', 'graphite', 'ocean', 'emerald', 'amethyst', 'rose',
+		'lagoon', 'matrix', 'ultraviolet', 'arctic', 'solar', 'copper',
+		'paper', 'sage', 'high-contrast', 'monochrome', 'crimson'
+	];
+
+	function hasTheme(id) {
+		return THEME_IDS.indexOf(id) !== -1;
+	}
+
+	function storageGet() {
+		try { return localStorage.getItem(STORAGE_KEY); } catch (err) { return null; }
+	}
+
+	function storageSet(value) {
+		try { localStorage.setItem(STORAGE_KEY, value); } catch (err) {}
+	}
+
+	function syncThemeControl(theme) {
+		var select = document.getElementById('dashboard-theme-select');
+		var swatch = document.getElementById('dashboard-theme-swatch');
+		if (select) select.value = theme;
+		if (swatch) {
+			var label = select && select.selectedOptions && select.selectedOptions[0]
+				? select.selectedOptions[0].textContent
+				: theme;
+			swatch.setAttribute('title', label);
+		}
+	}
+
+	function applyTheme(theme, persist) {
+		if (!hasTheme(theme)) theme = FALLBACK;
+		document.documentElement.setAttribute('data-dashboard-theme', theme);
+		if (persist) storageSet(theme);
+		syncThemeControl(theme);
+		window.dispatchEvent(new CustomEvent('beacon:dashboard-theme-change', {
+			detail: { theme: theme }
+		}));
+	}
+
+	window.setDashboardTheme = function(theme) {
+		applyTheme(theme, true);
+	};
+	window.dashboardThemeIDs = THEME_IDS.slice();
+
+	var initial = storageGet() || document.documentElement.getAttribute('data-dashboard-theme') || FALLBACK;
+	if (!hasTheme(initial)) initial = FALLBACK;
+	applyTheme(initial, false);
+
+	var select = document.getElementById('dashboard-theme-select');
+	if (select) {
+		select.addEventListener('change', function() {
+			applyTheme(select.value, true);
+		});
+	}
+})();
+
 // --- JSON-first session inspector ---
 (function() {
 	var sessionsStore = [];
