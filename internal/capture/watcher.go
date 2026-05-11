@@ -237,7 +237,7 @@ func (w *Watcher) processFiles(ctx context.Context, src WatchSource, files []str
 func (w *Watcher) findSource(file string) *WatchSource {
 	for _, src := range w.sources {
 		for _, glob := range src.Globs {
-			matched, _ := doublestar.PathMatch(glob, file)
+			matched, _ := doublestar.PathMatch(expandHome(glob), file)
 			if matched {
 				return &src
 			}
