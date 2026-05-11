@@ -1,11 +1,63 @@
 package pages
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/johnnygreco/beacon/internal/views"
 )
+
+func TestSessionDetailRendersThemedTranscriptShell(t *testing.T) {
+	data := views.SessionDetailData{
+		Session: views.SessionSummary{
+			ID:              "session-render-test",
+			Status:          "completed",
+			Provider:        "openai",
+			Duration:        "38m 12s",
+			TotalTokens:     123456,
+			InputTokens:     100000,
+			OutputTokens:    23456,
+			CacheReadTokens: 31100,
+			TurnCount:       14,
+			ToolCallCount:   42,
+			WorkingDir:      "/Users/example/projects/beacon",
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := SessionDetail(data).Render(context.Background(), &buf); err != nil {
+		t.Fatalf("render session detail: %v", err)
+	}
+	html := buf.String()
+
+	for _, expected := range []string{
+		"localStorage.getItem('beacon-dashboard-resolved-theme')",
+		"document.documentElement.setAttribute('data-dashboard-theme', theme)",
+		"document.body.setAttribute('data-page', 'transcript')",
+		`id="transcript-wrap"`,
+		`class="transcript-header border`,
+		`class="transcript-conversation"`,
+		`class="transcript-metric-grid text-sm"`,
+		`aria-pressed="true"`,
+		`/sessions/session-render-test/conversation`,
+	} {
+		if !strings.Contains(html, expected) {
+			t.Fatalf("session detail shell missing %q", expected)
+		}
+	}
+	for _, removed := range []string{
+		`id="sidebar"`,
+		`ml-14`,
+		`func Nav`,
+	} {
+		if strings.Contains(html, removed) {
+			t.Fatalf("session detail shell still contains removed sidebar marker %q", removed)
+		}
+	}
+}
 
 func TestMultiSeriesChartData(t *testing.T) {
 	chart := views.MultiSeriesChart{
