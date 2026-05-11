@@ -17,9 +17,21 @@ templ Layout(title string) {
 				window.__beaconUnloading = true;
 			}, {capture: true});
 			window.console.error = function() {
+				if (window.__beaconUnloading && arguments.length === 1 && arguments[0] === '[object Event]') return;
 				if (window.__beaconUnloading && arguments.length === 1 && arguments[0] && typeof arguments[0] === 'object') {
 					var tag = Object.prototype.toString.call(arguments[0]);
 					if (tag === '[object Event]' || tag === '[object ErrorEvent]') return;
+				}
+				if (arguments.length === 1 && arguments[0] && typeof arguments[0] === 'object') {
+					var event = arguments[0];
+					var eventTag = Object.prototype.toString.call(event);
+					var eventTarget = event.target || event.currentTarget || event.srcElement;
+					var targetTag = Object.prototype.toString.call(eventTarget);
+					var looksLikeEventSource = eventTarget &&
+						(targetTag === '[object EventSource]' ||
+							eventTarget.constructor && eventTarget.constructor.name === 'EventSource' ||
+							(typeof eventTarget.close === 'function' && typeof eventTarget.url === 'string'));
+					if (eventTag === '[object Event]' && event.type === 'error' && looksLikeEventSource) return;
 				}
 				originalError.apply(window.console, arguments);
 			};
@@ -66,17 +78,14 @@ templ Layout(title string) {
 templ Nav() {
 	<nav id="sidebar" class="fixed left-0 top-0 h-full w-14 bg-gray-800 border-r border-gray-700 flex flex-col z-50">
 		<div class="p-3 border-b border-gray-700 flex items-center justify-center">
-			<a href="/" class="text-xl" title="Beacon — AI Agent Monitor">📡</a>
+			<a href="/" class="beacon-brand-symbol" title="Beacon — AI Agent Monitor" aria-label="Beacon — AI Agent Monitor">
+				<span aria-hidden="true">📡</span>
+			</a>
 		</div>
 		<div class="flex-1 py-4">
 			<a href="/" class="flex items-center justify-center py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition-colors" title="Dashboard">
 				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
-				</svg>
-			</a>
-			<a href="/search" class="flex items-center justify-center py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition-colors" title="Search">
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
 				</svg>
 			</a>
 		</div>

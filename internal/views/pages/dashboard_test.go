@@ -3,6 +3,7 @@ package pages
 import (
 	"bytes"
 	"context"
+	"os"
 	"strings"
 	"testing"
 
@@ -67,16 +68,20 @@ func TestDashboardGoToSessionUsesParsedPathname(t *testing.T) {
 		t.Fatalf("render dashboard: %v", err)
 	}
 	html := buf.String()
+	if !strings.Contains(html, `/static/js/dashboard.js`) {
+		t.Fatal("dashboard page does not load dashboard.js")
+	}
+	script := dashboardClientScript(t)
 	for _, expected := range []string{
 		"new URL(String(url || ''), window.location.origin)",
 		"parsed.pathname.split('/')",
 		"openSessionInspector(decodeURIComponent(id))",
 	} {
-		if !strings.Contains(html, expected) {
+		if !strings.Contains(script, expected) {
 			t.Fatalf("dashboard script missing %q", expected)
 		}
 	}
-	if strings.Contains(html, "split('/sessions/')[1]") {
+	if strings.Contains(script, "split('/sessions/')[1]") {
 		t.Fatal("dashboard script still parses the full href")
 	}
 }
@@ -87,22 +92,38 @@ func TestDashboardLiveAnalyticsChartsUseSharedRange(t *testing.T) {
 		t.Fatalf("render dashboard: %v", err)
 	}
 	html := buf.String()
+	script := dashboardClientScript(t)
 	for _, expected := range []string{
 		"dashboardTokenCumulativeChart",
 		"dashboardModelActivityChart",
 		"dashboard-token-cumulative-data",
 		"dashboard-model-activity-data",
-		"/api/dashboard/charts?range=",
+	} {
+		if !strings.Contains(html, expected) {
+			t.Fatalf("dashboard live analytics missing %q", expected)
+		}
+	}
+	for _, expected := range []string{
+		"requestURL('/api/dashboard/charts'",
 		"currentRange = '24h'",
 		"setDashboardMetric",
 	} {
-		if !strings.Contains(html, expected) {
+		if !strings.Contains(script, expected) {
 			t.Fatalf("dashboard live analytics missing %q", expected)
 		}
 	}
 	if strings.Contains(html, "dashboardTotalTokensChart") || strings.Contains(html, "dashboardTokensByModelChart") {
 		t.Fatal("dashboard still renders the old redundant chart ids")
 	}
+}
+
+func dashboardClientScript(t *testing.T) string {
+	t.Helper()
+	body, err := os.ReadFile("../../../static/js/dashboard.js")
+	if err != nil {
+		t.Fatalf("read dashboard.js: %v", err)
+	}
+	return string(body)
 }
 
 func TestDashboardTokensByModelData_SingleProvider(t *testing.T) {

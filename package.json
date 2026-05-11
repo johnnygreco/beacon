@@ -1,0 +1,33 @@
+{
+  "name": "beacon",
+  "version": "1.0.0",
+  "description": "Live dashboard for AI coding agent sessions.",
+  "scripts": {
+    "vendor": "node scripts/vendor-assets.mjs",
+    "test:e2e": "playwright test tests/e2e/dashboard.spec.ts",
+    "test:a11y": "playwright test tests/e2e/a11y.spec.ts",
+    "test:visual": "playwright test tests/e2e/visual.spec.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/johnnygreco/beacon.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/johnnygreco/beacon/issues"
+  },
+  "homepage": "https://github.com/johnnygreco/beacon#readme",
+  "devDependencies": {
+    "@highlightjs/cdn-assets": "^11.11.1",
+    "@playwright/test": "^1.59.1",
+    "axe-core": "^4.11.4",
+    "chart.js": "^4.5.1",
+    "chartjs-adapter-date-fns": "^3.0.0",
+    "date-fns": "^4.1.0",
+    "htmx-ext-sse": "^2.2.4",
+    "htmx.org": "^2.0.10"
+  }
+}

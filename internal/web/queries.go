@@ -559,6 +559,13 @@ func QueryRecentActivity(ctx context.Context, db *sql.DB) []views.ActivityItem {
 // QueryCompletedSessions returns paginated completed sessions with optional time filter.
 // Only returns parent sessions (excludes subagents); subagent counts are attached.
 func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int) ([]views.SessionSummary, bool) {
+	return QueryCompletedSessionsFiltered(ctx, db, since, offset, limit, "", nil)
+}
+
+// QueryCompletedSessionsFiltered returns paginated completed sessions with optional
+// time and text filters. Search matches session metadata plus session IDs
+// discovered by the tokenized event search path.
+func QueryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int, searchText string, eventSessionIDs []string) ([]views.SessionSummary, bool) {
 	cutoff := time.Now().Add(-idleThreshold)
 	query := `SELECT ` + sessionSummaryColumns + `
 		 FROM ` + sessionProjectionSQL + `
@@ -570,7 +577,12 @@ func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, o
 		query += " AND ended_at >= ?"
 		args = append(args, *since)
 	}
-	query += ` ORDER BY ended_at DESC`
+	if searchText = strings.TrimSpace(searchText); searchText != "" {
+		clause, searchArgs := completedSessionSearchClause(searchText, eventSessionIDs)
+		query += clause
+		args = append(args, searchArgs...)
+	}
+	query += ` ORDER BY ended_at DESC, session_id DESC`
 	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit+1, offset)
 
 	rows, err := db.QueryContext(ctx, query, args...)
@@ -597,6 +609,29 @@ func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, o
 	}
 	attachSubagentCounts(ctx, db, sessions)
 	return sessions, hasMore
+}
+
+func completedSessionSearchClause(searchText string, eventSessionIDs []string) (string, []any) {
+	columns := []string{
+		"session_id",
+		"COALESCE(source_name, '')",
+		"COALESCE(provider, '')",
+		"COALESCE(last_model, '')",
+		"COALESCE(working_dir, '')",
+	}
+	terms := make([]string, 0, len(columns)+1)
+	args := make([]any, 0, len(columns)+len(eventSessionIDs))
+	for _, col := range columns {
+		terms = append(terms, "positionCaseInsensitive("+col+", ?) > 0")
+		args = append(args, searchText)
+	}
+	if len(eventSessionIDs) > 0 {
+		terms = append(terms, "session_id IN ("+strings.TrimRight(strings.Repeat("?,", len(eventSessionIDs)), ",")+")")
+		for _, id := range eventSessionIDs {
+			args = append(args, id)
+		}
+	}
+	return ` AND (` + strings.Join(terms, " OR ") + `)`, args
 }
 
 // attachSubagentCounts queries subagent counts for the given sessions and attaches them.

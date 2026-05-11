@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"log/slog"
@@ -15,16 +16,26 @@ import (
 	"github.com/johnnygreco/beacon/internal/views"
 )
 
+const completedSessionEventSearchLimit = 5000
+
+type legacySearcher interface {
+	LegacySearch(ctx context.Context, query string, limit int) ([]search.SearchResult, error)
+}
+
 // APIHandlers serves JSON API endpoints.
 type APIHandlers struct {
 	db       *sql.DB
-	searcher *search.Searcher
+	searcher legacySearcher
 	logger   *slog.Logger
 }
 
 // NewAPIHandlers creates API handlers.
 func NewAPIHandlers(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) *APIHandlers {
-	return &APIHandlers{db: db, searcher: searcher, logger: logger}
+	var legacy legacySearcher
+	if searcher != nil {
+		legacy = searcher
+	}
+	return &APIHandlers{db: db, searcher: legacy, logger: logger}
 }
 
 func (a *APIHandlers) jsonResponse(w http.ResponseWriter, data any) {
@@ -113,6 +124,7 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 		state = "completed"
 	}
 	rangeVal := r.URL.Query().Get("range")
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	if offset < 0 {
 		offset = 0
@@ -128,7 +140,12 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 	case "active":
 		sessions = QueryActiveSessions(r.Context(), a.db)
 	default:
-		sessions, hasMore = QueryCompletedSessions(r.Context(), a.db, parseRange(rangeVal), offset, limit)
+		eventSessionIDs, err := a.completedSessionEventSearchSessionIDs(r.Context(), query)
+		if err != nil {
+			a.jsonError(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		sessions, hasMore = QueryCompletedSessionsFiltered(r.Context(), a.db, parseRange(rangeVal), offset, limit, query, eventSessionIDs)
 		state = "completed"
 	}
 
@@ -139,11 +156,39 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 	a.jsonResponse(w, APIDashboardSessionsResponse{
 		State:   state,
 		Range:   rangeVal,
+		Query:   query,
 		Offset:  offset,
 		Limit:   limit,
 		HasMore: hasMore,
 		Items:   items,
 	})
+}
+
+func (a *APIHandlers) completedSessionEventSearchSessionIDs(ctx context.Context, query string) ([]string, error) {
+	if strings.TrimSpace(query) == "" || a.searcher == nil {
+		return nil, nil
+	}
+	results, err := a.searcher.LegacySearch(ctx, query, completedSessionEventSearchLimit)
+	if err != nil {
+		return nil, err
+	}
+	return searchResultSessionIDs(results), nil
+}
+
+func searchResultSessionIDs(results []search.SearchResult) []string {
+	seen := make(map[string]struct{}, len(results))
+	ids := make([]string, 0, len(results))
+	for _, result := range results {
+		if result.SessionID == "" {
+			continue
+		}
+		if _, ok := seen[result.SessionID]; ok {
+			continue
+		}
+		seen[result.SessionID] = struct{}{}
+		ids = append(ids, result.SessionID)
+	}
+	return ids
 }
 
 // GetSessionSubagents returns child sessions for a parent session as JSON.
