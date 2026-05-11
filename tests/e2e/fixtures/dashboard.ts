@@ -384,37 +384,74 @@ function transcriptFixtureHTML() {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Session ${TEST_SESSION_ID} | Beacon</title>
+    <script>
+      (function() {
+        var fallbackTheme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'codex-light' : 'codex-dark';
+        var theme = fallbackTheme;
+        try { theme = localStorage.getItem('beacon-dashboard-resolved-theme') || theme; } catch (err) {}
+        if (!/^[a-z0-9-]+$/.test(theme)) theme = fallbackTheme;
+        document.documentElement.setAttribute('data-dashboard-theme', theme);
+      })();
+    </script>
     <link rel="stylesheet" href="/static/css/tailwind.css">
     <link rel="stylesheet" href="/static/css/custom.css">
   </head>
-  <body class="bg-gray-900 text-gray-100 min-h-screen">
-    <main id="main-content" class="p-6 space-y-6">
-      <h1 class="text-2xl font-bold">Legacy migration replay</h1>
-      <p class="font-mono text-sm text-gray-500">${TEST_SESSION_ID}</p>
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-semibold text-gray-200">Conversation</h2>
-        <div class="flex items-center gap-2">
-          <button type="button" id="btn-expand-all" onclick="expandAll()" class="px-2 py-1 text-xs rounded border border-gray-700 text-gray-300">Expand All</button>
-          <button type="button" id="btn-collapse-all" onclick="collapseAll()" class="px-2 py-1 text-xs rounded border border-gray-700 text-gray-300">Collapse All</button>
-          <button type="button" onclick="switchView('chat', this)" class="px-3 py-1.5 text-sm rounded-md font-medium border bg-blue-500/20 text-blue-400 border-blue-500/40">Chat</button>
-          <button type="button" onclick="switchView('timeline', this)" class="px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700">Timeline</button>
-        </div>
-      </div>
-      <div id="chat-view" class="space-y-3">
-        <details id="${TEST_EVENT_ID}" open class="rounded border border-gray-700 p-3">
-          <summary class="cursor-pointer">Read dashboard fixture payload</summary>
-          <div class="code-container relative mt-3">
-            <pre><code>{"file_path":"internal/views/pages/dashboard.templ"}</code></pre>
-            <button type="button" onclick="copyToClipboard(this)" title="Copy to clipboard" aria-label="Copy to clipboard">
-              <span class="copy-icon">Copy</span><span class="check-icon hidden">Copied</span>
-            </button>
+  <body data-page="transcript" class="bg-gray-900 text-gray-100 min-h-screen">
+    <main id="main-content" class="min-h-screen w-full p-6 overflow-y-auto">
+      <div id="transcript-wrap" class="transcript-page space-y-6">
+        <section class="transcript-header border border-gray-700">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <div class="min-w-0 flex-1">
+              <div class="transcript-breadcrumb">
+                <a href="/" class="transcript-back-link">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+                  </svg>
+                  Dashboard
+                </a>
+                <span aria-hidden="true">/</span>
+                <span>Transcript</span>
+              </div>
+              <h1 class="text-2xl font-semibold text-gray-100 mt-2">Legacy migration replay</h1>
+              <p class="font-mono text-sm text-gray-500 mt-1">${TEST_SESSION_ID}</p>
+            </div>
+            <span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">Completed</span>
           </div>
-        </details>
-        <details id="event-older-002" open class="rounded border border-gray-700 p-3"><summary>Assistant summary</summary><p>Dashboard state summarized.</p></details>
-        <details id="event-older-003" open class="rounded border border-gray-700 p-3"><summary>Tool result</summary><p>Payload loaded.</p></details>
-      </div>
-      <div id="timeline-view" class="hidden rounded border border-gray-700 p-3">
-        <a href="#${TEST_EVENT_ID}" class="text-blue-400">Read dashboard fixture payload</a>
+          <div class="transcript-metric-grid text-sm">
+            <div class="transcript-stat"><span class="text-gray-500">Duration</span><p class="text-gray-200 font-medium">38m 12s</p></div>
+            <div class="transcript-stat"><span class="text-gray-500">Total Tokens</span><p class="text-gray-200 font-medium">123.5K</p></div>
+            <div class="transcript-stat"><span class="text-gray-500">Cache Tokens</span><p class="text-gray-200 font-medium">31.1K</p></div>
+            <div class="transcript-stat"><span class="text-gray-500">Turns</span><p class="text-gray-200 font-medium">14</p></div>
+            <div class="transcript-stat"><span class="text-gray-500">Tool Calls</span><p class="text-gray-200 font-medium">42</p></div>
+          </div>
+        </section>
+        <section class="transcript-conversation">
+          <div class="transcript-conversation-header flex items-center justify-between gap-3">
+            <h2 class="text-lg font-semibold text-gray-200">Conversation</h2>
+            <div class="transcript-controls flex items-center gap-2">
+              <button type="button" id="btn-expand-all" onclick="expandAll()" class="px-2 py-1 text-xs rounded border border-gray-700 text-gray-300">Expand All</button>
+              <button type="button" id="btn-collapse-all" onclick="collapseAll()" class="px-2 py-1 text-xs rounded border border-gray-700 text-gray-300">Collapse All</button>
+              <button type="button" onclick="switchView('chat', this)" aria-pressed="true" class="px-3 py-1.5 text-sm rounded-md font-medium border bg-blue-500/20 text-blue-400 border-blue-500/40">Chat</button>
+              <button type="button" onclick="switchView('timeline', this)" aria-pressed="false" class="px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700">Timeline</button>
+            </div>
+          </div>
+          <div id="chat-view" class="transcript-chat-view space-y-3">
+            <details id="${TEST_EVENT_ID}" open class="rounded border border-gray-700 p-3 bg-gray-800/30">
+              <summary class="cursor-pointer">Read dashboard fixture payload</summary>
+              <div class="code-container relative mt-3">
+                <pre><code>{"file_path":"internal/views/pages/dashboard.templ"}</code></pre>
+                <button type="button" onclick="copyToClipboard(this)" title="Copy to clipboard" aria-label="Copy to clipboard">
+                  <span class="copy-icon">Copy</span><span class="check-icon hidden">Copied</span>
+                </button>
+              </div>
+            </details>
+            <details id="event-older-002" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Assistant summary</summary><p>Dashboard state summarized.</p></details>
+            <details id="event-older-003" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Tool result</summary><p>Payload loaded.</p></details>
+          </div>
+          <div id="timeline-view" class="transcript-timeline-view hidden rounded border border-gray-700 p-3">
+            <a href="#${TEST_EVENT_ID}" class="text-blue-400">Read dashboard fixture payload</a>
+          </div>
+        </section>
       </div>
     </main>
     <script src="/static/js/transcript.js"></script>
