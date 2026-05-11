@@ -14,11 +14,13 @@ templ Layout(title string) {
 				document.documentElement.removeAttribute('data-dashboard-theme');
 				return;
 			}
-			var theme = 'midnight';
+			var theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+				? 'codex-light'
+				: 'codex-dark';
 			try {
-				theme = localStorage.getItem('beacon-dashboard-theme') || theme;
+				theme = localStorage.getItem('beacon-dashboard-resolved-theme') || theme;
 			} catch (err) {}
-			if (!/^[a-z0-9-]+$/.test(theme)) theme = 'midnight';
+			if (!/^[a-z0-9-]+$/.test(theme)) theme = 'codex-dark';
 			document.documentElement.setAttribute('data-dashboard-theme', theme);
 		})();
 		</script>

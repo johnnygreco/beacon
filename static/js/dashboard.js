@@ -1,62 +1,144 @@
 // --- Dashboard theme selector ---
 (function() {
 	var STORAGE_KEY = 'beacon-dashboard-theme';
-	var FALLBACK = 'midnight';
-	var THEME_IDS = [
-		'codex-aurora', 'codex-dawn', 'codex-terminal', 'codex-cloud',
-		'midnight', 'graphite', 'ocean', 'emerald', 'amethyst', 'rose',
-		'lagoon', 'matrix', 'ultraviolet', 'arctic', 'solar', 'copper',
-		'paper', 'sage', 'high-contrast', 'monochrome', 'crimson'
-	];
+	var APPEARANCE_KEY = 'beacon-dashboard-appearance';
+	var RESOLVED_KEY = 'beacon-dashboard-resolved-theme';
+	var FALLBACK_THEME = 'codex';
+	var FALLBACK_APPEARANCE = 'system';
+	var THEME_SUPPORT = {
+		'absolutely': { light: 'absolutely-light', dark: 'absolutely-dark' },
+		'catppuccin': { light: 'catppuccin-light', dark: 'catppuccin-dark' },
+		'codex': { light: 'codex-light', dark: 'codex-dark' },
+		'everforest': { light: 'everforest-light', dark: 'everforest-dark' },
+		'github': { light: 'github-light', dark: 'github-dark' },
+		'gruvbox': { light: 'gruvbox-light', dark: 'gruvbox-dark' },
+		'linear': { light: 'linear-light', dark: 'linear-dark' },
+		'notion': { light: 'notion-light', dark: 'notion-dark' },
+		'one': { light: 'one-light', dark: 'one-dark' },
+		'rose-pine': { light: 'rose-pine-light', dark: 'rose-pine-dark' },
+		'raycast': { light: 'raycast-light', dark: 'raycast-dark' },
+		'solarized': { light: 'solarized-light', dark: 'solarized-dark' },
+		'vercel': { light: 'vercel-light', dark: 'vercel-dark' },
+		'vs-code-plus': { light: 'vs-code-plus-light', dark: 'vs-code-plus-dark' },
+		'xcode': { light: 'xcode-light', dark: 'xcode-dark' },
+		'ayu': { dark: 'ayu-dark' },
+		'dracula': { dark: 'dracula-dark' },
+		'lobster': { dark: 'lobster-dark' },
+		'material': { dark: 'material-dark' },
+		'matrix': { dark: 'matrix-dark' },
+		'monokai': { dark: 'monokai-dark' },
+		'night-owl': { dark: 'night-owl-dark' },
+		'nord': { dark: 'nord-dark' },
+		'oscurange': { dark: 'oscurange-dark' },
+		'sentry': { dark: 'sentry-dark' },
+		'temple': { dark: 'temple-dark' },
+		'tokyo-night': { dark: 'tokyo-night-dark' },
+		'proof': { light: 'proof-light' }
+	};
+	var APPEARANCE_IDS = ['system', 'light', 'dark'];
+	var THEME_IDS = Object.keys(THEME_SUPPORT);
 
 	function hasTheme(id) {
-		return THEME_IDS.indexOf(id) !== -1;
+		return Object.prototype.hasOwnProperty.call(THEME_SUPPORT, id);
 	}
 
-	function storageGet() {
-		try { return localStorage.getItem(STORAGE_KEY); } catch (err) { return null; }
+	function hasAppearance(mode) {
+		return APPEARANCE_IDS.indexOf(mode) !== -1;
 	}
 
-	function storageSet(value) {
-		try { localStorage.setItem(STORAGE_KEY, value); } catch (err) {}
+	function storageGet(key) {
+		try { return localStorage.getItem(key); } catch (err) { return null; }
 	}
 
-	function syncThemeControl(theme) {
+	function storageSet(key, value) {
+		try { localStorage.setItem(key, value); } catch (err) {}
+	}
+
+	function preferredAppearance(mode) {
+		if (!hasAppearance(mode)) mode = FALLBACK_APPEARANCE;
+		if (mode !== 'system') return mode;
+		if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+			return 'light';
+		}
+		return 'dark';
+	}
+
+	function resolveTheme(theme, appearance) {
+		if (!hasTheme(theme)) theme = FALLBACK_THEME;
+		var support = THEME_SUPPORT[theme];
+		var preferred = preferredAppearance(appearance);
+		return support[preferred] || support.dark || support.light || THEME_SUPPORT[FALLBACK_THEME].dark;
+	}
+
+	function syncThemeControl(theme, appearance) {
 		var select = document.getElementById('dashboard-theme-select');
+		var appearanceSelect = document.getElementById('dashboard-appearance-select');
 		var swatch = document.getElementById('dashboard-theme-swatch');
 		if (select) select.value = theme;
+		if (appearanceSelect) appearanceSelect.value = appearance;
 		if (swatch) {
 			var label = select && select.selectedOptions && select.selectedOptions[0]
 				? select.selectedOptions[0].textContent
 				: theme;
+			if (appearanceSelect && appearanceSelect.selectedOptions && appearanceSelect.selectedOptions[0]) {
+				label += ' / ' + appearanceSelect.selectedOptions[0].textContent;
+			}
 			swatch.setAttribute('title', label);
 		}
 	}
 
-	function applyTheme(theme, persist) {
-		if (!hasTheme(theme)) theme = FALLBACK;
-		document.documentElement.setAttribute('data-dashboard-theme', theme);
-		if (persist) storageSet(theme);
-		syncThemeControl(theme);
+	function applyTheme(theme, appearance, persist) {
+		if (!hasTheme(theme)) theme = FALLBACK_THEME;
+		if (!hasAppearance(appearance)) appearance = FALLBACK_APPEARANCE;
+		var resolved = resolveTheme(theme, appearance);
+		document.documentElement.setAttribute('data-dashboard-theme', resolved);
+		if (persist) {
+			storageSet(STORAGE_KEY, theme);
+			storageSet(APPEARANCE_KEY, appearance);
+		}
+		storageSet(RESOLVED_KEY, resolved);
+		syncThemeControl(theme, appearance);
 		window.dispatchEvent(new CustomEvent('beacon:dashboard-theme-change', {
-			detail: { theme: theme }
+			detail: { theme: resolved, baseTheme: theme, appearance: appearance }
 		}));
 	}
 
 	window.setDashboardTheme = function(theme) {
-		applyTheme(theme, true);
+		applyTheme(theme, storageGet(APPEARANCE_KEY) || FALLBACK_APPEARANCE, true);
+	};
+	window.setDashboardAppearance = function(appearance) {
+		applyTheme(storageGet(STORAGE_KEY) || FALLBACK_THEME, appearance, true);
 	};
 	window.dashboardThemeIDs = THEME_IDS.slice();
 
-	var initial = storageGet() || document.documentElement.getAttribute('data-dashboard-theme') || FALLBACK;
-	if (!hasTheme(initial)) initial = FALLBACK;
-	applyTheme(initial, false);
+	var initialTheme = storageGet(STORAGE_KEY) || FALLBACK_THEME;
+	var initialAppearance = storageGet(APPEARANCE_KEY) || FALLBACK_APPEARANCE;
+	applyTheme(initialTheme, initialAppearance, false);
 
 	var select = document.getElementById('dashboard-theme-select');
 	if (select) {
 		select.addEventListener('change', function() {
-			applyTheme(select.value, true);
+			applyTheme(select.value, storageGet(APPEARANCE_KEY) || FALLBACK_APPEARANCE, true);
 		});
+	}
+	var appearanceSelect = document.getElementById('dashboard-appearance-select');
+	if (appearanceSelect) {
+		appearanceSelect.addEventListener('change', function() {
+			applyTheme(storageGet(STORAGE_KEY) || FALLBACK_THEME, appearanceSelect.value, true);
+		});
+	}
+	if (window.matchMedia) {
+		var media = window.matchMedia('(prefers-color-scheme: light)');
+		var onSchemeChange = function() {
+			if ((storageGet(APPEARANCE_KEY) || FALLBACK_APPEARANCE) === 'system') {
+				applyTheme(storageGet(STORAGE_KEY) || FALLBACK_THEME, 'system', false);
+			}
+		};
+		if (typeof media.addEventListener === 'function') {
+			media.addEventListener('change', onSchemeChange);
+		} else if (typeof media.addListener === 'function') {
+			media.addListener(onSchemeChange);
+		}
 	}
 })();
 
