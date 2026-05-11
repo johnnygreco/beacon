@@ -40,6 +40,29 @@ func sqliteHasTable(db *sql.DB, table string) bool {
 	return err == nil
 }
 
+func sqliteHasColumn(db *sql.DB, table, column string) bool {
+	rows, err := db.Query(`PRAGMA table_info("` + strings.ReplaceAll(table, `"`, `""`) + `")`)
+	if err != nil {
+		return false
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return false
+		}
+		if name == column {
+			return true
+		}
+	}
+	return false
+}
+
 func sqliteStableRaw(source, table, id, kind string) string {
 	b, _ := json.Marshal(map[string]string{
 		"source": source,

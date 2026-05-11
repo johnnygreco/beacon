@@ -147,7 +147,7 @@ type SessionSummary struct {
 	WorkingDir        string           // full working directory path from cwd field
 	ParentSessionID   string           // non-empty if this is a subagent session
 	ChildSessions     []SessionSummary // subagent sessions spawned from this session
-	HasSessionEnd     bool             // true if session has a definitive end signal (last-prompt)
+	HasSessionEnd     bool             // true if session has a definitive end signal
 	SubagentCount     int              // number of subagent sessions for this parent (completed table)
 }
 

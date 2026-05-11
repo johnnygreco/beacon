@@ -171,10 +171,21 @@ func hermesSessionEvents(file string, sess hermesSessionRow) []NormalizedEvent {
 }
 
 func loadHermesMessages(db *sql.DB, file string, sessions map[string]hermesSessionRow) ([]NormalizedEvent, error) {
-	rows, err := db.Query(`SELECT id, session_id, role, content, tool_call_id, tool_calls,
-	       tool_name, timestamp, finish_reason, reasoning, reasoning_content
+	reasoningExpr := "NULL"
+	if sqliteHasColumn(db, "messages", "reasoning") {
+		reasoningExpr = "reasoning"
+	}
+	reasoningContentExpr := "NULL"
+	if sqliteHasColumn(db, "messages", "reasoning_content") {
+		reasoningContentExpr = "reasoning_content"
+	} else if sqliteHasColumn(db, "messages", "reasoning_details") {
+		reasoningContentExpr = "reasoning_details"
+	}
+
+	rows, err := db.Query(fmt.Sprintf(`SELECT id, session_id, role, content, tool_call_id, tool_calls,
+	       tool_name, timestamp, finish_reason, %s, %s
 		FROM messages
-		ORDER BY session_id, timestamp, id`)
+		ORDER BY session_id, timestamp, id`, reasoningExpr, reasoningContentExpr))
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +240,7 @@ func hermesMessageEvents(base NormalizedEvent, rowID int64, role, rawContent, to
 	var events []NormalizedEvent
 	content := textFromHarnessContent(decodeHarnessJSON(rawContent))
 
-	if reasoningText := firstNonEmpty(reasoningContent, reasoning); reasoningText != "" {
+	if reasoningText := hermesReasoningText(reasoningContent, reasoning); reasoningText != "" {
 		evt := base
 		evt.EventKind = "reasoning"
 		evt.ActorRole = "assistant"
@@ -309,6 +320,22 @@ func hermesMessageEvents(base NormalizedEvent, rowID int64, role, rawContent, to
 	}
 
 	return events
+}
+
+func hermesReasoningText(primary, fallback string) string {
+	values := []string{primary, fallback}
+	for i, raw := range values {
+		if raw == "" {
+			continue
+		}
+		if text := textFromHarnessContent(decodeHarnessJSON(raw)); text != "" {
+			return text
+		}
+		if i == len(values)-1 {
+			return raw
+		}
+	}
+	return ""
 }
 
 type hermesToolCall struct {

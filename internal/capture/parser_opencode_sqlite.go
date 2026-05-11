@@ -286,7 +286,11 @@ func openCodeAssistantEvents(base NormalizedEvent, rowID string, data map[string
 			assignUsage(&evt)
 			events = append(events, evt)
 		case "tool":
-			events = append(events, openCodeToolEvents(base, rowID, i, pm)...)
+			toolEvents := openCodeToolEvents(base, rowID, i, pm)
+			if len(toolEvents) > 0 {
+				assignUsage(&toolEvents[0])
+			}
+			events = append(events, toolEvents...)
 		}
 	}
 

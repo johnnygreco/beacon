@@ -36,6 +36,22 @@ func TestParseHermesSQLite_MockStateDB(t *testing.T) {
 	if result.TextContent != "fixture contents" {
 		t.Fatalf("hermes tool result text = %q", result.TextContent)
 	}
+	end := assertEvent(t, events, "session_end", "system", "cli_close")
+	if end.PayloadType != "cli_close" {
+		t.Fatalf("hermes session_end payload = %q", end.PayloadType)
+	}
+}
+
+func TestParseHermesSQLite_LegacyReasoningSchema(t *testing.T) {
+	dbPath := createSQLiteFixture(t, "hermes_legacy_state.sql")
+
+	events, err := ParseHermesSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertEvent(t, events, "reasoning", "assistant", "Legacy reasoning column.")
+	assertEvent(t, events, "message", "assistant", "Legacy schemas still parse.")
 }
 
 func TestParseOpenCodeSQLite_MockStateDB(t *testing.T) {
@@ -46,7 +62,7 @@ func TestParseOpenCodeSQLite_MockStateDB(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got, want := len(events), 7; got != want {
+	if got, want := len(events), 9; got != want {
 		t.Fatalf("len(events) = %d, want %d", got, want)
 	}
 	meta := assertEvent(t, events, "session_meta", "system", "Parser fixtures")
@@ -59,7 +75,7 @@ func TestParseOpenCodeSQLite_MockStateDB(t *testing.T) {
 			reasoning.InputTokens, reasoning.OutputTokens, reasoning.CacheReadTokens, reasoning.CacheCreateTokens)
 	}
 	deduped := DeduplicateTokens(append([]NormalizedEvent(nil), events...))
-	if got, want := sumInputTokens(deduped), int64(900); got != want {
+	if got, want := sumInputTokens(deduped), int64(1200); got != want {
 		t.Fatalf("opencode input tokens after dedup = %d, want %d", got, want)
 	}
 	assertEvent(t, events, "message", "assistant", "I will run the focused tests.")
@@ -70,6 +86,11 @@ func TestParseOpenCodeSQLite_MockStateDB(t *testing.T) {
 	result := assertToolEvent(t, events, "tool_result", "bash")
 	if result.ToolOutput != "ok github.com/johnnygreco/beacon/internal/capture" {
 		t.Fatalf("opencode tool output = %q", result.ToolOutput)
+	}
+	toolOnlyCall := assertToolEvent(t, events, "tool_call", "grep")
+	if toolOnlyCall.InputTokens != 300 || toolOnlyCall.OutputTokens != 40 || toolOnlyCall.CostUSD != 0.004 {
+		t.Fatalf("opencode tool-only usage = input:%d output:%d cost:%f",
+			toolOnlyCall.InputTokens, toolOnlyCall.OutputTokens, toolOnlyCall.CostUSD)
 	}
 	assertEvent(t, events, "context_snapshot", "system", "Earlier fixture work was summarized.")
 }

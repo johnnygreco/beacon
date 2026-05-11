@@ -56,6 +56,12 @@ VALUES (
 
 INSERT INTO session_message (id, session_id, type, time_created, time_updated, data)
 VALUES (
+  'evt_assistant_tool_only_1', 'ses_opencode_1', 'assistant', 1764590405500, 1764590405800,
+  '{"time":{"created":1764590405500,"completed":1764590405800},"agent":"build","model":{"providerID":"anthropic","modelID":"claude-sonnet-4-5"},"content":[{"type":"tool","id":"tool_2","name":"grep","state":{"status":"completed","input":{"pattern":"TODO","path":"."},"output":"found TODO","title":"grep TODO","metadata":{},"time":{"start":1764590405600,"end":1764590405700}}}],"finish":"tool_use","cost":0.004,"tokens":{"input":300,"output":40,"cache":{"read":0,"write":0}}}'
+);
+
+INSERT INTO session_message (id, session_id, type, time_created, time_updated, data)
+VALUES (
   'evt_compaction_1', 'ses_opencode_1', 'compaction', 1764590406000, 1764590406000,
   '{"time":{"created":1764590406000},"reason":"manual","summary":"Earlier fixture work was summarized."}'
 );

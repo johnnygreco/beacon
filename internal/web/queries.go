@@ -1423,7 +1423,7 @@ func setSessionTiming(s *views.SessionSummary, startedAt, endedAt, now time.Time
 	elapsed := now.Sub(lastActivity)
 
 	if s.HasSessionEnd {
-		// Definitive end signal (last-prompt) — always completed.
+		// Definitive end signal from the harness; always completed.
 		s.Status = "completed"
 		s.Duration = formatDuration(lastActivity.Sub(startedAt))
 	} else if elapsed < activeThreshold {
