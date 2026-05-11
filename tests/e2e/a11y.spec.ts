@@ -58,4 +58,16 @@ test.describe('dashboard accessibility', () => {
 
     expect(await axeSeriousOrCritical(page)).toEqual([]);
   });
+
+  test('has no serious or critical axe violations on the themed transcript', async ({ page }) => {
+    await installDashboardFixtures(page);
+    await gotoDashboard(page);
+    await page.locator('#dashboard-appearance-select').selectOption('light');
+    await page.locator('#dashboard-theme-select').selectOption('catppuccin');
+
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#transcript-wrap')).toBeVisible();
+
+    expect(await axeSeriousOrCritical(page)).toEqual([]);
+  });
 });

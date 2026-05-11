@@ -107,4 +107,18 @@ test.describe('dashboard visual regression baselines', () => {
     await expect(page.locator('#chat-view details')).toHaveCount(3);
     await expect(page.locator('main')).toHaveScreenshot('transcript-mobile.png');
   });
+
+  test('desktop transcript view inherits dashboard theme', async ({ page }) => {
+    await installDashboardFixtures(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoDashboard(page);
+    await page.locator('#dashboard-appearance-select').selectOption('light');
+    await page.locator('#dashboard-theme-select').selectOption('catppuccin');
+    await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
+
+    await page.goto(`/sessions/${TEST_SESSION_ID}#event-older-001`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
+    await expect(page.locator('#sidebar')).toHaveCount(0);
+    await expect(page.locator('#transcript-wrap')).toHaveScreenshot('transcript-desktop-themed.png');
+  });
 });

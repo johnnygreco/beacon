@@ -29,6 +29,7 @@ test.describe('dashboard battle-tested workflows', () => {
       await gotoDashboard(page);
       await expectNoHorizontalOverflow(page);
       await expectEqualDashboardChartHeights(page);
+      await expect(page.locator('#sidebar')).toHaveCount(0);
       await expect(page.locator('nav a[href="/search"]')).toHaveCount(0);
       await expect(page.locator('#dashboard-session-search')).toBeVisible();
     }
@@ -211,10 +212,13 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(appearanceSelect).toHaveValue('light');
 
     await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
-    expect(await page.evaluate(() => document.documentElement.getAttribute('data-dashboard-theme'))).toBeNull();
+    await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
+    await expect(page.locator('body')).toHaveAttribute('data-page', 'transcript');
+    await expect(page.locator('#sidebar')).toHaveCount(0);
+    await expectNoHorizontalOverflow(page);
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-theme'))).toBe('catppuccin');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-appearance'))).toBe('light');
-    expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dash-accent').trim())).toBe('#60a5fa');
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dash-accent').trim())).toBe('#8839ef');
 
     await guards.expectClean();
   });
@@ -268,6 +272,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator('#activity-feed a[data-transcript-link]').first().click();
     await expect(page).toHaveURL(new RegExp(`/sessions/${TEST_SESSION_ID}#${TEST_EVENT_ID}`));
     await expect(page.locator(`#${TEST_EVENT_ID}`)).toBeVisible();
+    await expectNoHorizontalOverflow(page);
 
     await expect(page.locator('#chat-view details')).toHaveCount(3);
     await page.locator('#btn-collapse-all').click();

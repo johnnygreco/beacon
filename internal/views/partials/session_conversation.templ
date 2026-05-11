@@ -10,10 +10,10 @@ templ SessionConversation(chatTurns []views.ChatTurn, turns []views.TurnDetail) 
 }
 
 templ SessionConversationWithContext(chatTurns []views.ChatTurn, turns []views.TurnDetail, chatCtx views.ChatContext) {
-	<div id="chat-view">
+	<div id="chat-view" class="transcript-chat-view">
 		@components.ChatViewWithContext(chatTurns, chatCtx)
 	</div>
-	<div id="timeline-view" class="hidden">
+	<div id="timeline-view" class="transcript-timeline-view hidden">
 		@components.TurnTimeline(turns)
 	</div>
 	<script src="/static/js/transcript.js"></script>

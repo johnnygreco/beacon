@@ -94,13 +94,17 @@
       if (collapseBtn) collapseBtn.classList.add('hidden');
     }
 
+    if (!btn || !btn.parentElement) return;
+
     var buttons = btn.parentElement.querySelectorAll('button[onclick^="switchView"]');
     buttons.forEach(function(b) {
       b.classList.remove('bg-blue-500/20', 'text-blue-400', 'border-blue-500/40');
       b.classList.add('bg-gray-800', 'text-gray-500', 'border-gray-700');
+      b.setAttribute('aria-pressed', 'false');
     });
     btn.classList.remove('bg-gray-800', 'text-gray-500', 'border-gray-700');
     btn.classList.add('bg-blue-500/20', 'text-blue-400', 'border-blue-500/40');
+    btn.setAttribute('aria-pressed', 'true');
   };
 
   // --- HTMX integration ---

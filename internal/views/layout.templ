@@ -10,17 +10,14 @@ templ Layout(title string) {
 		<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/>
 		<script>
 		(function() {
-			if (window.location.pathname !== '/') {
-				document.documentElement.removeAttribute('data-dashboard-theme');
-				return;
-			}
-			var theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+			var fallbackTheme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
 				? 'codex-light'
 				: 'codex-dark';
+			var theme = fallbackTheme;
 			try {
 				theme = localStorage.getItem('beacon-dashboard-resolved-theme') || theme;
 			} catch (err) {}
-			if (!/^[a-z0-9-]+$/.test(theme)) theme = 'codex-dark';
+			if (!/^[a-z0-9-]+$/.test(theme)) theme = fallbackTheme;
 			document.documentElement.setAttribute('data-dashboard-theme', theme);
 		})();
 		</script>
@@ -59,54 +56,10 @@ templ Layout(title string) {
 		<link rel="stylesheet" href="/static/css/tailwind.css"/>
 		<link rel="stylesheet" href="/static/css/custom.css"/>
 	</head>
-	<body class="bg-gray-900 text-gray-100 min-h-screen flex">
-		@Nav()
-		<main id="main-content" class="flex-1 ml-14 p-6 overflow-y-auto">
+	<body class="bg-gray-900 text-gray-100 min-h-screen">
+		<main id="main-content" class="min-h-screen w-full p-6 overflow-y-auto">
 			{ children... }
 		</main>
-		<script>
-		// Server connectivity check (works on all pages, not just SSE pages)
-		(function() {
-			var indicator = document.getElementById('sse-indicator');
-			function setConnected(ok) {
-				if (indicator) {
-					indicator.className = ok
-						? 'w-2 h-2 rounded-full bg-green-500 sse-glow'
-						: 'w-2 h-2 rounded-full bg-red-500';
-					indicator.title = ok ? 'Connected' : 'Disconnected';
-				}
-			}
-			function check() {
-				var ctrl = new AbortController();
-				setTimeout(function(){ ctrl.abort(); }, 5000);
-				fetch('/health', {signal: ctrl.signal})
-					.then(function(r){ setConnected(r.ok); })
-					.catch(function(){ setConnected(false); });
-			}
-			check();
-			setInterval(check, 15000);
-		})();
-		</script>
 	</body>
 	</html>
-}
-
-templ Nav() {
-	<nav id="sidebar" class="fixed left-0 top-0 h-full w-14 bg-gray-800 border-r border-gray-700 flex flex-col z-50">
-		<div class="p-3 border-b border-gray-700 flex items-center justify-center">
-			<a href="/" class="beacon-brand-symbol" title="Beacon — AI Agent Monitor" aria-label="Beacon — AI Agent Monitor">
-				<span aria-hidden="true">📡</span>
-			</a>
-		</div>
-		<div class="flex-1 py-4">
-			<a href="/" class="flex items-center justify-center py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition-colors" title="Dashboard">
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
-				</svg>
-			</a>
-		</div>
-		<div class="border-t border-gray-700 p-3 flex justify-center">
-			<span id="sse-indicator" class="w-2 h-2 rounded-full bg-gray-600" title="Connecting..."></span>
-		</div>
-	</nav>
 }
