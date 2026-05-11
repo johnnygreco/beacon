@@ -198,6 +198,11 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'codex-aurora');
     await expect(themeSelect).toHaveValue('codex-aurora');
 
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    expect(await page.evaluate(() => document.documentElement.getAttribute('data-dashboard-theme'))).toBeNull();
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-theme'))).toBe('codex-aurora');
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dash-accent').trim())).toBe('#60a5fa');
+
     await guards.expectClean();
   });
 
