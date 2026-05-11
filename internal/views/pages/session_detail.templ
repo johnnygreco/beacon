@@ -9,13 +9,24 @@ import (
 
 templ SessionDetail(data views.SessionDetailData) {
 	@views.Layout("Session " + data.Session.ID) {
-		<div hx-ext="sse" sse-connect={ fmt.Sprintf("/sse/session/%s", data.Session.ID) } class="space-y-6">
+		<script>document.body.setAttribute('data-page', 'transcript');</script>
+		<div id="transcript-wrap" hx-ext="sse" sse-connect={ fmt.Sprintf("/sse/session/%s", data.Session.ID) } class="transcript-page space-y-6">
 			<!-- Session Header -->
-			<div class={ "bg-gray-800 rounded-lg p-6 border", templ.KV("border-blue-500/30", data.Session.IsSubagent()), templ.KV("border-gray-700", !data.Session.IsSubagent()) }>
-				<div class="flex items-center justify-between mb-4">
-					<div>
-						<div class="flex items-center gap-3">
-							<h1 class="text-2xl font-bold text-gray-100">{ views.SessionTitle(data.Session, true) }</h1>
+			<section class={ "transcript-header border", templ.KV("border-blue-500/30", data.Session.IsSubagent()), templ.KV("border-gray-700", !data.Session.IsSubagent()) }>
+				<div class="flex flex-wrap items-start justify-between gap-4">
+					<div class="min-w-0 flex-1">
+						<div class="transcript-breadcrumb">
+							<a href="/" class="transcript-back-link">
+								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+								</svg>
+								Dashboard
+							</a>
+							<span aria-hidden="true">/</span>
+							<span>Transcript</span>
+						</div>
+						<div class="flex flex-wrap items-center gap-3 mt-2">
+							<h1 class="text-2xl font-semibold text-gray-100 min-w-0 break-words">{ views.SessionTitle(data.Session, true) }</h1>
 							if data.Session.Provider != "" {
 								<span class={ "px-2 py-0.5 text-xs font-semibold uppercase rounded-full", providerBadgeClasses(data.Session.Provider) }>{ views.ProviderLabel(data.Session.Provider) }</span>
 							}
@@ -49,30 +60,30 @@ templ SessionDetail(data views.SessionDetailData) {
 						<span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">Completed</span>
 					}
 				</div>
-				<div class="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
-					<div>
+				<div class="transcript-metric-grid text-sm">
+					<div class="transcript-stat">
 						<span class="text-gray-500">Duration</span>
 						<p class="text-gray-200 font-medium">{ data.Session.Duration }</p>
 					</div>
-					<div>
+					<div class="transcript-stat">
 						<span class="text-gray-500">Total Tokens</span>
 						<p class="text-gray-200 font-medium">{ views.FormatTokens(data.Session.TotalTokens) }</p>
 						<p class="text-xs text-gray-500 mt-0.5">
 							In: { views.FormatTokens(data.Session.InputTokens) } / Out: { views.FormatTokens(data.Session.OutputTokens) }
 						</p>
 					</div>
-					<div>
+					<div class="transcript-stat">
 						<span class="text-gray-500">Cache Tokens</span>
 						<p class="text-gray-200 font-medium">{ views.FormatTokens(data.Session.CacheReadTokens) }</p>
 						<p class="text-xs text-gray-500 mt-0.5">
 							Create: { views.FormatTokens(data.Session.CacheCreateTokens) }
 						</p>
 					</div>
-					<div>
+					<div class="transcript-stat">
 						<span class="text-gray-500">Turns</span>
 						<p class="text-gray-200 font-medium">{ fmt.Sprintf("%d", data.Session.TurnCount) }</p>
 					</div>
-					<div>
+					<div class="transcript-stat">
 						<span class="text-gray-500">Tool Calls</span>
 						<p class="text-gray-200 font-medium">{ fmt.Sprintf("%d", data.Session.ToolCallCount) }</p>
 						if data.Session.MCPCallCount > 0 {
@@ -82,7 +93,7 @@ templ SessionDetail(data views.SessionDetailData) {
 						}
 					</div>
 				</div>
-			</div>
+			</section>
 
 			<!-- Charts -->
 			<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -94,7 +105,7 @@ templ SessionDetail(data views.SessionDetailData) {
 
 			<!-- Tool Stats -->
 			if len(data.ToolStats) > 0 {
-				<div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+				<section class="transcript-section bg-gray-800 rounded-lg p-4 border border-gray-700">
 					<h2 class="text-lg font-semibold text-gray-200 mb-3">Tool Usage</h2>
 					<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
 						for _, ts := range data.ToolStats {
@@ -114,12 +125,12 @@ templ SessionDetail(data views.SessionDetailData) {
 							</div>
 						}
 					</div>
-				</div>
+				</section>
 			}
 
 			<!-- Subagent Sessions -->
 			if len(data.Session.ChildSessions) > 0 {
-				<div id="subagent-sessions" class="bg-gray-800 rounded-lg p-4 border border-blue-500/20">
+				<section id="subagent-sessions" class="transcript-section bg-gray-800 rounded-lg p-4 border border-blue-500/20">
 					<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
 						<svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path>
@@ -132,17 +143,19 @@ templ SessionDetail(data views.SessionDetailData) {
 							@components.SubagentSessionCard(child)
 						}
 					</div>
-				</div>
+				</section>
 			}
 
 			<link rel="stylesheet" href="/static/css/vendor/github-dark.min.css"/>
 			<script src="/static/js/vendor/highlight.min.js"></script>
 
 			<!-- Conversation (lazy-loaded for fast initial render) -->
-			<div>
-				<div class="flex items-center justify-between mb-4">
-					<h2 class="text-lg font-semibold text-gray-200">Conversation</h2>
-					<div class="flex items-center gap-2">
+			<section class="transcript-conversation">
+				<div class="transcript-conversation-header flex items-center justify-between gap-3">
+					<div>
+						<h2 class="text-lg font-semibold text-gray-200">Conversation</h2>
+					</div>
+					<div class="transcript-controls flex items-center gap-2">
 						<button type="button" id="btn-expand-all" onclick="expandAll()"
 								class="px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors">
 							Expand All
@@ -152,9 +165,9 @@ templ SessionDetail(data views.SessionDetailData) {
 							Collapse All
 						</button>
 						<div class="w-px h-5 bg-gray-700"></div>
-						<button type="button" onclick="switchView('chat', this)"
+						<button type="button" onclick="switchView('chat', this)" aria-pressed="true"
 								class="px-3 py-1.5 text-sm rounded-md font-medium border bg-blue-500/20 text-blue-400 border-blue-500/40">Chat</button>
-						<button type="button" onclick="switchView('timeline', this)"
+						<button type="button" onclick="switchView('timeline', this)" aria-pressed="false"
 								class="px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700">Timeline</button>
 					</div>
 				</div>
@@ -170,7 +183,7 @@ templ SessionDetail(data views.SessionDetailData) {
 						Loading conversation...
 					</div>
 				</div>
-			</div>
+			</section>
 
 			<!-- Scroll to hash fragment after lazy-loaded conversation arrives -->
 			<script>

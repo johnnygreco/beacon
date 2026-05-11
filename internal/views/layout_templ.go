@@ -42,15 +42,7 @@ func Layout(title string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " | Beacon</title><link rel=\"icon\" href=\"/static/favicon.svg\" type=\"image/svg+xml\"><script>\n\t\t(function() {\n\t\t\tif (window.location.pathname !== '/') {\n\t\t\t\tdocument.documentElement.removeAttribute('data-dashboard-theme');\n\t\t\t\treturn;\n\t\t\t}\n\t\t\tvar theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches\n\t\t\t\t? 'codex-light'\n\t\t\t\t: 'codex-dark';\n\t\t\ttry {\n\t\t\t\ttheme = localStorage.getItem('beacon-dashboard-resolved-theme') || theme;\n\t\t\t} catch (err) {}\n\t\t\tif (!/^[a-z0-9-]+$/.test(theme)) theme = 'codex-dark';\n\t\t\tdocument.documentElement.setAttribute('data-dashboard-theme', theme);\n\t\t})();\n\t\t</script><script>\n\t\t(function() {\n\t\t\tif (!window.console || typeof window.console.error !== 'function' || window.__beaconConsoleFilterInstalled) return;\n\t\t\tvar originalError = window.console.error.bind(window.console);\n\t\t\twindow.__beaconUnloading = false;\n\t\t\twindow.addEventListener('beforeunload', function() {\n\t\t\t\twindow.__beaconUnloading = true;\n\t\t\t}, {capture: true});\n\t\t\twindow.console.error = function() {\n\t\t\t\tif (window.__beaconUnloading && arguments.length === 1 && arguments[0] === '[object Event]') return;\n\t\t\t\tif (window.__beaconUnloading && arguments.length === 1 && arguments[0] && typeof arguments[0] === 'object') {\n\t\t\t\t\tvar tag = Object.prototype.toString.call(arguments[0]);\n\t\t\t\t\tif (tag === '[object Event]' || tag === '[object ErrorEvent]') return;\n\t\t\t\t}\n\t\t\t\tif (arguments.length === 1 && arguments[0] && typeof arguments[0] === 'object') {\n\t\t\t\t\tvar event = arguments[0];\n\t\t\t\t\tvar eventTag = Object.prototype.toString.call(event);\n\t\t\t\t\tvar eventTarget = event.target || event.currentTarget || event.srcElement;\n\t\t\t\t\tvar targetTag = Object.prototype.toString.call(eventTarget);\n\t\t\t\t\tvar looksLikeEventSource = eventTarget &&\n\t\t\t\t\t\t(targetTag === '[object EventSource]' ||\n\t\t\t\t\t\t\teventTarget.constructor && eventTarget.constructor.name === 'EventSource' ||\n\t\t\t\t\t\t\t(typeof eventTarget.close === 'function' && typeof eventTarget.url === 'string'));\n\t\t\t\t\tif (eventTag === '[object Event]' && event.type === 'error' && looksLikeEventSource) return;\n\t\t\t\t}\n\t\t\t\toriginalError.apply(window.console, arguments);\n\t\t\t};\n\t\t\twindow.__beaconConsoleFilterInstalled = true;\n\t\t})();\n\t\t</script><script src=\"/static/js/vendor/htmx.min.js\"></script><script src=\"/static/js/vendor/htmx-ext-sse.js\"></script><link rel=\"stylesheet\" href=\"/static/css/tailwind.css\"><link rel=\"stylesheet\" href=\"/static/css/custom.css\"></head><body class=\"bg-gray-900 text-gray-100 min-h-screen flex\">")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = Nav().Render(ctx, templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "<main id=\"main-content\" class=\"flex-1 ml-14 p-6 overflow-y-auto\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " | Beacon</title><link rel=\"icon\" href=\"/static/favicon.svg\" type=\"image/svg+xml\"><script>\n\t\t(function() {\n\t\t\tvar fallbackTheme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches\n\t\t\t\t? 'codex-light'\n\t\t\t\t: 'codex-dark';\n\t\t\tvar theme = fallbackTheme;\n\t\t\ttry {\n\t\t\t\ttheme = localStorage.getItem('beacon-dashboard-resolved-theme') || theme;\n\t\t\t} catch (err) {}\n\t\t\tif (!/^[a-z0-9-]+$/.test(theme)) theme = fallbackTheme;\n\t\t\tdocument.documentElement.setAttribute('data-dashboard-theme', theme);\n\t\t})();\n\t\t</script><script>\n\t\t(function() {\n\t\t\tif (!window.console || typeof window.console.error !== 'function' || window.__beaconConsoleFilterInstalled) return;\n\t\t\tvar originalError = window.console.error.bind(window.console);\n\t\t\twindow.__beaconUnloading = false;\n\t\t\twindow.addEventListener('beforeunload', function() {\n\t\t\t\twindow.__beaconUnloading = true;\n\t\t\t}, {capture: true});\n\t\t\twindow.console.error = function() {\n\t\t\t\tif (window.__beaconUnloading && arguments.length === 1 && arguments[0] === '[object Event]') return;\n\t\t\t\tif (window.__beaconUnloading && arguments.length === 1 && arguments[0] && typeof arguments[0] === 'object') {\n\t\t\t\t\tvar tag = Object.prototype.toString.call(arguments[0]);\n\t\t\t\t\tif (tag === '[object Event]' || tag === '[object ErrorEvent]') return;\n\t\t\t\t}\n\t\t\t\tif (arguments.length === 1 && arguments[0] && typeof arguments[0] === 'object') {\n\t\t\t\t\tvar event = arguments[0];\n\t\t\t\t\tvar eventTag = Object.prototype.toString.call(event);\n\t\t\t\t\tvar eventTarget = event.target || event.currentTarget || event.srcElement;\n\t\t\t\t\tvar targetTag = Object.prototype.toString.call(eventTarget);\n\t\t\t\t\tvar looksLikeEventSource = eventTarget &&\n\t\t\t\t\t\t(targetTag === '[object EventSource]' ||\n\t\t\t\t\t\t\teventTarget.constructor && eventTarget.constructor.name === 'EventSource' ||\n\t\t\t\t\t\t\t(typeof eventTarget.close === 'function' && typeof eventTarget.url === 'string'));\n\t\t\t\t\tif (eventTag === '[object Event]' && event.type === 'error' && looksLikeEventSource) return;\n\t\t\t\t}\n\t\t\t\toriginalError.apply(window.console, arguments);\n\t\t\t};\n\t\t\twindow.__beaconConsoleFilterInstalled = true;\n\t\t})();\n\t\t</script><script src=\"/static/js/vendor/htmx.min.js\"></script><script src=\"/static/js/vendor/htmx-ext-sse.js\"></script><link rel=\"stylesheet\" href=\"/static/css/tailwind.css\"><link rel=\"stylesheet\" href=\"/static/css/custom.css\"></head><body class=\"bg-gray-900 text-gray-100 min-h-screen\"><main id=\"main-content\" class=\"min-h-screen w-full p-6 overflow-y-auto\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -58,36 +50,7 @@ func Layout(title string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</main><script>\n\t\t// Server connectivity check (works on all pages, not just SSE pages)\n\t\t(function() {\n\t\t\tvar indicator = document.getElementById('sse-indicator');\n\t\t\tfunction setConnected(ok) {\n\t\t\t\tif (indicator) {\n\t\t\t\t\tindicator.className = ok\n\t\t\t\t\t\t? 'w-2 h-2 rounded-full bg-green-500 sse-glow'\n\t\t\t\t\t\t: 'w-2 h-2 rounded-full bg-red-500';\n\t\t\t\t\tindicator.title = ok ? 'Connected' : 'Disconnected';\n\t\t\t\t}\n\t\t\t}\n\t\t\tfunction check() {\n\t\t\t\tvar ctrl = new AbortController();\n\t\t\t\tsetTimeout(function(){ ctrl.abort(); }, 5000);\n\t\t\t\tfetch('/health', {signal: ctrl.signal})\n\t\t\t\t\t.then(function(r){ setConnected(r.ok); })\n\t\t\t\t\t.catch(function(){ setConnected(false); });\n\t\t\t}\n\t\t\tcheck();\n\t\t\tsetInterval(check, 15000);\n\t\t})();\n\t\t</script></body></html>")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		return nil
-	})
-}
-
-func Nav() templ.Component {
-	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
-			return templ_7745c5c3_CtxErr
-		}
-		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-		if !templ_7745c5c3_IsBuffer {
-			defer func() {
-				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err == nil {
-					templ_7745c5c3_Err = templ_7745c5c3_BufErr
-				}
-			}()
-		}
-		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var3 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var3 == nil {
-			templ_7745c5c3_Var3 = templ.NopComponent
-		}
-		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "<nav id=\"sidebar\" class=\"fixed left-0 top-0 h-full w-14 bg-gray-800 border-r border-gray-700 flex flex-col z-50\"><div class=\"p-3 border-b border-gray-700 flex items-center justify-center\"><a href=\"/\" class=\"beacon-brand-symbol\" title=\"Beacon — AI Agent Monitor\" aria-label=\"Beacon — AI Agent Monitor\"><span aria-hidden=\"true\">📡</span></a></div><div class=\"flex-1 py-4\"><a href=\"/\" class=\"flex items-center justify-center py-3 text-gray-300 hover:bg-gray-700 hover:text-white transition-colors\" title=\"Dashboard\"><svg class=\"w-5 h-5\" fill=\"none\" stroke=\"currentColor\" viewBox=\"0 0 24 24\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z\"></path></svg></a></div><div class=\"border-t border-gray-700 p-3 flex justify-center\"><span id=\"sse-indicator\" class=\"w-2 h-2 rounded-full bg-gray-600\" title=\"Connecting...\"></span></div></nav>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</main></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
