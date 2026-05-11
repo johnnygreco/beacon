@@ -170,6 +170,7 @@ func openCodeMessageEvents(base NormalizedEvent, rowID, msgType string, data map
 		evt.EventKind = "message"
 		evt.ActorRole = "user"
 		evt.TextContent = stringFromAny(data["text"])
+		evt.MessageUUID = scopedMessageUUID(rowID, "message")
 		evt.SourceOffset = stableOffset("opencode", "session_message", rowID, "message")
 		evt.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "message")
 		return []NormalizedEvent{evt}
@@ -179,6 +180,7 @@ func openCodeMessageEvents(base NormalizedEvent, rowID, msgType string, data map
 		evt.ActorRole = "system"
 		evt.PayloadType = "synthetic"
 		evt.TextContent = stringFromAny(data["text"])
+		evt.MessageUUID = scopedMessageUUID(rowID, "synthetic")
 		evt.SourceOffset = stableOffset("opencode", "session_message", rowID, "synthetic")
 		evt.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "synthetic")
 		return []NormalizedEvent{evt}
@@ -192,6 +194,7 @@ func openCodeMessageEvents(base NormalizedEvent, rowID, msgType string, data map
 		evt.ActorRole = "system"
 		evt.PayloadType = "compaction"
 		evt.TextContent = stringFromAny(data["summary"])
+		evt.MessageUUID = scopedMessageUUID(rowID, "compaction")
 		evt.SourceOffset = stableOffset("opencode", "session_message", rowID, "compaction")
 		evt.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "compaction")
 		return []NormalizedEvent{evt}
@@ -205,6 +208,7 @@ func openCodeMessageEvents(base NormalizedEvent, rowID, msgType string, data map
 			evt.Provider = firstNonEmpty(stringFromAny(model["providerID"]), evt.Provider)
 			evt.TextContent = evt.Model
 		}
+		evt.MessageUUID = scopedMessageUUID(rowID, "model-switched")
 		evt.SourceOffset = stableOffset("opencode", "session_message", rowID, "model-switched")
 		evt.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "model-switched")
 		return []NormalizedEvent{evt}
@@ -214,6 +218,7 @@ func openCodeMessageEvents(base NormalizedEvent, rowID, msgType string, data map
 		evt.ActorRole = "system"
 		evt.PayloadType = "agent-switched"
 		evt.TextContent = stringFromAny(data["agent"])
+		evt.MessageUUID = scopedMessageUUID(rowID, "agent-switched")
 		evt.SourceOffset = stableOffset("opencode", "session_message", rowID, "agent-switched")
 		evt.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "agent-switched")
 		return []NormalizedEvent{evt}
@@ -223,6 +228,7 @@ func openCodeMessageEvents(base NormalizedEvent, rowID, msgType string, data map
 		evt.ActorRole = "system"
 		evt.PayloadType = msgType
 		evt.TextContent = textFromHarnessContent(data)
+		evt.MessageUUID = scopedMessageUUID(rowID, "event")
 		evt.SourceOffset = stableOffset("opencode", "session_message", rowID, "event")
 		evt.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "event")
 		return []NormalizedEvent{evt}
@@ -264,6 +270,7 @@ func openCodeAssistantEvents(base NormalizedEvent, rowID string, data map[string
 			evt.EventKind = "message"
 			evt.ActorRole = "assistant"
 			evt.TextContent = stringFromAny(pm["text"])
+			evt.MessageUUID = scopedMessageUUID(rowID, "text", fmt.Sprint(i))
 			evt.SourceOffset = stableOffset("opencode", "session_message", rowID, "text", fmt.Sprint(i))
 			evt.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "text:"+fmt.Sprint(i))
 			assignUsage(&evt)
@@ -273,6 +280,7 @@ func openCodeAssistantEvents(base NormalizedEvent, rowID string, data map[string
 			evt.EventKind = "reasoning"
 			evt.ActorRole = "assistant"
 			evt.TextContent = stringFromAny(pm["text"])
+			evt.MessageUUID = scopedMessageUUID(rowID, "reasoning", fmt.Sprint(i))
 			evt.SourceOffset = stableOffset("opencode", "session_message", rowID, "reasoning", fmt.Sprint(i))
 			evt.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "reasoning:"+fmt.Sprint(i))
 			assignUsage(&evt)
@@ -289,6 +297,7 @@ func openCodeAssistantEvents(base NormalizedEvent, rowID string, data map[string
 		evt.ErrorCode = firstNonEmpty(stringFromAny(errData["type"]), "error")
 		evt.ErrorMessage = stringFromAny(errData["message"])
 		evt.TextContent = evt.ErrorMessage
+		evt.MessageUUID = scopedMessageUUID(rowID, "error")
 		evt.SourceOffset = stableOffset("opencode", "session_message", rowID, "error")
 		evt.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "error")
 		assignUsage(&evt)
@@ -299,6 +308,7 @@ func openCodeAssistantEvents(base NormalizedEvent, rowID string, data map[string
 		evt := base
 		evt.EventKind = "message"
 		evt.ActorRole = "assistant"
+		evt.MessageUUID = scopedMessageUUID(rowID, "message")
 		evt.SourceOffset = stableOffset("opencode", "session_message", rowID, "message")
 		evt.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "message")
 		assignUsage(&evt)
@@ -324,6 +334,7 @@ func openCodeToolEvents(base NormalizedEvent, rowID string, index int, part map[
 		call.ToolInput = stringFromAny(state["raw"])
 	}
 	call.TextContent = toolName
+	call.MessageUUID = scopedMessageUUID(rowID, "tool_call", fmt.Sprint(index), callID)
 	call.SourceOffset = stableOffset("opencode", "session_message", rowID, "tool_call", fmt.Sprint(index), callID)
 	call.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "tool_call:"+callID)
 
@@ -344,6 +355,7 @@ func openCodeToolEvents(base NormalizedEvent, rowID string, index int, part map[
 		result.ToolName = toolName
 		result.ToolOutput = openCodeToolOutput(state)
 		result.TextContent = firstNonEmpty(result.ToolOutput, result.ErrorMessage)
+		result.MessageUUID = scopedMessageUUID(rowID, "tool_result", fmt.Sprint(index), callID)
 		result.SourceOffset = stableOffset("opencode", "session_message", rowID, "tool_result", fmt.Sprint(index), callID)
 		result.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "tool_result:"+callID)
 		events = append(events, result)
@@ -377,6 +389,7 @@ func openCodeShellEvents(base NormalizedEvent, rowID string, data map[string]any
 	call.ToolName = "shell"
 	call.ToolInput = jsonPayload(map[string]any{"command": stringFromAny(data["command"])})
 	call.TextContent = "shell"
+	call.MessageUUID = scopedMessageUUID(rowID, "shell_call")
 	call.SourceOffset = stableOffset("opencode", "session_message", rowID, "shell_call")
 	call.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "shell_call")
 
@@ -388,6 +401,7 @@ func openCodeShellEvents(base NormalizedEvent, rowID string, data map[string]any
 	result.ToolName = "shell"
 	result.ToolOutput = stringFromAny(data["output"])
 	result.TextContent = result.ToolOutput
+	result.MessageUUID = scopedMessageUUID(rowID, "shell_result")
 	result.SourceOffset = stableOffset("opencode", "session_message", rowID, "shell_result")
 	result.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "shell_result")
 

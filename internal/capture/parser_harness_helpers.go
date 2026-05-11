@@ -50,6 +50,19 @@ func sqliteStableRaw(source, table, id, kind string) string {
 	return string(b)
 }
 
+func scopedMessageUUID(base string, parts ...string) string {
+	if base == "" {
+		return ""
+	}
+	items := []string{base}
+	for _, part := range parts {
+		if part != "" {
+			items = append(items, part)
+		}
+	}
+	return strings.Join(items, ":")
+}
+
 func stableLineNo(parts ...string) int {
 	key := strings.Join(parts, "|")
 	n := int(crc32.ChecksumIEEE([]byte(key)))

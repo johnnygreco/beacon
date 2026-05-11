@@ -161,6 +161,7 @@ func piMessageEvents(base NormalizedEvent, lineNo int, msg map[string]any) []Nor
 		evt.EventKind = "message"
 		evt.ActorRole = "user"
 		evt.TextContent = textFromHarnessContent(msg["content"])
+		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "message")
 		evt.RawPayload = piStableRaw(lineNo, "message")
 		return []NormalizedEvent{evt}
 	case "assistant":
@@ -181,6 +182,7 @@ func piMessageEvents(base NormalizedEvent, lineNo int, msg map[string]any) []Nor
 		if evt.EventKind == "tool_error" {
 			evt.ErrorMessage = evt.ToolOutput
 		}
+		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "tool_result")
 		evt.RawPayload = piStableRaw(lineNo, "tool_result")
 		return []NormalizedEvent{evt}
 	case "bashExecution":
@@ -191,6 +193,7 @@ func piMessageEvents(base NormalizedEvent, lineNo int, msg map[string]any) []Nor
 		evt.ActorRole = "system"
 		evt.PayloadType = jsonStr(msg, "customType")
 		evt.TextContent = textFromHarnessContent(msg["content"])
+		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "custom")
 		evt.RawPayload = piStableRaw(lineNo, "custom")
 		return []NormalizedEvent{evt}
 	case "branchSummary":
@@ -199,6 +202,7 @@ func piMessageEvents(base NormalizedEvent, lineNo int, msg map[string]any) []Nor
 		evt.ActorRole = "system"
 		evt.PayloadType = "branchSummary"
 		evt.TextContent = jsonStr(msg, "summary")
+		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "branch_summary")
 		evt.RawPayload = piStableRaw(lineNo, "branch_summary")
 		return []NormalizedEvent{evt}
 	case "compactionSummary":
@@ -207,6 +211,7 @@ func piMessageEvents(base NormalizedEvent, lineNo int, msg map[string]any) []Nor
 		evt.ActorRole = "system"
 		evt.PayloadType = "compactionSummary"
 		evt.TextContent = jsonStr(msg, "summary")
+		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "compaction_summary")
 		evt.RawPayload = piStableRaw(lineNo, "compaction_summary")
 		return []NormalizedEvent{evt}
 	default:
@@ -215,6 +220,7 @@ func piMessageEvents(base NormalizedEvent, lineNo int, msg map[string]any) []Nor
 		evt.ActorRole = "system"
 		evt.PayloadType = role
 		evt.TextContent = textFromHarnessContent(msg)
+		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "event")
 		evt.RawPayload = piStableRaw(lineNo, "event")
 		return []NormalizedEvent{evt}
 	}
@@ -253,6 +259,7 @@ func piAssistantEvents(base NormalizedEvent, lineNo int, msg map[string]any) []N
 			evt.EventKind = "message"
 			evt.ActorRole = "assistant"
 			evt.TextContent = jsonStr(bm, "text")
+			evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "text", fmt.Sprint(i))
 			evt.RawPayload = piStableRaw(lineNo, "text:"+fmt.Sprint(i))
 			assignUsage(&evt)
 			events = append(events, evt)
@@ -261,6 +268,7 @@ func piAssistantEvents(base NormalizedEvent, lineNo int, msg map[string]any) []N
 			evt.EventKind = "reasoning"
 			evt.ActorRole = "assistant"
 			evt.TextContent = jsonStr(bm, "thinking")
+			evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "thinking", fmt.Sprint(i))
 			evt.RawPayload = piStableRaw(lineNo, "thinking:"+fmt.Sprint(i))
 			assignUsage(&evt)
 			events = append(events, evt)
@@ -273,6 +281,7 @@ func piAssistantEvents(base NormalizedEvent, lineNo int, msg map[string]any) []N
 			evt.ToolName = jsonStr(bm, "name")
 			evt.ToolInput = jsonPayload(bm["arguments"])
 			evt.TextContent = evt.ToolName
+			evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "tool_call", fmt.Sprint(i), evt.ToolUseID)
 			evt.RawPayload = piStableRaw(lineNo, "tool_call:"+evt.ToolUseID)
 			assignUsage(&evt)
 			events = append(events, evt)
@@ -285,6 +294,7 @@ func piAssistantEvents(base NormalizedEvent, lineNo int, msg map[string]any) []N
 		evt.ErrorCode = firstNonEmpty(jsonStr(msg, "stopReason"), "error")
 		evt.ErrorMessage = errMsg
 		evt.TextContent = errMsg
+		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "error")
 		evt.RawPayload = piStableRaw(lineNo, "error")
 		assignUsage(&evt)
 		events = append(events, evt)
@@ -294,6 +304,7 @@ func piAssistantEvents(base NormalizedEvent, lineNo int, msg map[string]any) []N
 		evt.EventKind = "message"
 		evt.ActorRole = "assistant"
 		evt.TextContent = textFromHarnessContent(msg["content"])
+		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "message")
 		evt.RawPayload = piStableRaw(lineNo, "message")
 		assignUsage(&evt)
 		events = append(events, evt)
@@ -310,6 +321,7 @@ func piBashExecutionEvents(base NormalizedEvent, lineNo int, msg map[string]any)
 	call.ToolUseID = base.MessageUUID
 	call.ToolInput = jsonPayload(map[string]any{"command": jsonStr(msg, "command")})
 	call.TextContent = "bash"
+	call.MessageUUID = scopedMessageUUID(base.MessageUUID, "bash_call")
 	call.RawPayload = piStableRaw(lineNo, "bash_call")
 
 	result := base
@@ -327,6 +339,7 @@ func piBashExecutionEvents(base NormalizedEvent, lineNo int, msg map[string]any)
 	if result.EventKind == "tool_error" {
 		result.ErrorMessage = result.ToolOutput
 	}
+	result.MessageUUID = scopedMessageUUID(base.MessageUUID, "bash_result")
 	result.RawPayload = piStableRaw(lineNo, "bash_result")
 	return []NormalizedEvent{call, result}
 }

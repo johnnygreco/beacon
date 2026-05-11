@@ -58,6 +58,10 @@ func TestParseOpenCodeSQLite_MockStateDB(t *testing.T) {
 		t.Fatalf("opencode reasoning tokens = input:%d output:%d cacheRead:%d cacheWrite:%d",
 			reasoning.InputTokens, reasoning.OutputTokens, reasoning.CacheReadTokens, reasoning.CacheCreateTokens)
 	}
+	deduped := DeduplicateTokens(append([]NormalizedEvent(nil), events...))
+	if got, want := sumInputTokens(deduped), int64(900); got != want {
+		t.Fatalf("opencode input tokens after dedup = %d, want %d", got, want)
+	}
 	assertEvent(t, events, "message", "assistant", "I will run the focused tests.")
 	call := assertToolEvent(t, events, "tool_call", "bash")
 	if call.ToolInput != `{"cmd":"go test ./internal/capture"}` {
@@ -92,6 +96,10 @@ func TestParsePiSessionFile_MockJSONL(t *testing.T) {
 	if reasoning.InputTokens != 800 || reasoning.OutputTokens != 160 || reasoning.CacheReadTokens != 40 || reasoning.CacheCreateTokens != 8 {
 		t.Fatalf("pi reasoning tokens = input:%d output:%d cacheRead:%d cacheWrite:%d",
 			reasoning.InputTokens, reasoning.OutputTokens, reasoning.CacheReadTokens, reasoning.CacheCreateTokens)
+	}
+	deduped := DeduplicateTokens(append([]NormalizedEvent(nil), events...))
+	if got, want := sumInputTokens(deduped), int64(800); got != want {
+		t.Fatalf("pi input tokens after dedup = %d, want %d", got, want)
 	}
 	call := assertToolEvent(t, events, "tool_call", "read_file")
 	if call.ToolUseID != "call_read_1" || call.ToolInput != `{"path":"session.jsonl"}` {
@@ -148,4 +156,12 @@ func assertToolEvent(t *testing.T, events []NormalizedEvent, kind, name string) 
 	}
 	t.Fatalf("missing tool event kind=%q name=%q in %#v", kind, name, events)
 	return NormalizedEvent{}
+}
+
+func sumInputTokens(events []NormalizedEvent) int64 {
+	var total int64
+	for _, evt := range events {
+		total += evt.InputTokens
+	}
+	return total
 }
