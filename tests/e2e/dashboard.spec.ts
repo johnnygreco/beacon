@@ -186,6 +186,36 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.keyboard.press('t');
     await expect(page.locator('#timeline-sidebar')).not.toHaveClass(/collapsed/);
 
+    const themeSelect = page.locator('#dashboard-theme-select');
+    const appearanceSelect = page.locator('#dashboard-appearance-select');
+    await expect(themeSelect).toBeVisible();
+    await expect(appearanceSelect).toBeVisible();
+    expect(await themeSelect.locator('option').count()).toBeGreaterThanOrEqual(28);
+    await appearanceSelect.selectOption('dark');
+    await themeSelect.selectOption('catppuccin');
+    await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-dark');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-theme'))).toBe('catppuccin');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-appearance'))).toBe('dark');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-resolved-theme'))).toBe('catppuccin-dark');
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dash-accent').trim())).toBe('#cba6f7');
+
+    await appearanceSelect.selectOption('light');
+    await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-appearance'))).toBe('light');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-resolved-theme'))).toBe('catppuccin-light');
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dash-accent').trim())).toBe('#8839ef');
+
+    await gotoDashboard(page);
+    await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
+    await expect(themeSelect).toHaveValue('catppuccin');
+    await expect(appearanceSelect).toHaveValue('light');
+
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    expect(await page.evaluate(() => document.documentElement.getAttribute('data-dashboard-theme'))).toBeNull();
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-theme'))).toBe('catppuccin');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-appearance'))).toBe('light');
+    expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dash-accent').trim())).toBe('#60a5fa');
+
     await guards.expectClean();
   });
 

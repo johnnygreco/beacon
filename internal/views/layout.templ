@@ -10,6 +10,22 @@ templ Layout(title string) {
 		<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/>
 		<script>
 		(function() {
+			if (window.location.pathname !== '/') {
+				document.documentElement.removeAttribute('data-dashboard-theme');
+				return;
+			}
+			var theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+				? 'codex-light'
+				: 'codex-dark';
+			try {
+				theme = localStorage.getItem('beacon-dashboard-resolved-theme') || theme;
+			} catch (err) {}
+			if (!/^[a-z0-9-]+$/.test(theme)) theme = 'codex-dark';
+			document.documentElement.setAttribute('data-dashboard-theme', theme);
+		})();
+		</script>
+		<script>
+		(function() {
 			if (!window.console || typeof window.console.error !== 'function' || window.__beaconConsoleFilterInstalled) return;
 			var originalError = window.console.error.bind(window.console);
 			window.__beaconUnloading = false;

@@ -1,13 +1,52 @@
-// Chart.js initialization with dark theme for Beacon dashboard.
+// Chart.js initialization with dashboard theme support.
 
-const darkTheme = {
-  color: '#9ca3af',          // gray-400
-  borderColor: '#374151',    // gray-700
-  backgroundColor: '#1f2937' // gray-800
-};
+function chartCSSVar(name, fallback) {
+  var value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
 
-Chart.defaults.color = darkTheme.color;
-Chart.defaults.borderColor = darkTheme.borderColor;
+function chartTheme() {
+  return {
+    color: chartCSSVar('--dash-text-muted', '#9ca3af'),
+    title: chartCSSVar('--dash-text-muted', '#9ca3af'),
+    borderColor: chartCSSVar('--dash-chart-grid', '#374151'),
+    noData: chartCSSVar('--dash-text-faint', '#6b7280')
+  };
+}
+
+function colorWithAlpha(color, alpha) {
+  color = String(color || '').trim();
+  if (/^#[0-9a-f]{6}$/i.test(color)) {
+    var r = parseInt(color.slice(1, 3), 16);
+    var g = parseInt(color.slice(3, 5), 16);
+    var b = parseInt(color.slice(5, 7), 16);
+    return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + alpha + ')';
+  }
+  if (/^#[0-9a-f]{3}$/i.test(color)) {
+    var rr = parseInt(color.charAt(1) + color.charAt(1), 16);
+    var gg = parseInt(color.charAt(2) + color.charAt(2), 16);
+    var bb = parseInt(color.charAt(3) + color.charAt(3), 16);
+    return 'rgba(' + rr + ', ' + gg + ', ' + bb + ', ' + alpha + ')';
+  }
+  return color;
+}
+
+function dashboardSeriesColor(index, fallback) {
+  var slot = (index % 6) + 1;
+  var border = chartCSSVar('--dash-chart-' + slot, fallback && fallback.border ? fallback.border : '#60a5fa');
+  return {
+    border: border,
+    bg: colorWithAlpha(border, 0.14)
+  };
+}
+
+function applyChartDefaults() {
+  var theme = chartTheme();
+  Chart.defaults.color = theme.color;
+  Chart.defaults.borderColor = theme.borderColor;
+}
+
+applyChartDefaults();
 Chart.defaults.animation = { duration: 0 };
 Chart.defaults.animations = {
   colors: { duration: 0 },
@@ -49,13 +88,13 @@ const noChartAnimation = {
 const timeScaleOptions = {
   type: 'time',
   time: { unit: 'minute', displayFormats: { minute: 'h:mm a' } },
-  grid: { color: '#374151' },
-  ticks: { color: '#9ca3af', maxTicksLimit: 6, autoSkip: true, maxRotation: 0 }
+  grid: { color: chartTheme().borderColor },
+  ticks: { color: chartTheme().color, maxTicksLimit: 6, autoSkip: true, maxRotation: 0 }
 };
 
 const categoryScaleOptions = {
-  grid: { color: '#374151' },
-  ticks: { color: '#9ca3af' }
+  grid: { color: chartTheme().borderColor },
+  ticks: { color: chartTheme().color }
 };
 
 function formatTokenTick(value) {
@@ -86,8 +125,8 @@ function providerDisplayName(provider) {
 }
 
 const yAxisOptions = {
-  grid: { color: '#374151' },
-  ticks: { color: '#9ca3af', callback: formatTokenTick },
+  grid: { color: chartTheme().borderColor },
+  ticks: { color: chartTheme().color, callback: formatTokenTick },
   beginAtZero: true
 };
 
@@ -137,7 +176,7 @@ function tokensByModelTooltipFooter(items) {
 // Create a stacked area chart with multiple token series
 function createMultiSeriesChart(el, seriesLabels, yTitle, xScale) {
   var datasets = seriesLabels.map(function(label, i) {
-    var c = seriesColors[i % seriesColors.length];
+    var c = dashboardSeriesColor(i, seriesColors[i % seriesColors.length]);
     return {
       label: label,
       data: [],
@@ -162,7 +201,7 @@ function createMultiSeriesChart(el, seriesLabels, yTitle, xScale) {
         y: {
           ...yAxisOptions,
           stacked: false,
-          title: { display: true, text: yTitle, color: '#9ca3af' }
+          title: { display: true, text: yTitle, color: chartTheme().title }
         }
       },
       plugins: {
@@ -204,6 +243,7 @@ function readJSONScript(id) {
 
 function dashboardTimeScale(payload) {
   var unit = payload && payload.time_unit ? payload.time_unit : 'hour';
+  var theme = chartTheme();
   return {
     type: 'time',
     time: {
@@ -214,13 +254,13 @@ function dashboardTimeScale(payload) {
         day: 'MMM d'
       }
     },
-    grid: { color: 'rgba(55, 65, 81, 0.65)' },
-    ticks: { color: '#9ca3af', maxTicksLimit: 7, autoSkip: true, maxRotation: 0 }
+    grid: { color: theme.borderColor },
+    ticks: { color: theme.color, maxTicksLimit: 7, autoSkip: true, maxRotation: 0 }
   };
 }
 
 function modelDatasetColor(index) {
-  return modelLineColors[index % modelLineColors.length];
+  return dashboardSeriesColor(index, modelLineColors[index % modelLineColors.length]);
 }
 
 function modelDatasetFromPayload(ds, index, metricKind) {
@@ -284,7 +324,7 @@ function createDashboardModelChart(el, payload, metricKind) {
         x: dashboardTimeScale(payload),
         y: {
           ...yAxisOptions,
-          title: { display: true, text: metricKind === 'tokens' ? 'Cumulative Tokens' : '', color: '#9ca3af' }
+          title: { display: true, text: metricKind === 'tokens' ? 'Cumulative Tokens' : '', color: chartTheme().title }
         }
       },
       plugins: {
@@ -458,7 +498,7 @@ function setupSeriesModelFilters(chartName, payload) {
   allRow.appendChild(allCb);
   var allDot = document.createElement('span');
   allDot.className = 'model-dropdown-dot';
-  allDot.style.background = '#60a5fa';
+  allDot.style.background = chartCSSVar('--dash-accent', '#60a5fa');
   allRow.appendChild(allDot);
   var allLabel = document.createElement('span');
   allLabel.textContent = 'All Models';
@@ -583,6 +623,51 @@ function saveSeriesModelFilterState(chartName) {
   }
 }
 
+function rethemeChart(chart) {
+  if (!chart || !chart.options) return;
+  var theme = chartTheme();
+  Object.keys(chart.options.scales || {}).forEach(function(key) {
+    var scale = chart.options.scales[key];
+    if (!scale) return;
+    if (scale.grid) scale.grid.color = theme.borderColor;
+    if (scale.ticks) scale.ticks.color = theme.color;
+    if (scale.title) scale.title.color = theme.title;
+  });
+  if (chart.options.plugins && chart.options.plugins.legend && chart.options.plugins.legend.labels) {
+    chart.options.plugins.legend.labels.color = theme.color;
+  }
+  (chart.data.datasets || []).forEach(function(ds, i) {
+    var c = modelDatasetColor(i);
+    ds.borderColor = c.border;
+    ds.backgroundColor = c.bg;
+  });
+  chart.update('none');
+}
+
+function rethemeModelDropdown(chartName) {
+  var wrapper = document.getElementById(chartName + '-model-dropdown');
+  if (!wrapper) return;
+  var allDot = wrapper.querySelector('.model-dropdown-all .model-dropdown-dot');
+  if (allDot) allDot.style.background = chartCSSVar('--dash-accent', '#60a5fa');
+  wrapper.querySelectorAll('input[data-model]').forEach(function(input, index) {
+    var dot = input.parentElement && input.parentElement.querySelector('.model-dropdown-dot');
+    if (dot) dot.style.background = modelDatasetColor(index).border;
+  });
+}
+
+window.addEventListener('beacon:dashboard-theme-change', function() {
+  applyChartDefaults();
+  [
+    'dashboardTokenCumulativeChart',
+    'dashboardModelActivityChart',
+    'sessionTokensChart',
+    'sessionTokensByModelChart'
+  ].forEach(function(chartName) {
+    rethemeChart(window[chartName]);
+    rethemeModelDropdown(chartName);
+  });
+});
+
 // Apply default log scale if the canvas has data-default-log="true".
 // Does NOT call chart.update() — caller is responsible for triggering a render.
 function applyDefaultLog(chart, el) {
@@ -607,7 +692,7 @@ var providerGroupPlugin = {
 
     // Draw dashed vertical dividers between groups
     if (groups.length >= 2) {
-      ctx.strokeStyle = 'rgba(156,163,175,0.4)';
+      ctx.strokeStyle = chartTheme().borderColor;
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 4]);
       for (var i = 0; i < groups.length - 1; i++) {
@@ -630,7 +715,7 @@ var providerGroupPlugin = {
     groups.forEach(function(g) {
       var x0 = xAxis.getPixelForTick(g.start);
       var x1 = xAxis.getPixelForTick(g.end);
-      var pc = providerColors[g.provider] || { border: '#9ca3af' };
+      var pc = providerColors[g.provider] || { border: chartTheme().color };
       ctx.fillStyle = pc.border;
       ctx.fillText(g.provider, (x0 + x1) / 2, y);
     });
@@ -652,7 +737,7 @@ var noDataOverlayPlugin = {
     if (!area) return;
     var ctx = chart.ctx;
     ctx.save();
-    ctx.fillStyle = '#6b7280';
+    ctx.fillStyle = chartTheme().noData;
     ctx.font = '12px -apple-system, BlinkMacSystemFont, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -789,7 +874,7 @@ function setupModelFilters(chartName, dataEl) {
   allRow.appendChild(allCb);
   var allDot = document.createElement('span');
   allDot.className = 'model-dropdown-dot';
-  allDot.style.background = '#60a5fa';
+  allDot.style.background = chartCSSVar('--dash-accent', '#60a5fa');
   allRow.appendChild(allDot);
   var allLabel = document.createElement('span');
   allLabel.textContent = 'All Models';
@@ -804,7 +889,7 @@ function setupModelFilters(chartName, dataEl) {
   var lastProv = '';
   fullData.labels.forEach(function(label) {
     var prov = providerMap[label] || '';
-    var pc = providerColors[prov] || { border: '#9ca3af' };
+    var pc = providerColors[prov] || { border: chartTheme().color };
     if (prov !== lastProv && prov) {
       var groupHeader = document.createElement('div');
       groupHeader.className = 'model-dropdown-group';
@@ -1007,7 +1092,7 @@ function createTokensByModelChart(el, dataEl) {
   var modelData = JSON.parse(dataEl.textContent);
   if (!modelData.labels || !modelData.datasets) return null;
   var datasets = modelData.datasets.map(function(ds, i) {
-    var c = seriesColors[i % seriesColors.length];
+    var c = dashboardSeriesColor(i, seriesColors[i % seriesColors.length]);
     return {
       label: ds.label,
       data: ds.data,
@@ -1035,7 +1120,7 @@ function createTokensByModelChart(el, dataEl) {
         x: xOpts,
         y: {
           ...yAxisOptions,
-          title: { display: true, text: 'Tokens', color: '#9ca3af' }
+          title: { display: true, text: 'Tokens', color: chartTheme().title }
         }
       },
       plugins: {
