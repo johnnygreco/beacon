@@ -60,14 +60,23 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Errorf("MCP.ContextWindow = %d, want %d", cfg.MCP.ContextWindow, 3)
 	}
 
-	if len(cfg.Capture.Sources) != 2 {
-		t.Fatalf("Capture.Sources has %d entries, want 2", len(cfg.Capture.Sources))
+	if len(cfg.Capture.Sources) != 5 {
+		t.Fatalf("Capture.Sources has %d entries, want 5", len(cfg.Capture.Sources))
 	}
 	if cfg.Capture.Sources[0].Name != "claude" {
 		t.Errorf("Capture.Sources[0].Name = %q, want %q", cfg.Capture.Sources[0].Name, "claude")
 	}
 	if cfg.Capture.Sources[1].Name != "codex" {
 		t.Errorf("Capture.Sources[1].Name = %q, want %q", cfg.Capture.Sources[1].Name, "codex")
+	}
+	if cfg.Capture.Sources[2].Name != "hermes" {
+		t.Errorf("Capture.Sources[2].Name = %q, want %q", cfg.Capture.Sources[2].Name, "hermes")
+	}
+	if cfg.Capture.Sources[3].Name != "opencode" {
+		t.Errorf("Capture.Sources[3].Name = %q, want %q", cfg.Capture.Sources[3].Name, "opencode")
+	}
+	if cfg.Capture.Sources[4].Name != "pi" {
+		t.Errorf("Capture.Sources[4].Name = %q, want %q", cfg.Capture.Sources[4].Name, "pi")
 	}
 }
 
@@ -123,35 +132,36 @@ func TestLoad_DefaultCaptureSources(t *testing.T) {
 		t.Fatalf("Load(\"\") returned error: %v", err)
 	}
 
-	if len(cfg.Capture.Sources) != 2 {
-		t.Fatalf("Capture.Sources has %d entries, want 2", len(cfg.Capture.Sources))
+	if len(cfg.Capture.Sources) != 5 {
+		t.Fatalf("Capture.Sources has %d entries, want 5", len(cfg.Capture.Sources))
 	}
 
-	claude := cfg.Capture.Sources[0]
-	if claude.Name != "claude" {
-		t.Errorf("Sources[0].Name = %q, want %q", claude.Name, "claude")
+	want := []SourceConfig{
+		{Name: "claude", Runtime: "claude-code", Provider: "anthropic", Glob: "~/.claude/projects/**/*.jsonl", WatchRoot: "~/.claude/projects", Format: "jsonl"},
+		{Name: "codex", Runtime: "codex", Provider: "openai", Glob: "~/.codex/sessions/**/*.jsonl", WatchRoot: "~/.codex/sessions", Format: "jsonl"},
+		{Name: "hermes", Runtime: "hermes-agent", Provider: "multi", Glob: "~/.hermes/state.db", WatchRoot: "~/.hermes", Format: "sqlite"},
+		{Name: "opencode", Runtime: "opencode", Provider: "multi", Glob: "~/.local/share/opencode/opencode*.db", WatchRoot: "~/.local/share/opencode", Format: "sqlite"},
+		{Name: "pi", Runtime: "pi-coding-agent", Provider: "multi", Glob: "~/.pi/agent/sessions/**/*.jsonl", WatchRoot: "~/.pi/agent/sessions", Format: "jsonl"},
 	}
-	if claude.Runtime != "claude-code" {
-		t.Errorf("Sources[0].Runtime = %q, want claude-code", claude.Runtime)
-	}
-	if claude.Provider != "anthropic" {
-		t.Errorf("Sources[0].Provider = %q, want %q", claude.Provider, "anthropic")
-	}
-	if claude.Glob != "~/.claude/projects/**/*.jsonl" {
-		t.Errorf("Sources[0].Glob = %q, want %q", claude.Glob, "~/.claude/projects/**/*.jsonl")
-	}
-
-	codex := cfg.Capture.Sources[1]
-	if codex.Name != "codex" {
-		t.Errorf("Sources[1].Name = %q, want %q", codex.Name, "codex")
-	}
-	if codex.Runtime != "codex" {
-		t.Errorf("Sources[1].Runtime = %q, want codex", codex.Runtime)
-	}
-	if codex.Provider != "openai" {
-		t.Errorf("Sources[1].Provider = %q, want %q", codex.Provider, "openai")
-	}
-	if codex.Glob != "~/.codex/sessions/**/*.jsonl" {
-		t.Errorf("Sources[1].Glob = %q, want %q", codex.Glob, "~/.codex/sessions/**/*.jsonl")
+	for i, expected := range want {
+		got := cfg.Capture.Sources[i]
+		if got.Name != expected.Name {
+			t.Errorf("Sources[%d].Name = %q, want %q", i, got.Name, expected.Name)
+		}
+		if got.Runtime != expected.Runtime {
+			t.Errorf("Sources[%d].Runtime = %q, want %q", i, got.Runtime, expected.Runtime)
+		}
+		if got.Provider != expected.Provider {
+			t.Errorf("Sources[%d].Provider = %q, want %q", i, got.Provider, expected.Provider)
+		}
+		if got.Glob != expected.Glob {
+			t.Errorf("Sources[%d].Glob = %q, want %q", i, got.Glob, expected.Glob)
+		}
+		if got.WatchRoot != expected.WatchRoot {
+			t.Errorf("Sources[%d].WatchRoot = %q, want %q", i, got.WatchRoot, expected.WatchRoot)
+		}
+		if got.Format != expected.Format {
+			t.Errorf("Sources[%d].Format = %q, want %q", i, got.Format, expected.Format)
+		}
 	}
 }

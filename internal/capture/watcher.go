@@ -18,12 +18,14 @@ import (
 
 // WatchSource defines a source to watch for JSONL files.
 type WatchSource struct {
-	Name     string
-	Runtime  string
-	Provider string
-	Format   string
-	Globs    []string
-	Parser   func(line []byte, file string, lineNo int, offset int64) ([]NormalizedEvent, error)
+	Name       string
+	Runtime    string
+	Provider   string
+	Format     string
+	Globs      []string
+	WatchRoots []string
+	Parser     func(line []byte, file string, lineNo int, offset int64) ([]NormalizedEvent, error)
+	FileParser func(file string) ([]NormalizedEvent, error)
 }
 
 // Watcher monitors JSONL files and sends parsed events to the batcher.
@@ -100,13 +102,12 @@ func (w *Watcher) Run(ctx context.Context) error {
 	for _, files := range sourceFiles {
 		for _, f := range files {
 			dir := filepath.Dir(f)
-			if !watchedDirs[dir] {
-				if err := fsw.Add(dir); err != nil {
-					w.logger.Warn("failed to watch dir", "dir", dir, "error", err)
-				} else {
-					watchedDirs[dir] = true
-				}
-			}
+			w.watchDir(fsw, watchedDirs, dir)
+		}
+	}
+	for _, src := range w.sources {
+		for _, root := range src.WatchRoots {
+			w.watchDir(fsw, watchedDirs, expandHome(root))
 		}
 	}
 
@@ -128,19 +129,13 @@ func (w *Watcher) Run(ctx context.Context) error {
 				return nil
 			}
 			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
-				if strings.HasSuffix(event.Name, ".jsonl") {
+				if w.findSource(event.Name) != nil {
 					pending[event.Name] = time.Now()
 				}
 				// If new directory, watch it
 				if event.Has(fsnotify.Create) {
 					if fi, err := os.Stat(event.Name); err == nil && fi.IsDir() {
-						if !watchedDirs[event.Name] {
-							if err := fsw.Add(event.Name); err != nil {
-								w.logger.Warn("failed to watch new dir", "dir", event.Name, "error", err)
-							} else {
-								watchedDirs[event.Name] = true
-							}
-						}
+						w.watchDir(fsw, watchedDirs, event.Name)
 					}
 				}
 			}
@@ -170,17 +165,28 @@ func (w *Watcher) Run(ctx context.Context) error {
 				var toProcess []string
 				for _, f := range files {
 					dir := filepath.Dir(f)
-					if !watchedDirs[dir] {
-						if err := fsw.Add(dir); err == nil {
-							watchedDirs[dir] = true
-						}
-					}
+					w.watchDir(fsw, watchedDirs, dir)
 					toProcess = append(toProcess, f)
 				}
 				w.processFiles(ctx, src, toProcess)
 			}
 		}
 	}
+}
+
+func (w *Watcher) watchDir(fsw *fsnotify.Watcher, watchedDirs map[string]bool, dir string) {
+	if dir == "" || watchedDirs[dir] {
+		return
+	}
+	fi, err := os.Stat(dir)
+	if err != nil || !fi.IsDir() {
+		return
+	}
+	if err := fsw.Add(dir); err != nil {
+		w.logger.Warn("failed to watch dir", "dir", dir, "error", err)
+		return
+	}
+	watchedDirs[dir] = true
 }
 
 func (w *Watcher) processFiles(ctx context.Context, src WatchSource, files []string) {
@@ -289,6 +295,11 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 	}
 
 	cp := cm.Get(file)
+	if src.FileParser != nil {
+		w.processWholeFile(ctx, src, file, fi, cp)
+		return
+	}
+
 	var offset int64
 	var lineNo int
 	if cp != nil {
@@ -388,6 +399,57 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 		newCP.SourceGeneration = cp.SourceGeneration
 	}
 	if err := cm.Save(ctx, newCP); err != nil {
+		w.logger.Error("save checkpoint failed", "file", file, "error", err)
+	}
+}
+
+func (w *Watcher) processWholeFile(ctx context.Context, src WatchSource, file string, fi os.FileInfo, cp *models.Checkpoint) {
+	events, err := src.FileParser(file)
+	if err != nil {
+		w.logger.Warn("parse error", "file", file, "error", err)
+		ce := &models.CaptureError{
+			ID:              genID(),
+			SourceName:      src.Name,
+			SourceFile:      file,
+			ErrorClass:      "parse_error",
+			ErrorMessage:    err.Error(),
+			ContextFragment: file,
+		}
+		if err := w.store.InsertCaptureError(ctx, *ce); err != nil {
+			w.logger.Error("record capture error failed", "error", err)
+		}
+		return
+	}
+
+	for i := range events {
+		events[i].SourceName = firstNonEmpty(events[i].SourceName, src.Name)
+		events[i].Runtime = firstNonEmpty(events[i].Runtime, src.Runtime)
+		events[i].Provider = firstNonEmpty(events[i].Provider, src.Provider)
+		events[i].Format = firstNonEmpty(events[i].Format, src.Format)
+		if cp != nil {
+			events[i].SourceGeneration = cp.SourceGeneration
+		}
+	}
+	PropagateModel(events)
+	events = DeduplicateTokens(events)
+
+	for _, evt := range events {
+		w.eventCh <- BatchEvent{Insert: &InsertEvent{Normalized: evt}}
+	}
+
+	newCP := &models.Checkpoint{
+		SourceName:  src.Name,
+		SourceFile:  file,
+		SourceInode: fileInode(fi),
+		// Whole-file parsers intentionally replay complete, mutable session
+		// stores. Stable per-row event IDs let ClickHouse replace prior rows.
+		LastOffset: 0,
+		LastLineNo: 0,
+	}
+	if cp != nil {
+		newCP.SourceGeneration = cp.SourceGeneration
+	}
+	if err := w.checkpoints[src.Name].Save(ctx, newCP); err != nil {
 		w.logger.Error("save checkpoint failed", "file", file, "error", err)
 	}
 }

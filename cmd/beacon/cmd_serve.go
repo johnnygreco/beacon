@@ -164,19 +164,32 @@ func buildSources(cfg *config.Config) []capture.WatchSource {
 	var sources []capture.WatchSource
 	for _, sc := range cfg.Capture.Sources {
 		var parser func(line []byte, file string, lineNo int, offset int64) ([]capture.NormalizedEvent, error)
+		var fileParser func(file string) ([]capture.NormalizedEvent, error)
 		switch sc.Runtime {
 		case "codex":
 			parser = capture.ParseCodexJSONL
+		case "hermes-agent":
+			fileParser = capture.ParseHermesSQLite
+		case "opencode":
+			fileParser = capture.ParseOpenCodeSQLite
+		case "pi-coding-agent":
+			fileParser = capture.ParsePiSessionFile
 		default:
 			parser = capture.ParseClaudeJSONL
 		}
+		globs := append([]string{}, sc.Globs...)
+		if sc.Glob != "" {
+			globs = append(globs, sc.Glob)
+		}
 		sources = append(sources, capture.WatchSource{
-			Name:     sc.Name,
-			Runtime:  sc.Runtime,
-			Provider: sc.Provider,
-			Format:   sc.Format,
-			Globs:    []string{sc.Glob},
-			Parser:   parser,
+			Name:       sc.Name,
+			Runtime:    sc.Runtime,
+			Provider:   sc.Provider,
+			Format:     sc.Format,
+			Globs:      globs,
+			WatchRoots: []string{sc.WatchRoot},
+			Parser:     parser,
+			FileParser: fileParser,
 		})
 	}
 	return sources

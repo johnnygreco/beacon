@@ -44,6 +44,7 @@ type SourceConfig struct {
 	Runtime   string
 	Provider  string
 	Glob      string
+	Globs     []string
 	WatchRoot string `mapstructure:"watch_root"`
 	Format    string
 }
@@ -113,6 +114,9 @@ func Load(cfgFile string) (*Config, error) {
 		cfg.Capture.Sources = []SourceConfig{
 			{Name: "claude", Runtime: "claude-code", Provider: "anthropic", Glob: "~/.claude/projects/**/*.jsonl", WatchRoot: "~/.claude/projects", Format: "jsonl"},
 			{Name: "codex", Runtime: "codex", Provider: "openai", Glob: "~/.codex/sessions/**/*.jsonl", WatchRoot: "~/.codex/sessions", Format: "jsonl"},
+			{Name: "hermes", Runtime: "hermes-agent", Provider: "multi", Glob: "~/.hermes/state.db", WatchRoot: "~/.hermes", Format: "sqlite"},
+			{Name: "opencode", Runtime: "opencode", Provider: "multi", Glob: "~/.local/share/opencode/opencode*.db", WatchRoot: "~/.local/share/opencode", Format: "sqlite"},
+			{Name: "pi", Runtime: "pi-coding-agent", Provider: "multi", Glob: "~/.pi/agent/sessions/**/*.jsonl", WatchRoot: "~/.pi/agent/sessions", Format: "jsonl"},
 		}
 	}
 
