@@ -9,7 +9,7 @@ Keep a signal on your long-running AI coding agents. Beacon gives you a live das
 - **Live dashboard** — see active sessions, token usage, and a real-time activity feed
 - **Session replay** — review full conversations with turn timelines and tool call details
 - **Precomputed search** — find anything across all agent conversations without rebuilding an FTS index
-- **Multi-agent support** — monitors Claude Code and OpenAI Codex sessions
+- **Multi-agent support** — monitors Claude Code, OpenAI Codex, Hermes Agent, OpenCode, and Pi coding-agent sessions
 - **Token tracking** — input, output, and cache token counts per session
 - **MCP server** — give your agents access to search and review their own history
 
@@ -59,7 +59,7 @@ curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
 beacon up
 ```
 
-The dashboard opens at [http://localhost:4600](http://localhost:4600). Beacon captures Claude Code and Codex sessions automatically from the configured sources.
+The dashboard opens at [http://localhost:4600](http://localhost:4600). Beacon captures Claude Code, Codex, Hermes Agent, OpenCode, and Pi coding-agent sessions automatically from the configured sources.
 On first run, `beacon up` starts local ClickHouse automatically when the configured database address is local. `beacon db up` and `beacon db down` are available when you want to manage the database lifecycle explicitly.
 
 ### Build from source
@@ -99,7 +99,7 @@ BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/perf -bench . -run '^$'
 
 ## Configuration
 
-Beacon works out of the box with sensible defaults. To customize, create `~/.beacon/beacon.toml` or pass `--config <path>`.
+Beacon works out of the box with sensible defaults for Claude Code, Codex, Hermes Agent, OpenCode, and Pi coding-agent session stores. To customize, create `~/.beacon/beacon.toml` or pass `--config <path>`.
 
 See [`beacon.toml`](beacon.toml) for all available options.
 

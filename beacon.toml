@@ -33,6 +33,30 @@ glob = "~/.codex/sessions/**/*.jsonl"
 watch_root = "~/.codex/sessions"
 format = "jsonl"
 
+[[capture.sources]]
+name = "hermes"
+runtime = "hermes-agent"
+provider = "multi"
+glob = "~/.hermes/state.db"
+watch_root = "~/.hermes"
+format = "sqlite"
+
+[[capture.sources]]
+name = "opencode"
+runtime = "opencode"
+provider = "multi"
+glob = "~/.local/share/opencode/opencode*.db"
+watch_root = "~/.local/share/opencode"
+format = "sqlite"
+
+[[capture.sources]]
+name = "pi"
+runtime = "pi-coding-agent"
+provider = "multi"
+glob = "~/.pi/agent/sessions/**/*.jsonl"
+watch_root = "~/.pi/agent/sessions"
+format = "jsonl"
+
 [sse]
 subscriber_buffer = 64
 

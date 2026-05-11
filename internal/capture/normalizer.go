@@ -5,10 +5,10 @@ import "time"
 // NormalizedEvent is the common format that all source parsers produce.
 type NormalizedEvent struct {
 	SessionID  string
-	SourceName string // "claude" or "codex"
-	Runtime    string // "claude-code" or "codex"
-	Provider   string // "anthropic" or "openai"
-	Format     string // "jsonl"
+	SourceName string // configured capture source name
+	Runtime    string // agent harness/runtime identifier
+	Provider   string // model provider when known, otherwise "multi"
+	Format     string // source storage format, e.g. "jsonl" or "sqlite"
 
 	EventKind   string // message, tool_call, tool_result, reasoning, session_meta, turn_context, event_msg, error, context_snapshot
 	PayloadType string // sub-type within event_kind

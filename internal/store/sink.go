@@ -12,6 +12,8 @@ import (
 	"github.com/johnnygreco/beacon/internal/textindex"
 )
 
+const sessionEndProjectionPredicate = "event_kind = 'session_end' OR (event_kind = 'event_msg' AND payload_type = 'last-prompt')"
+
 type RowBatch struct {
 	RawRecords     []models.RawRecord
 	ActivityEvents []models.Event
@@ -149,8 +151,7 @@ func (s *Store) RefreshSessionProjections(ctx context.Context, ids []string) err
 			argMaxIf(model, timestamp, model != '') AS last_model,
 			argMaxIf(cwd, timestamp, cwd != '') AS working_dir,
 			argMaxIf(parent_session_id, timestamp, parent_session_id != '') AS parent_session_id,
-			max(if((event_kind = 'session_end' AND payload_type = 'last-prompt')
-			    OR (event_kind = 'event_msg' AND payload_type = 'last-prompt'), 1, 0)) AS has_session_end,
+			max(if(%s, 1, 0)) AS has_session_end,
 			now64(3) AS updated_at
 		FROM (
 			SELECT event_uid,
@@ -173,7 +174,7 @@ func (s *Store) RefreshSessionProjections(ctx context.Context, ids []string) err
 			WHERE session_id IN (%s)
 			GROUP BY event_uid
 		)
-		GROUP BY projected_session_id`, placeholders)
+		GROUP BY projected_session_id`, sessionEndProjectionPredicate, placeholders)
 	_, err := s.DB.ExecContext(ctx, query, args...)
 	return err
 }
