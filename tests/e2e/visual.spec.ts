@@ -49,6 +49,27 @@ test.describe('dashboard visual regression baselines', () => {
     await expect(page.locator('#active-sessions')).toHaveScreenshot('dashboard-many-active.png');
   });
 
+  test('light and fixed-dark dashboard themes', async ({ page }) => {
+    await installDashboardFixtures(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+
+    await page.locator('#dashboard-theme-select').selectOption('catppuccin');
+    await page.locator('#dashboard-appearance-toggle').click();
+    await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
+    await expect(page.locator('#dashboard-wrap')).toHaveScreenshot('dashboard-light-theme.png', {
+      mask: visualMasks(page),
+    });
+
+    await page.locator('#dashboard-theme-select').selectOption('dracula');
+    await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'dracula-dark');
+    await expect(page.locator('#dashboard-appearance-toggle')).toBeDisabled();
+    await expect(page.locator('#dashboard-wrap')).toHaveScreenshot('dashboard-fixed-dark-theme.png', {
+      mask: visualMasks(page),
+    });
+  });
+
   test('table search, chart controls, timeline states, and inspector payload', async ({ page }) => {
     await installDashboardFixtures(page);
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -112,8 +133,8 @@ test.describe('dashboard visual regression baselines', () => {
     await installDashboardFixtures(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoDashboard(page);
-    await page.locator('#dashboard-appearance-select').selectOption('light');
     await page.locator('#dashboard-theme-select').selectOption('catppuccin');
+    await page.locator('#dashboard-appearance-toggle').click();
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
 
     await page.goto(`/sessions/${TEST_SESSION_ID}#event-older-001`, { waitUntil: 'domcontentloaded' });

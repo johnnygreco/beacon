@@ -4,7 +4,7 @@
 	var APPEARANCE_KEY = 'beacon-dashboard-appearance';
 	var RESOLVED_KEY = 'beacon-dashboard-resolved-theme';
 	var FALLBACK_THEME = 'codex';
-	var FALLBACK_APPEARANCE = 'system';
+	var FALLBACK_APPEARANCE = 'dark';
 	var THEME_SUPPORT = {
 		'absolutely': { light: 'absolutely-light', dark: 'absolutely-dark' },
 		'catppuccin': { light: 'catppuccin-light', dark: 'catppuccin-dark' },
@@ -35,7 +35,7 @@
 		'tokyo-night': { dark: 'tokyo-night-dark' },
 		'proof': { light: 'proof-light' }
 	};
-	var APPEARANCE_IDS = ['system', 'light', 'dark'];
+	var APPEARANCE_IDS = ['light', 'dark'];
 	var THEME_IDS = Object.keys(THEME_SUPPORT);
 
 	function hasTheme(id) {
@@ -54,42 +54,67 @@
 		try { localStorage.setItem(key, value); } catch (err) {}
 	}
 
-	function preferredAppearance(mode) {
-		if (!hasAppearance(mode)) mode = FALLBACK_APPEARANCE;
-		if (mode !== 'system') return mode;
-		if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-			return 'light';
-		}
-		return 'dark';
+	function normalizedAppearance(mode) {
+		return hasAppearance(mode) ? mode : FALLBACK_APPEARANCE;
+	}
+
+	function supportedAppearance(theme, appearance) {
+		if (!hasTheme(theme)) theme = FALLBACK_THEME;
+		var support = THEME_SUPPORT[theme];
+		appearance = normalizedAppearance(appearance);
+		if (support[appearance]) return appearance;
+		return support.dark ? 'dark' : 'light';
+	}
+
+	function isFixedTheme(theme) {
+		if (!hasTheme(theme)) theme = FALLBACK_THEME;
+		var support = THEME_SUPPORT[theme];
+		return !(support.light && support.dark);
 	}
 
 	function resolveTheme(theme, appearance) {
 		if (!hasTheme(theme)) theme = FALLBACK_THEME;
 		var support = THEME_SUPPORT[theme];
-		var preferred = preferredAppearance(appearance);
+		var preferred = supportedAppearance(theme, appearance);
 		return support[preferred] || support.dark || support.light || THEME_SUPPORT[FALLBACK_THEME].dark;
 	}
 
 	function syncThemeControl(theme, appearance) {
 		var select = document.getElementById('dashboard-theme-select');
-		var appearanceSelect = document.getElementById('dashboard-appearance-select');
+		var toggle = document.getElementById('dashboard-appearance-toggle');
 		var swatch = document.getElementById('dashboard-theme-swatch');
 		if (select) select.value = theme;
-		if (appearanceSelect) appearanceSelect.value = appearance;
+		appearance = supportedAppearance(theme, appearance);
+		if (toggle) {
+			var fixed = isFixedTheme(theme);
+			var dark = appearance === 'dark';
+			toggle.disabled = fixed;
+			toggle.classList.toggle('is-fixed', fixed);
+			toggle.classList.toggle('is-dark', dark);
+			toggle.classList.toggle('is-light', !dark);
+			toggle.setAttribute('aria-checked', dark ? 'true' : 'false');
+			toggle.setAttribute('aria-label', 'Dark mode');
+			var title = fixed
+				? ((select && select.selectedOptions && select.selectedOptions[0] ? select.selectedOptions[0].textContent : theme) + ' is ' + appearance + ' only')
+				: (dark ? 'Switch to light mode' : 'Switch to dark mode');
+			toggle.setAttribute('title', title);
+			var moon = toggle.querySelector('.appearance-icon-moon');
+			var sun = toggle.querySelector('.appearance-icon-sun');
+			if (moon) moon.classList.toggle('hidden', !dark);
+			if (sun) sun.classList.toggle('hidden', dark);
+		}
 		if (swatch) {
 			var label = select && select.selectedOptions && select.selectedOptions[0]
 				? select.selectedOptions[0].textContent
 				: theme;
-			if (appearanceSelect && appearanceSelect.selectedOptions && appearanceSelect.selectedOptions[0]) {
-				label += ' / ' + appearanceSelect.selectedOptions[0].textContent;
-			}
+			label += ' / ' + appearance;
 			swatch.setAttribute('title', label);
 		}
 	}
 
 	function applyTheme(theme, appearance, persist) {
 		if (!hasTheme(theme)) theme = FALLBACK_THEME;
-		if (!hasAppearance(appearance)) appearance = FALLBACK_APPEARANCE;
+		appearance = supportedAppearance(theme, appearance);
 		var resolved = resolveTheme(theme, appearance);
 		document.documentElement.setAttribute('data-dashboard-theme', resolved);
 		if (persist) {
@@ -109,6 +134,15 @@
 	window.setDashboardAppearance = function(appearance) {
 		applyTheme(storageGet(STORAGE_KEY) || FALLBACK_THEME, appearance, true);
 	};
+	window.toggleDashboardAppearance = function() {
+		var theme = storageGet(STORAGE_KEY) || FALLBACK_THEME;
+		var current = supportedAppearance(theme, storageGet(APPEARANCE_KEY) || FALLBACK_APPEARANCE);
+		if (isFixedTheme(theme)) {
+			applyTheme(theme, current, true);
+			return;
+		}
+		applyTheme(theme, current === 'dark' ? 'light' : 'dark', true);
+	};
 	window.dashboardThemeIDs = THEME_IDS.slice();
 
 	var initialTheme = storageGet(STORAGE_KEY) || FALLBACK_THEME;
@@ -120,25 +154,6 @@
 		select.addEventListener('change', function() {
 			applyTheme(select.value, storageGet(APPEARANCE_KEY) || FALLBACK_APPEARANCE, true);
 		});
-	}
-	var appearanceSelect = document.getElementById('dashboard-appearance-select');
-	if (appearanceSelect) {
-		appearanceSelect.addEventListener('change', function() {
-			applyTheme(storageGet(STORAGE_KEY) || FALLBACK_THEME, appearanceSelect.value, true);
-		});
-	}
-	if (window.matchMedia) {
-		var media = window.matchMedia('(prefers-color-scheme: light)');
-		var onSchemeChange = function() {
-			if ((storageGet(APPEARANCE_KEY) || FALLBACK_APPEARANCE) === 'system') {
-				applyTheme(storageGet(STORAGE_KEY) || FALLBACK_THEME, 'system', false);
-			}
-		};
-		if (typeof media.addEventListener === 'function') {
-			media.addEventListener('change', onSchemeChange);
-		} else if (typeof media.addListener === 'function') {
-			media.addListener(onSchemeChange);
-		}
 	}
 })();
 
@@ -394,13 +409,24 @@
 		var btn = document.getElementById('timeline-toggle-btn');
 		if (!btn) return;
 		var collapsed = isCollapsed();
-		btn.textContent = collapsed ? 'Show Timeline' : 'Hide Timeline';
 		btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+		var label = collapsed ? 'Expand activity timeline' : 'Collapse activity timeline';
+		btn.setAttribute('aria-label', label);
+		btn.setAttribute('title', label);
+	}
+
+	function syncDivider() {
+		if (!divider) return;
+		var parsed = parseInt(sidebar.style.width, 10);
+		var width = isCollapsed() ? 0 : (Number.isFinite(parsed) ? parsed : DEFAULT_WIDTH);
+		divider.setAttribute('aria-valuenow', String(width));
+		divider.setAttribute('aria-valuetext', width > 0 ? ('Activity timeline width ' + width + ' pixels') : 'Activity timeline collapsed');
 	}
 
 	function setSidebarWidth(w) {
 		sidebar.style.width = w + 'px';
 		sidebar.style.minWidth = w + 'px';
+		syncDivider();
 	}
 
 	function collapse() {
@@ -409,15 +435,19 @@
 			storageSet('beacon-timeline-prev-width', current);
 		}
 		sidebar.classList.add('collapsed');
+		document.documentElement.setAttribute('data-beacon-timeline-collapsed', 'true');
 		storageSet('beacon-timeline-width', '0');
 		syncToggleButton();
+		syncDivider();
 	}
 
 	function expand(w) {
 		sidebar.classList.remove('collapsed');
+		document.documentElement.removeAttribute('data-beacon-timeline-collapsed');
 		setSidebarWidth(w);
 		storageSet('beacon-timeline-width', w);
 		syncToggleButton();
+		syncDivider();
 	}
 
 	function isCollapsed() {
@@ -428,13 +458,16 @@
 	var savedWidth = storageGet('beacon-timeline-width');
 	if (savedWidth === '0') {
 		sidebar.classList.add('collapsed');
+		document.documentElement.setAttribute('data-beacon-timeline-collapsed', 'true');
 	} else {
+		document.documentElement.removeAttribute('data-beacon-timeline-collapsed');
 		var w = parseInt(savedWidth, 10);
 		if (w && w >= MIN_WIDTH && w <= MAX_WIDTH) {
 			setSidebarWidth(w);
 		}
 	}
 	syncToggleButton();
+	syncDivider();
 
 	// Responsive: constrain sidebar on small screens
 	function constrainForViewport() {
@@ -463,6 +496,7 @@
 		// If collapsed, uncollapse so drag can set a width
 		if (isCollapsed()) {
 			sidebar.classList.remove('collapsed');
+			document.documentElement.removeAttribute('data-beacon-timeline-collapsed');
 			setSidebarWidth(0);
 		}
 		document.body.style.cursor = 'col-resize';
@@ -504,6 +538,7 @@
 		} else {
 			storageSet('beacon-timeline-width', currentWidth);
 			syncToggleButton();
+			syncDivider();
 		}
 		resizeCharts();
 	});
@@ -512,6 +547,33 @@
 	divider.addEventListener('dblclick', function() {
 		expand(DEFAULT_WIDTH);
 		resizeChartsSoon();
+	});
+
+	divider.addEventListener('keydown', function(e) {
+		var step = e.shiftKey ? 80 : 24;
+		var current = isCollapsed() ? 0 : (parseInt(sidebar.style.width, 10) || DEFAULT_WIDTH);
+		if (e.key === 'ArrowLeft') {
+			e.preventDefault();
+			expand(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, current + step)));
+			resizeChartsSoon();
+		} else if (e.key === 'ArrowRight') {
+			e.preventDefault();
+			var next = current - step;
+			if (next < MIN_WIDTH) collapse();
+			else expand(Math.min(MAX_WIDTH, next));
+			resizeChartsSoon();
+		} else if (e.key === 'Home') {
+			e.preventDefault();
+			collapse();
+			resizeChartsSoon();
+		} else if (e.key === 'End') {
+			e.preventDefault();
+			expand(DEFAULT_WIDTH);
+			resizeChartsSoon();
+		} else if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			window.toggleTimelineSidebar();
+		}
 	});
 
 	window.toggleTimelineSidebar = function() {
@@ -704,6 +766,9 @@ function completedRow(session, isSubagent, parentID) {
 	}
 	var subPrefix = isSubagent ? '<span class="w-1.5 h-1.5 rounded-full bg-blue-400/50 flex-shrink-0"></span><span class="text-blue-400/70 text-xs">sub</span>' : '';
 	var subCount = !isSubagent && session.subagent_count > 0 ? '<span class="text-[10px] text-blue-400/60 font-normal">+' + session.subagent_count + ' sub</span>' : '';
+	var sessionURL = '/sessions/' + encodeURIComponent(session.id);
+	var titleButton = '<button type="button" class="session-row-open text-left transition-colors hover:text-blue-300 focus-visible:text-blue-300" data-session-link="' + sessionURL + '" aria-label="Open session ' + escapeAttr(sessionTitle(session)) + '">' + escapeHTML(sessionTitle(session)) + '</button>';
+	var rowActionAttrs = ' data-session-link="' + sessionURL + '"';
 	var attrs = isSubagent ? ' data-parent="' + escapeAttr(parentID) + '"' : ' id="session-row-' + escapeAttr(session.id) + '"' +
 		' data-sort-name="' + escapeAttr(sessionTitle(session)) + '"' +
 		' data-sort-provider="' + escapeAttr(providerShort(session.provider)) + '"' +
@@ -715,8 +780,8 @@ function completedRow(session, isSubagent, parentID) {
 		' data-sort-project="' + escapeAttr(session.working_dir || '') + '"' +
 		' data-sort-ended="' + Math.floor(new Date(session.ended_at || 0).getTime() / 1000 || 0) + '"' +
 		' data-sort-id="' + escapeAttr(session.id) + '"';
-	return '<tr' + attrs + ' data-session-link="/sessions/' + encodeURIComponent(session.id) + '" class="' + rowClass + '">' +
-		'<td class="' + nameCellClass + '"><span class="inline-flex items-center gap-1.5">' + toggle + subPrefix + '<span>' + escapeHTML(sessionTitle(session)) + '</span>' + subCount + '</span><span class="mobile-session-meta hidden">' + escapeHTML(mobileMeta) + '</span></td>' +
+	return '<tr' + attrs + rowActionAttrs + ' class="' + rowClass + '">' +
+		'<td class="' + nameCellClass + '"><span class="inline-flex items-center gap-1.5">' + toggle + subPrefix + titleButton + subCount + '</span><span class="mobile-session-meta hidden">' + escapeHTML(mobileMeta) + '</span></td>' +
 		'<td class="py-2 px-3 text-xs whitespace-nowrap">' + (isSubagent ? '' : providerBadge(session.provider)) + '</td>' +
 		'<td class="py-2 px-3 text-xs text-gray-400">' + escapeHTML(shortModel(session.last_model || '')) + '</td>' +
 		'<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums">' + formatTokens(session.total_tokens) + '</td>' +
@@ -1038,6 +1103,13 @@ document.addEventListener('click', function(evt) {
 		evt.preventDefault();
 		evt.stopPropagation();
 		toggleJSONSubagents(subBtn);
+		return;
+	}
+	var openBtn = evt.target.closest && evt.target.closest('.session-row-open');
+	if (openBtn) {
+		evt.preventDefault();
+		evt.stopPropagation();
+		window.goToSession(openBtn.getAttribute('data-session-link'));
 		return;
 	}
 	var row = evt.target.closest && evt.target.closest('tr[data-session-link]');

@@ -167,7 +167,6 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 			return events, nil
 		}
 
-		tokensAssigned := false
 		for _, block := range content {
 			bm, ok := block.(map[string]any)
 			if !ok {
@@ -240,15 +239,11 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 				evt.PayloadType = blockType
 			}
 
-			// Assign token counts to the first event per line
-			if !tokensAssigned {
-				evt.InputTokens = inputTokens
-				evt.OutputTokens = outputTokens
-				evt.CacheReadTokens = cacheRead
-				evt.CacheCreateTokens = cacheCreate
-				evt.Model = model
-				tokensAssigned = true
-			}
+			evt.InputTokens = inputTokens
+			evt.OutputTokens = outputTokens
+			evt.CacheReadTokens = cacheRead
+			evt.CacheCreateTokens = cacheCreate
+			evt.Model = model
 
 			events = append(events, evt)
 		}

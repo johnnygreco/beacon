@@ -173,7 +173,7 @@ templ SessionDetail(data views.SessionDetailData) {
 				</div>
 				<div id="conversation-container"
 					 hx-get={ fmt.Sprintf("/sessions/%s/conversation", data.Session.ID) }
-					 hx-trigger="load"
+					 hx-trigger="load, sse:conversation-update"
 					 hx-swap="innerHTML">
 					<div class="flex items-center justify-center py-12 text-gray-500">
 						<svg class="animate-spin h-5 w-5 mr-3" viewBox="0 0 24 24">
@@ -232,6 +232,7 @@ templ SessionDetail(data views.SessionDetailData) {
 			<script src="/static/js/vendor/chart.umd.min.js"></script>
 			<script src="/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js"></script>
 			<script src="/static/js/charts.js"></script>
+			<script src="/static/js/transcript.js"></script>
 		</div>
 	}
 }

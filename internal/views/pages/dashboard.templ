@@ -7,7 +7,16 @@ import (
 
 templ Dashboard(data views.DashboardData) {
 	@views.Layout("Dashboard") {
-		<script>document.body.setAttribute('data-page', 'dashboard');</script>
+		<script>
+		document.body.setAttribute('data-page', 'dashboard');
+		(function() {
+			try {
+				if (localStorage.getItem('beacon-timeline-width') === '0') {
+					document.documentElement.setAttribute('data-beacon-timeline-collapsed', 'true');
+				}
+			} catch (err) {}
+		})();
+		</script>
 		<div id="dashboard-wrap" class="flex h-[calc(100vh-3rem)]">
 			<!-- Main Content Area -->
 			<div id="dashboard-main" class="flex-1 flex flex-col gap-6 overflow-y-auto min-w-0 pr-0">
@@ -26,7 +35,6 @@ templ Dashboard(data views.DashboardData) {
 							</div>
 							<div class="flex flex-wrap items-center gap-2">
 								<div id="dashboard-range-control" class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Dashboard time range">
-									<span class="text-xs text-gray-500 mr-1">Range</span>
 									<button type="button" onclick="setDashboardRange(this, '')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">All</button>
 									<button type="button" onclick="setDashboardRange(this, '1h')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">1h</button>
 									<button type="button" onclick="setDashboardRange(this, '24h')" aria-pressed="true" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">24h</button>
@@ -34,7 +42,6 @@ templ Dashboard(data views.DashboardData) {
 									<button type="button" onclick="setDashboardRange(this, '30d')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">30d</button>
 								</div>
 								<div id="dashboard-theme-control" class="dashboard-theme-control">
-									<label for="dashboard-theme-select" class="dashboard-theme-label">Theme</label>
 									<span id="dashboard-theme-swatch" class="dashboard-theme-swatch" aria-hidden="true"></span>
 									<select id="dashboard-theme-select" class="dashboard-theme-select" aria-label="Dashboard color theme">
 										<optgroup label="Light + dark">
@@ -72,14 +79,28 @@ templ Dashboard(data views.DashboardData) {
 											<option value="proof">Proof</option>
 										</optgroup>
 									</select>
-									<select id="dashboard-appearance-select" class="dashboard-theme-select dashboard-appearance-select" aria-label="Dashboard appearance mode">
-										<option value="system">System</option>
-										<option value="light">Light</option>
-										<option value="dark">Dark</option>
-									</select>
+									<button type="button" id="dashboard-appearance-toggle" class="dashboard-appearance-toggle" onclick="toggleDashboardAppearance()" role="switch" aria-label="Dark mode" aria-checked="true" title="Switch to light mode">
+										<svg class="appearance-icon appearance-icon-moon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12.8A8.6 8.6 0 1111.2 3a6.8 6.8 0 009.8 9.8z"></path>
+										</svg>
+										<svg class="appearance-icon appearance-icon-sun hidden" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+											<circle cx="12" cy="12" r="4" stroke-width="2"></circle>
+											<path stroke-linecap="round" stroke-width="2" d="M12 2v2m0 16v2m10-10h-2M4 12H2m17.1-7.1-1.4 1.4M6.3 17.7l-1.4 1.4m14.2 0-1.4-1.4M6.3 6.3 4.9 4.9"></path>
+										</svg>
+									</button>
 								</div>
-								<button type="button" id="dashboard-refresh-btn" onclick="refreshDashboard()" class="dashboard-icon-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Refresh</button>
-								<button type="button" id="timeline-toggle-btn" onclick="toggleTimelineSidebar()" aria-expanded="true" class="dashboard-icon-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Hide Timeline</button>
+								<button type="button" id="dashboard-refresh-btn" onclick="refreshDashboard()" class="dashboard-icon-btn" aria-label="Refresh dashboard" title="Refresh dashboard">
+									<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 11a8 8 0 10-2.3 5.7"></path>
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 4v7h-7"></path>
+									</svg>
+								</button>
+								<button type="button" id="timeline-toggle-btn" onclick="toggleTimelineSidebar()" aria-expanded="true" class="dashboard-icon-btn timeline-toggle-btn" aria-label="Collapse activity timeline" title="Collapse activity timeline">
+									<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+										<rect x="3" y="5" width="18" height="14" rx="2" stroke-width="2"></rect>
+										<path stroke-linecap="round" stroke-width="2" d="M15 5v14M11 9l-3 3 3 3"></path>
+									</svg>
+								</button>
 							</div>
 						</div>
 						<div id="dashboard-analytics-summary" class="dashboard-summary-grid"></div>
@@ -122,15 +143,25 @@ templ Dashboard(data views.DashboardData) {
 
 					<!-- Completed Sessions Table -->
 					<div class="border-t border-gray-700/50 pt-4">
-						<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-							<div>
-								<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide">Completed Sessions</h2>
-								<p id="completed-session-status" class="text-xs text-gray-600 mt-1" aria-live="polite">Loading sessions...</p>
-							</div>
+						<div class="completed-table-heading flex flex-wrap items-start justify-between gap-3 mb-4">
 							<div class="dashboard-table-toolbar">
 								<label for="dashboard-session-search" class="sr-only">Search completed sessions</label>
+								<span class="dashboard-search-icon" aria-hidden="true">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+										<circle cx="11" cy="11" r="7" stroke-width="2"></circle>
+										<path stroke-linecap="round" stroke-width="2" d="M20 20l-3.5-3.5"></path>
+									</svg>
+								</span>
 								<input id="dashboard-session-search" data-dashboard-search type="search" autocomplete="off" placeholder="Search sessions, projects, models, events" class="dashboard-search-input"/>
-								<button type="button" id="dashboard-search-clear" class="dashboard-search-clear hidden" aria-label="Clear search">Clear</button>
+								<button type="button" id="dashboard-search-clear" class="dashboard-search-clear hidden" aria-label="Clear search">
+									<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 6l12 12M18 6 6 18"></path>
+									</svg>
+								</button>
+							</div>
+							<div class="completed-table-title">
+								<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide">Completed Sessions</h2>
+								<p id="completed-session-status" class="text-xs text-gray-600 mt-1" aria-live="polite">Loading sessions...</p>
 							</div>
 						</div>
 						<div class="overflow-x-auto">
@@ -203,7 +234,7 @@ templ Dashboard(data views.DashboardData) {
 			</div>
 
 			<!-- Draggable Divider -->
-			<div id="sidebar-divider" class="sidebar-divider" title="Drag to resize sidebar">
+			<div id="sidebar-divider" class="sidebar-divider" role="separator" aria-label="Resize activity timeline" aria-orientation="vertical" aria-valuemin="200" aria-valuemax="700" aria-valuenow="380" aria-valuetext="Activity timeline width 380 pixels" tabindex="0" title="Drag to resize activity timeline">
 				<div class="sidebar-divider-line"></div>
 			</div>
 

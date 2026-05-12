@@ -19,7 +19,7 @@ const previewMaxLen = 320
 type Batcher struct {
 	eventCh chan BatchEvent
 	store   *store.Store
-	notify  func() // called after each flush to notify SSE broker
+	notify  func([]string) // called after each flush to notify SSE broker
 	logger  *slog.Logger
 
 	batchSize     int
@@ -29,7 +29,7 @@ type Batcher struct {
 }
 
 // NewBatcher creates a new batcher.
-func NewBatcher(ch *store.Store, batchSize int, flushInterval time.Duration, defaultInput, defaultOutput float64, notify func(), logger *slog.Logger) *Batcher {
+func NewBatcher(ch *store.Store, batchSize int, flushInterval time.Duration, defaultInput, defaultOutput float64, notify func([]string), logger *slog.Logger) *Batcher {
 	return &Batcher{
 		eventCh:       make(chan BatchEvent, batchSize*2),
 		store:         ch,
@@ -58,11 +58,12 @@ func (b *Batcher) Run(ctx context.Context) {
 		if len(inserts) == 0 {
 			return
 		}
+		sessionIDs := changedSessionIDs(inserts)
 		b.flushInserts(ctx, inserts)
 		inserts = inserts[:0]
 
 		if b.notify != nil {
-			b.notify()
+			b.notify(sessionIDs)
 		}
 	}
 
@@ -84,13 +85,33 @@ func (b *Batcher) Run(ctx context.Context) {
 	}
 }
 
+func changedSessionIDs(events []NormalizedEvent) []string {
+	seen := make(map[string]struct{}, len(events))
+	ids := make([]string, 0, len(events))
+	for _, evt := range events {
+		if evt.SessionID == "" {
+			continue
+		}
+		if _, ok := seen[evt.SessionID]; ok {
+			continue
+		}
+		seen[evt.SessionID] = struct{}{}
+		ids = append(ids, evt.SessionID)
+	}
+	return ids
+}
+
 func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 	start := time.Now()
 
 	var batch store.RowBatch
+	eventOrdinals := make(map[string]int, len(events))
 
 	for _, evt := range events {
-		uid := eventUID(evt.SourceFile, evt.SourceLineNo, evt.SourceOffset, evt.SourceGeneration, evt.RawPayload)
+		ordinalKey := eventUIDOrdinalKey(evt)
+		ordinal := eventOrdinals[ordinalKey]
+		eventOrdinals[ordinalKey] = ordinal + 1
+		uid := eventUID(evt.SourceFile, evt.SourceLineNo, evt.SourceOffset, evt.SourceGeneration, evt.RawPayload, ordinal)
 
 		// Calculate cost if not provided
 		cost := evt.CostUSD
@@ -170,9 +191,16 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 }
 
 // eventUID generates a deterministic UID for idempotent replay.
-func eventUID(sourceFile string, lineNo int, offset int64, generation int, contentHash string) string {
+func eventUIDOrdinalKey(evt NormalizedEvent) string {
+	return fmt.Sprintf("%s|%d|%d|%d|%s", evt.SourceFile, evt.SourceLineNo, evt.SourceOffset, evt.SourceGeneration, evt.RawPayload)
+}
+
+func eventUID(sourceFile string, lineNo int, offset int64, generation int, contentHash string, ordinal int) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s|%d|%d|%d|%s", sourceFile, lineNo, offset, generation, contentHash)
+	if ordinal > 0 {
+		fmt.Fprintf(h, "|%d", ordinal)
+	}
 	return hex.EncodeToString(h.Sum(nil))[:32]
 }
 

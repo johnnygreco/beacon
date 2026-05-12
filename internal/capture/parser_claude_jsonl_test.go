@@ -208,6 +208,49 @@ func TestParseClaudeJSONL_AssistantToolUse(t *testing.T) {
 	}
 }
 
+func TestParseClaudeJSONL_MultiBlockUsageSurvivesDedup(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"sessionId": "sess-1",
+		"uuid":      "uuid-multi-block",
+		"timestamp": "2025-01-01T00:00:02Z",
+		"type":      "assistant",
+		"message": map[string]any{
+			"role":  "assistant",
+			"model": "claude-sonnet-4-20250514",
+			"content": []map[string]any{
+				{"type": "text", "text": "I'll inspect the file."},
+				{"type": "tool_use", "id": "toolu_multi", "name": "Read", "input": map[string]any{"file_path": "/src/main.go"}},
+			},
+			"usage": map[string]any{
+				"input_tokens":                1000,
+				"output_tokens":               200,
+				"cache_read_input_tokens":     50,
+				"cache_creation_input_tokens": 10,
+			},
+		},
+	})
+
+	events, err := ParseClaudeJSONL(line, "test.jsonl", 4, 300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+
+	events = DeduplicateTokens(events)
+	if events[0].InputTokens != 0 || events[0].OutputTokens != 0 || events[0].CacheReadTokens != 0 || events[0].CacheCreateTokens != 0 {
+		t.Fatalf("first block tokens were not zeroed after dedup: %#v", events[0])
+	}
+	if events[1].EventKind != "tool_call" {
+		t.Fatalf("last block event kind = %q, want tool_call", events[1].EventKind)
+	}
+	if events[1].InputTokens != 1000 || events[1].OutputTokens != 200 || events[1].CacheReadTokens != 50 || events[1].CacheCreateTokens != 10 {
+		t.Fatalf("last block tokens = input %d output %d cache_read %d cache_create %d",
+			events[1].InputTokens, events[1].OutputTokens, events[1].CacheReadTokens, events[1].CacheCreateTokens)
+	}
+}
+
 func TestParseClaudeJSONL_ToolResult(t *testing.T) {
 	// Tool results come back under role=user with tool_result content blocks.
 	line := toJSONL(t, map[string]any{

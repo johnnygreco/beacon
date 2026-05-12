@@ -9,6 +9,7 @@ type Scenario = 'default' | 'empty' | 'error-heavy' | 'many-active';
 type DashboardFixtureOptions = {
   scenario?: Scenario;
   failOnce?: Array<'active' | 'completed' | 'activity' | 'charts'>;
+  disableEventSource?: boolean;
 };
 
 const fixedNow = '2026-05-09T18:00:00.000Z';
@@ -386,7 +387,7 @@ function transcriptFixtureHTML() {
     <title>Session ${TEST_SESSION_ID} | Beacon</title>
     <script>
       (function() {
-        var fallbackTheme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'codex-light' : 'codex-dark';
+        var fallbackTheme = 'codex-dark';
         var theme = fallbackTheme;
         try { theme = localStorage.getItem('beacon-dashboard-resolved-theme') || theme; } catch (err) {}
         if (!/^[a-z0-9-]+$/.test(theme)) theme = fallbackTheme;
@@ -463,9 +464,11 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
   const scenario = options.scenario || 'default';
   const failures = new Set(options.failOnce || []);
 
-  await page.addInitScript(() => {
-    Object.defineProperty(window, 'EventSource', { value: undefined, configurable: true });
-  });
+  if (options.disableEventSource !== false) {
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'EventSource', { value: undefined, configurable: true });
+    });
+  }
 
   await page.route('**/api/dashboard/sessions**', async (route) => {
     const url = new URL(route.request().url());

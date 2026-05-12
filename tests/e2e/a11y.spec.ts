@@ -62,8 +62,8 @@ test.describe('dashboard accessibility', () => {
   test('has no serious or critical axe violations on the themed transcript', async ({ page }) => {
     await installDashboardFixtures(page);
     await gotoDashboard(page);
-    await page.locator('#dashboard-appearance-select').selectOption('light');
     await page.locator('#dashboard-theme-select').selectOption('catppuccin');
+    await page.locator('#dashboard-appearance-toggle').click();
 
     await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#transcript-wrap')).toBeVisible();
