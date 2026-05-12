@@ -4,6 +4,8 @@
 (function() {
   'use strict';
 
+  var currentTranscriptView = 'chat';
+
   // --- Truncation toggle (initial state set server-side via class) ---
   window.toggleTruncation = function(el) {
     if (!el) return;
@@ -74,7 +76,7 @@
   };
 
   // --- View toggle (Chat/Timeline) ---
-  window.switchView = function(view, btn) {
+  function setTranscriptView(view, btn) {
     var chatView = document.getElementById('chat-view');
     var timelineView = document.getElementById('timeline-view');
     var expandBtn = document.getElementById('btn-expand-all');
@@ -82,7 +84,9 @@
 
     if (!chatView || !timelineView) return;
 
-    if (view === 'chat') {
+    currentTranscriptView = view === 'timeline' ? 'timeline' : 'chat';
+
+    if (currentTranscriptView === 'chat') {
       chatView.classList.remove('hidden');
       timelineView.classList.add('hidden');
       if (expandBtn) expandBtn.classList.remove('hidden');
@@ -105,14 +109,53 @@
     btn.classList.remove('bg-gray-800', 'text-gray-500', 'border-gray-700');
     btn.classList.add('bg-blue-500/20', 'text-blue-400', 'border-blue-500/40');
     btn.setAttribute('aria-pressed', 'true');
+  }
+
+  window.switchView = function(view, btn) {
+    setTranscriptView(view, btn);
   };
 
   // --- HTMX integration ---
+  function transcriptViewFromButton(btn) {
+    if (!btn) return currentTranscriptView;
+    var action = btn.getAttribute('onclick') || '';
+    return action.indexOf('timeline') !== -1 ? 'timeline' : 'chat';
+  }
+
+  function restoreTranscriptViewAfterSwap(target) {
+    var container = document.getElementById('conversation-container');
+    if (!container) return;
+    if (target && target !== container && !container.contains(target) && !(target.contains && target.contains(container))) return;
+    var activeButton = document.querySelector('.transcript-controls button[aria-pressed="true"][onclick^="switchView"]');
+    setTranscriptView(transcriptViewFromButton(activeButton), activeButton);
+  }
+
+  function initConversationObserver() {
+    var container = document.getElementById('conversation-container');
+    if (!container || container.dataset.transcriptObserver === 'true') return;
+    container.dataset.transcriptObserver = 'true';
+    var observer = new MutationObserver(function() {
+      initHighlighting(container);
+      restoreTranscriptViewAfterSwap(container);
+    });
+    observer.observe(container, { childList: true });
+  }
+
   document.addEventListener('htmx:afterSwap', function(e) {
     initHighlighting(e.detail.target);
+    initConversationObserver();
+    window.requestAnimationFrame(function() {
+      restoreTranscriptViewAfterSwap(e.detail.target);
+    });
+  });
+
+  document.addEventListener('htmx:afterSettle', function(e) {
+    initConversationObserver();
+    restoreTranscriptViewAfterSwap(e.detail.target);
   });
 
   // --- Init highlighting ---
+  initConversationObserver();
   initHighlighting();
 
 })();

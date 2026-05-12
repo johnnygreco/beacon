@@ -2394,6 +2394,14 @@ body[data-page="transcript"] ::-webkit-scrollbar-thumb:hover {
 .sidebar-resizing .sidebar-divider-line {
   background: var(--dash-accent);
 }
+.sidebar-divider:focus-visible {
+  outline: 2px solid var(--dash-accent);
+  outline-offset: -2px;
+  background: var(--dash-hover);
+}
+.sidebar-divider:focus-visible .sidebar-divider-line {
+  background: var(--dash-accent);
+}
 /* Prevent text selection and pointer events during resize */
 .sidebar-resizing * {
   pointer-events: none !important;
@@ -2543,6 +2551,19 @@ body[data-page="transcript"] ::-webkit-scrollbar-thumb:hover {
 }
 #completed-sessions tr:hover {
   background-color: var(--dash-row-hover);
+}
+#completed-sessions .session-row-open {
+  color: inherit;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+#completed-sessions .session-row-open:focus-visible {
+  outline: 2px solid var(--dash-accent);
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 /* Sort indicator */

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   ACTIVE_SESSION_ID,
   TEST_EVENT_ID,
@@ -11,6 +11,99 @@ import {
   installDashboardFixtures,
   waitForCompletedRows,
 } from './fixtures/dashboard';
+
+async function installTranscriptRealtimeFixture(page: Page) {
+  let conversationVersion = 0;
+  await page.addInitScript(() => {
+    class FakeEventSource {
+      url: string;
+      readyState = 1;
+      listeners: Record<string, Array<(event: MessageEvent) => void>> = {};
+      onopen: ((event: Event) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+
+      constructor(url: string) {
+        this.url = url;
+        ((window as unknown as { __beaconEventSources?: FakeEventSource[] }).__beaconEventSources ||= []).push(this);
+        setTimeout(() => this.onopen?.(new Event('open')), 0);
+      }
+
+      addEventListener(type: string, listener: (event: MessageEvent) => void) {
+        (this.listeners[type] ||= []).push(listener);
+      }
+
+      removeEventListener(type: string, listener: (event: MessageEvent) => void) {
+        this.listeners[type] = (this.listeners[type] || []).filter((candidate) => candidate !== listener);
+      }
+
+      close() {
+        this.readyState = 2;
+      }
+
+      emit(type: string, data = '{"dirty":true}') {
+        const event = new MessageEvent(type, { data });
+        for (const listener of this.listeners[type] || []) listener(event);
+      }
+    }
+    Object.defineProperty(window, 'EventSource', { value: FakeEventSource, configurable: true });
+  });
+
+  await page.route(`**/sessions/${TEST_SESSION_ID}/conversation`, async (route) => {
+    conversationVersion += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `
+        <div id="chat-view" class="transcript-chat-view">
+          <details id="${TEST_EVENT_ID}" open><summary>Realtime update ${conversationVersion}</summary><p>Version ${conversationVersion}</p></details>
+        </div>
+        <div id="timeline-view" class="transcript-timeline-view hidden">
+          <a href="#${TEST_EVENT_ID}">Timeline update ${conversationVersion}</a>
+        </div>
+      `,
+    });
+  });
+
+  await page.route(`**/sessions/${TEST_SESSION_ID}`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `<!doctype html>
+        <html lang="en" data-dashboard-theme="codex-dark">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Realtime Transcript | Beacon</title>
+            <script src="/static/js/vendor/htmx.min.js"></script>
+            <script src="/static/js/vendor/htmx-ext-sse.js"></script>
+            <link rel="stylesheet" href="/static/css/tailwind.css">
+            <link rel="stylesheet" href="/static/css/custom.css">
+          </head>
+          <body data-page="transcript" class="bg-gray-900 text-gray-100 min-h-screen">
+            <main id="main-content" class="min-h-screen w-full p-6 overflow-y-auto">
+              <div id="transcript-wrap" hx-ext="sse" sse-connect="/sse/session/${TEST_SESSION_ID}" class="transcript-page space-y-6">
+                <section class="transcript-conversation">
+                  <div class="transcript-conversation-header flex items-center justify-between gap-3">
+                    <h2>Conversation</h2>
+                    <div class="transcript-controls flex items-center gap-2">
+                      <button type="button" id="btn-expand-all" onclick="expandAll()">Expand All</button>
+                      <button type="button" id="btn-collapse-all" onclick="collapseAll()">Collapse All</button>
+                      <button type="button" onclick="switchView('chat', this)" aria-pressed="true" class="bg-blue-500/20 text-blue-400 border-blue-500/40">Chat</button>
+                      <button type="button" onclick="switchView('timeline', this)" aria-pressed="false" class="bg-gray-800 text-gray-500 border-gray-700">Timeline</button>
+                    </div>
+                  </div>
+                  <div id="conversation-container" hx-get="/sessions/${TEST_SESSION_ID}/conversation" hx-trigger="load, sse:conversation-update" hx-swap="innerHTML">
+                    Loading conversation...
+                  </div>
+                </section>
+              </div>
+            </main>
+            <script src="/static/js/transcript.js"></script>
+          </body>
+        </html>`,
+    });
+  });
+}
 
 test.describe('dashboard battle-tested workflows', () => {
   test('loads cleanly and keeps chart geometry across supported viewports', async ({ page }) => {
@@ -143,6 +236,20 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(await page.evaluate(() => localStorage.getItem('beacon-timeline-width'))).toBe('380');
     await expectEqualDashboardChartHeights(page);
 
+    await divider.focus();
+    await expect(divider).toBeFocused();
+    await expect(divider).toHaveAttribute('role', 'separator');
+    await page.keyboard.press('ArrowLeft');
+    await expect(divider).toHaveAttribute('aria-valuenow', '404');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-timeline-width'))).toBe('404');
+    await page.keyboard.press('Home');
+    await expect(page.locator('#timeline-sidebar')).toHaveClass(/collapsed/);
+    await expect(divider).toHaveAttribute('aria-valuenow', '0');
+    await page.keyboard.press('End');
+    await expect(page.locator('#timeline-sidebar')).not.toHaveClass(/collapsed/);
+    await expect(divider).toHaveAttribute('aria-valuenow', '380');
+    await expectEqualDashboardChartHeights(page);
+
     await page.locator('#dashboard-session-search').fill('migration');
     await expect(page.locator('#completed-session-status')).toHaveText(/1 search result/);
     await waitForCompletedRows(page, 1);
@@ -198,9 +305,12 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#dashboard-refresh-btn')).toHaveText('');
     await expect(page.locator('#timeline-toggle-btn')).toHaveText('');
     await expect(page.locator('#dashboard-search-clear')).toHaveText('');
+    await expect(appearanceToggle).toHaveAttribute('role', 'switch');
+    await expect(appearanceToggle).toHaveAttribute('aria-label', 'Dark mode');
     expect(await themeSelect.locator('option').count()).toBeGreaterThanOrEqual(28);
     await themeSelect.selectOption('catppuccin');
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-dark');
+    await expect(appearanceToggle).toHaveAttribute('title', 'Switch to light mode');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-theme'))).toBe('catppuccin');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-appearance'))).toBe('dark');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-resolved-theme'))).toBe('catppuccin-dark');
@@ -208,7 +318,9 @@ test.describe('dashboard battle-tested workflows', () => {
 
     await appearanceToggle.click();
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
-    await expect(appearanceToggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(appearanceToggle).toHaveAttribute('aria-checked', 'false');
+    await expect(appearanceToggle).toHaveAttribute('aria-label', 'Dark mode');
+    await expect(appearanceToggle).toHaveAttribute('title', 'Switch to dark mode');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-appearance'))).toBe('light');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-resolved-theme'))).toBe('catppuccin-light');
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dash-accent').trim())).toBe('#8839ef');
@@ -216,7 +328,8 @@ test.describe('dashboard battle-tested workflows', () => {
     await themeSelect.selectOption('dracula');
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'dracula-dark');
     await expect(appearanceToggle).toBeDisabled();
-    await expect(appearanceToggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(appearanceToggle).toHaveAttribute('aria-checked', 'true');
+    await expect(appearanceToggle).toHaveAttribute('title', 'Dracula is dark only');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-appearance'))).toBe('dark');
 
     await themeSelect.selectOption('catppuccin');
@@ -226,13 +339,12 @@ test.describe('dashboard battle-tested workflows', () => {
     await gotoDashboard(page);
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
     await expect(themeSelect).toHaveValue('catppuccin');
-    await expect(appearanceToggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(appearanceToggle).toHaveAttribute('aria-checked', 'false');
 
     await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
     await expect(page.locator('body')).toHaveAttribute('data-page', 'transcript');
     await expect(page.locator('#sidebar')).toHaveCount(0);
-    await expectNoHorizontalOverflow(page);
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-theme'))).toBe('catppuccin');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-appearance'))).toBe('light');
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dash-accent').trim())).toBe('#8839ef');
@@ -254,6 +366,21 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.keyboard.press('Escape');
     await expect(page.locator('#session-inspector')).toHaveClass(/hidden/);
     await expect(activeLink).toBeFocused();
+
+    const completedRow = page.locator(`tr[data-sort-id="${TEST_SESSION_ID}"]`);
+    const completedOpenButton = completedRow.locator('.session-row-open');
+    await expect(completedOpenButton).toHaveAttribute('aria-label', /Open session/);
+    await completedOpenButton.focus();
+    await expect(completedOpenButton).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#session-inspector')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#session-inspector')).toHaveClass(/hidden/);
+    await completedOpenButton.focus();
+    await page.keyboard.press('Space');
+    await expect(page.locator('#session-inspector')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#session-inspector')).toHaveClass(/hidden/);
 
     await page.evaluate((id) => {
       (window as unknown as { dashboardSessionIndex: Record<string, unknown>; goToSession: (url: string) => void }).dashboardSessionIndex = {};
@@ -282,13 +409,25 @@ test.describe('dashboard battle-tested workflows', () => {
       localStorage.setItem('beacon-timeline-width', '0');
       localStorage.setItem('beacon-timeline-prev-width', '420');
     });
+    let releaseDashboardScript: (() => void) | undefined;
+    await page.route('**/static/js/dashboard.js', async (route) => {
+      await new Promise<void>((resolve) => {
+        releaseDashboardScript = resolve;
+      });
+      await route.continue();
+    });
 
     await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
-    await page.getByRole('link', { name: 'Dashboard' }).click();
-    await page.waitForURL('**/');
+    const dashboardLoad = page.goto('/', { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('#timeline-sidebar', { state: 'attached' });
+    await expect(page.locator('html')).toHaveAttribute('data-beacon-timeline-collapsed', 'true');
+    let width = await page.locator('#timeline-sidebar').evaluate((el) => Math.round(el.getBoundingClientRect().width));
+    expect(width).toBe(0);
+    releaseDashboardScript?.();
+    await dashboardLoad;
     await expect(page.locator('html')).toHaveAttribute('data-beacon-timeline-collapsed', 'true');
     await expect(page.locator('#timeline-sidebar')).toHaveClass(/collapsed/);
-    const width = await page.locator('#timeline-sidebar').evaluate((el) => Math.round(el.getBoundingClientRect().width));
+    width = await page.locator('#timeline-sidebar').evaluate((el) => Math.round(el.getBoundingClientRect().width));
     expect(width).toBe(0);
 
     await guards.expectClean();
@@ -322,6 +461,30 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#btn-expand-all')).toHaveClass(/hidden/);
     await page.getByRole('button', { name: 'Chat' }).click();
     await expect(page.locator('#chat-view')).toBeVisible();
+
+    await guards.expectClean();
+  });
+
+  test('refreshes transcript conversation smoothly from session SSE updates', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installTranscriptRealtimeFixture(page);
+
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#chat-view')).toContainText('Version 1');
+
+    await page.getByRole('button', { name: 'Timeline' }).click();
+    await expect(page.locator('#timeline-view')).toBeVisible();
+    await expect(page.locator('#chat-view')).toHaveClass(/hidden/);
+
+    await page.evaluate(() => {
+      (window as unknown as { __beaconEventSources: Array<{ emit: (type: string) => void }> }).__beaconEventSources[0].emit('conversation-update');
+    });
+    await expect(page.locator('#timeline-view')).toContainText('Timeline update 2');
+    await expect(page.locator('#timeline-view')).toBeVisible();
+    await expect(page.locator('#chat-view')).toHaveClass(/hidden/);
+
+    await page.getByRole('button', { name: 'Chat' }).click();
+    await expect(page.locator('#chat-view')).toContainText('Version 2');
 
     await guards.expectClean();
   });

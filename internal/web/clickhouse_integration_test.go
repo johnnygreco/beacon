@@ -264,6 +264,49 @@ func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T)
 	}
 }
 
+func TestQuerySessionDetailKeepsUnattributedModelTokensSeparate(t *testing.T) {
+	ch := setupLiveWebStore(t)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	sessionID := "session-detail-model-fallback"
+	events := []models.Event{
+		liveEvent("detail-model-a", sessionID, "message", "assistant", now, "openai", "gpt-4.1", "", 10, 20, 0),
+		liveEvent("detail-model-b", sessionID, "message", "assistant", now.Add(time.Second), "openai", "gpt-5", "", 7, 8, 0),
+		liveEvent("detail-unattributed", sessionID, "tool_call", "assistant", now.Add(2*time.Second), "openai", "", "shell", 3, 4, 0),
+		liveEvent("detail-end", sessionID, "session_end", "system", now.Add(3*time.Second), "openai", "", "", 0, 0, 0),
+	}
+	events[len(events)-1].PayloadType = "last-prompt"
+	for i := range events {
+		events[i].SourceLineNo = i + 1
+		events[i].SourceOffset = int64(i * 10)
+	}
+
+	batch := store.RowBatch{ActivityEvents: events}
+	for _, event := range events {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	detail, err := QuerySessionDetail(context.Background(), ch.DB, sessionID)
+	if err != nil {
+		t.Fatalf("query session detail: %v", err)
+	}
+	if detail.Session.ActiveModel != "gpt-5" {
+		t.Fatalf("last model = %q, want gpt-5", detail.Session.ActiveModel)
+	}
+	if got := modelTokenTotal(detail.TokensByModel, "gpt-4.1"); got != 30 {
+		t.Fatalf("gpt-4.1 total = %d in %#v", got, detail.TokensByModel)
+	}
+	if got := modelTokenTotal(detail.TokensByModel, "gpt-5"); got != 15 {
+		t.Fatalf("gpt-5 total = %d in %#v", got, detail.TokensByModel)
+	}
+	if got := modelTokenTotal(detail.TokensByModel, "unknown"); got != 7 {
+		t.Fatalf("unknown total = %d in %#v", got, detail.TokensByModel)
+	}
+}
+
 func liveEvent(uid, sessionID, kind, role string, ts time.Time, provider, model, tool string, input, output, duration int64) models.Event {
 	return models.Event{
 		EventUID:     uid,
@@ -289,6 +332,15 @@ func liveEvent(uid, sessionID, kind, role string, ts time.Time, provider, model,
 		SourceOffset: 1,
 		CreatedAt:    ts,
 	}
+}
+
+func modelTokenTotal(items []views.ModelTokens, model string) int64 {
+	for _, item := range items {
+		if item.Model == model {
+			return item.Total
+		}
+	}
+	return 0
 }
 
 func containsSession(items []APISessionSummary, id string) bool {

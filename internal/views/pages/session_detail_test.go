@@ -43,6 +43,8 @@ func TestSessionDetailRendersThemedTranscriptShell(t *testing.T) {
 		`class="transcript-metric-grid text-sm"`,
 		`aria-pressed="true"`,
 		`/sessions/session-render-test/conversation`,
+		`hx-trigger="load, sse:conversation-update"`,
+		`/static/js/transcript.js`,
 	} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("session detail shell missing %q", expected)

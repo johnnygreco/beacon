@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/sse"
@@ -12,23 +13,52 @@ import (
 // It decouples capture from rendering via a dirty-signal channel with
 // debounce (250ms) and max-staleness (1s) guarantees.
 type Updater struct {
-	broker *sse.Broker
-	logger *slog.Logger
-	dirty  chan struct{}
+	broker          *sse.Broker
+	logger          *slog.Logger
+	dirty           chan struct{}
+	mu              sync.Mutex
+	pendingSessions map[string]struct{}
 }
 
 // NewUpdater creates a new dashboard updater.
 func NewUpdater(broker *sse.Broker, logger *slog.Logger) *Updater {
-	return &Updater{broker: broker, logger: logger, dirty: make(chan struct{}, 1)}
+	return &Updater{
+		broker:          broker,
+		logger:          logger,
+		dirty:           make(chan struct{}, 1),
+		pendingSessions: make(map[string]struct{}),
+	}
 }
 
 // MarkDirty signals that new data has been flushed and the dashboard should
 // refresh. It is non-blocking: if a signal is already pending it is a no-op.
-func (u *Updater) MarkDirty() {
+func (u *Updater) MarkDirty(sessionIDs []string) {
+	u.mu.Lock()
+	for _, id := range sessionIDs {
+		if id != "" {
+			u.pendingSessions[id] = struct{}{}
+		}
+	}
+	u.mu.Unlock()
+
 	select {
 	case u.dirty <- struct{}{}:
 	default:
 	}
+}
+
+func (u *Updater) drainPendingSessions() []string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if len(u.pendingSessions) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(u.pendingSessions))
+	for id := range u.pendingSessions {
+		ids = append(ids, id)
+	}
+	u.pendingSessions = make(map[string]struct{})
+	return ids
 }
 
 // Run is the main updater loop. It coalesces dirty signals with a 250ms
@@ -73,13 +103,13 @@ func (u *Updater) Run(ctx context.Context) {
 			}
 			stopDrain()
 			if now.Sub(firstDirty) >= maxStale {
-				u.NotifyDashboard()
+				u.NotifyChanges(u.drainPendingSessions())
 				firstDirty = time.Time{}
 			} else {
 				debounce.Reset(debounceDelay)
 			}
 		case <-debounce.C:
-			u.NotifyDashboard()
+			u.NotifyChanges(u.drainPendingSessions())
 			firstDirty = time.Time{}
 		case <-periodic.C:
 			if u.broker.SubscriberCount() > 0 {
@@ -87,6 +117,14 @@ func (u *Updater) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// NotifyChanges broadcasts dashboard and per-session invalidations after a
+// flushed capture batch. Session pages use this to refresh active transcripts
+// without polling or waiting for a full navigation.
+func (u *Updater) NotifyChanges(sessionIDs []string) {
+	u.NotifyDashboard()
+	u.NotifySessions(sessionIDs)
 }
 
 // NotifyDashboard broadcasts lightweight invalidation events via SSE. The
@@ -106,6 +144,28 @@ func (u *Updater) NotifyDashboard() {
 	for _, event := range []string{"active-sessions-update", "completed-sessions-update", "activity-update", "dashboard-charts-update"} {
 		u.broker.Broadcast("dashboard", sse.SSEMessage{
 			Event: event,
+			Data:  dirty,
+		})
+	}
+}
+
+// NotifySessions broadcasts lightweight invalidations to open transcript pages.
+func (u *Updater) NotifySessions(sessionIDs []string) {
+	if len(sessionIDs) == 0 || u.broker.SubscriberCount() == 0 {
+		return
+	}
+	dirty := []byte(`{"dirty":true}`)
+	seen := make(map[string]struct{}, len(sessionIDs))
+	for _, id := range sessionIDs {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		u.broker.Broadcast("session:"+id, sse.SSEMessage{
+			Event: "conversation-update",
 			Data:  dirty,
 		})
 	}

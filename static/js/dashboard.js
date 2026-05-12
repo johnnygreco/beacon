@@ -92,12 +92,12 @@
 			toggle.classList.toggle('is-fixed', fixed);
 			toggle.classList.toggle('is-dark', dark);
 			toggle.classList.toggle('is-light', !dark);
-			toggle.setAttribute('aria-pressed', dark ? 'true' : 'false');
-			var label = fixed
+			toggle.setAttribute('aria-checked', dark ? 'true' : 'false');
+			toggle.setAttribute('aria-label', 'Dark mode');
+			var title = fixed
 				? ((select && select.selectedOptions && select.selectedOptions[0] ? select.selectedOptions[0].textContent : theme) + ' is ' + appearance + ' only')
 				: (dark ? 'Switch to light mode' : 'Switch to dark mode');
-			toggle.setAttribute('aria-label', label);
-			toggle.setAttribute('title', label);
+			toggle.setAttribute('title', title);
 			var moon = toggle.querySelector('.appearance-icon-moon');
 			var sun = toggle.querySelector('.appearance-icon-sun');
 			if (moon) moon.classList.toggle('hidden', !dark);
@@ -415,9 +415,18 @@
 		btn.setAttribute('title', label);
 	}
 
+	function syncDivider() {
+		if (!divider) return;
+		var parsed = parseInt(sidebar.style.width, 10);
+		var width = isCollapsed() ? 0 : (Number.isFinite(parsed) ? parsed : DEFAULT_WIDTH);
+		divider.setAttribute('aria-valuenow', String(width));
+		divider.setAttribute('aria-valuetext', width > 0 ? ('Activity timeline width ' + width + ' pixels') : 'Activity timeline collapsed');
+	}
+
 	function setSidebarWidth(w) {
 		sidebar.style.width = w + 'px';
 		sidebar.style.minWidth = w + 'px';
+		syncDivider();
 	}
 
 	function collapse() {
@@ -429,6 +438,7 @@
 		document.documentElement.setAttribute('data-beacon-timeline-collapsed', 'true');
 		storageSet('beacon-timeline-width', '0');
 		syncToggleButton();
+		syncDivider();
 	}
 
 	function expand(w) {
@@ -437,6 +447,7 @@
 		setSidebarWidth(w);
 		storageSet('beacon-timeline-width', w);
 		syncToggleButton();
+		syncDivider();
 	}
 
 	function isCollapsed() {
@@ -456,6 +467,7 @@
 		}
 	}
 	syncToggleButton();
+	syncDivider();
 
 	// Responsive: constrain sidebar on small screens
 	function constrainForViewport() {
@@ -526,6 +538,7 @@
 		} else {
 			storageSet('beacon-timeline-width', currentWidth);
 			syncToggleButton();
+			syncDivider();
 		}
 		resizeCharts();
 	});
@@ -534,6 +547,33 @@
 	divider.addEventListener('dblclick', function() {
 		expand(DEFAULT_WIDTH);
 		resizeChartsSoon();
+	});
+
+	divider.addEventListener('keydown', function(e) {
+		var step = e.shiftKey ? 80 : 24;
+		var current = isCollapsed() ? 0 : (parseInt(sidebar.style.width, 10) || DEFAULT_WIDTH);
+		if (e.key === 'ArrowLeft') {
+			e.preventDefault();
+			expand(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, current + step)));
+			resizeChartsSoon();
+		} else if (e.key === 'ArrowRight') {
+			e.preventDefault();
+			var next = current - step;
+			if (next < MIN_WIDTH) collapse();
+			else expand(Math.min(MAX_WIDTH, next));
+			resizeChartsSoon();
+		} else if (e.key === 'Home') {
+			e.preventDefault();
+			collapse();
+			resizeChartsSoon();
+		} else if (e.key === 'End') {
+			e.preventDefault();
+			expand(DEFAULT_WIDTH);
+			resizeChartsSoon();
+		} else if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			window.toggleTimelineSidebar();
+		}
 	});
 
 	window.toggleTimelineSidebar = function() {
@@ -726,6 +766,9 @@ function completedRow(session, isSubagent, parentID) {
 	}
 	var subPrefix = isSubagent ? '<span class="w-1.5 h-1.5 rounded-full bg-blue-400/50 flex-shrink-0"></span><span class="text-blue-400/70 text-xs">sub</span>' : '';
 	var subCount = !isSubagent && session.subagent_count > 0 ? '<span class="text-[10px] text-blue-400/60 font-normal">+' + session.subagent_count + ' sub</span>' : '';
+	var sessionURL = '/sessions/' + encodeURIComponent(session.id);
+	var titleButton = '<button type="button" class="session-row-open text-left transition-colors hover:text-blue-300 focus-visible:text-blue-300" data-session-link="' + sessionURL + '" aria-label="Open session ' + escapeAttr(sessionTitle(session)) + '">' + escapeHTML(sessionTitle(session)) + '</button>';
+	var rowActionAttrs = ' data-session-link="' + sessionURL + '"';
 	var attrs = isSubagent ? ' data-parent="' + escapeAttr(parentID) + '"' : ' id="session-row-' + escapeAttr(session.id) + '"' +
 		' data-sort-name="' + escapeAttr(sessionTitle(session)) + '"' +
 		' data-sort-provider="' + escapeAttr(providerShort(session.provider)) + '"' +
@@ -737,8 +780,8 @@ function completedRow(session, isSubagent, parentID) {
 		' data-sort-project="' + escapeAttr(session.working_dir || '') + '"' +
 		' data-sort-ended="' + Math.floor(new Date(session.ended_at || 0).getTime() / 1000 || 0) + '"' +
 		' data-sort-id="' + escapeAttr(session.id) + '"';
-	return '<tr' + attrs + ' data-session-link="/sessions/' + encodeURIComponent(session.id) + '" class="' + rowClass + '">' +
-		'<td class="' + nameCellClass + '"><span class="inline-flex items-center gap-1.5">' + toggle + subPrefix + '<span>' + escapeHTML(sessionTitle(session)) + '</span>' + subCount + '</span><span class="mobile-session-meta hidden">' + escapeHTML(mobileMeta) + '</span></td>' +
+	return '<tr' + attrs + rowActionAttrs + ' class="' + rowClass + '">' +
+		'<td class="' + nameCellClass + '"><span class="inline-flex items-center gap-1.5">' + toggle + subPrefix + titleButton + subCount + '</span><span class="mobile-session-meta hidden">' + escapeHTML(mobileMeta) + '</span></td>' +
 		'<td class="py-2 px-3 text-xs whitespace-nowrap">' + (isSubagent ? '' : providerBadge(session.provider)) + '</td>' +
 		'<td class="py-2 px-3 text-xs text-gray-400">' + escapeHTML(shortModel(session.last_model || '')) + '</td>' +
 		'<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums">' + formatTokens(session.total_tokens) + '</td>' +
@@ -1060,6 +1103,13 @@ document.addEventListener('click', function(evt) {
 		evt.preventDefault();
 		evt.stopPropagation();
 		toggleJSONSubagents(subBtn);
+		return;
+	}
+	var openBtn = evt.target.closest && evt.target.closest('.session-row-open');
+	if (openBtn) {
+		evt.preventDefault();
+		evt.stopPropagation();
+		window.goToSession(openBtn.getAttribute('data-session-link'));
 		return;
 	}
 	var row = evt.target.closest && evt.target.closest('tr[data-session-link]');
