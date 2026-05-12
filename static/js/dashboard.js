@@ -4,7 +4,7 @@
 	var APPEARANCE_KEY = 'beacon-dashboard-appearance';
 	var RESOLVED_KEY = 'beacon-dashboard-resolved-theme';
 	var FALLBACK_THEME = 'codex';
-	var FALLBACK_APPEARANCE = 'system';
+	var FALLBACK_APPEARANCE = 'dark';
 	var THEME_SUPPORT = {
 		'absolutely': { light: 'absolutely-light', dark: 'absolutely-dark' },
 		'catppuccin': { light: 'catppuccin-light', dark: 'catppuccin-dark' },
@@ -35,7 +35,7 @@
 		'tokyo-night': { dark: 'tokyo-night-dark' },
 		'proof': { light: 'proof-light' }
 	};
-	var APPEARANCE_IDS = ['system', 'light', 'dark'];
+	var APPEARANCE_IDS = ['light', 'dark'];
 	var THEME_IDS = Object.keys(THEME_SUPPORT);
 
 	function hasTheme(id) {
@@ -54,42 +54,67 @@
 		try { localStorage.setItem(key, value); } catch (err) {}
 	}
 
-	function preferredAppearance(mode) {
-		if (!hasAppearance(mode)) mode = FALLBACK_APPEARANCE;
-		if (mode !== 'system') return mode;
-		if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
-			return 'light';
-		}
-		return 'dark';
+	function normalizedAppearance(mode) {
+		return hasAppearance(mode) ? mode : FALLBACK_APPEARANCE;
+	}
+
+	function supportedAppearance(theme, appearance) {
+		if (!hasTheme(theme)) theme = FALLBACK_THEME;
+		var support = THEME_SUPPORT[theme];
+		appearance = normalizedAppearance(appearance);
+		if (support[appearance]) return appearance;
+		return support.dark ? 'dark' : 'light';
+	}
+
+	function isFixedTheme(theme) {
+		if (!hasTheme(theme)) theme = FALLBACK_THEME;
+		var support = THEME_SUPPORT[theme];
+		return !(support.light && support.dark);
 	}
 
 	function resolveTheme(theme, appearance) {
 		if (!hasTheme(theme)) theme = FALLBACK_THEME;
 		var support = THEME_SUPPORT[theme];
-		var preferred = preferredAppearance(appearance);
+		var preferred = supportedAppearance(theme, appearance);
 		return support[preferred] || support.dark || support.light || THEME_SUPPORT[FALLBACK_THEME].dark;
 	}
 
 	function syncThemeControl(theme, appearance) {
 		var select = document.getElementById('dashboard-theme-select');
-		var appearanceSelect = document.getElementById('dashboard-appearance-select');
+		var toggle = document.getElementById('dashboard-appearance-toggle');
 		var swatch = document.getElementById('dashboard-theme-swatch');
 		if (select) select.value = theme;
-		if (appearanceSelect) appearanceSelect.value = appearance;
+		appearance = supportedAppearance(theme, appearance);
+		if (toggle) {
+			var fixed = isFixedTheme(theme);
+			var dark = appearance === 'dark';
+			toggle.disabled = fixed;
+			toggle.classList.toggle('is-fixed', fixed);
+			toggle.classList.toggle('is-dark', dark);
+			toggle.classList.toggle('is-light', !dark);
+			toggle.setAttribute('aria-pressed', dark ? 'true' : 'false');
+			var label = fixed
+				? ((select && select.selectedOptions && select.selectedOptions[0] ? select.selectedOptions[0].textContent : theme) + ' is ' + appearance + ' only')
+				: (dark ? 'Switch to light mode' : 'Switch to dark mode');
+			toggle.setAttribute('aria-label', label);
+			toggle.setAttribute('title', label);
+			var moon = toggle.querySelector('.appearance-icon-moon');
+			var sun = toggle.querySelector('.appearance-icon-sun');
+			if (moon) moon.classList.toggle('hidden', !dark);
+			if (sun) sun.classList.toggle('hidden', dark);
+		}
 		if (swatch) {
 			var label = select && select.selectedOptions && select.selectedOptions[0]
 				? select.selectedOptions[0].textContent
 				: theme;
-			if (appearanceSelect && appearanceSelect.selectedOptions && appearanceSelect.selectedOptions[0]) {
-				label += ' / ' + appearanceSelect.selectedOptions[0].textContent;
-			}
+			label += ' / ' + appearance;
 			swatch.setAttribute('title', label);
 		}
 	}
 
 	function applyTheme(theme, appearance, persist) {
 		if (!hasTheme(theme)) theme = FALLBACK_THEME;
-		if (!hasAppearance(appearance)) appearance = FALLBACK_APPEARANCE;
+		appearance = supportedAppearance(theme, appearance);
 		var resolved = resolveTheme(theme, appearance);
 		document.documentElement.setAttribute('data-dashboard-theme', resolved);
 		if (persist) {
@@ -109,6 +134,15 @@
 	window.setDashboardAppearance = function(appearance) {
 		applyTheme(storageGet(STORAGE_KEY) || FALLBACK_THEME, appearance, true);
 	};
+	window.toggleDashboardAppearance = function() {
+		var theme = storageGet(STORAGE_KEY) || FALLBACK_THEME;
+		var current = supportedAppearance(theme, storageGet(APPEARANCE_KEY) || FALLBACK_APPEARANCE);
+		if (isFixedTheme(theme)) {
+			applyTheme(theme, current, true);
+			return;
+		}
+		applyTheme(theme, current === 'dark' ? 'light' : 'dark', true);
+	};
 	window.dashboardThemeIDs = THEME_IDS.slice();
 
 	var initialTheme = storageGet(STORAGE_KEY) || FALLBACK_THEME;
@@ -120,25 +154,6 @@
 		select.addEventListener('change', function() {
 			applyTheme(select.value, storageGet(APPEARANCE_KEY) || FALLBACK_APPEARANCE, true);
 		});
-	}
-	var appearanceSelect = document.getElementById('dashboard-appearance-select');
-	if (appearanceSelect) {
-		appearanceSelect.addEventListener('change', function() {
-			applyTheme(storageGet(STORAGE_KEY) || FALLBACK_THEME, appearanceSelect.value, true);
-		});
-	}
-	if (window.matchMedia) {
-		var media = window.matchMedia('(prefers-color-scheme: light)');
-		var onSchemeChange = function() {
-			if ((storageGet(APPEARANCE_KEY) || FALLBACK_APPEARANCE) === 'system') {
-				applyTheme(storageGet(STORAGE_KEY) || FALLBACK_THEME, 'system', false);
-			}
-		};
-		if (typeof media.addEventListener === 'function') {
-			media.addEventListener('change', onSchemeChange);
-		} else if (typeof media.addListener === 'function') {
-			media.addListener(onSchemeChange);
-		}
 	}
 })();
 
@@ -394,8 +409,10 @@
 		var btn = document.getElementById('timeline-toggle-btn');
 		if (!btn) return;
 		var collapsed = isCollapsed();
-		btn.textContent = collapsed ? 'Show Timeline' : 'Hide Timeline';
 		btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+		var label = collapsed ? 'Expand activity timeline' : 'Collapse activity timeline';
+		btn.setAttribute('aria-label', label);
+		btn.setAttribute('title', label);
 	}
 
 	function setSidebarWidth(w) {
@@ -409,12 +426,14 @@
 			storageSet('beacon-timeline-prev-width', current);
 		}
 		sidebar.classList.add('collapsed');
+		document.documentElement.setAttribute('data-beacon-timeline-collapsed', 'true');
 		storageSet('beacon-timeline-width', '0');
 		syncToggleButton();
 	}
 
 	function expand(w) {
 		sidebar.classList.remove('collapsed');
+		document.documentElement.removeAttribute('data-beacon-timeline-collapsed');
 		setSidebarWidth(w);
 		storageSet('beacon-timeline-width', w);
 		syncToggleButton();
@@ -428,7 +447,9 @@
 	var savedWidth = storageGet('beacon-timeline-width');
 	if (savedWidth === '0') {
 		sidebar.classList.add('collapsed');
+		document.documentElement.setAttribute('data-beacon-timeline-collapsed', 'true');
 	} else {
+		document.documentElement.removeAttribute('data-beacon-timeline-collapsed');
 		var w = parseInt(savedWidth, 10);
 		if (w && w >= MIN_WIDTH && w <= MAX_WIDTH) {
 			setSidebarWidth(w);
@@ -463,6 +484,7 @@
 		// If collapsed, uncollapse so drag can set a width
 		if (isCollapsed()) {
 			sidebar.classList.remove('collapsed');
+			document.documentElement.removeAttribute('data-beacon-timeline-collapsed');
 			setSidebarWidth(0);
 		}
 		document.body.style.cursor = 'col-resize';

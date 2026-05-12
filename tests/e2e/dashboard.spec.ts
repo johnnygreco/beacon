@@ -110,12 +110,14 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator('#timeline-toggle-btn').click();
     await expect(page.locator('#timeline-sidebar')).toHaveClass(/collapsed/);
     await expect(page.locator('#timeline-toggle-btn')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('html')).toHaveAttribute('data-beacon-timeline-collapsed', 'true');
     await expectEqualDashboardChartHeights(page);
     expect(await page.evaluate(() => localStorage.getItem('beacon-timeline-width'))).toBe('0');
 
     await page.locator('#timeline-toggle-btn').click();
     await expect(page.locator('#timeline-sidebar')).not.toHaveClass(/collapsed/);
     await expect(page.locator('#timeline-toggle-btn')).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('html')).not.toHaveAttribute('data-beacon-timeline-collapsed', 'true');
     await page.waitForFunction(() => {
       const sidebar = document.getElementById('timeline-sidebar');
       return sidebar ? Math.round(sidebar.getBoundingClientRect().width) >= 370 : false;
@@ -188,11 +190,15 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#timeline-sidebar')).not.toHaveClass(/collapsed/);
 
     const themeSelect = page.locator('#dashboard-theme-select');
-    const appearanceSelect = page.locator('#dashboard-appearance-select');
+    const appearanceToggle = page.locator('#dashboard-appearance-toggle');
     await expect(themeSelect).toBeVisible();
-    await expect(appearanceSelect).toBeVisible();
+    await expect(appearanceToggle).toBeVisible();
+    await expect(page.locator('#dashboard-appearance-select')).toHaveCount(0);
+    await expect(page.locator('#dashboard-theme-control')).not.toContainText('Theme');
+    await expect(page.locator('#dashboard-refresh-btn')).toHaveText('');
+    await expect(page.locator('#timeline-toggle-btn')).toHaveText('');
+    await expect(page.locator('#dashboard-search-clear')).toHaveText('');
     expect(await themeSelect.locator('option').count()).toBeGreaterThanOrEqual(28);
-    await appearanceSelect.selectOption('dark');
     await themeSelect.selectOption('catppuccin');
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-dark');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-theme'))).toBe('catppuccin');
@@ -200,16 +206,27 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-resolved-theme'))).toBe('catppuccin-dark');
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dash-accent').trim())).toBe('#cba6f7');
 
-    await appearanceSelect.selectOption('light');
+    await appearanceToggle.click();
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
+    await expect(appearanceToggle).toHaveAttribute('aria-pressed', 'false');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-appearance'))).toBe('light');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-resolved-theme'))).toBe('catppuccin-light');
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dash-accent').trim())).toBe('#8839ef');
 
+    await themeSelect.selectOption('dracula');
+    await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'dracula-dark');
+    await expect(appearanceToggle).toBeDisabled();
+    await expect(appearanceToggle).toHaveAttribute('aria-pressed', 'true');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-appearance'))).toBe('dark');
+
+    await themeSelect.selectOption('catppuccin');
+    await appearanceToggle.click();
+    await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
+
     await gotoDashboard(page);
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
     await expect(themeSelect).toHaveValue('catppuccin');
-    await expect(appearanceSelect).toHaveValue('light');
+    await expect(appearanceToggle).toHaveAttribute('aria-pressed', 'false');
 
     await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
@@ -254,6 +271,25 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator('#inspector-full-link').click();
     await expect(page).toHaveURL(new RegExp(`/sessions/${TEST_SESSION_ID}$`));
     await expect(page.locator('#btn-collapse-all')).toBeVisible();
+
+    await guards.expectClean();
+  });
+
+  test('restores a collapsed timeline before dashboard paint after transcript navigation', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+    await page.addInitScript(() => {
+      localStorage.setItem('beacon-timeline-width', '0');
+      localStorage.setItem('beacon-timeline-prev-width', '420');
+    });
+
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('link', { name: 'Dashboard' }).click();
+    await page.waitForURL('**/');
+    await expect(page.locator('html')).toHaveAttribute('data-beacon-timeline-collapsed', 'true');
+    await expect(page.locator('#timeline-sidebar')).toHaveClass(/collapsed/);
+    const width = await page.locator('#timeline-sidebar').evaluate((el) => Math.round(el.getBoundingClientRect().width));
+    expect(width).toBe(0);
 
     await guards.expectClean();
   });

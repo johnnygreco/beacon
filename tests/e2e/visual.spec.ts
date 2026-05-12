@@ -112,8 +112,8 @@ test.describe('dashboard visual regression baselines', () => {
     await installDashboardFixtures(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoDashboard(page);
-    await page.locator('#dashboard-appearance-select').selectOption('light');
     await page.locator('#dashboard-theme-select').selectOption('catppuccin');
+    await page.locator('#dashboard-appearance-toggle').click();
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
 
     await page.goto(`/sessions/${TEST_SESSION_ID}#event-older-001`, { waitUntil: 'domcontentloaded' });

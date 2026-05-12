@@ -869,20 +869,22 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 			GROUP BY tool_name ORDER BY calls DESC
 		),
 		model_breakdown AS (
-			SELECT COALESCE(model, 'unknown') AS model,
-			       COALESCE(provider, '') AS provider,
+			SELECT COALESCE(NULLIF(model, ''), NULLIF(?, ''), 'unknown') AS model,
+			       COALESCE(NULLIF(provider, ''), NULLIF(?, ''), 'unknown') AS provider,
 			       COALESCE(SUM(input_tokens), 0) AS input,
 			       COALESCE(SUM(output_tokens), 0) AS output,
-			       COALESCE(SUM(cache_read_tokens), 0) AS cache_read
+			       COALESCE(SUM(cache_read_tokens), 0) AS cache_read,
+			       COALESCE(SUM(total_tokens), 0) AS total
 			FROM session_analytics
-			WHERE model IS NOT NULL AND model != '' AND model != '<synthetic>'
-			GROUP BY provider, model ORDER BY (input + output) DESC
+			WHERE COALESCE(model, '') != '<synthetic>'
+			  AND (input_tokens != 0 OR output_tokens != 0 OR cache_read_tokens != 0 OR total_tokens != 0)
+			GROUP BY provider, model ORDER BY total DESC
 		)
 		SELECT 'token' AS kind, timestamp, toInt64(tokens_total), '' AS tool_name, toInt64(0) AS calls, toFloat64(0) AS avg_dur, '' AS model, '' AS provider, toInt64(0) AS input, toInt64(0) AS output, toInt64(0) AS cache_read FROM token_series
 		UNION ALL
 		SELECT 'tool', toDateTime64(0, 3), toInt64(0), tool_name, toInt64(calls), toFloat64(avg_duration), '', '', toInt64(0), toInt64(0), toInt64(0) FROM tool_stats
 		UNION ALL
-		SELECT 'model', toDateTime64(0, 3), toInt64(0), '', toInt64(0), toFloat64(0), model, provider, toInt64(input), toInt64(output), toInt64(cache_read) FROM model_breakdown`, id)
+		SELECT 'model', toDateTime64(0, 3), toInt64(total), '', toInt64(0), toFloat64(0), model, provider, toInt64(input), toInt64(output), toInt64(cache_read) FROM model_breakdown`, id, session.ActiveModel, session.Provider)
 	if err != nil {
 		return data, nil // Return partial data on query error
 	}
@@ -909,13 +911,19 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 			stat.IsMCP = models.IsMCPTool(toolName)
 			data.ToolStats = append(data.ToolStats, stat)
 		case "model":
+			if input == 0 && output == 0 && cacheRead == 0 && totalTokens > 0 {
+				output = totalTokens
+			}
 			mt := views.ModelTokens{
 				Model:     model,
 				Provider:  provider,
 				Input:     input,
 				Output:    output,
 				CacheRead: cacheRead,
-				Total:     input + output,
+				Total:     totalTokens,
+			}
+			if mt.Total == 0 {
+				mt.Total = input + output + cacheRead
 			}
 			data.TokensByModel = append(data.TokensByModel, mt)
 		}

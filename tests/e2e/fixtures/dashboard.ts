@@ -386,7 +386,7 @@ function transcriptFixtureHTML() {
     <title>Session ${TEST_SESSION_ID} | Beacon</title>
     <script>
       (function() {
-        var fallbackTheme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'codex-light' : 'codex-dark';
+        var fallbackTheme = 'codex-dark';
         var theme = fallbackTheme;
         try { theme = localStorage.getItem('beacon-dashboard-resolved-theme') || theme; } catch (err) {}
         if (!/^[a-z0-9-]+$/.test(theme)) theme = fallbackTheme;

@@ -10,9 +10,7 @@ templ Layout(title string) {
 		<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/>
 		<script>
 		(function() {
-			var fallbackTheme = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
-				? 'codex-light'
-				: 'codex-dark';
+			var fallbackTheme = 'codex-dark';
 			var theme = fallbackTheme;
 			try {
 				theme = localStorage.getItem('beacon-dashboard-resolved-theme') || theme;
