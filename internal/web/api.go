@@ -125,6 +125,8 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 	}
 	rangeVal := r.URL.Query().Get("range")
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	sortKey := r.URL.Query().Get("sort")
+	sortAsc := strings.EqualFold(r.URL.Query().Get("direction"), "asc")
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	if offset < 0 {
 		offset = 0
@@ -145,7 +147,7 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 			a.jsonError(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		sessions, hasMore = QueryCompletedSessionsFiltered(r.Context(), a.db, parseRange(rangeVal), offset, limit, query, eventSessionIDs)
+		sessions, hasMore = QueryCompletedSessionsFiltered(r.Context(), a.db, parseRange(rangeVal), offset, limit, query, eventSessionIDs, sortKey, sortAsc)
 		state = "completed"
 	}
 

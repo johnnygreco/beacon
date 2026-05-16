@@ -498,18 +498,35 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 // QueryActiveSessions returns active session summaries only.
 // Active sessions are those with recent activity and no definitive end signal.
 func QueryActiveSessions(ctx context.Context, db *sql.DB) []views.SessionSummary {
+	return queryActiveSessions(ctx, db, 0)
+}
+
+func QueryActiveSessionsLimited(ctx context.Context, db *sql.DB, limit int) []views.SessionSummary {
+	if limit <= 0 || limit > 200 {
+		limit = 200
+	}
+	return queryActiveSessions(ctx, db, limit)
+}
+
+func queryActiveSessions(ctx context.Context, db *sql.DB, limit int) []views.SessionSummary {
 	now := time.Now()
 	// Use Go's time.Now() (UTC-aware) instead of SQL current_timestamp to avoid
 	// timezone mismatch — stored timestamps are UTC but current_timestamp is local.
 	cutoff := now.Add(-idleThreshold)
 
 	// Fetch active sessions: recent activity AND not explicitly ended.
-	activeRows, err := db.QueryContext(ctx,
-		`SELECT `+sessionSummaryColumns+`
-		 FROM `+sessionProjectionSQL+`
+	query := `SELECT ` + sessionSummaryColumns + `
+		 FROM ` + sessionProjectionSQL + `
 		 WHERE ended_at >= ?
 		   AND COALESCE(has_session_end, 0) = 0
-		 ORDER BY ended_at DESC`, cutoff)
+		 ORDER BY ended_at DESC`
+	args := []any{cutoff}
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	activeRows, err := db.QueryContext(ctx,
+		query, args...)
 	if err != nil {
 		return nil
 	}
@@ -559,13 +576,13 @@ func QueryRecentActivity(ctx context.Context, db *sql.DB) []views.ActivityItem {
 // QueryCompletedSessions returns paginated completed sessions with optional time filter.
 // Only returns parent sessions (excludes subagents); subagent counts are attached.
 func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int) ([]views.SessionSummary, bool) {
-	return QueryCompletedSessionsFiltered(ctx, db, since, offset, limit, "", nil)
+	return QueryCompletedSessionsFiltered(ctx, db, since, offset, limit, "", nil, "ended", false)
 }
 
 // QueryCompletedSessionsFiltered returns paginated completed sessions with optional
 // time and text filters. Search matches session metadata plus session IDs
 // discovered by the tokenized event search path.
-func QueryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int, searchText string, eventSessionIDs []string) ([]views.SessionSummary, bool) {
+func QueryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int, searchText string, eventSessionIDs []string, sortKey string, sortAsc bool) ([]views.SessionSummary, bool) {
 	cutoff := time.Now().Add(-idleThreshold)
 	query := `SELECT ` + sessionSummaryColumns + `
 		 FROM ` + sessionProjectionSQL + `
@@ -582,7 +599,7 @@ func QueryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time
 		query += clause
 		args = append(args, searchArgs...)
 	}
-	query += ` ORDER BY ended_at DESC, session_id DESC`
+	query += completedSessionsOrderBy(sortKey, sortAsc)
 	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit+1, offset)
 
 	rows, err := db.QueryContext(ctx, query, args...)
@@ -609,6 +626,40 @@ func QueryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time
 	}
 	attachSubagentCounts(ctx, db, sessions)
 	return sessions, hasMore
+}
+
+func completedSessionsOrderBy(sortKey string, asc bool) string {
+	direction := "DESC"
+	if asc {
+		direction = "ASC"
+	}
+	var expr string
+	switch sortKey {
+	case "name":
+		expr = "lower(COALESCE(NULLIF(replaceRegexpOne(if(position(COALESCE(working_dir, ''), '/.claude/worktrees/') > 0, substring(COALESCE(working_dir, ''), 1, position(COALESCE(working_dir, ''), '/.claude/worktrees/') - 1), replaceRegexpOne(COALESCE(working_dir, ''), '/+$', '')), '^.*/', ''), ''), NULLIF(source_name, ''), session_id))"
+	case "provider":
+		expr = "lower(COALESCE(provider, ''))"
+	case "model":
+		expr = "lower(COALESCE(last_model, ''))"
+	case "tokens":
+		expr = "COALESCE(total_tokens, 0)"
+	case "turns":
+		expr = "COALESCE(turn_count, 0)"
+	case "tools":
+		expr = "COALESCE(tool_call_count, 0)"
+	case "duration":
+		expr = "dateDiff('second', started_at, ended_at)"
+	case "project":
+		expr = "lower(COALESCE(working_dir, ''))"
+	case "id":
+		expr = "session_id"
+	case "ended", "":
+		expr = "ended_at"
+	default:
+		expr = "ended_at"
+		direction = "DESC"
+	}
+	return " ORDER BY " + expr + " " + direction + ", ended_at DESC, session_id DESC"
 }
 
 func completedSessionSearchClause(searchText string, eventSessionIDs []string) (string, []any) {
