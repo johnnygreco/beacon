@@ -24,10 +24,10 @@ templ ChartContainerWithOptions(id string, height string, title string, logToggl
 				>
 					Log Scale
 				</button>
-			}
-		</div>
-		<div style={ "position:relative;height:" + height }>
-			<canvas id={ id } data-default-log={ strconv.FormatBool(defaultLog) }></canvas>
+				}
+			</div>
+			<div style={ "position:relative;height:" + height }>
+			<canvas id={ id } data-default-log={ strconv.FormatBool(defaultLog) } role="img" aria-label={ chartAccessibleLabel(id, title) }></canvas>
 		</div>
 	</div>
 }
@@ -37,6 +37,13 @@ func logToggleClass(active bool) string {
 		return "log-scale-toggle px-2 py-1 text-xs rounded border bg-blue-500/20 text-blue-400 border-blue-500/40 hover:text-blue-300 transition-colors whitespace-nowrap"
 	}
 	return "log-scale-toggle px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors whitespace-nowrap"
+}
+
+func chartAccessibleLabel(id string, title string) string {
+	if title != "" {
+		return title + " chart"
+	}
+	return id + " chart"
 }
 
 script toggleLogScale(chartId string) {

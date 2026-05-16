@@ -14,7 +14,6 @@ var md = goldmark.New(
 	goldmark.WithExtensions(extension.GFM),
 	goldmark.WithRendererOptions(
 		html.WithHardWraps(),
-		html.WithUnsafe(), // we control the input (Claude output)
 	),
 )
 

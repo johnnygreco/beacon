@@ -5,6 +5,7 @@
   'use strict';
 
   var currentTranscriptView = 'chat';
+  var detailOpenState = null;
 
   // --- Truncation toggle (initial state set server-side via class) ---
   window.toggleTruncation = function(el) {
@@ -82,9 +83,21 @@
     var expandBtn = document.getElementById('btn-expand-all');
     var collapseBtn = document.getElementById('btn-collapse-all');
 
-    if (!chatView || !timelineView) return;
-
     currentTranscriptView = view === 'timeline' ? 'timeline' : 'chat';
+
+    if (btn && btn.parentElement) {
+      var buttons = btn.parentElement.querySelectorAll('button[onclick^="switchView"]');
+      buttons.forEach(function(b) {
+        b.classList.remove('bg-blue-500/20', 'text-blue-400', 'border-blue-500/40');
+        b.classList.add('bg-gray-800', 'text-gray-500', 'border-gray-700');
+        b.setAttribute('aria-pressed', 'false');
+      });
+      btn.classList.remove('bg-gray-800', 'text-gray-500', 'border-gray-700');
+      btn.classList.add('bg-blue-500/20', 'text-blue-400', 'border-blue-500/40');
+      btn.setAttribute('aria-pressed', 'true');
+    }
+
+    if (!chatView || !timelineView) return;
 
     if (currentTranscriptView === 'chat') {
       chatView.classList.remove('hidden');
@@ -97,18 +110,6 @@
       if (expandBtn) expandBtn.classList.add('hidden');
       if (collapseBtn) collapseBtn.classList.add('hidden');
     }
-
-    if (!btn || !btn.parentElement) return;
-
-    var buttons = btn.parentElement.querySelectorAll('button[onclick^="switchView"]');
-    buttons.forEach(function(b) {
-      b.classList.remove('bg-blue-500/20', 'text-blue-400', 'border-blue-500/40');
-      b.classList.add('bg-gray-800', 'text-gray-500', 'border-gray-700');
-      b.setAttribute('aria-pressed', 'false');
-    });
-    btn.classList.remove('bg-gray-800', 'text-gray-500', 'border-gray-700');
-    btn.classList.add('bg-blue-500/20', 'text-blue-400', 'border-blue-500/40');
-    btn.setAttribute('aria-pressed', 'true');
   }
 
   window.switchView = function(view, btn) {
@@ -130,6 +131,24 @@
     setTranscriptView(transcriptViewFromButton(activeButton), activeButton);
   }
 
+  function snapshotDetails() {
+    var container = document.getElementById('conversation-container');
+    if (!container) return;
+    detailOpenState = {};
+    container.querySelectorAll('#chat-view details[id]').forEach(function(detail) {
+      detailOpenState[detail.id] = detail.open;
+    });
+  }
+
+  function restoreDetails() {
+    if (!detailOpenState) return;
+    Object.keys(detailOpenState).forEach(function(id) {
+      var detail = document.getElementById(id);
+      if (detail && detail.tagName === 'DETAILS') detail.open = detailOpenState[id];
+    });
+    detailOpenState = null;
+  }
+
   function initConversationObserver() {
     var container = document.getElementById('conversation-container');
     if (!container || container.dataset.transcriptObserver === 'true') return;
@@ -141,8 +160,16 @@
     observer.observe(container, { childList: true });
   }
 
+  document.addEventListener('htmx:beforeSwap', function(e) {
+    var container = document.getElementById('conversation-container');
+    if (container && (e.detail.target === container || container.contains(e.detail.target))) {
+      snapshotDetails();
+    }
+  });
+
   document.addEventListener('htmx:afterSwap', function(e) {
     initHighlighting(e.detail.target);
+    restoreDetails();
     initConversationObserver();
     window.requestAnimationFrame(function() {
       restoreTranscriptViewAfterSwap(e.detail.target);
