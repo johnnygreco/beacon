@@ -159,6 +159,56 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('keeps chart hover labels anchored away from cursor travel', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await gotoDashboard(page);
+
+    const canvas = page.locator('#dashboardTokenCumulativeChart');
+    await expect(canvas).toBeVisible();
+    await page.waitForFunction(() => Boolean((window as Window & { dashboardTokenCumulativeChart?: any }).dashboardTokenCumulativeChart?.chartArea?.right));
+    const points = await page.evaluate(() => {
+      const chart = (window as Window & { dashboardTokenCumulativeChart?: any }).dashboardTokenCumulativeChart;
+      return chart.data.datasets.slice(0, 2).map((dataset: { label: string }, datasetIndex: number) => {
+        const elements = chart.getDatasetMeta(datasetIndex).data;
+        const point = elements[Math.min(3 + datasetIndex, elements.length - 1)];
+        return { label: dataset.label, x: point.x, y: point.y };
+      });
+    });
+    expect(points.length).toBeGreaterThanOrEqual(2);
+
+    const box = await canvas.boundingBox();
+    expect(box).not.toBeNull();
+    if (!box) return;
+    const readTooltip = async () => page.evaluate(() => {
+      const chart = (window as Window & { dashboardTokenCumulativeChart?: any }).dashboardTokenCumulativeChart;
+      const tooltip = chart.tooltip;
+      return {
+        opacity: tooltip.opacity,
+        caretX: Math.round(tooltip.caretX),
+        caretY: Math.round(tooltip.caretY),
+        body: (tooltip.body || []).map((line: { lines: string[] }) => line.lines.join(' ')).join('\n'),
+      };
+    });
+
+    await page.mouse.move(box.x + points[0].x, box.y + points[0].y);
+    await page.waitForFunction(() => (window as Window & { dashboardTokenCumulativeChart?: any }).dashboardTokenCumulativeChart.tooltip.opacity === 1);
+    const firstTooltip = await readTooltip();
+
+    await page.mouse.move(box.x + points[1].x, box.y + points[1].y);
+    await page.waitForFunction(() => (window as Window & { dashboardTokenCumulativeChart?: any }).dashboardTokenCumulativeChart.tooltip.opacity === 1);
+    const secondTooltip = await readTooltip();
+
+    expect(firstTooltip.opacity).toBe(1);
+    expect(secondTooltip.opacity).toBe(1);
+    expect(secondTooltip.caretX).toBe(firstTooltip.caretX);
+    expect(secondTooltip.caretY).toBe(firstTooltip.caretY);
+    expect(secondTooltip.body).not.toBe(firstTooltip.body);
+
+    await guards.expectClean();
+  });
+
   test('exercises dashboard controls, search, sorting, pagination, subagents, and timeline sizing', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);
@@ -186,12 +236,23 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#dashboard-range-caption')).toHaveText('All time');
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
 
-    await page.locator('#dashboardTokenCumulativeChart-model-dropdown .model-dropdown-trigger').click();
-    await expect(page.locator('#dashboardTokenCumulativeChart-model-dropdown .model-dropdown-panel')).toBeVisible();
-    await page.locator('#dashboardTokenCumulativeChart-model-dropdown input[data-model]').first().uncheck();
-    await expect(page.locator('#dashboardTokenCumulativeChart-model-dropdown .model-dropdown-label')).toHaveText('Models (2/3)');
+    const modelDropdown = page.locator('#dashboardTokenCumulativeChart-model-dropdown');
+    const modelDropdownTrigger = modelDropdown.locator('.model-dropdown-trigger');
+    const modelDropdownPanel = modelDropdown.locator('.model-dropdown-panel');
+    await modelDropdownTrigger.click();
+    await expect(modelDropdownPanel).toBeVisible();
+    await expect(modelDropdownTrigger).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press('Escape');
+    await expect(modelDropdownPanel).toHaveClass(/hidden/);
+    await expect(modelDropdownTrigger).toHaveAttribute('aria-expanded', 'false');
+    await expect(modelDropdownTrigger).toBeFocused();
+    await modelDropdownTrigger.click();
+    await expect(modelDropdownPanel).toBeVisible();
+    await modelDropdown.locator('input[data-model]').first().uncheck();
+    await expect(modelDropdown.locator('.model-dropdown-label')).toHaveText('Models (2/3)');
     await page.mouse.click(20, 20);
-    await expect(page.locator('#dashboardTokenCumulativeChart-model-dropdown .model-dropdown-panel')).toHaveClass(/hidden/);
+    await expect(modelDropdownPanel).toHaveClass(/hidden/);
+    await expect(modelDropdownTrigger).toHaveAttribute('aria-expanded', 'false');
 
     await page.locator('#dashboard-model-metric-control').getByRole('button', { name: 'Tools' }).click();
     await expect(page.locator('#dashboard-model-metric-control').getByRole('button', { name: 'Tools' })).toHaveAttribute('aria-pressed', 'true');
@@ -203,6 +264,8 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator('#timeline-toggle-btn').click();
     await expect(page.locator('#timeline-sidebar')).toHaveClass(/collapsed/);
     await expect(page.locator('#timeline-toggle-btn')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#timeline-sidebar')).toHaveAttribute('inert', '');
+    await expect(page.locator('#timeline-sidebar')).toHaveAttribute('aria-hidden', 'true');
     await expect(page.locator('html')).toHaveAttribute('data-beacon-timeline-collapsed', 'true');
     await expectEqualDashboardChartHeights(page);
     expect(await page.evaluate(() => localStorage.getItem('beacon-timeline-width'))).toBe('0');
@@ -210,6 +273,8 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator('#timeline-toggle-btn').click();
     await expect(page.locator('#timeline-sidebar')).not.toHaveClass(/collapsed/);
     await expect(page.locator('#timeline-toggle-btn')).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#timeline-sidebar')).not.toHaveAttribute('inert', '');
+    await expect(page.locator('#timeline-sidebar')).not.toHaveAttribute('aria-hidden', 'true');
     await expect(page.locator('html')).not.toHaveAttribute('data-beacon-timeline-collapsed', 'true');
     await page.waitForFunction(() => {
       const sidebar = document.getElementById('timeline-sidebar');
@@ -283,13 +348,18 @@ test.describe('dashboard battle-tested workflows', () => {
 
     await page.locator('.json-page-btn', { hasText: 'Next' }).click();
     await waitForCompletedRows(page, 1);
-    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-id', 'session-completed-030');
+    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-id', TEST_SESSION_ID);
     await page.locator('.json-page-btn', { hasText: 'Previous' }).click();
     await waitForCompletedRows(page, 30);
 
+    await page.locator('#dashboard-session-search').fill('migration');
+    await waitForCompletedRows(page, 1);
     await page.locator(`button.json-subagent-toggle[data-session-id="${TEST_SESSION_ID}"]`).click();
     await expect(page.locator(`tr[data-parent="${TEST_SESSION_ID}"]`)).toHaveCount(2);
     await expect(page.locator(`button.json-subagent-toggle[data-session-id="${TEST_SESSION_ID}"]`)).toHaveAttribute('aria-expanded', 'true');
+    await page.locator('#dashboard-search-clear').click();
+    await waitForCompletedRows(page, 30);
+    await page.locator('#dashboard-wrap').click({ position: { x: 20, y: 20 } });
 
     await page.keyboard.press('t');
     await expect(page.locator('#timeline-sidebar')).toHaveClass(/collapsed/);
@@ -322,6 +392,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(appearanceToggle).toHaveAttribute('aria-label', 'Dark mode');
     await expect(appearanceToggle).toHaveAttribute('title', 'Switch to dark mode');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-appearance'))).toBe('light');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-preferred-appearance'))).toBe('light');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-resolved-theme'))).toBe('catppuccin-light');
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--dash-accent').trim())).toBe('#8839ef');
 
@@ -333,8 +404,8 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-appearance'))).toBe('dark');
 
     await themeSelect.selectOption('catppuccin');
-    await appearanceToggle.click();
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
+    await expect(appearanceToggle).toHaveAttribute('aria-checked', 'false');
 
     await gotoDashboard(page);
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
@@ -362,11 +433,31 @@ test.describe('dashboard battle-tested workflows', () => {
     await activeLink.focus();
     await page.keyboard.press('Enter');
     await expect(page.locator('#session-inspector')).toBeVisible();
+    await expect(page.locator('#dashboard-main')).toHaveAttribute('inert', '');
+    await expect(page.locator('#sidebar-divider')).toHaveAttribute('inert', '');
+    await expect(page.locator('#timeline-sidebar')).toHaveAttribute('aria-hidden', 'true');
     await expect(page.locator('#inspector-full-link')).toHaveText('View Transcript');
     await page.keyboard.press('Escape');
     await expect(page.locator('#session-inspector')).toHaveClass(/hidden/);
+    await expect(page.locator('#dashboard-main')).not.toHaveAttribute('inert', '');
+    await expect(page.locator('#sidebar-divider')).not.toHaveAttribute('inert', '');
+    await expect(page.locator('#timeline-sidebar')).not.toHaveAttribute('aria-hidden', 'true');
     await expect(activeLink).toBeFocused();
 
+    await page.locator('#timeline-toggle-btn').click();
+    await expect(page.locator('#timeline-sidebar')).toHaveClass(/collapsed/);
+    await activeLink.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#session-inspector')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#session-inspector')).toHaveClass(/hidden/);
+    await expect(page.locator('#timeline-sidebar')).toHaveAttribute('inert', '');
+    await expect(page.locator('#timeline-sidebar')).toHaveAttribute('aria-hidden', 'true');
+    await page.locator('#timeline-toggle-btn').click();
+    await expect(page.locator('#timeline-sidebar')).not.toHaveClass(/collapsed/);
+
+    await page.locator('#dashboard-session-search').fill('migration');
+    await waitForCompletedRows(page, 1);
     const completedRow = page.locator(`tr[data-sort-id="${TEST_SESSION_ID}"]`);
     const completedOpenButton = completedRow.locator('.session-row-open');
     await expect(completedOpenButton).toHaveAttribute('aria-label', /Open session/);
