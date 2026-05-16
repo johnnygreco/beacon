@@ -181,6 +181,13 @@
 	var inspectorLauncher = null;
 	var inspectorLauncherSession = '';
 
+	function validInspectorRestoreTarget(el) {
+		if (!el || !el.isConnected || typeof el.focus !== 'function') return null;
+		if (inspector && inspector.contains(el)) return null;
+		if (el.closest('[hidden], .hidden, [inert], [aria-hidden="true"]')) return null;
+		return el;
+	}
+
 	function setInspectorBackgroundInert(disabled) {
 		['dashboard-main', 'sidebar-divider', 'timeline-sidebar'].forEach(function(id) {
 			var el = document.getElementById(id);
@@ -301,7 +308,7 @@
 		return normalized;
 	}
 
-	async function openSessionInspector(id) {
+	async function openSessionInspector(id, launcher) {
 		var seq = ++inspectorSeq;
 		if (inspectorController) {
 			inspectorController.abort();
@@ -309,7 +316,7 @@
 		abortPayloadFetches();
 		inspectorController = window.AbortController ? new AbortController() : null;
 		selectedSessionId = id;
-		inspectorLauncher = document.activeElement;
+		inspectorLauncher = validInspectorRestoreTarget(launcher) || validInspectorRestoreTarget(document.activeElement);
 		inspectorLauncherSession = id;
 		inspector.classList.remove('hidden');
 		setInspectorBackgroundInert(true);
@@ -341,15 +348,16 @@
 			inspectorController = null;
 		}
 		abortPayloadFetches();
-		var restoreTarget = inspectorLauncher && inspectorLauncher.isConnected ? inspectorLauncher : null;
+		setInspectorBackgroundInert(false);
+		var restoreTarget = validInspectorRestoreTarget(inspectorLauncher);
 		if (!restoreTarget && inspectorLauncherSession) {
 			var sessionURL = '/sessions/' + encodeURIComponent(inspectorLauncherSession);
-			restoreTarget = document.querySelector('.session-row-open[data-session-link="' + cssEscape(sessionURL) + '"], a[href="' + cssEscape(sessionURL) + '"]');
+			var matches = Array.from(document.querySelectorAll('.session-row-open[data-session-link="' + cssEscape(sessionURL) + '"], a[href="' + cssEscape(sessionURL) + '"]'));
+			restoreTarget = matches.map(validInspectorRestoreTarget).find(Boolean) || null;
 		}
 		if (!restoreTarget) {
 			restoreTarget = document.getElementById('dashboard-session-search') || document.getElementById('dashboard-refresh-btn');
 		}
-		setInspectorBackgroundInert(false);
 		inspector.classList.add('hidden');
 		selectedSessionId = '';
 		if (restoreTarget && typeof restoreTarget.focus === 'function') {
@@ -359,14 +367,14 @@
 		inspectorLauncherSession = '';
 	};
 
-	window.goToSession = function(url) {
+	window.goToSession = function(url, launcher) {
 		try {
 			var parsed = new URL(String(url || ''), window.location.origin);
 			var segments = parsed.pathname.split('/');
 			var idx = segments.indexOf('sessions');
 			var id = idx >= 0 && idx + 1 < segments.length ? segments[idx + 1] : '';
 			if (id) {
-				openSessionInspector(decodeURIComponent(id));
+				openSessionInspector(decodeURIComponent(id), launcher);
 			}
 		} catch (err) {
 		}
@@ -381,7 +389,7 @@
 		var link = evt.target.closest && evt.target.closest('a[href^="/sessions/"]');
 		if (link && link.id !== 'inspector-full-link' && !link.closest('#activity-feed')) {
 			evt.preventDefault();
-			window.goToSession(link.getAttribute('href'));
+			window.goToSession(link.getAttribute('href'), link);
 			return;
 		}
 		var btn = evt.target.closest && evt.target.closest('.payload-btn');
@@ -1236,13 +1244,13 @@ document.addEventListener('click', function(evt) {
 	if (openBtn) {
 		evt.preventDefault();
 		evt.stopPropagation();
-		window.goToSession(openBtn.getAttribute('data-session-link'));
+		window.goToSession(openBtn.getAttribute('data-session-link'), openBtn);
 		return;
 	}
 	var row = evt.target.closest && evt.target.closest('tr[data-session-link]');
 	if (row && !evt.target.closest('button')) {
 		evt.preventDefault();
-		window.goToSession(row.getAttribute('data-session-link'));
+		window.goToSession(row.getAttribute('data-session-link'), row);
 	}
 });
 

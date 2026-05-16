@@ -456,6 +456,15 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator('#timeline-toggle-btn').click();
     await expect(page.locator('#timeline-sidebar')).not.toHaveClass(/collapsed/);
 
+    await activeLink.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#session-inspector')).toBeVisible();
+    await activeLink.evaluate((el) => el.remove());
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#session-inspector')).toHaveClass(/hidden/);
+    await expect(page.locator('#dashboard-session-search')).toBeFocused();
+    await expect(page.locator('#inspector-full-link')).not.toBeFocused();
+
     await page.locator('#dashboard-session-search').fill('migration');
     await waitForCompletedRows(page, 1);
     const completedRow = page.locator(`tr[data-sort-id="${TEST_SESSION_ID}"]`);
