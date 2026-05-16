@@ -2411,7 +2411,7 @@ body[data-page="transcript"] ::-webkit-scrollbar-thumb:hover {
   pointer-events: auto !important;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   #main-content {
     padding: 1rem;
   }
@@ -2436,6 +2436,14 @@ body[data-page="transcript"] ::-webkit-scrollbar-thumb:hover {
     min-width: 0 !important;
     max-height: 440px;
     border-top: 1px solid var(--dash-border-muted);
+  }
+
+  .timeline-panel.collapsed,
+  html[data-beacon-timeline-collapsed="true"] .timeline-panel {
+    height: 0 !important;
+    max-height: 0 !important;
+    min-height: 0 !important;
+    border-top: 0;
   }
 
   .timeline-panel .activity-filter-btn {
@@ -2530,6 +2538,26 @@ body[data-page="transcript"] ::-webkit-scrollbar-thumb:hover {
     white-space: normal;
   }
 
+  #completed-sessions td:first-child .inline-flex {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  #completed-sessions .session-row-open {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+  }
+
+  #completed-table td:nth-child(3) {
+    max-width: 7rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   #completed-sessions .mobile-session-meta {
     display: block;
     margin-top: 0.2rem;
@@ -2549,7 +2577,8 @@ body[data-page="transcript"] ::-webkit-scrollbar-thumb:hover {
 #completed-sessions tr:nth-child(even) {
   background-color: var(--dash-row-alt);
 }
-#completed-sessions tr:hover {
+#completed-sessions tr:hover,
+#completed-sessions tr:focus-within {
   background-color: var(--dash-row-hover);
 }
 #completed-sessions .session-row-open {
@@ -2638,6 +2667,7 @@ th .sort-arrow.active {
   right: 0;
   z-index: 50;
   min-width: 180px;
+  max-width: min(18rem, calc(100vw - 1rem));
   max-height: 280px;
   overflow-y: auto;
   background: var(--dash-surface);
@@ -2658,6 +2688,12 @@ th .sort-arrow.active {
   color: var(--dash-text-soft);
   cursor: pointer;
   transition: background 0.1s ease;
+}
+.model-dropdown-item span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .model-dropdown-item:hover {
   background: var(--dash-hover);
@@ -2728,4 +2764,15 @@ th .sort-arrow.active {
 }
 pre code.hljs {
   background: transparent !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
 }
