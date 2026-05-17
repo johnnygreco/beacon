@@ -17,6 +17,7 @@ func TestRenderMarkdown(t *testing.T) {
 		{"inline code", "`code`", "<code>code</code>"},
 		{"GFM table", "| A | B |\n| - | - |\n| 1 | 2 |", "<table>"},
 		{"plain text", "hello world", "<p>"},
+		{"raw HTML is omitted", `<img src=x onerror=alert(1)>`, "raw HTML omitted"},
 	}
 
 	for _, tt := range tests {

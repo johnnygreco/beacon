@@ -85,6 +85,39 @@ const noChartAnimation = {
   }
 };
 
+if (Chart.Tooltip && Chart.Tooltip.positioners) {
+  Chart.Tooltip.positioners.dashboardStable = function(elements, eventPosition) {
+    if (!elements || !elements.length) return false;
+    var area = this.chart && this.chart.chartArea;
+    if (!area) return eventPosition || false;
+    return {
+      x: area.right - 10,
+      y: area.top + 10,
+      xAlign: 'right',
+      yAlign: 'top'
+    };
+  };
+}
+
+function stableChartTooltipOptions() {
+  return {
+    position: 'dashboardStable',
+    xAlign: 'right',
+    yAlign: 'top',
+    caretSize: 0,
+    caretPadding: 0,
+    animation: { duration: 0 },
+    animations: {
+      numbers: {
+        type: 'number',
+        properties: ['x', 'y', 'width', 'height', 'caretX', 'caretY'],
+        duration: 0
+      },
+      opacity: { duration: 0 }
+    }
+  };
+}
+
 const timeScaleOptions = {
   type: 'time',
   time: { unit: 'minute', displayFormats: { minute: 'h:mm a' } },
@@ -206,7 +239,10 @@ function createMultiSeriesChart(el, seriesLabels, yTitle, xScale) {
       },
       plugins: {
         legend: { display: true, position: 'top', labels: { usePointStyle: true, boxWidth: 8 } },
-        tooltip: { callbacks: { label: tokenTooltip } }
+        tooltip: {
+          ...stableChartTooltipOptions(),
+          callbacks: { label: tokenTooltip }
+        }
       }
     }
   });
@@ -273,7 +309,8 @@ function modelDatasetFromPayload(ds, index, metricKind) {
     borderWidth: metricKind === 'tokens' ? 2.5 : 2,
     tension: 0.32,
     pointRadius: 0,
-    pointHoverRadius: 3,
+    pointHoverRadius: 5,
+    hitRadius: 10,
     fill: metricKind === 'tokens',
     provider: ds.provider || '',
     providerLabel: ds.provider_label || providerDisplayName(ds.provider),
@@ -319,7 +356,7 @@ function createDashboardModelChart(el, payload, metricKind) {
       ...noChartAnimation,
       responsive: true,
       maintainAspectRatio: false,
-      interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      interaction: { mode: 'nearest', axis: 'xy', intersect: false },
       scales: {
         x: dashboardTimeScale(payload),
         y: {
@@ -330,6 +367,7 @@ function createDashboardModelChart(el, payload, metricKind) {
       plugins: {
         legend: { display: false },
         tooltip: {
+          ...stableChartTooltipOptions(),
           callbacks: {
             label: dashboardModelTooltipLabel,
             footer: dashboardModelTooltipFooter
@@ -421,7 +459,12 @@ function setupSeriesModelFilters(chartName, payload) {
     return;
   }
   if (labels.length <= 1) {
+    if (chart._seriesFilterCloseHandler) {
+      document.removeEventListener('click', chart._seriesFilterCloseHandler);
+      chart._seriesFilterCloseHandler = null;
+    }
     if (existing) existing.remove();
+    chart._seriesFilterSignature = '';
     chart._seriesLabels = labels;
     chart._activeModels = new Set(labels);
     applyStoredSeriesVisibility(chartName);
@@ -470,7 +513,7 @@ function setupSeriesModelFilters(chartName, payload) {
   var trigger = document.createElement('button');
   trigger.type = 'button';
   trigger.className = 'model-dropdown-trigger';
-  trigger.setAttribute('aria-haspopup', 'true');
+  trigger.setAttribute('aria-haspopup', 'dialog');
   trigger.setAttribute('aria-expanded', 'false');
   var triggerLabel = document.createElement('span');
   triggerLabel.className = 'model-dropdown-label';
@@ -491,6 +534,8 @@ function setupSeriesModelFilters(chartName, payload) {
 
   var panel = document.createElement('div');
   panel.className = 'model-dropdown-panel hidden';
+  panel.id = chartName + '-model-dropdown-panel';
+  trigger.setAttribute('aria-controls', panel.id);
   var allRow = document.createElement('label');
   allRow.className = 'model-dropdown-item model-dropdown-all';
   var allCb = document.createElement('input');
@@ -542,17 +587,44 @@ function setupSeriesModelFilters(chartName, payload) {
     headerDiv.appendChild(wrapper);
   }
 
+  function closeSeriesDropdown(focusTrigger) {
+    panel.classList.add('hidden');
+    trigger.classList.remove('open');
+    trigger.setAttribute('aria-expanded', 'false');
+    if (focusTrigger) trigger.focus({preventScroll: true});
+  }
+
+  function openSeriesDropdown() {
+    panel.classList.remove('hidden');
+    trigger.classList.add('open');
+    trigger.setAttribute('aria-expanded', 'true');
+    requestAnimationFrame(function() {
+      clampDropdownPanel(panel);
+    });
+  }
+
   trigger.onclick = function(e) {
     e.stopPropagation();
-    panel.classList.toggle('hidden');
-    trigger.classList.toggle('open', !panel.classList.contains('hidden'));
-    trigger.setAttribute('aria-expanded', panel.classList.contains('hidden') ? 'false' : 'true');
+    if (panel.classList.contains('hidden')) {
+      openSeriesDropdown();
+    } else {
+      closeSeriesDropdown(false);
+    }
   };
+  wrapper.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && !panel.classList.contains('hidden')) {
+      e.preventDefault();
+      closeSeriesDropdown(true);
+    }
+  });
+  wrapper.addEventListener('focusout', function() {
+    setTimeout(function() {
+      if (!wrapper.contains(document.activeElement)) closeSeriesDropdown(false);
+    }, 0);
+  });
   chart._seriesFilterCloseHandler = function(e) {
     if (!wrapper.contains(e.target)) {
-      panel.classList.add('hidden');
-      trigger.classList.remove('open');
-      trigger.setAttribute('aria-expanded', 'false');
+      closeSeriesDropdown(false);
     }
   };
   document.addEventListener('click', chart._seriesFilterCloseHandler);
@@ -578,6 +650,20 @@ function setupSeriesModelFilters(chartName, payload) {
   syncSeriesDropdownState(chartName);
   applyStoredSeriesVisibility(chartName);
   chart.update('none');
+}
+
+function clampDropdownPanel(panel) {
+  panel.style.left = '';
+  panel.style.right = '0';
+  panel.style.transform = '';
+  var rect = panel.getBoundingClientRect();
+  var pad = 8;
+  if (rect.left < pad) {
+    panel.style.left = (pad - rect.left) + 'px';
+    panel.style.right = 'auto';
+  } else if (rect.right > window.innerWidth - pad) {
+    panel.style.right = (rect.right - window.innerWidth + pad) + 'px';
+  }
 }
 
 function syncSeriesDropdownState(chartName) {
@@ -1126,6 +1212,7 @@ function createTokensByModelChart(el, dataEl) {
       plugins: {
         legend: { display: true, position: 'top', labels: { usePointStyle: true, boxWidth: 8 } },
         tooltip: {
+          ...stableChartTooltipOptions(),
           callbacks: {
             label: tokenTooltip,
             footer: tokensByModelTooltipFooter

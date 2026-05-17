@@ -145,6 +145,14 @@ const activeSessions = [
   },
 ];
 
+function durationToSeconds(duration: string) {
+  const text = String(duration || '');
+  const hours = Number(text.match(/(\d+)\s*h/)?.[1] || 0);
+  const minutes = Number(text.match(/(\d+)\s*m/)?.[1] || 0);
+  const seconds = Number(text.match(/(\d+)\s*s/)?.[1] || 0);
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
 function manyActiveSessions() {
   return Array.from({ length: 8 }, (_, i) => ({
     ...activeSessions[0],
@@ -323,9 +331,34 @@ function completedForRequest(url: URL, scenario: Scenario) {
       return metadata.includes(query) || (queryTokens.length > 0 && queryTokens.every((token) => indexedEventText.includes(token)));
     })
     : baseCompletedSessions;
+  const sort = url.searchParams.get('sort') || 'ended';
+  const asc = (url.searchParams.get('direction') || 'desc') === 'asc';
+  const sorted = [...source].sort((a, b) => {
+    const value = (s: typeof baseCompletedSessions[number]) => {
+      switch (sort) {
+        case 'name': return s.title;
+        case 'provider': return s.provider;
+        case 'model': return s.last_model;
+        case 'tokens': return s.total_tokens;
+        case 'turns': return s.turn_count;
+        case 'tools': return s.tool_call_count;
+        case 'duration': return durationToSeconds(s.duration);
+        case 'project': return s.working_dir;
+        case 'id': return s.id;
+        case 'ended':
+        default: return new Date(s.ended_at).getTime();
+      }
+    };
+    const av = value(a);
+    const bv = value(b);
+    const cmp = typeof av === 'number' && typeof bv === 'number'
+      ? av - bv
+      : String(av).localeCompare(String(bv), undefined, { sensitivity: 'base' });
+    return asc ? cmp : -cmp;
+  });
   return {
-    items: source.slice(offset, offset + limit),
-    hasMore: offset + limit < source.length,
+    items: sorted.slice(offset, offset + limit),
+    hasMore: offset + limit < sorted.length,
   };
 }
 

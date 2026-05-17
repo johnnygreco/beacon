@@ -63,6 +63,19 @@ func TestCompletedSessionSearchClause_MetadataOnly(t *testing.T) {
 	}
 }
 
+func TestCompletedSessionsOrderByNameUsesRenderedProjectName(t *testing.T) {
+	orderBy := completedSessionsOrderBy("name", true)
+	if !strings.Contains(orderBy, "replaceRegexpOne") {
+		t.Fatalf("name sort should derive a basename from working_dir, got %s", orderBy)
+	}
+	if !strings.Contains(orderBy, "/.claude/worktrees/") {
+		t.Fatalf("name sort should match SessionTitle worktree normalization, got %s", orderBy)
+	}
+	if !strings.Contains(orderBy, "NULLIF(source_name") {
+		t.Fatalf("name sort should retain source_name fallback, got %s", orderBy)
+	}
+}
+
 func TestSearchResultSessionIDs_DedupesAndSkipsEmpty(t *testing.T) {
 	ids := searchResultSessionIDs([]search.SearchResult{
 		{SessionID: "session-1"},

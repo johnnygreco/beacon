@@ -179,7 +179,7 @@ func ChartContainerWithOptions(id string, height string, title string, logToggle
 		var templ_7745c5c3_Var11 string
 		templ_7745c5c3_Var11, templ_7745c5c3_Err = templruntime.SanitizeStyleAttributeValues("position:relative;height:" + height)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/chart_container.templ`, Line: 29, Col: 51}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/chart_container.templ`, Line: 29, Col: 52}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 		if templ_7745c5c3_Err != nil {
@@ -211,7 +211,20 @@ func ChartContainerWithOptions(id string, height string, title string, logToggle
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\"></canvas></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\" role=\"img\" aria-label=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var14 string
+		templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(chartAccessibleLabel(id, title))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/components/chart_container.templ`, Line: 30, Col: 128}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "\"></canvas></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -224,6 +237,13 @@ func logToggleClass(active bool) string {
 		return "log-scale-toggle px-2 py-1 text-xs rounded border bg-blue-500/20 text-blue-400 border-blue-500/40 hover:text-blue-300 transition-colors whitespace-nowrap"
 	}
 	return "log-scale-toggle px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors whitespace-nowrap"
+}
+
+func chartAccessibleLabel(id string, title string) string {
+	if title != "" {
+		return title + " chart"
+	}
+	return id + " chart"
 }
 
 func toggleLogScale(chartId string) templ.ComponentScript {

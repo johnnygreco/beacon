@@ -33,6 +33,9 @@ func TestChartContainer_NoToggle(t *testing.T) {
 	if strings.Contains(html, "Log Scale") {
 		t.Error("should not contain 'Log Scale' button text when not requested")
 	}
+	if !strings.Contains(html, `role="img"`) || !strings.Contains(html, `aria-label="My Chart chart"`) {
+		t.Error("expected accessible chart label")
+	}
 }
 
 func TestChartContainerWithOptions_LogToggleEnabled(t *testing.T) {

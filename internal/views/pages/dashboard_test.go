@@ -75,7 +75,7 @@ func TestDashboardGoToSessionUsesParsedPathname(t *testing.T) {
 	for _, expected := range []string{
 		"new URL(String(url || ''), window.location.origin)",
 		"parsed.pathname.split('/')",
-		"openSessionInspector(decodeURIComponent(id))",
+		"openSessionInspector(decodeURIComponent(id), launcher)",
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("dashboard script missing %q", expected)
