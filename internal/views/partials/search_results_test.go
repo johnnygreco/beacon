@@ -43,3 +43,30 @@ func TestSearchResultsWrapperRendersNonEmptyResults(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchResultsStateAllowsUnknownReadyCount(t *testing.T) {
+	html := renderToString(t, SearchResultsState([]views.SearchResult{
+		{
+			EventUID:  "event-1",
+			SessionID: "session-1",
+			EventKind: "message",
+			Snippet:   "dashboard payload",
+		},
+	}, -1, false, "ready"))
+
+	if strings.Contains(html, `data-search-state="idle"`) {
+		t.Fatalf("ready state with unknown count rendered idle state: %s", html)
+	}
+	for _, expected := range []string{
+		`href="/sessions/session-1#event-1"`,
+		`dashboard payload`,
+		`Message`,
+	} {
+		if !strings.Contains(html, expected) {
+			t.Fatalf("ready response missing %q: %s", expected, html)
+		}
+	}
+	if strings.Contains(html, `shown`) {
+		t.Fatalf("ready response with unknown count rendered a count: %s", html)
+	}
+}

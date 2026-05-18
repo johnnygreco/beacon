@@ -15,7 +15,7 @@ templ SearchResultsWithCount(results []views.SearchResult, totalCount int, hasMo
 }
 
 templ SearchResultsState(results []views.SearchResult, totalCount int, hasMore bool, state string) {
-	if state == "idle" || totalCount < 0 {
+	if state == "idle" {
 		<div class="search-empty-state" data-search-state="idle">
 			<div class="search-empty-icon" aria-hidden="true">
 				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -51,40 +51,40 @@ templ SearchResultsState(results []views.SearchResult, totalCount int, hasMore b
 			<button type="button" onclick="triggerSearch()" class="search-show-more">Retry</button>
 		</div>
 	} else {
-	if totalCount > 0 {
-		<div class="search-results-status">
-			<span>
-				{ fmt.Sprintf("%d", totalCount) } shown
+		if totalCount > 0 {
+			<div class="search-results-status">
+				<span>
+					{ fmt.Sprintf("%d", totalCount) } shown
+					if hasMore {
+						<span> / more available</span>
+					}
+				</span>
 				if hasMore {
-					<span> / more available</span>
+					<button
+						type="button"
+						onclick="increaseLimit()"
+						class="search-show-more"
+					>
+						Show more
+					</button>
 				}
-			</span>
-			if hasMore {
-				<button
-					type="button"
-					onclick="increaseLimit()"
-					class="search-show-more"
-				>
-					Show more
-				</button>
-			}
-		</div>
-	}
-	for _, r := range results {
-		@components.SearchResultCard(r)
-	}
-	if len(results) == 0 && totalCount == 0 {
-		<div class="search-empty-state" data-search-state="empty">
-			<div class="search-empty-icon" aria-hidden="true">
-				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-					<circle cx="11" cy="11" r="7" stroke-width="2"></circle>
-					<path stroke-linecap="round" stroke-width="2" d="M20 20l-3.5-3.5"></path>
-				</svg>
 			</div>
-			<p>No matching events.</p>
-			<span>Try fewer filters or a shorter phrase.</span>
-		</div>
-	}
+		}
+		for _, r := range results {
+			@components.SearchResultCard(r)
+		}
+		if len(results) == 0 && totalCount == 0 {
+			<div class="search-empty-state" data-search-state="empty">
+				<div class="search-empty-icon" aria-hidden="true">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+						<circle cx="11" cy="11" r="7" stroke-width="2"></circle>
+						<path stroke-linecap="round" stroke-width="2" d="M20 20l-3.5-3.5"></path>
+					</svg>
+				</div>
+				<p>No matching events.</p>
+				<span>Try fewer filters or a shorter phrase.</span>
+			</div>
+		}
 	}
 	<script>
 	function fillSearchExample(value) {

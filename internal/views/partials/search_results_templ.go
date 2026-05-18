@@ -93,7 +93,7 @@ func SearchResultsState(results []views.SearchResult, totalCount int, hasMore bo
 			templ_7745c5c3_Var3 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		if state == "idle" || totalCount < 0 {
+		if state == "idle" {
 			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<div class=\"search-empty-state\" data-search-state=\"idle\"><div class=\"search-empty-icon\" aria-hidden=\"true\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><circle cx=\"11\" cy=\"11\" r=\"7\" stroke-width=\"2\"></circle> <path stroke-linecap=\"round\" stroke-width=\"2\" d=\"M20 20l-3.5-3.5\"></path></svg></div><p>Type a phrase, path, tool, or session fragment.</p><div class=\"search-suggestion-row\" aria-label=\"Search examples\"><button type=\"button\" onclick=\"fillSearchExample('error')\" class=\"search-suggestion-chip\">error</button> <button type=\"button\" onclick=\"fillSearchExample('tool result')\" class=\"search-suggestion-chip\">tool result</button> <button type=\"button\" onclick=\"fillSearchExample('dashboard')\" class=\"search-suggestion-chip\">dashboard</button></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
@@ -117,7 +117,7 @@ func SearchResultsState(results []views.SearchResult, totalCount int, hasMore bo
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("%d", totalCount))
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/search_results.templ`, Line: 57, Col: 35}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/partials/search_results.templ`, Line: 57, Col: 36}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
