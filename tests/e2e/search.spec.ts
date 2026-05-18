@@ -1,14 +1,14 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { attachPageGuards, expectNoHorizontalOverflow } from './fixtures/dashboard';
-import { SEARCH_SESSION_ID, installSearchFixtures } from './fixtures/search';
+import { SEARCH_SESSION_ID, fillSearchAndWait, triggerSearchAndWait } from './fixtures/search';
 
-async function gotoSearch(page: import('@playwright/test').Page) {
+async function gotoSearch(page: Page) {
   await page.goto('/search', { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: 'Search' })).toBeVisible();
   await expect(page.locator('#search-input')).toBeVisible();
 }
 
-async function expectSearchVerticalFlow(page: import('@playwright/test').Page) {
+async function expectSearchVerticalFlow(page: Page) {
   const overlaps = await page.evaluate(() => {
     const selectors = [
       '.search-topbar',
@@ -40,7 +40,6 @@ async function expectSearchVerticalFlow(page: import('@playwright/test').Page) {
 test.describe('search workflows', () => {
   test('exercises query, filters, clearing, reset, and pagination', async ({ page }) => {
     const guards = attachPageGuards(page);
-    const fixture = await installSearchFixtures(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoSearch(page);
     await expectNoHorizontalOverflow(page);
@@ -48,46 +47,72 @@ test.describe('search workflows', () => {
     await page.keyboard.press('/');
     await expect(page.locator('#search-input')).toBeFocused();
 
-    await page.locator('#search-input').fill('dashboard payload');
+    await fillSearchAndWait(page, 'dashboard payload');
     await expect(page.locator('.search-result-card')).toHaveCount(1);
     await expect(page.locator('.search-result-card').first()).toContainText('Dashboard payload search');
     await expect(page.locator('#search-clear')).toBeVisible();
 
-    await page.locator('#search-clear').click();
+    await triggerSearchAndWait(page, () => page.locator('#search-clear').click(), (url) => url.searchParams.get('q') === '');
     await expect(page.locator('#search-input')).toHaveValue('');
     await expect(page.locator('[data-search-state="idle"]')).toBeVisible();
 
-    await page.locator('#search-input').fill('search');
+    await fillSearchAndWait(page, 'search');
     await expect(page.locator('.search-result-card')).toHaveCount(3);
-    await page.getByRole('button', { name: 'Tool calls' }).click();
+
+    await triggerSearchAndWait(
+      page,
+      () => page.getByRole('button', { name: 'Tool calls' }).click(),
+      (url) => url.searchParams.get('q') === 'search' && url.searchParams.get('event_kind') === 'tool_call',
+    );
     await expect(page.locator('.search-result-card')).toHaveCount(1);
     await expect(page.locator('.search-result-card').first()).toHaveAttribute('data-event-kind', 'tool_call');
 
-    await page.locator('#filter-session').fill(SEARCH_SESSION_ID);
+    await triggerSearchAndWait(
+      page,
+      () => page.locator('#filter-session').fill(SEARCH_SESSION_ID),
+      (url) => url.searchParams.get('session_id') === SEARCH_SESSION_ID,
+    );
     await expect(page.locator('.search-result-card')).toHaveCount(1);
-    await page.locator('#filter-sort').selectOption('newest');
-    await page.getByRole('button', { name: '7d' }).click();
+
+    await triggerSearchAndWait(
+      page,
+      () => page.locator('#filter-sort').selectOption('newest'),
+      (url) => url.searchParams.get('sort') === 'newest',
+    );
+    const filteredRequest = await triggerSearchAndWait(
+      page,
+      () => page.getByRole('button', { name: '7d' }).click(),
+      (url) => url.searchParams.get('range') === '7d',
+    );
     await expect(page.locator('#filter-range')).toHaveValue('7d');
     await expect(page.getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
 
-    const lastRequest = fixture.requests.at(-1);
-    expect(lastRequest?.searchParams.get('q')).toBe('search');
-    expect(lastRequest?.searchParams.get('event_kind')).toBe('tool_call');
-    expect(lastRequest?.searchParams.get('session_id')).toBe(SEARCH_SESSION_ID);
-    expect(lastRequest?.searchParams.get('sort')).toBe('newest');
-    expect(lastRequest?.searchParams.get('range')).toBe('7d');
+    expect(filteredRequest.searchParams.get('q')).toBe('search');
+    expect(filteredRequest.searchParams.get('event_kind')).toBe('tool_call');
+    expect(filteredRequest.searchParams.get('session_id')).toBe(SEARCH_SESSION_ID);
+    expect(filteredRequest.searchParams.get('sort')).toBe('newest');
+    expect(filteredRequest.searchParams.get('range')).toBe('7d');
 
-    await page.getByRole('button', { name: 'Reset filters' }).click();
+    await triggerSearchAndWait(
+      page,
+      () => page.getByRole('button', { name: 'Reset filters' }).click(),
+      (url) => url.searchParams.get('q') === 'search' && url.searchParams.get('event_kind') === '',
+    );
     await expect(page.locator('#filter-session')).toHaveValue('');
     await expect(page.locator('#filter-sort')).toHaveValue('relevance');
     await expect(page.locator('#filter-limit')).toHaveValue('30');
     await expect(page.locator('#filter-event-kind')).toHaveValue('');
 
-    await page.locator('#search-input').fill('many');
+    await fillSearchAndWait(page, 'many');
     await expect(page.locator('.search-result-card')).toHaveCount(30);
     await expect(page.getByRole('button', { name: 'Show more' })).toBeVisible();
     await expectSearchVerticalFlow(page);
-    await page.getByRole('button', { name: 'Show more' }).click();
+
+    await triggerSearchAndWait(
+      page,
+      () => page.getByRole('button', { name: 'Show more' }).click(),
+      (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('limit') === '60',
+    );
     await expect(page.locator('#filter-limit')).toHaveValue('60');
     await expect(page.locator('.search-result-card')).toHaveCount(35);
     await expect(page.getByRole('button', { name: 'Show more' })).toHaveCount(0);
@@ -97,10 +122,9 @@ test.describe('search workflows', () => {
 
   test('keeps the search layout contained on narrow screens', async ({ page }) => {
     const guards = attachPageGuards(page);
-    await installSearchFixtures(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoSearch(page);
-    await page.locator('#search-input').fill('many');
+    await fillSearchAndWait(page, 'many');
     await expect(page.locator('.search-result-card')).toHaveCount(30);
     await expectNoHorizontalOverflow(page);
     await expectSearchVerticalFlow(page);

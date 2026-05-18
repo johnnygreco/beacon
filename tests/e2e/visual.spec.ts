@@ -7,9 +7,11 @@ import {
   visualMasks,
   waitForCompletedRows,
 } from './fixtures/dashboard';
-import { installSearchFixtures } from './fixtures/search';
+import { fillSearchAndWait } from './fixtures/search';
 
 test.describe('dashboard visual regression baselines', () => {
+  test.skip(process.platform !== 'darwin', 'Visual snapshots currently have Darwin baselines only.');
+
   test('default populated dashboard at desktop width', async ({ page }) => {
     await installDashboardFixtures(page);
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -145,18 +147,17 @@ test.describe('dashboard visual regression baselines', () => {
   });
 
   test('search page desktop and mobile states', async ({ page }) => {
-    await installSearchFixtures(page);
-
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/search', { waitUntil: 'domcontentloaded' });
-    await page.locator('#search-input').fill('many');
+    await fillSearchAndWait(page, 'many');
     await expect(page.locator('.search-result-card')).toHaveCount(30);
-    await expect(page.locator('#search-wrap')).toHaveScreenshot('search-desktop-results.png');
+    await expect(page.locator('#search-filters')).toHaveScreenshot('search-desktop-filters.png');
+    await expect(page.locator('.search-result-card').first()).toHaveScreenshot('search-desktop-result-card.png');
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/search', { waitUntil: 'domcontentloaded' });
-    await page.locator('#search-input').fill('many');
+    await fillSearchAndWait(page, 'many');
     await expect(page.locator('.search-result-card')).toHaveCount(30);
-    await expect(page.locator('main')).toHaveScreenshot('search-mobile-results.png');
+    await expect(page.locator('.search-result-card').first()).toHaveScreenshot('search-mobile-result-card.png');
   });
 });

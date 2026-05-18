@@ -19,10 +19,10 @@ export default defineConfig({
   webServer: externalServer
     ? undefined
     : {
-        command: 'go run ./cmd/beacon --config tests/e2e/beacon.toml serve',
+        command: 'go run -tags e2e ./tests/e2e/server',
         url: `${baseURL}/health`,
         timeout: 120_000,
-        reuseExistingServer: true,
+        reuseExistingServer: !process.env.CI,
       },
   use: {
     baseURL,

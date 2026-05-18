@@ -11,7 +11,6 @@ import {
   installDashboardFixtures,
   waitForCompletedRows,
 } from './fixtures/dashboard';
-import { installSearchFixtures } from './fixtures/search';
 
 async function installTranscriptRealtimeFixture(page: Page) {
   let conversationVersion = 0;
@@ -134,7 +133,6 @@ test.describe('dashboard battle-tested workflows', () => {
   test('keeps the dashboard search link visible, keyboard reachable, and contained', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);
-    await installSearchFixtures(page);
 
     for (const viewport of [
       { width: 390, height: 844 },

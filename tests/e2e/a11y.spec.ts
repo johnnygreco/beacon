@@ -6,7 +6,7 @@ import {
   installDashboardFixtures,
   waitForCompletedRows,
 } from './fixtures/dashboard';
-import { installSearchFixtures } from './fixtures/search';
+import { fillSearchAndWait } from './fixtures/search';
 
 async function axeSeriousOrCritical(page: Page) {
   await page.addScriptTag({ content: axe.source });
@@ -73,9 +73,8 @@ test.describe('dashboard accessibility', () => {
   });
 
   test('has no serious or critical axe violations on search results', async ({ page }) => {
-    await installSearchFixtures(page);
     await page.goto('/search', { waitUntil: 'domcontentloaded' });
-    await page.locator('#search-input').fill('many');
+    await fillSearchAndWait(page, 'many');
     await expect(page.locator('.search-result-card')).toHaveCount(30);
 
     expect(await axeSeriousOrCritical(page)).toEqual([]);

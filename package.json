@@ -4,8 +4,9 @@
   "description": "Live dashboard for AI coding agent sessions.",
   "scripts": {
     "vendor": "node scripts/vendor-assets.mjs",
-    "test:e2e": "playwright test tests/e2e/dashboard.spec.ts",
-    "test:search": "playwright test tests/e2e/search.spec.ts",
+    "test:e2e": "playwright test tests/e2e/dashboard.spec.ts tests/e2e/search.spec.ts",
+    "test:e2e:search": "playwright test tests/e2e/search.spec.ts",
+    "test:search": "npm run test:e2e:search",
     "test:a11y": "playwright test tests/e2e/a11y.spec.ts",
     "test:visual": "playwright test tests/e2e/visual.spec.ts"
   },
