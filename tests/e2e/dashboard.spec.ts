@@ -130,6 +130,49 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('keeps the dashboard search link visible, keyboard reachable, and contained', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+
+    for (const viewport of [
+      { width: 390, height: 844 },
+      { width: 320, height: 568 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await gotoDashboard(page);
+
+      const searchLink = page.locator('#dashboard-search-link');
+      await expect(searchLink).toBeVisible();
+      await expect(searchLink).toHaveAttribute('href', '/search');
+      await expect(searchLink).toHaveAttribute('aria-label', 'Open search');
+      await expectNoHorizontalOverflow(page);
+
+      const metrics = await searchLink.evaluate((el) => {
+        const rect = el.getBoundingClientRect();
+        return {
+          left: Math.floor(rect.left),
+          right: Math.ceil(rect.right),
+          width: Math.round(rect.width),
+          viewportWidth: window.innerWidth,
+        };
+      });
+      expect(metrics.left).toBeGreaterThanOrEqual(0);
+      expect(metrics.right).toBeLessThanOrEqual(metrics.viewportWidth);
+      expect(metrics.width).toBeGreaterThanOrEqual(32);
+    }
+
+    await page.keyboard.press('Tab');
+    for (let i = 0; i < 20 && !(await page.locator('#dashboard-search-link').evaluate((el) => el === document.activeElement)); i++) {
+      await page.keyboard.press('Tab');
+    }
+    await expect(page.locator('#dashboard-search-link')).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/search$/);
+    await expect(page.getByRole('heading', { name: 'Search' })).toBeVisible();
+
+    await guards.expectClean();
+  });
+
   test('sorts completed sessions with keyboard-operable headers', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);
