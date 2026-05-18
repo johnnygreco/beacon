@@ -7,23 +7,63 @@ import (
 )
 
 templ SearchResults(results []views.SearchResult) {
-	@SearchResultsWithCount(results, -1, false)
+	@SearchResultsState(results, -1, false, "ready")
 }
 
 templ SearchResultsWithCount(results []views.SearchResult, totalCount int, hasMore bool) {
+	@SearchResultsState(results, totalCount, hasMore, "ready")
+}
+
+templ SearchResultsState(results []views.SearchResult, totalCount int, hasMore bool, state string) {
+	if state == "idle" || totalCount < 0 {
+		<div class="search-empty-state" data-search-state="idle">
+			<div class="search-empty-icon" aria-hidden="true">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+					<circle cx="11" cy="11" r="7" stroke-width="2"></circle>
+					<path stroke-linecap="round" stroke-width="2" d="M20 20l-3.5-3.5"></path>
+				</svg>
+			</div>
+			<p>Type a phrase, path, tool, or session fragment.</p>
+			<div class="search-suggestion-row" aria-label="Search examples">
+				<button type="button" onclick="fillSearchExample('error')" class="search-suggestion-chip">error</button>
+				<button type="button" onclick="fillSearchExample('tool result')" class="search-suggestion-chip">tool result</button>
+				<button type="button" onclick="fillSearchExample('dashboard')" class="search-suggestion-chip">dashboard</button>
+			</div>
+		</div>
+	} else if state == "unavailable" {
+		<div class="search-empty-state search-empty-state-error" data-search-state="unavailable">
+			<div class="search-empty-icon" aria-hidden="true">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.3 4.3 2.8 17.2A2 2 0 004.5 20h15a2 2 0 001.7-2.8L13.7 4.3a2 2 0 00-3.4 0z"></path>
+				</svg>
+			</div>
+			<p>Search is not connected.</p>
+			<span>Start Beacon with a search index to browse conversation events.</span>
+		</div>
+	} else if state == "error" {
+		<div class="search-empty-state search-empty-state-error" data-search-state="error">
+			<div class="search-empty-icon" aria-hidden="true">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 6 6 18M6 6l12 12"></path>
+				</svg>
+			</div>
+			<p>Search failed.</p>
+			<button type="button" onclick="triggerSearch()" class="search-show-more">Retry</button>
+		</div>
+	} else {
 	if totalCount > 0 {
-		<div class="flex items-center justify-between mb-2">
-			<span class="text-sm text-gray-500">
-				{ fmt.Sprintf("%d", totalCount) } results
+		<div class="search-results-status">
+			<span>
+				{ fmt.Sprintf("%d", totalCount) } shown
 				if hasMore {
-					<span class="text-gray-600"> — more available</span>
+					<span> / more available</span>
 				}
 			</span>
 			if hasMore {
 				<button
 					type="button"
 					onclick="increaseLimit()"
-					class="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+					class="search-show-more"
 				>
 					Show more
 				</button>
@@ -34,14 +74,25 @@ templ SearchResultsWithCount(results []views.SearchResult, totalCount int, hasMo
 		@components.SearchResultCard(r)
 	}
 	if len(results) == 0 && totalCount == 0 {
-		<div class="text-center py-12 text-gray-500">
-			<p class="text-lg">No results found</p>
-			<p class="text-sm mt-1">Try a different query or adjust your filters</p>
+		<div class="search-empty-state" data-search-state="empty">
+			<div class="search-empty-icon" aria-hidden="true">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+					<circle cx="11" cy="11" r="7" stroke-width="2"></circle>
+					<path stroke-linecap="round" stroke-width="2" d="M20 20l-3.5-3.5"></path>
+				</svg>
+			</div>
+			<p>No matching events.</p>
+			<span>Try fewer filters or a shorter phrase.</span>
 		</div>
 	}
-	if len(results) == 0 && totalCount < 0 {
-		<div class="text-center py-12 text-gray-500">
-			<p class="text-lg">Enter a query to search conversations</p>
-		</div>
 	}
+	<script>
+	function fillSearchExample(value) {
+		var input = document.getElementById('search-input');
+		if (!input) return;
+		input.value = value;
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		input.focus();
+	}
+	</script>
 }

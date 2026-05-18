@@ -2,52 +2,132 @@ package components
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 	"github.com/johnnygreco/beacon/internal/views"
 )
 
 templ SearchResultCard(r views.SearchResult) {
-	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", r.SessionID)) } class="block bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-blue-500/40 transition-colors cursor-pointer">
-		<div class="flex items-center justify-between mb-2">
-			<div class="flex items-center gap-2">
-				<span class="text-sm text-blue-400 font-mono">
-					{ views.TruncateSessionID(r.SessionID) }
-				</span>
-				if r.Provider != "" {
-					<span class={ "px-1.5 py-0.5 rounded text-[10px] font-medium", searchProviderStyle(r.Provider) }>{ views.ProviderShort(r.Provider) }</span>
-				}
-				if r.ToolName != "" {
-					<span class="text-xs text-gray-400 font-mono">{ r.ToolName }</span>
-				}
-				if r.Score > 0.01 {
-					<span class="text-xs text-gray-500" title="BM25 full-text search relevance score">
-						BM25: { fmt.Sprintf("%.2f", r.Score) }
-					</span>
-				}
-				<span class="text-xs text-gray-500">{ views.RelativeTime(r.Timestamp) }</span>
+	<a href={ searchResultHref(r) } class="search-result-card" data-event-kind={ r.EventKind } data-session-id={ r.SessionID }>
+		<div class="search-result-card-head">
+			<div class={ "search-result-kind", searchResultKindClass(r.EventKind) } aria-hidden="true">
+				@searchResultKindIcon(r.EventKind)
 			</div>
-			<span class={ "px-2 py-0.5 text-xs font-semibold uppercase rounded-full", eventKindClass(r.EventKind) }>{ r.EventKind }</span>
+			<div class="search-result-main">
+				<div class="search-result-title-line">
+					<span class="search-result-kind-label">{ searchResultKindLabel(r.EventKind) }</span>
+					if r.ToolName != "" {
+						<span class="search-result-tool" title={ r.ToolName }>{ r.ToolName }</span>
+					}
+				</div>
+				<div class="search-result-meta">
+					if r.Provider != "" {
+						<span class={ "search-provider-badge", searchProviderStyle(r.Provider) }>{ views.ProviderShort(r.Provider) }</span>
+					}
+					if r.Model != "" {
+						<span class="search-result-model" title={ r.Model }>{ views.ShortModelName(r.Model) }</span>
+					}
+					<span class="search-result-session" title={ r.SessionID }>{ views.TruncateSessionID(r.SessionID) }</span>
+					if !r.Timestamp.IsZero() {
+						<span>{ views.RelativeTime(r.Timestamp) }</span>
+					}
+					if r.Score > 0.01 {
+						<span title="BM25 relevance score">{ fmt.Sprintf("%.2f", r.Score) }</span>
+					}
+				</div>
+			</div>
+			<span class="search-result-arrow" aria-hidden="true">
+				<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 17 17 7M9 7h8v8"></path>
+				</svg>
+			</span>
 		</div>
-		<p class="text-sm text-gray-300 leading-relaxed line-clamp-2">{ r.Snippet }</p>
+		<p class="search-result-snippet">{ searchSnippet(r.Snippet) }</p>
 	</a>
+}
+
+templ searchResultKindIcon(kind string) {
+	switch kind {
+	case "message":
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 6h14M5 12h10M5 18h7"></path>
+		</svg>
+	case "tool_call":
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 0 5.4-5.4l-3 3-3-3 3-3z"></path>
+		</svg>
+	case "tool_result":
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m5 12 4 4L19 6"></path>
+		</svg>
+	case "reasoning":
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 18h6M10 22h4M8.5 14.5a6 6 0 1 1 7 0c-.7.5-.9 1.2-.9 2H9.4c0-.8-.2-1.5-.9-2z"></path>
+		</svg>
+	case "error", "tool_error":
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+			<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v4m0 4h.01M10.3 4.3 2.8 17.2A2 2 0 0 0 4.5 20h15a2 2 0 0 0 1.7-2.8L13.7 4.3a2 2 0 0 0-3.4 0z"></path>
+		</svg>
+	default:
+		<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+			<circle cx="12" cy="12" r="7" stroke-width="2"></circle>
+			<path stroke-linecap="round" stroke-width="2" d="M12 9v3l2 2"></path>
+		</svg>
+	}
+}
+
+func searchResultHref(r views.SearchResult) templ.SafeURL {
+	sessionID := url.PathEscape(r.SessionID)
+	if r.EventUID == "" {
+		return templ.SafeURL("/sessions/" + sessionID)
+	}
+	return templ.SafeURL("/sessions/" + sessionID + "#" + url.QueryEscape(r.EventUID))
 }
 
 func searchProviderStyle(provider string) string {
 	return views.ProviderBadgeClasses(provider)
 }
 
-func eventKindClass(kind string) string {
+func searchResultKindClass(kind string) string {
 	switch kind {
 	case "message":
-		return "bg-blue-500/20 text-blue-400"
+		return "is-message"
 	case "tool_call":
-		return "bg-amber-500/20 text-amber-400"
+		return "is-tool-call"
 	case "tool_result":
-		return "bg-green-500/20 text-green-400"
+		return "is-tool-result"
 	case "reasoning":
-		return "bg-purple-500/20 text-purple-400"
-	case "error":
-		return "bg-red-500/20 text-red-400"
+		return "is-reasoning"
+	case "error", "tool_error":
+		return "is-error"
 	default:
-		return "bg-gray-600/40 text-gray-400"
+		return "is-generic"
 	}
+}
+
+func searchResultKindLabel(kind string) string {
+	switch kind {
+	case "message":
+		return "Message"
+	case "tool_call":
+		return "Tool call"
+	case "tool_result":
+		return "Tool result"
+	case "reasoning":
+		return "Reasoning"
+	case "error":
+		return "Error"
+	case "tool_error":
+		return "Tool error"
+	default:
+		return strings.ReplaceAll(kind, "_", " ")
+	}
+}
+
+func searchSnippet(snippet string) string {
+	snippet = strings.TrimSpace(snippet)
+	if snippet == "" {
+		return "No preview available."
+	}
+	return snippet
 }
