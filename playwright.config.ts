@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const baseURL = process.env.BEACON_E2E_BASE_URL || 'http://127.0.0.1:4610';
+const externalServer = Boolean(process.env.BEACON_E2E_BASE_URL);
+
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 30_000,
@@ -13,8 +16,16 @@ export default defineConfig({
   fullyParallel: false,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['html', { open: 'never' }]] : [['list'], ['html', { open: 'never' }]],
+  webServer: externalServer
+    ? undefined
+    : {
+        command: 'go run ./cmd/beacon --config tests/e2e/beacon.toml serve',
+        url: `${baseURL}/health`,
+        timeout: 120_000,
+        reuseExistingServer: true,
+      },
   use: {
-    baseURL: process.env.BEACON_E2E_BASE_URL || 'http://127.0.0.1:4610',
+    baseURL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

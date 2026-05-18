@@ -1,0 +1,17 @@
+[server]
+host = "127.0.0.1"
+port = 4610
+
+[database]
+addrs = ["127.0.0.1:9000"]
+database = "beacon_e2e"
+username = "default"
+password = ""
+read_pool_size = 4
+
+[capture]
+enabled = false
+
+[search]
+max_results = 500
+rebuild_interval = "5m"
