@@ -354,6 +354,7 @@ type SearchResult struct {
 	Snippet   string
 	ToolName  string // tool name for tool_call/tool_result events
 	Provider  string // "anthropic", "openai", etc.
+	Model     string
 	Score     float64
 	MatchType string // "bm25", "keyword"
 	Timestamp time.Time

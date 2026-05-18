@@ -21,13 +21,22 @@ import (
 // Handlers serves HTML page routes rendered with templ.
 type Handlers struct {
 	db       *sql.DB
-	searcher *search.Searcher
+	searcher searchBackend
 	logger   *slog.Logger
+}
+
+type searchBackend interface {
+	Search(ctx context.Context, q search.SearchQuery) ([]search.SearchResult, error)
+	Browse(ctx context.Context, q search.SearchQuery) ([]search.SearchResult, error)
 }
 
 // NewHandlers creates page handlers.
 func NewHandlers(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) *Handlers {
-	return &Handlers{db: db, searcher: searcher, logger: logger}
+	var backend searchBackend
+	if searcher != nil {
+		backend = searcher
+	}
+	return &Handlers{db: db, searcher: backend, logger: logger}
 }
 
 // Dashboard renders the dashboard shell; data loads through JSON APIs.
@@ -90,16 +99,23 @@ func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
 // SearchResults handles HTMX partial requests for search results.
 func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	query := r.URL.Query().Get("q")
-	sessionID := r.URL.Query().Get("session_id")
-	eventKind := r.URL.Query().Get("event_kind")
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	sessionID := strings.TrimSpace(r.URL.Query().Get("session_id"))
+	eventKind := strings.TrimSpace(r.URL.Query().Get("event_kind"))
 	defer func() {
 		h.logger.Debug("SearchResults handler complete", "query", query, "duration", time.Since(start))
 	}()
 
 	// Show placeholder only when there's no query AND no filters
 	if query == "" && sessionID == "" && eventKind == "" {
-		if err := partials.SearchResultsWithCount(nil, -1, false).Render(r.Context(), w); err != nil {
+		if err := partials.SearchResultsState(nil, -1, false, "idle").Render(r.Context(), w); err != nil {
+			h.logger.Debug("render search results failed", "error", err)
+		}
+		return
+	}
+
+	if h.searcher == nil {
+		if err := partials.SearchResultsState(nil, 0, false, "unavailable").Render(r.Context(), w); err != nil {
 			h.logger.Debug("render search results failed", "error", err)
 		}
 		return
@@ -138,7 +154,7 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.logger.Error("search failed", "error", err)
-		if err := partials.SearchResultsWithCount(nil, 0, false).Render(r.Context(), w); err != nil {
+		if err := partials.SearchResultsState(nil, 0, false, "error").Render(r.Context(), w); err != nil {
 			h.logger.Debug("render search results failed", "error", err)
 		}
 		return
@@ -171,11 +187,12 @@ func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
 			ToolName:  sr.ToolName,
 			Provider:  sr.Provider,
 			Score:     sr.Score,
+			Model:     sr.Model,
 			Timestamp: sr.Timestamp,
 		})
 	}
 
-	if err := partials.SearchResultsWithCount(viewResults, len(viewResults), hasMore).Render(r.Context(), w); err != nil {
+	if err := partials.SearchResultsState(viewResults, len(viewResults), hasMore, "ready").Render(r.Context(), w); err != nil {
 		h.logger.Debug("render search results failed", "error", err)
 	}
 }
