@@ -32,7 +32,11 @@ type searchBackend interface {
 
 // NewHandlers creates page handlers.
 func NewHandlers(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) *Handlers {
-	return &Handlers{db: db, searcher: searcher, logger: logger}
+	var backend searchBackend
+	if searcher != nil {
+		backend = searcher
+	}
+	return &Handlers{db: db, searcher: backend, logger: logger}
 }
 
 // Dashboard renders the dashboard shell; data loads through JSON APIs.

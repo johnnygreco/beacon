@@ -7,7 +7,7 @@ import (
 )
 
 templ SearchResults(results []views.SearchResult) {
-	@SearchResultsState(results, -1, false, "ready")
+	@SearchResultsState(results, len(results), false, "ready")
 }
 
 templ SearchResultsWithCount(results []views.SearchResult, totalCount int, hasMore bool) {

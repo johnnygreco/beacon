@@ -158,3 +158,18 @@ func TestSearchResults_BackendErrorAndUnavailableStates(t *testing.T) {
 		t.Fatalf("unavailable response missing state: %s", w.Body.String())
 	}
 }
+
+func TestNewHandlers_NilSearcherRendersUnavailable(t *testing.T) {
+	h := NewHandlers(nil, nil, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
+	if h.searcher != nil {
+		t.Fatalf("NewHandlers stored a typed nil searcher: %#v", h.searcher)
+	}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/search/results?q=dashboard", nil)
+	h.SearchResults(w, r)
+
+	if !strings.Contains(w.Body.String(), `data-search-state="unavailable"`) {
+		t.Fatalf("unavailable response missing state: %s", w.Body.String())
+	}
+}
