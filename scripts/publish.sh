@@ -21,6 +21,12 @@ fi
 VERSION="${VERSION#v}"
 TAG="v${VERSION}"
 
+if ! command -v zig >/dev/null 2>&1; then
+    echo "Error: zig is required to cross-build Linux release artifacts with CGO enabled."
+    echo "Install it first, for example: brew install zig"
+    exit 1
+fi
+
 # Ensure working tree is clean
 if [ -n "$(git status --porcelain)" ]; then
     echo "Error: working tree is not clean. Commit or stash changes first."

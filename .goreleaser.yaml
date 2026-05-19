@@ -5,13 +5,34 @@ before:
     - go tool templ generate
 
 builds:
-  - id: beacon
+  - id: beacon-darwin
     main: ./cmd/beacon
     binary: beacon
     env:
       - CGO_ENABLED=1
     goos:
       - darwin
+    goarch:
+      - amd64
+      - arm64
+  - id: beacon-linux-amd64
+    main: ./cmd/beacon
+    binary: beacon
+    env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target x86_64-linux-gnu
+    goos:
+      - linux
+    goarch:
+      - amd64
+  - id: beacon-linux-arm64
+    main: ./cmd/beacon
+    binary: beacon
+    env:
+      - CGO_ENABLED=1
+      - CC=zig cc -target aarch64-linux-gnu
+    goos:
+      - linux
     goarch:
       - arm64
 

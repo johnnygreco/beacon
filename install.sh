@@ -1,11 +1,15 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # Usage:
 #   Latest stable:     curl -sSfL https://johnnygreco.dev/beacon/install.sh | sh
 #   Latest prerelease: curl -sSfL https://johnnygreco.dev/beacon/install.sh | INCLUDE_PRERELEASE=1 sh
 #   Pinned:            curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=0.1.0 sh
 #   No DB dep:         curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_CLICKHOUSE=0 sh
 #   Uninstall:         curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
-set -euo pipefail
+set -eu
+
+# Keep the advertised `curl ... | sh` install path compatible with shells like
+# Ubuntu's dash. Enable pipefail only when the current shell supports it.
+(set -o pipefail) 2>/dev/null && set -o pipefail
 
 REPO="johnnygreco/beacon"
 INSTALL_DIR="${INSTALL_DIR:-${HOME}/.local/bin}"
