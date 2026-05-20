@@ -6,12 +6,17 @@ Beacon is a local dashboard for long-running AI coding agents. It watches the se
 
 ## What It Looks Like
 
-<table>
-  <tr>
-    <td><img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing live sessions, token charts, and activity timeline" /></td>
-    <td><img src="assets/session-screenshot.png" alt="Beacon transcript replay showing messages, tool calls, and session metrics" /></td>
-  </tr>
-</table>
+<p>
+  <img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing token charts, model health, activity timeline, and completed sessions" />
+</p>
+
+<p>
+  <img src="assets/session-screenshot.png" alt="Beacon transcript replay showing session metrics, token charts, tool usage, and conversation detail" />
+</p>
+
+<p>
+  <img src="assets/search-screenshot.png" alt="Beacon search page showing filters and ranked results across captured sessions" />
+</p>
 
 ## Why Use Beacon
 
