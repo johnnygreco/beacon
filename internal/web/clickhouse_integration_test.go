@@ -313,15 +313,20 @@ func TestDashboardChartsAttributeBlankModelsFromSessionTimeline(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	sessionID := "dashboard-single-model-fallback"
 	mixedSessionID := "dashboard-mixed-model-no-fallback"
+	emptySessionID := "dashboard-empty-no-model"
 	events := []models.Event{
 		liveEvent("single-context", sessionID, "turn_context", "system", now, "openai", "gpt-5.5", "", 0, 0, 0),
 		liveEvent("single-token-count", sessionID, "event_msg", "assistant", now.Add(time.Second), "openai", "", "", 12, 5, 0),
 		liveEvent("mixed-first-model", mixedSessionID, "message", "assistant", now.Add(2*time.Second), "openai", "gpt-4.1", "", 2, 3, 0),
 		liveEvent("mixed-second-model", mixedSessionID, "message", "assistant", now.Add(3*time.Second), "openai", "gpt-5", "", 4, 6, 0),
 		liveEvent("mixed-blank-model", mixedSessionID, "event_msg", "assistant", now.Add(4*time.Second), "openai", "", "", 3, 4, 0),
+		liveEvent("empty-user", emptySessionID, "message", "user", now.Add(5*time.Second), "openai", "", "", 0, 0, 0),
+		liveEvent("empty-tool", emptySessionID, "tool_call", "assistant", now.Add(6*time.Second), "openai", "", "shell", 0, 0, 100),
+		liveEvent("empty-end", emptySessionID, "session_end", "system", now.Add(7*time.Second), "openai", "", "", 0, 0, 0),
 	}
 	events[1].PayloadType = "token_count"
 	events[4].PayloadType = "token_count"
+	events[len(events)-1].PayloadType = "last-prompt"
 	for i := range events {
 		events[i].SourceLineNo = i + 1
 		events[i].SourceOffset = int64(i * 10)
@@ -335,7 +340,7 @@ func TestDashboardChartsAttributeBlankModelsFromSessionTimeline(t *testing.T) {
 		t.Fatalf("flush: %v", err)
 	}
 
-	tokens, _ := QueryDashboardModelAnalytics(context.Background(), ch.DB, nil, "")
+	tokens, activity := QueryDashboardModelAnalytics(context.Background(), ch.DB, nil, "")
 	if got := modelSeriesTotal(tokens.Datasets, "gpt-5.5"); got != 17 {
 		t.Fatalf("gpt-5.5 cumulative total = %v in %#v", got, tokens.Datasets)
 	}
@@ -347,6 +352,17 @@ func TestDashboardChartsAttributeBlankModelsFromSessionTimeline(t *testing.T) {
 	}
 	if got := modelSeriesTotal(tokens.Datasets, "unknown"); got != 0 {
 		t.Fatalf("unknown cumulative total = %v in %#v", got, tokens.Datasets)
+	}
+	if hasModelSeries(tokens.Datasets, "unknown") {
+		t.Fatalf("dashboard cumulative chart contains unknown model from empty session: %#v", tokens.Datasets)
+	}
+	for metricName, metric := range activity.Metrics {
+		if hasModelSeries(metric.Datasets, "unknown") {
+			t.Fatalf("dashboard %s chart contains unknown model from empty session: %#v", metricName, metric.Datasets)
+		}
+	}
+	if got := metricSeriesTotal(activity.Metrics["tool_calls"].Datasets); got != 0 {
+		t.Fatalf("unattributed empty-session tool calls leaked into model activity: %v in %#v", got, activity.Metrics["tool_calls"].Datasets)
 	}
 }
 
@@ -426,6 +442,15 @@ func modelSeriesTotal(datasets []views.ModelSeriesDataset, model string) float64
 		}
 	}
 	return 0
+}
+
+func hasModelSeries(datasets []views.ModelSeriesDataset, model string) bool {
+	for _, dataset := range datasets {
+		if dataset.Model == model {
+			return true
+		}
+	}
+	return false
 }
 
 func metricSeriesTotal(datasets []views.ModelSeriesDataset) float64 {

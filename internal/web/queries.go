@@ -298,18 +298,29 @@ func QueryDashboardModelAnalytics(ctx context.Context, db *sql.DB, since *time.T
 			LEFT JOIN session_model_fallbacks AS sf ON a.session_id = sf.session_id
 			%s
 		),
+		plottable_model_analytics AS (
+			SELECT *
+			FROM model_analytics
+			WHERE model_key != ''
+			  AND model_key != '<synthetic>'
+			  AND (
+				total_tokens != 0
+				OR call_count != 0
+				OR tool_call_count != 0
+				OR event_kind IN ('error', 'tool_error')
+			  )
+		),
 		top_models AS (
 			SELECT provider_key,
-			       COALESCE(NULLIF(model_key, ''), 'unknown') AS model_key
-			FROM model_analytics
-			WHERE model_key != '<synthetic>'
+			       model_key
+			FROM plottable_model_analytics
 			GROUP BY provider_key, model_key
 			ORDER BY sum(total_tokens) DESC, sum(tool_call_count) DESC, sum(event_count) DESC
 			LIMIT %d
 		)
 		SELECT toStartOfInterval(minute, INTERVAL %d MINUTE) AS bucket,
 		       provider_key,
-		       COALESCE(NULLIF(model_key, ''), 'unknown') AS model_key,
+		       model_key,
 		       sum(total_tokens) AS tokens,
 		       sum(input_tokens) AS input_tokens,
 		       sum(output_tokens) AS output_tokens,
@@ -317,9 +328,8 @@ func QueryDashboardModelAnalytics(ctx context.Context, db *sql.DB, since *time.T
 		       sum(tool_call_count) AS tool_calls,
 		       sum(call_count) AS calls,
 		       sumIf(event_count, event_kind IN ('error', 'tool_error')) AS errors
-		FROM model_analytics
-		WHERE model_key != '<synthetic>'
-		  AND (provider_key, COALESCE(NULLIF(model_key, ''), 'unknown')) IN (
+		FROM plottable_model_analytics
+		WHERE (provider_key, model_key) IN (
 			SELECT provider_key, model_key FROM top_models
 		  )
 		GROUP BY bucket, provider_key, model_key
