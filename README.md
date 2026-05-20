@@ -11,7 +11,7 @@ Beacon is a local dashboard for long-running AI coding agents. It watches the se
 </p>
 
 <p>
-  <img src="assets/session-screenshot.png" alt="Beacon transcript replay showing session metrics, token charts, tool usage, and conversation detail" />
+  <img src="assets/session-screenshot.png" alt="Beacon chat transcript showing user prompts, assistant responses, tool usage, turn metadata, and subagent context" />
 </p>
 
 <p>
