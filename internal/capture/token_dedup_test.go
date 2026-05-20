@@ -157,6 +157,20 @@ func TestPropagateModel_NoModelAtAll(t *testing.T) {
 	}
 }
 
+func TestPropagateModelWithInitial_SeedsIncrementalBatch(t *testing.T) {
+	events := []NormalizedEvent{
+		{SessionID: "s1", Model: "", EventKind: "event_msg", PayloadType: "token_count", InputTokens: 10, OutputTokens: 5},
+		{SessionID: "s1", Model: "", EventKind: "tool_call"},
+	}
+	PropagateModelWithInitial(events, map[string]string{"s1": "gpt-5.5"})
+
+	for i, event := range events {
+		if event.Model != "gpt-5.5" {
+			t.Fatalf("event[%d] model = %q, want gpt-5.5", i, event.Model)
+		}
+	}
+}
+
 func TestPropagateModel_Nil(t *testing.T) {
 	// Should not panic on nil input
 	PropagateModel(nil)
@@ -281,5 +295,35 @@ func TestDeduplicateTokens_CodexRepeatedTotals(t *testing.T) {
 	if result[2].InputTokens != 232 || result[2].OutputTokens != 50 || result[2].CacheReadTokens != 768 {
 		t.Errorf("next codex token_count should be preserved: input=%d output=%d cache_read=%d",
 			result[2].InputTokens, result[2].OutputTokens, result[2].CacheReadTokens)
+	}
+}
+
+func TestDeduplicateTokensWithInitial_SeedsRepeatedTotals(t *testing.T) {
+	events := []NormalizedEvent{
+		{
+			SessionID:          "session-1",
+			SourceName:         "custom-jsonl-source",
+			PayloadType:        "token_count",
+			TokenUsageTotalKey: "200:25:0:225",
+			InputTokens:        200,
+			OutputTokens:       25,
+		},
+		{
+			SessionID:          "session-1",
+			SourceName:         "custom-jsonl-source",
+			PayloadType:        "token_count",
+			TokenUsageTotalKey: "260:40:0:300",
+			InputTokens:        60,
+			OutputTokens:       15,
+		},
+	}
+
+	result := DeduplicateTokensWithInitial(events, map[string]string{"session-1": "200:25:0:225"})
+
+	if result[0].InputTokens != 0 || result[0].OutputTokens != 0 {
+		t.Fatalf("seeded duplicate should be zeroed: input=%d output=%d", result[0].InputTokens, result[0].OutputTokens)
+	}
+	if result[1].InputTokens != 60 || result[1].OutputTokens != 15 {
+		t.Fatalf("new total should be preserved: input=%d output=%d", result[1].InputTokens, result[1].OutputTokens)
 	}
 }

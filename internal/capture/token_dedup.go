@@ -21,7 +21,13 @@ package capture
 //     token_count line with an unchanged total_token_usage snapshot. Those
 //     repeated bookkeeping lines do not represent new usage and are zeroed.
 func DeduplicateTokens(events []NormalizedEvent) []NormalizedEvent {
-	if len(events) <= 1 {
+	return DeduplicateTokensWithInitial(events, nil)
+}
+
+// DeduplicateTokensWithInitial is like DeduplicateTokens, but it starts the
+// cumulative token snapshot state with totals observed before this batch.
+func DeduplicateTokensWithInitial(events []NormalizedEvent, initial map[string]string) []NormalizedEvent {
+	if len(events) == 0 {
 		return events
 	}
 
@@ -109,9 +115,15 @@ func DeduplicateTokens(events []NormalizedEvent) []NormalizedEvent {
 	}
 
 	// --- Phase 3: Repeated cumulative token snapshots ---
-	lastTotalBySession := make(map[string]string)
+	lastTotalBySession := make(map[string]string, len(initial))
+	for sessionID, totalKey := range initial {
+		if sessionID == "" || totalKey == "" {
+			continue
+		}
+		lastTotalBySession[sessionID] = totalKey
+	}
 	for i := range events {
-		if events[i].SourceName != "codex" || events[i].PayloadType != "token_count" || events[i].TokenUsageTotalKey == "" {
+		if events[i].PayloadType != "token_count" || events[i].TokenUsageTotalKey == "" {
 			continue
 		}
 		if prev, ok := lastTotalBySession[events[i].SessionID]; ok && prev == events[i].TokenUsageTotalKey {
@@ -130,11 +142,23 @@ func DeduplicateTokens(events []NormalizedEvent) []NormalizedEvent {
 // This function propagates the model forward so that tokens-by-model
 // queries can correctly attribute tokens to the right model.
 func PropagateModel(events []NormalizedEvent) {
+	PropagateModelWithInitial(events, nil)
+}
+
+// PropagateModelWithInitial forward-fills model names like PropagateModel, but
+// starts each session with a previously observed model when one is available.
+func PropagateModelWithInitial(events []NormalizedEvent, initial map[string]string) {
 	// Group events by session and propagate model forward within each session.
 	type sessionState struct {
 		model string
 	}
 	sessions := make(map[string]*sessionState)
+	for sessionID, model := range initial {
+		if sessionID == "" || model == "" {
+			continue
+		}
+		sessions[sessionID] = &sessionState{model: model}
+	}
 
 	for i := range events {
 		sid := events[i].SessionID
