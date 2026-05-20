@@ -2,26 +2,26 @@
   <img src="assets/beacon.png" alt="Beacon" width="800" />
 </p>
 
-Beacon is a local dashboard for long-running AI coding agents. It watches agent session files on your machine, normalizes their events into ClickHouse, and gives you a live dashboard, searchable history, transcript replay, and an MCP server your agents can use to inspect previous work.
-
-## Features
-
-- **Live dashboard** - active sessions, token usage, tool calls, errors, and recent activity over SSE
-- **Session replay** - full conversations with turn timelines, tool call details, outputs, and subagent context
-- **Precomputed search** - fast search across normalized session events without rebuilding an external FTS index
-- **Multi-agent capture** - built-in parsers for Claude Code, OpenAI Codex, Hermes Agent, OpenCode, and Pi coding-agent sessions
-- **Token and cost tracking** - input, output, cache tokens, model metadata, and configurable default pricing
-- **Managed ClickHouse** - install-managed native ClickHouse, Docker fallback, or a user-managed ClickHouse server
-- **MCP server** - `search_sessions`, `open`, and `list_sessions` tools for agents that need access to Beacon history
+Beacon is a local dashboard for long-running AI coding agents. It watches the session files already on your machine, writes normalized events to ClickHouse, and gives you a live view of what agents are doing, which tools they used, how much token volume they consumed, and what happened in past runs.
 
 ## What It Looks Like
 
 <table>
   <tr>
-    <td><img src="assets/beacon-screenshot.png" alt="Beacon dashboard" /></td>
-    <td><img src="assets/session-screenshot.png" alt="Session view" /></td>
+    <td><img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing live sessions, token charts, and activity timeline" /></td>
+    <td><img src="assets/session-screenshot.png" alt="Beacon transcript replay showing messages, tool calls, and session metrics" /></td>
   </tr>
 </table>
+
+## Why Use Beacon
+
+- See active and completed agent runs in one place, including project paths, models, duration, turns, tool calls, and subagents.
+- Catch expensive or noisy work quickly with token charts, cache-token counts, model health, and error activity.
+- Search prompts, responses, tool calls, paths, and errors across captured sessions without rebuilding an external search service.
+- Replay a session as a readable transcript with expandable tool payloads and timeline context.
+- Let agents query prior work through MCP tools instead of asking you to remember which session contained the answer.
+
+Beacon currently understands session data from Claude Code, OpenAI Codex, Hermes Agent, OpenCode, and Pi coding-agent runs.
 
 ## Install
 
@@ -31,67 +31,44 @@ The installer supports macOS and Linux on `amd64` and `arm64`.
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | sh
 ```
 
-By default, it installs:
+It installs `beacon` to `~/.local/bin`. If ClickHouse is not already available on `PATH`, it also installs a managed ClickHouse binary to `~/.beacon/bin`.
 
-- `beacon` to `~/.local/bin`
-- a managed `clickhouse` binary to `~/.beacon/bin` when ClickHouse is not already on `PATH`
-
-Common installer options:
-
-```bash
-# Install beacon somewhere else.
-curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_DIR=/usr/local/bin sh
-
-# Install a specific Beacon release.
-curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=0.1.0 sh
-
-# Include prereleases when selecting the latest version.
-curl -sSfL https://johnnygreco.dev/beacon/install.sh | INCLUDE_PRERELEASE=1 sh
-
-# Skip the managed ClickHouse install if you run ClickHouse yourself.
-curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_CLICKHOUSE=0 sh
-
-# Remove beacon and ~/.beacon.
-curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
-```
-
-If `~/.local/bin` is not already on your `PATH`, add it before running `beacon`:
+If your shell cannot find `beacon`, add the install directory to `PATH`:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-## Quick Start
+Common variants:
 
-Start Beacon:
+```bash
+curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_DIR=/usr/local/bin sh
+curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=0.1.0 sh
+curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_CLICKHOUSE=0 sh
+curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
+```
+
+Use `INSTALL_CLICKHOUSE=0` only when you already run ClickHouse yourself. `UNINSTALL=1` removes the installed `beacon` binary and `~/.beacon`, including Beacon-managed ClickHouse data.
+
+## Start
 
 ```bash
 beacon up
 ```
 
-Open [http://localhost:4600](http://localhost:4600). On first run, Beacon will:
+Open [http://localhost:4600](http://localhost:4600). On startup, Beacon loads `~/.beacon/beacon.toml` if it exists, starts local ClickHouse when the configured ClickHouse address is local, migrates the schema, backfills existing sessions, and then watches for new events.
 
-- load `~/.beacon/beacon.toml` if it exists, otherwise use built-in defaults
-- start local ClickHouse automatically when every configured ClickHouse address is local
-- migrate the ClickHouse schema
-- backfill existing sessions from the configured capture sources
-- watch those sources for new events
-
-Stop the web server:
+Useful commands:
 
 ```bash
-beacon down
+beacon status   # server, ClickHouse, session, and search-index health
+beacon down     # stop the running Beacon web server
+beacon db down  # stop Beacon-managed local ClickHouse
 ```
 
-Check server, database, and index health:
+## Capture Sources
 
-```bash
-beacon status
-```
-
-## How Capture Works
-
-Beacon watches local session stores and writes normalized events to ClickHouse. These are the default sources:
+These sources are enabled by default:
 
 | Source | Runtime | Default path |
 |--------|---------|--------------|
@@ -101,17 +78,17 @@ Beacon watches local session stores and writes normalized events to ClickHouse. 
 | OpenCode | `opencode` | `~/.local/share/opencode/opencode*.db` |
 | Pi coding agent | `pi-coding-agent` | `~/.pi/agent/sessions/**/*.jsonl` |
 
-Backfill runs on startup by default, then Beacon keeps watching for changes. Capture can be disabled or customized in configuration.
+Backfill runs on startup by default, then the watcher keeps configured paths up to date.
 
 ## Configuration
 
-Beacon reads `~/.beacon/beacon.toml` by default. Use `--config <path>` with any command to load a different file.
+Beacon reads `~/.beacon/beacon.toml` by default. Pass `--config <path>` to use another file:
 
 ```bash
 beacon --config ./beacon.toml up
 ```
 
-Start from the example in [beacon.toml](beacon.toml). The most commonly changed settings are:
+Start from the example in [beacon.toml](beacon.toml). The settings most people change are the web port, ClickHouse address, and capture sources:
 
 ```toml
 [server]
@@ -125,11 +102,6 @@ username = "default"
 password = ""
 secure = false
 
-[capture]
-enabled = true
-backfill_on_start = true
-reconcile_interval = "30s"
-
 [[capture.sources]]
 name = "codex"
 runtime = "codex"
@@ -139,59 +111,33 @@ watch_root = "~/.codex/sessions"
 format = "jsonl"
 ```
 
-If you point `[database].addrs` at a remote ClickHouse host, Beacon will not auto-start ClickHouse. Start that server yourself and run:
+If `[database].addrs` points to a remote ClickHouse host, Beacon will not start ClickHouse for you. Start the database yourself and run `beacon db migrate`.
 
-```bash
-beacon db migrate
-```
+## ClickHouse
 
-## Database Management
+For local addresses such as `127.0.0.1:9000`, `localhost:9000`, or `0.0.0.0:9000`, `beacon up`, `beacon serve`, and `beacon watch` try to start ClickHouse when it is not already reachable.
 
-`beacon up`, `beacon serve`, and `beacon watch` try to start ClickHouse automatically only for local addresses such as `127.0.0.1:9000` or `localhost:9000`.
+Auto-start prefers:
 
-Auto-start chooses a runtime in this order:
-
-1. a `clickhouse` binary on `PATH`, `BEACON_CLICKHOUSE_BIN`, or `~/.beacon/bin/clickhouse`
+1. a `clickhouse` binary from `BEACON_CLICKHOUSE_BIN`, `PATH`, or `~/.beacon/bin/clickhouse`
 2. an existing Docker container named `beacon-clickhouse`
 3. a new Docker container using `clickhouse/clickhouse-server:24.12`
 
 Manual database commands:
 
 ```bash
-beacon db up                         # auto-select native or Docker and migrate
-beacon db up --runtime native        # require a local clickhouse binary
-beacon db up --runtime docker        # require Docker
-beacon db up --no-migrate            # start only
-beacon db down                       # stop Beacon-managed native or Docker ClickHouse
-beacon db migrate                    # create or update schema
-beacon db reset --force              # destructive: drop and recreate Beacon tables
+beacon db up                  # start local ClickHouse and migrate tables
+beacon db up --runtime native # require a local clickhouse binary
+beacon db up --runtime docker # require Docker
+beacon db migrate             # migrate an already-running ClickHouse
+beacon db reset --force       # destructive: drop and recreate Beacon tables
 ```
 
-Native ClickHouse data is stored under `~/.beacon/clickhouse`. Docker mode uses the `beacon-clickhouse-data` volume.
-
-## Commands
-
-| Command | Description |
-|---------|-------------|
-| `beacon` | Start the web dashboard and capture service, equivalent to `beacon serve` |
-| `beacon up` | Start the dashboard and capture services |
-| `beacon serve` | Start the web dashboard and capture service |
-| `beacon down` | Stop the running Beacon server |
-| `beacon stop` | Alias for stopping the running Beacon server |
-| `beacon watch` | Run capture only, without the web dashboard |
-| `beacon run capture` | Run capture only |
-| `beacon run web` | Run web and capture services |
-| `beacon mcp` | Start the MCP server over stdin/stdout JSON-RPC |
-| `beacon run mcp` | Start the MCP server over stdin/stdout JSON-RPC |
-| `beacon status` | Show web server, ClickHouse, session, and search index status |
-| `beacon db up` | Start local ClickHouse and migrate tables |
-| `beacon db down` | Stop Beacon-managed local ClickHouse |
-| `beacon db migrate` | Create or update ClickHouse tables |
-| `beacon db reset --force` | Reset the ClickHouse schema and delete Beacon data |
+Native ClickHouse data lives under `~/.beacon/clickhouse`. Docker mode uses the `beacon-clickhouse-data` volume.
 
 ## MCP Integration
 
-Add Beacon to your agent's MCP config:
+Run `beacon up` or `beacon db up` first so ClickHouse is available and migrated, then add Beacon to your MCP client:
 
 ```json
 {
@@ -219,11 +165,25 @@ If your MCP client cannot use Beacon's config file, pass ClickHouse directly:
 
 Available tools:
 
-- `search_sessions` - search the precomputed activity index
-- `open` - retrieve an event with surrounding context from the same session
-- `list_sessions` - list recent sessions and summary statistics
+- `search_sessions` searches the precomputed activity index and returns session/event IDs.
+- `open` retrieves one event plus nearby context from the same session.
+- `list_sessions` lists recent sessions with summary stats.
 
-Run `beacon up` or `beacon db up` before using MCP so ClickHouse is available and migrated.
+## Commands
+
+| Command | Use it for |
+|---------|------------|
+| `beacon` or `beacon up` | Start the dashboard and capture service |
+| `beacon serve` | Start the dashboard and capture service explicitly |
+| `beacon down` or `beacon stop` | Stop the running Beacon web server |
+| `beacon watch` or `beacon run capture` | Capture sessions without the web dashboard |
+| `beacon run web` | Run web and capture services |
+| `beacon mcp` or `beacon run mcp` | Start the MCP server over stdin/stdout JSON-RPC |
+| `beacon status` | Show server, database, session, and search-index status |
+| `beacon db up` | Start local ClickHouse and migrate tables |
+| `beacon db down` | Stop Beacon-managed local ClickHouse |
+| `beacon db migrate` | Create or update ClickHouse tables |
+| `beacon db reset --force` | Delete Beacon data and recreate tables |
 
 ## Build From Source
 
@@ -236,14 +196,14 @@ make build
 ./bin/beacon up
 ```
 
-Useful development commands:
+Development commands:
 
 ```bash
 make generate       # regenerate templ output
 make test           # generate templates and run Go tests
 make test-race      # run Go tests with the race detector
 make perf-bench     # run perf benchmarks; set PERF_SIZE=small|medium|large
-npm install         # install Playwright and asset vendoring dependencies
+npm install         # install Playwright and asset-vendoring dependencies
 npm run vendor      # refresh vendored frontend assets
 npm run test:e2e    # dashboard and search Playwright tests
 npm run test:a11y   # accessibility tests
@@ -262,7 +222,7 @@ Playwright tests start their own e2e server by default. To test against an alrea
 
 ## Troubleshooting
 
-**`beacon` is not found after install.** Add the install directory to your `PATH`, usually `export PATH="$HOME/.local/bin:$PATH"`.
+**`beacon` is not found after install.** Add the install directory to `PATH`, usually `export PATH="$HOME/.local/bin:$PATH"`.
 
 **ClickHouse does not start.** Run `beacon db up --runtime native` if you installed the managed ClickHouse binary, or `beacon db up --runtime docker` if you prefer Docker. Set `BEACON_CLICKHOUSE_BIN=/path/to/clickhouse` to use a specific binary.
 
