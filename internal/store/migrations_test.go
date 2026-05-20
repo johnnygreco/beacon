@@ -37,6 +37,7 @@ func TestSchemaIncludesSourceMetadataColumns(t *testing.T) {
 		"runtime LowCardinality(String)",
 		"format LowCardinality(String)",
 		"source_generation UInt32",
+		"state_json String DEFAULT ''",
 	} {
 		if !strings.Contains(schema, expected) {
 			t.Fatalf("schema missing %s", expected)

@@ -223,7 +223,7 @@ func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T)
 	if charts.TokenCumulative.Summary.TotalTokens != 51 {
 		t.Fatalf("dashboard cumulative token summary = %#v", charts.TokenCumulative.Summary)
 	}
-	if got := modelSeriesTotal(charts.TokenCumulative.Datasets, "gpt-4.1"); got != 45 {
+	if got := modelSeriesTotal(charts.TokenCumulative.Datasets, "gpt-4.1"); got != 51 {
 		t.Fatalf("gpt-4.1 cumulative total = %v in %#v", got, charts.TokenCumulative.Datasets)
 	}
 	if got := metricSeriesTotal(charts.ModelActivity.Metrics["tool_calls"].Datasets); got != 1 {
@@ -304,6 +304,49 @@ func TestQuerySessionDetailKeepsUnattributedModelTokensSeparate(t *testing.T) {
 	}
 	if got := modelTokenTotal(detail.TokensByModel, "unknown"); got != 7 {
 		t.Fatalf("unknown total = %d in %#v", got, detail.TokensByModel)
+	}
+}
+
+func TestDashboardChartsAttributeBlankModelsFromSessionTimeline(t *testing.T) {
+	ch := setupLiveWebStore(t)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	sessionID := "dashboard-single-model-fallback"
+	mixedSessionID := "dashboard-mixed-model-no-fallback"
+	events := []models.Event{
+		liveEvent("single-context", sessionID, "turn_context", "system", now, "openai", "gpt-5.5", "", 0, 0, 0),
+		liveEvent("single-token-count", sessionID, "event_msg", "assistant", now.Add(time.Second), "openai", "", "", 12, 5, 0),
+		liveEvent("mixed-first-model", mixedSessionID, "message", "assistant", now.Add(2*time.Second), "openai", "gpt-4.1", "", 2, 3, 0),
+		liveEvent("mixed-second-model", mixedSessionID, "message", "assistant", now.Add(3*time.Second), "openai", "gpt-5", "", 4, 6, 0),
+		liveEvent("mixed-blank-model", mixedSessionID, "event_msg", "assistant", now.Add(4*time.Second), "openai", "", "", 3, 4, 0),
+	}
+	events[1].PayloadType = "token_count"
+	events[4].PayloadType = "token_count"
+	for i := range events {
+		events[i].SourceLineNo = i + 1
+		events[i].SourceOffset = int64(i * 10)
+	}
+
+	batch := store.RowBatch{ActivityEvents: events}
+	for _, event := range events {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	tokens, _ := QueryDashboardModelAnalytics(context.Background(), ch.DB, nil, "")
+	if got := modelSeriesTotal(tokens.Datasets, "gpt-5.5"); got != 17 {
+		t.Fatalf("gpt-5.5 cumulative total = %v in %#v", got, tokens.Datasets)
+	}
+	if got := modelSeriesTotal(tokens.Datasets, "gpt-4.1"); got != 5 {
+		t.Fatalf("gpt-4.1 cumulative total = %v in %#v", got, tokens.Datasets)
+	}
+	if got := modelSeriesTotal(tokens.Datasets, "gpt-5"); got != 17 {
+		t.Fatalf("gpt-5 cumulative total = %v in %#v", got, tokens.Datasets)
+	}
+	if got := modelSeriesTotal(tokens.Datasets, "unknown"); got != 0 {
+		t.Fatalf("unknown cumulative total = %v in %#v", got, tokens.Datasets)
 	}
 }
 

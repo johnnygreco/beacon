@@ -216,25 +216,100 @@ func QueryDashboardModelAnalytics(ctx context.Context, db *sql.DB, since *time.T
 	timeUnit := dashboardTimeUnit(bucketMinutes)
 	tokenChart, metricChart := emptyDashboardModelCharts(bucketMinutes, timeUnit)
 
-	rangeFilter := ""
+	rangeSessionFilter := "WHERE model != '<synthetic>'"
+	rangeResultFilter := ""
 	args := []any{}
 	if since != nil {
-		rangeFilter = " AND minute >= ?"
+		rangeSessionFilter += " AND minute >= ?"
 		args = append(args, *since)
+		rangeResultFilter = "WHERE a.minute >= ?"
 	}
 
-	query := fmt.Sprintf(`WITH top_models AS (
-			SELECT COALESCE(NULLIF(provider, ''), 'unknown') AS provider_key,
-			       COALESCE(NULLIF(model, ''), 'unknown') AS model_key
+	query := fmt.Sprintf(`WITH range_sessions AS (
+			SELECT session_id
 			FROM `+analyticsProjectionSQL+`
-			WHERE model != '<synthetic>'`+rangeFilter+`
+			%s
+			GROUP BY session_id
+		),
+		session_analytics AS (
+			SELECT *
+			FROM `+analyticsProjectionSQL+`
+			WHERE model != '<synthetic>'
+			  AND session_id IN (SELECT session_id FROM range_sessions)
+		),
+		session_model_fallbacks AS (
+			SELECT session_id,
+			       if(
+			           uniqExactIf(model, model != '' AND model != '<synthetic>') = 1,
+			           anyIf(model, model != '' AND model != '<synthetic>'),
+			           ''
+			       ) AS fallback_model,
+			       if(
+			           uniqExactIf(model, model != '' AND model != '<synthetic>') = 1,
+			           anyIf(provider, model != '' AND model != '<synthetic>'),
+			           ''
+			       ) AS fallback_provider
+			FROM session_analytics
+			GROUP BY session_id
+		),
+		attributed AS (
+			SELECT a.session_id AS session_id,
+			       a.minute AS minute,
+			       a.provider AS provider,
+			       a.model AS model,
+			       last_value(if(a.model != '', toNullable(a.model), NULL)) IGNORE NULLS
+			           OVER (PARTITION BY a.session_id ORDER BY a.minute, a.model = '', a.provider, a.model, a.tool_name, a.event_kind ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS prior_model,
+			       last_value(if(a.model != '', toNullable(a.provider), NULL)) IGNORE NULLS
+			           OVER (PARTITION BY a.session_id ORDER BY a.minute, a.model = '', a.provider, a.model, a.tool_name, a.event_kind ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS prior_provider,
+			       a.event_kind AS event_kind,
+			       a.event_count AS event_count,
+			       a.call_count AS call_count,
+			       a.tool_call_count AS tool_call_count,
+			       a.input_tokens AS input_tokens,
+			       a.output_tokens AS output_tokens,
+			       a.cache_read_tokens AS cache_read_tokens,
+			       a.total_tokens AS total_tokens
+			FROM session_analytics AS a
+		),
+		model_analytics AS (
+			SELECT a.session_id AS session_id,
+			       a.minute AS minute,
+			       multiIf(
+			           a.model != '', COALESCE(NULLIF(a.provider, ''), 'unknown'),
+			           ifNull(a.prior_model, '') != '', COALESCE(NULLIF(ifNull(a.prior_provider, ''), ''), NULLIF(a.provider, ''), 'unknown'),
+			           sf.fallback_model != '', COALESCE(NULLIF(sf.fallback_provider, ''), NULLIF(a.provider, ''), 'unknown'),
+			           COALESCE(NULLIF(a.provider, ''), 'unknown')
+			       ) AS provider_key,
+			       multiIf(
+			           a.model != '', a.model,
+			           ifNull(a.prior_model, '') != '', ifNull(a.prior_model, ''),
+			           sf.fallback_model != '', sf.fallback_model,
+			           ''
+			       ) AS model_key,
+			       a.event_kind AS event_kind,
+			       a.event_count AS event_count,
+			       a.call_count AS call_count,
+			       a.tool_call_count AS tool_call_count,
+			       a.input_tokens AS input_tokens,
+			       a.output_tokens AS output_tokens,
+			       a.cache_read_tokens AS cache_read_tokens,
+			       a.total_tokens AS total_tokens
+			FROM attributed AS a
+			LEFT JOIN session_model_fallbacks AS sf ON a.session_id = sf.session_id
+			%s
+		),
+		top_models AS (
+			SELECT provider_key,
+			       COALESCE(NULLIF(model_key, ''), 'unknown') AS model_key
+			FROM model_analytics
+			WHERE model_key != '<synthetic>'
 			GROUP BY provider_key, model_key
 			ORDER BY sum(total_tokens) DESC, sum(tool_call_count) DESC, sum(event_count) DESC
 			LIMIT %d
 		)
 		SELECT toStartOfInterval(minute, INTERVAL %d MINUTE) AS bucket,
-		       COALESCE(NULLIF(provider, ''), 'unknown') AS provider_key,
-		       COALESCE(NULLIF(model, ''), 'unknown') AS model_key,
+		       provider_key,
+		       COALESCE(NULLIF(model_key, ''), 'unknown') AS model_key,
 		       sum(total_tokens) AS tokens,
 		       sum(input_tokens) AS input_tokens,
 		       sum(output_tokens) AS output_tokens,
@@ -242,13 +317,13 @@ func QueryDashboardModelAnalytics(ctx context.Context, db *sql.DB, since *time.T
 		       sum(tool_call_count) AS tool_calls,
 		       sum(call_count) AS calls,
 		       sumIf(event_count, event_kind IN ('error', 'tool_error')) AS errors
-		FROM `+analyticsProjectionSQL+`
-		WHERE model != '<synthetic>'`+rangeFilter+`
-		  AND (COALESCE(NULLIF(provider, ''), 'unknown'), COALESCE(NULLIF(model, ''), 'unknown')) IN (
+		FROM model_analytics
+		WHERE model_key != '<synthetic>'
+		  AND (provider_key, COALESCE(NULLIF(model_key, ''), 'unknown')) IN (
 			SELECT provider_key, model_key FROM top_models
 		  )
 		GROUP BY bucket, provider_key, model_key
-		ORDER BY bucket ASC`, dashboardModelLimit, bucketMinutes)
+		ORDER BY bucket ASC`, rangeSessionFilter, rangeResultFilter, dashboardModelLimit, bucketMinutes)
 	if since != nil {
 		args = append(args, *since)
 	}

@@ -152,10 +152,13 @@ func Schema(database string) []string {
 			source_generation UInt32,
 			last_offset UInt64,
 			last_line_no UInt32,
+			state_json String DEFAULT '',
 			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
 		)
 		ENGINE = ReplacingMergeTree(updated_at)
 		ORDER BY (source_name, source_file)`,
+
+		`ALTER TABLE ` + db("capture_checkpoints") + ` ADD COLUMN IF NOT EXISTS state_json String DEFAULT ''`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("capture_heartbeats") + ` (
 			source_name LowCardinality(String),

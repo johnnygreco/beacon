@@ -98,6 +98,7 @@ type Checkpoint struct {
 	SourceGeneration int    `json:"source_generation"`
 	LastOffset       int64  `json:"last_offset"`
 	LastLineNo       int    `json:"last_line_no"`
+	StateJSON        string `json:"state_json"`
 }
 
 type SearchDocument struct {

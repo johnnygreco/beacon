@@ -2,7 +2,10 @@ package capture
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -15,6 +18,31 @@ import (
 	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/store"
 )
+
+const (
+	incrementalReplayLines = 64
+	scannerMaxTokenBytes   = 4 << 20
+	incrementalReplayBytes = int64(incrementalReplayLines * scannerMaxTokenBytes)
+)
+
+type lineParserCheckpointState struct {
+	Version           int             `json:"version"`
+	ReplayStartOffset int64           `json:"replay_start_offset"`
+	ReplayStartLineNo int             `json:"replay_start_line_no"`
+	ReplayState       lineParserState `json:"replay_state"`
+}
+
+type lineParserState struct {
+	Models           map[string]string `json:"models,omitempty"`
+	TokenUsageTotals map[string]string `json:"token_usage_totals,omitempty"`
+}
+
+type replayLine struct {
+	offset int64
+	lineNo int
+	line   []byte
+	seq    int
+}
 
 // WatchSource defines a source to watch for JSONL files.
 type WatchSource struct {
@@ -302,12 +330,31 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 
 	var offset int64
 	var lineNo int
+	var checkpointOffset int64
+	var initialState lineParserState
+	emitReplay := true
 	if cp != nil {
 		offset = cp.LastOffset
 		lineNo = cp.LastLineNo
+		checkpointOffset = cp.LastOffset
 		// Nothing new to read
 		if fi.Size() <= offset {
 			return
+		}
+
+		checkpointState, stateOK := decodeLineParserCheckpointState(cp.StateJSON, w.logger)
+		if stateOK && checkpointState.ReplayStartLineNo > 0 &&
+			checkpointState.ReplayStartLineNo <= cp.LastLineNo &&
+			checkpointState.ReplayStartOffset <= cp.LastOffset {
+			offset = checkpointState.ReplayStartOffset
+			lineNo = checkpointState.ReplayStartLineNo - 1
+			initialState = checkpointState.ReplayState.clone()
+		} else {
+			offset, lineNo = replayStartFromPrefix(file, offset, lineNo, incrementalReplayLines, w.logger)
+			// Legacy checkpoints do not know the parser state at the replay
+			// boundary. Use the replay window only as context, then emit new
+			// rows; subsequent checkpoints persist exact replay state.
+			emitReplay = false
 		}
 	}
 
@@ -326,14 +373,16 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 	}
 
 	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 4<<20), 4<<20) // 4MB buffer
+	scanner.Buffer(make([]byte, 0, scannerMaxTokenBytes), scannerMaxTokenBytes)
 
 	var allEvents []NormalizedEvent
+	var replayLines []replayLine
 
 	for scanner.Scan() {
 		lineNo++
 		lineBytes := scanner.Bytes()
 		lineLen := int64(len(lineBytes)) + 1 // +1 for newline
+		replayLines = appendReplayLine(replayLines, replayLine{offset: offset, lineNo: lineNo}, incrementalReplayLines)
 
 		if len(lineBytes) == 0 {
 			offset += lineLen
@@ -373,17 +422,26 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 		allEvents = append(allEvents, events...)
 		offset += lineLen
 	}
+	if err := scanner.Err(); err != nil {
+		w.logger.Error("scan file failed", "file", file, "error", err)
+		return
+	}
 
-	// Propagate model from context events to events without a model.
-	// Codex puts the model on turn_context events but not on token_count
-	// or tool events, so we forward-fill the model within the file.
-	PropagateModel(allEvents)
+	// Propagate model from context events to events without a model. On safe
+	// incremental replays, seed from the parser state captured at the replay
+	// boundary.
+	PropagateModelWithInitial(allEvents, initialState.Models)
 
 	// Deduplicate tokens across JSONL lines from the same API call
 	// before sending to the batcher.
-	allEvents = DeduplicateTokens(allEvents)
+	allEvents = DeduplicateTokensWithInitial(allEvents, initialState.TokenUsageTotals)
+
+	nextState := buildLineParserCheckpointState(initialState, allEvents, replayLines)
 
 	for _, evt := range allEvents {
+		if cp != nil && !emitReplay && evt.SourceOffset < checkpointOffset {
+			continue
+		}
 		w.eventCh <- BatchEvent{Insert: &InsertEvent{Normalized: evt}}
 	}
 
@@ -394,6 +452,7 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 		SourceInode: fileInode(fi),
 		LastOffset:  offset,
 		LastLineNo:  lineNo,
+		StateJSON:   encodeLineParserCheckpointState(nextState, w.logger),
 	}
 	if cp != nil {
 		newCP.SourceGeneration = cp.SourceGeneration
@@ -401,6 +460,220 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 	if err := cm.Save(ctx, newCP); err != nil {
 		w.logger.Error("save checkpoint failed", "file", file, "error", err)
 	}
+}
+
+func replayStartFromPrefix(file string, limitOffset int64, limitLineNo int, overlapLines int, logger *slog.Logger) (int64, int) {
+	if limitOffset <= 0 || overlapLines <= 0 {
+		return limitOffset, limitLineNo
+	}
+	lines := tailLinesBeforeOffset(file, limitOffset, limitLineNo, overlapLines, incrementalReplayBytes, logger)
+	if len(lines) == 0 {
+		return limitOffset, limitLineNo
+	}
+	return lines[0].offset, lines[0].lineNo - 1
+}
+
+func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, overlapLines int, maxReadBytes int64, logger *slog.Logger) []replayLine {
+	if limitOffset <= 0 || overlapLines <= 0 || maxReadBytes <= 0 {
+		return nil
+	}
+	f, err := os.Open(file)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	readStart := limitOffset - maxReadBytes
+	if readStart < 0 {
+		readStart = 0
+	}
+	if readStart > 0 {
+		if _, err := f.Seek(readStart-1, io.SeekStart); err != nil {
+			if logger != nil {
+				logger.Warn("seek replay prefix failed", "file", file, "offset", readStart-1, "error", err)
+			}
+			return nil
+		}
+		var prev [1]byte
+		if _, err := io.ReadFull(f, prev[:]); err != nil {
+			if logger != nil {
+				logger.Warn("read replay prefix failed", "file", file, "offset", readStart-1, "error", err)
+			}
+			return nil
+		}
+		if _, err := f.Seek(readStart, io.SeekStart); err != nil {
+			if logger != nil {
+				logger.Warn("seek replay prefix failed", "file", file, "offset", readStart, "error", err)
+			}
+			return nil
+		}
+		if prev[0] != '\n' {
+			reader := bufio.NewReader(f)
+			skipped, err := reader.ReadBytes('\n')
+			readStart += int64(len(skipped))
+			if err != nil {
+				if err != io.EOF && logger != nil {
+					logger.Warn("read replay prefix failed", "file", file, "error", err)
+				}
+				return nil
+			}
+			if _, err := f.Seek(readStart, io.SeekStart); err != nil {
+				if logger != nil {
+					logger.Warn("seek replay prefix failed", "file", file, "offset", readStart, "error", err)
+				}
+				return nil
+			}
+		}
+	} else if _, err := f.Seek(0, io.SeekStart); err != nil {
+		if logger != nil {
+			logger.Warn("seek replay prefix failed", "file", file, "error", err)
+		}
+		return nil
+	}
+
+	reader := bufio.NewReader(f)
+	offset := readStart
+	var lines []replayLine
+	var completeLineCount int
+	for offset < limitOffset {
+		lineStart := offset
+		line, err := reader.ReadBytes('\n')
+		if len(line) > 0 {
+			lineLen := int64(len(line))
+			if offset+lineLen > limitOffset {
+				break
+			}
+			offset += lineLen
+			completeLineCount++
+			line = bytes.TrimSuffix(line, []byte("\n"))
+			line = bytes.TrimSuffix(line, []byte("\r"))
+			if len(line) < scannerMaxTokenBytes {
+				lines = appendReplayLine(lines, replayLine{
+					offset: lineStart,
+					line:   line,
+					seq:    completeLineCount,
+				}, overlapLines)
+			}
+		}
+		if err != nil {
+			if err != io.EOF && logger != nil {
+				logger.Warn("scan prefix failed", "file", file, "error", err)
+			}
+			break
+		}
+	}
+	for i := range lines {
+		lines[i].lineNo = limitLineNo - completeLineCount + lines[i].seq
+	}
+	return lines
+}
+
+func appendReplayLine(lines []replayLine, line replayLine, limit int) []replayLine {
+	if limit <= 0 {
+		return nil
+	}
+	lines = append(lines, line)
+	if len(lines) > limit {
+		copy(lines, lines[1:])
+		lines = lines[:limit]
+	}
+	return lines
+}
+
+func decodeLineParserCheckpointState(raw string, logger *slog.Logger) (lineParserCheckpointState, bool) {
+	if raw == "" {
+		return lineParserCheckpointState{}, false
+	}
+	var state lineParserCheckpointState
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		if logger != nil {
+			logger.Warn("decode line parser checkpoint state failed", "error", err)
+		}
+		return lineParserCheckpointState{}, false
+	}
+	if state.Version != 1 {
+		return lineParserCheckpointState{}, false
+	}
+	return state, true
+}
+
+func encodeLineParserCheckpointState(state lineParserCheckpointState, logger *slog.Logger) string {
+	state.Version = 1
+	payload, err := json.Marshal(state)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("encode line parser checkpoint state failed", "error", err)
+		}
+		return ""
+	}
+	return string(payload)
+}
+
+func buildLineParserCheckpointState(initial lineParserState, events []NormalizedEvent, replayLines []replayLine) lineParserCheckpointState {
+	if len(replayLines) == 0 {
+		return lineParserCheckpointState{
+			Version:     1,
+			ReplayState: initial.clone(),
+		}
+	}
+
+	replayStart := replayLines[0]
+	replayState := initial.clone()
+	for _, event := range events {
+		if event.SourceOffset >= replayStart.offset {
+			continue
+		}
+		replayState.apply(event)
+	}
+
+	return lineParserCheckpointState{
+		Version:           1,
+		ReplayStartOffset: replayStart.offset,
+		ReplayStartLineNo: replayStart.lineNo,
+		ReplayState:       replayState,
+	}
+}
+
+func (s lineParserState) clone() lineParserState {
+	return lineParserState{
+		Models:           cloneStringMap(s.Models),
+		TokenUsageTotals: cloneStringMap(s.TokenUsageTotals),
+	}
+}
+
+func (s *lineParserState) apply(event NormalizedEvent) {
+	if event.SessionID == "" {
+		return
+	}
+	if event.Model != "" {
+		if s.Models == nil {
+			s.Models = make(map[string]string)
+		}
+		s.Models[event.SessionID] = event.Model
+	}
+	if event.PayloadType == "token_count" && event.TokenUsageTotalKey != "" {
+		if s.TokenUsageTotals == nil {
+			s.TokenUsageTotals = make(map[string]string)
+		}
+		s.TokenUsageTotals[event.SessionID] = event.TokenUsageTotalKey
+	}
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		if key == "" || value == "" {
+			continue
+		}
+		out[key] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func (w *Watcher) processWholeFile(ctx context.Context, src WatchSource, file string, fi os.FileInfo, cp *models.Checkpoint) {
