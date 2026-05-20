@@ -38,7 +38,7 @@ func runWatch(cmd *cobra.Command, args []string) error {
 
 	ch, err := store.Open(context.Background(), storeOpts)
 	if err != nil {
-		return fmt.Errorf("opening clickhouse store: %w", err)
+		return storeOpenError("opening clickhouse store", err)
 	}
 	defer ch.Close()
 

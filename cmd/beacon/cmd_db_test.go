@@ -1,9 +1,11 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/johnnygreco/beacon/internal/store"
@@ -133,5 +135,41 @@ func TestShouldAutoStartClickHouse(t *testing.T) {
 				t.Fatalf("got %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestParseManagedNativeClickHousePIDs(t *testing.T) {
+	dataDir := "/home/ubuntu/.beacon/clickhouse/data"
+	psOutput := `
+    100 /usr/bin/clickhouse server --daemon -- --path=/home/ubuntu/.beacon/clickhouse/data --tcp_port=9000
+    101 /usr/bin/clickhouse server --daemon -- --path=/tmp/other --tcp_port=9001
+    102 /bin/sh -c echo clickhouse --path=/home/ubuntu/.beacon/clickhouse/data
+`
+
+	got := parseManagedNativeClickHousePIDs(psOutput, dataDir, 102)
+	if !slices.Equal(got, []int{100}) {
+		t.Fatalf("pids = %#v, want [100]", got)
+	}
+}
+
+func TestManagedClickHouseMetadataHint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dataDir := filepath.Join(home, ".beacon", "clickhouse", "data")
+	err := errors.New("migrate clickhouse: code: 107, message: Cannot open file " +
+		filepath.Join(dataDir, "store", "7ab", "uuid", "capture_checkpoints.sql") +
+		": , errno: 2, strerror: No such file or directory")
+
+	hint := managedClickHouseMetadataHint(err)
+	if !strings.Contains(hint, "beacon db down") || !strings.Contains(hint, "rm -rf ~/.beacon/clickhouse/data") {
+		t.Fatalf("missing recovery hint: %q", hint)
+	}
+}
+
+func TestManagedClickHouseMetadataHintIgnoresRemoteErrors(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	err := errors.New("migrate clickhouse: code: 107, message: Cannot open file /var/lib/clickhouse/store/x/table.sql")
+	if hint := managedClickHouseMetadataHint(err); hint != "" {
+		t.Fatalf("hint = %q, want empty", hint)
 	}
 }

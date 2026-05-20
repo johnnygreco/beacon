@@ -93,7 +93,7 @@ func runDBUp(cmd *cobra.Command, args []string) error {
 	}
 	ch, err := store.Open(context.Background(), opts)
 	if err != nil {
-		return fmt.Errorf("migrate failed after ClickHouse start: %w", err)
+		return storeOpenError("migrate failed after ClickHouse start", err)
 	}
 	defer ch.Close()
 	fmt.Println("ClickHouse is running and Beacon schema is migrated.")
@@ -118,6 +118,16 @@ func runDBDown(cmd *cobra.Command, args []string) error {
 		}
 		stopped = true
 	}
+	if !stopped {
+		if baseDir, err := nativeClickHouseDir(); err == nil {
+			for _, pid := range managedNativeClickHousePIDs(baseDir) {
+				if err := stopNativeClickHouse(pid); err != nil {
+					return err
+				}
+				stopped = true
+			}
+		}
+	}
 
 	if _, err := exec.LookPath("docker"); err == nil && containerExists(clickHouseContainerName) {
 		if out, err := docker("container", "stop", clickHouseContainerName); err != nil {
@@ -141,7 +151,7 @@ func runDBMigrate(cmd *cobra.Command, args []string) error {
 	opts := storeOptionsFromConfig(cfg)
 	ch, err := store.Open(context.Background(), opts)
 	if err != nil {
-		return fmt.Errorf("migrate failed: %w", err)
+		return storeOpenError("migrate failed", err)
 	}
 	defer ch.Close()
 	fmt.Println("ClickHouse schema migrated.")
@@ -170,7 +180,7 @@ func runDBReset(cmd *cobra.Command, args []string) error {
 	opts := storeOptionsFromConfig(cfg)
 	ch, err := store.Open(context.Background(), opts)
 	if err != nil {
-		return fmt.Errorf("opening clickhouse store: %w", err)
+		return storeOpenError("opening clickhouse store", err)
 	}
 	defer ch.Close()
 
@@ -180,6 +190,37 @@ func runDBReset(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("Database reset complete.")
 	return nil
+}
+
+func storeOpenError(prefix string, err error) error {
+	if hint := managedClickHouseMetadataHint(err); hint != "" {
+		return fmt.Errorf("%s: %w\n\n%s", prefix, err, hint)
+	}
+	return fmt.Errorf("%s: %w", prefix, err)
+}
+
+func managedClickHouseMetadataHint(err error) string {
+	if err == nil {
+		return ""
+	}
+	baseDir, dirErr := nativeClickHouseDir()
+	if dirErr != nil {
+		return ""
+	}
+	errText := err.Error()
+	dataDir := filepath.Join(baseDir, "data")
+	if !strings.Contains(errText, "Cannot open file") ||
+		!strings.Contains(errText, ".sql") ||
+		(!strings.Contains(errText, dataDir) && !strings.Contains(errText, filepath.ToSlash(dataDir))) {
+		return ""
+	}
+	return strings.Join([]string{
+		"Beacon's managed ClickHouse metadata looks inconsistent. This can happen if the managed ClickHouse data directory was removed while the server was still running.",
+		"To reset only Beacon's local ClickHouse data, run:",
+		"  beacon db down",
+		"  rm -rf ~/.beacon/clickhouse/data ~/.beacon/clickhouse/logs ~/.beacon/clickhouse/access ~/.beacon/clickhouse/clickhouse.pid",
+		"  beacon up",
+	}, "\n")
 }
 
 func waitForClickHouse(opts store.Options, timeout time.Duration) error {
@@ -424,6 +465,39 @@ func readNativeClickHousePID() int {
 		return 0
 	}
 	return pid
+}
+
+func managedNativeClickHousePIDs(baseDir string) []int {
+	dataDir := filepath.Join(baseDir, "data")
+	out, err := exec.Command("ps", "-eo", "pid=,args=").Output()
+	if err != nil {
+		return nil
+	}
+	return parseManagedNativeClickHousePIDs(string(out), dataDir, os.Getpid())
+}
+
+func parseManagedNativeClickHousePIDs(psOutput, dataDir string, selfPID int) []int {
+	var pids []int
+	pathArg := "--path=" + dataDir
+	for _, line := range strings.Split(psOutput, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		pid, err := strconv.Atoi(fields[0])
+		if err != nil || pid <= 0 || pid == selfPID {
+			continue
+		}
+		command := strings.TrimSpace(strings.TrimPrefix(line, fields[0]))
+		if strings.Contains(command, "clickhouse") && strings.Contains(command, " server ") && strings.Contains(command, pathArg) {
+			pids = append(pids, pid)
+		}
+	}
+	return pids
 }
 
 func stopNativeClickHouse(pid int) error {

@@ -27,8 +27,57 @@ if [ -z "${CLICKHOUSE_VERSION:-}" ]; then
 fi
 CLICKHOUSE_TAG="${CLICKHOUSE_TAG:-v${CLICKHOUSE_VERSION}-stable}"
 
+stop_managed_clickhouse() {
+    force="${1:-0}"
+    pid_file="${BEACON_HOME}/clickhouse/clickhouse.pid"
+    data_dir="${BEACON_HOME}/clickhouse/data"
+
+    if [ -f "$pid_file" ]; then
+        pid="$(cat "$pid_file" 2>/dev/null || true)"
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            if [ "$force" != "1" ]; then
+                return 0
+            fi
+            echo "Stopping Beacon-managed ClickHouse (pid ${pid})..."
+            kill "$pid" 2>/dev/null || true
+            i=0
+            while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 20 ]; do
+                sleep 0.5
+                i=$((i + 1))
+            done
+        fi
+        rm -f "$pid_file"
+    fi
+
+    # If the pidfile is gone but the managed server is still alive, it can keep
+    # serving from a deleted/corrupt ~/.beacon/clickhouse tree. Stop that stale
+    # process before installing or removing files.
+    pids="$(ps -eo pid=,args= 2>/dev/null | awk -v data_dir="$data_dir" '
+        index($0, "clickhouse") && index($0, " server ") && index($0, "--path=" data_dir) { print $1 }
+    ' || true)"
+    if [ -n "$pids" ]; then
+        echo "Stopping stale Beacon-managed ClickHouse..."
+        for pid in $pids; do
+            kill "$pid" 2>/dev/null || true
+        done
+        i=0
+        while [ "$i" -lt 20 ]; do
+            alive=""
+            for pid in $pids; do
+                if kill -0 "$pid" 2>/dev/null; then
+                    alive="1"
+                fi
+            done
+            [ -z "$alive" ] && break
+            sleep 0.5
+            i=$((i + 1))
+        done
+    fi
+}
+
 # Uninstall
 if [ "${UNINSTALL:-}" = "1" ]; then
+    stop_managed_clickhouse 1
     if [ ! -f "${INSTALL_DIR}/beacon" ]; then
         echo "beacon not found in ${INSTALL_DIR}"
         exit 1
@@ -193,6 +242,7 @@ mv "${tmp_dir}/beacon" "${INSTALL_DIR}/beacon"
 
 echo "beacon ${VERSION} installed to ${INSTALL_DIR}/beacon"
 
+stop_managed_clickhouse 0
 install_clickhouse
 
 # Check if INSTALL_DIR is in PATH
