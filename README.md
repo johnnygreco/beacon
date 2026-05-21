@@ -126,7 +126,7 @@ If `[database].addrs` points to a remote ClickHouse host, Beacon will not start 
 
 ## ClickHouse
 
-For local addresses such as `127.0.0.1:9000`, `localhost:9000`, or `0.0.0.0:9000`, `beacon up`, `beacon serve`, and `beacon watch` try to start ClickHouse when it is not already reachable.
+For local addresses such as `127.0.0.1:9000`, `localhost:9000`, or `0.0.0.0:9000`, `beacon up` and `beacon watch` try to start ClickHouse when it is not already reachable.
 
 Auto-start prefers:
 
@@ -137,18 +137,19 @@ Auto-start prefers:
 Manual database commands:
 
 ```bash
-beacon db up                  # start local ClickHouse and migrate tables
-beacon db up --runtime native # require a local clickhouse binary
-beacon db up --runtime docker # require Docker
-beacon db migrate             # migrate an already-running ClickHouse
-beacon db reset --force       # destructive: drop and recreate Beacon tables
+beacon db up            # start local ClickHouse and migrate tables
+beacon db down          # stop Beacon-managed local ClickHouse
+beacon db migrate       # migrate an already-running ClickHouse
+beacon db reset --force # destructive: drop and recreate Beacon tables
 ```
+
+By default, `beacon db up` uses the managed ClickHouse binary when available and falls back to Docker.
 
 Native ClickHouse data lives under `~/.beacon/clickhouse`. Docker mode uses the `beacon-clickhouse-data` volume.
 
 ## MCP Integration
 
-Run `beacon up` or `beacon db up` first so ClickHouse is available and migrated, then add Beacon to your MCP client:
+Run `beacon db up` first so ClickHouse is available and migrated, then add Beacon to your MCP client:
 
 ```json
 {
@@ -184,12 +185,10 @@ Available tools:
 
 | Command | Use it for |
 |---------|------------|
-| `beacon` or `beacon up` | Start the dashboard and capture service |
-| `beacon serve` | Start the dashboard and capture service explicitly |
-| `beacon down` or `beacon stop` | Stop the running Beacon web server |
-| `beacon watch` or `beacon run capture` | Capture sessions without the web dashboard |
-| `beacon run web` | Run web and capture services |
-| `beacon mcp` or `beacon run mcp` | Start the MCP server over stdin/stdout JSON-RPC |
+| `beacon up` | Start the dashboard and capture service |
+| `beacon down` | Stop the running Beacon web server |
+| `beacon watch` | Capture sessions without the web dashboard |
+| `beacon mcp` | Start the MCP server over stdin/stdout JSON-RPC |
 | `beacon status` | Show server, database, session, and search-index status |
 | `beacon db up` | Start local ClickHouse and migrate tables |
 | `beacon db down` | Stop Beacon-managed local ClickHouse |
@@ -235,7 +234,7 @@ Playwright tests start their own e2e server by default. To test against an alrea
 
 **`beacon` is not found after install.** Add the install directory to `PATH`, usually `export PATH="$HOME/.local/bin:$PATH"`.
 
-**ClickHouse does not start.** Run `beacon db up --runtime native` if you installed the managed ClickHouse binary, or `beacon db up --runtime docker` if you prefer Docker. Set `BEACON_CLICKHOUSE_BIN=/path/to/clickhouse` to use a specific binary.
+**ClickHouse does not start.** Run `beacon db up`. Set `BEACON_CLICKHOUSE_BIN=/path/to/clickhouse` when Beacon should use a specific local binary.
 
 **Beacon connects to the wrong database.** Check `[database].addrs` in `~/.beacon/beacon.toml` or pass `--config <path>`.
 
