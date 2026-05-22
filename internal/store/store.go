@@ -72,6 +72,20 @@ func Open(ctx context.Context, opts Options) (*Store, error) {
 	return &Store{DB: db, native: native, database: opts.Database}, nil
 }
 
+// OpenForReset opens ClickHouse without migrations or schema validation so the
+// reset command can recover unsupported local schemas.
+func OpenForReset(ctx context.Context, opts Options) (*Store, error) {
+	opts = normalizeOptions(opts)
+
+	db := clickhouse.OpenDB(clickhouseOptions(opts, "default"))
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("connect clickhouse: %w", err)
+	}
+
+	return &Store{DB: db, database: opts.Database}, nil
+}
+
 // OpenReadOnly opens the configured Beacon database without migrations or writer setup.
 func OpenReadOnly(ctx context.Context, opts Options) (*Store, error) {
 	opts = normalizeOptions(opts)
@@ -79,6 +93,10 @@ func OpenReadOnly(ctx context.Context, opts Options) (*Store, error) {
 	db, err := openDatabase(ctx, opts)
 	if err != nil {
 		return nil, err
+	}
+	if err := RequireCurrentSchema(ctx, db, opts.Database); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("check clickhouse schema: %w", err)
 	}
 
 	return &Store{DB: db, database: opts.Database}, nil

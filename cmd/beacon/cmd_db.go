@@ -28,7 +28,7 @@ const (
 )
 
 var (
-	dbResetOpenStore = store.Open
+	dbResetOpenStore = store.OpenForReset
 	dbResetStore     = store.Reset
 )
 

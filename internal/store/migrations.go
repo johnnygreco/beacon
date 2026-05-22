@@ -8,9 +8,18 @@ import (
 	"strings"
 )
 
+const (
+	CurrentSchemaVersion = 1
+
+	schemaVersionTable = "schema_version"
+	schemaVersionRowID = 1
+)
+
 var validIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-var tableNames = []string{
+var tableNames = append([]string{schemaVersionTable}, dataTableNames...)
+
+var dataTableNames = []string{
 	"raw_records",
 	"activity_events",
 	"event_links",
@@ -27,12 +36,22 @@ var tableNames = []string{
 
 func Migrate(ctx context.Context, db *sql.DB, database string) error {
 	database = cleanIdent(database)
+	if _, err := db.ExecContext(ctx, `CREATE DATABASE IF NOT EXISTS `+database); err != nil {
+		return err
+	}
+	state, err := inspectSchemaState(ctx, db, database)
+	if err != nil {
+		return err
+	}
+	if err := validateSchemaState(state, database, true); err != nil {
+		return err
+	}
 	for _, stmt := range Schema(database) {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			return err
 		}
 	}
-	return nil
+	return writeSchemaVersion(ctx, db, database)
 }
 
 func Reset(ctx context.Context, db *sql.DB, database string) error {
@@ -45,12 +64,152 @@ func Reset(ctx context.Context, db *sql.DB, database string) error {
 	return Migrate(ctx, db, database)
 }
 
+// DetectSchemaVersion returns Beacon's recorded ClickHouse schema version.
+func DetectSchemaVersion(ctx context.Context, db *sql.DB, database string) (int, bool, error) {
+	state, err := inspectSchemaState(ctx, db, cleanIdent(database))
+	if err != nil {
+		return 0, false, err
+	}
+	return state.version, state.hasVersionRow, nil
+}
+
+// RequireCurrentSchema fails when the configured database is missing Beacon's
+// current schema marker or contains a version this build does not support.
+func RequireCurrentSchema(ctx context.Context, db *sql.DB, database string) error {
+	database = cleanIdent(database)
+	state, err := inspectSchemaState(ctx, db, database)
+	if err != nil {
+		return err
+	}
+	return validateSchemaState(state, database, false)
+}
+
+type schemaState struct {
+	hasVersionTable bool
+	hasVersionRow   bool
+	hasOwnedTables  bool
+	version         int
+}
+
+type UnsupportedSchemaError struct {
+	Database       string
+	Detail         string
+	CurrentVersion int
+}
+
+func (e *UnsupportedSchemaError) Error() string {
+	return fmt.Sprintf(
+		"unsupported Beacon ClickHouse schema in database %q (%s); this build supports schema version %d. Run `beacon db reset --force` to drop and recreate Beacon tables.",
+		e.Database,
+		e.Detail,
+		e.CurrentVersion,
+	)
+}
+
+func inspectSchemaState(ctx context.Context, db *sql.DB, database string) (schemaState, error) {
+	var state schemaState
+	rows, err := db.QueryContext(ctx, `SELECT name FROM system.tables WHERE database = ?`, database)
+	if err != nil {
+		return state, err
+	}
+	defer rows.Close()
+
+	ownedDataTables := make(map[string]bool, len(dataTableNames))
+	for _, table := range dataTableNames {
+		ownedDataTables[table] = true
+	}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return state, err
+		}
+		if name == schemaVersionTable {
+			state.hasVersionTable = true
+		}
+		if ownedDataTables[name] {
+			state.hasOwnedTables = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return state, err
+	}
+
+	if state.hasVersionTable {
+		version, ok, err := readSchemaVersion(ctx, db, database)
+		if err != nil {
+			return state, err
+		}
+		state.version = version
+		state.hasVersionRow = ok
+	}
+	return state, nil
+}
+
+func validateSchemaState(state schemaState, database string, allowEmpty bool) error {
+	switch {
+	case state.hasVersionRow && state.version == CurrentSchemaVersion:
+		return nil
+	case state.hasVersionRow:
+		return &UnsupportedSchemaError{
+			Database:       database,
+			Detail:         fmt.Sprintf("found version %d", state.version),
+			CurrentVersion: CurrentSchemaVersion,
+		}
+	case state.hasVersionTable:
+		return &UnsupportedSchemaError{
+			Database:       database,
+			Detail:         "schema_version table has no version row",
+			CurrentVersion: CurrentSchemaVersion,
+		}
+	case state.hasOwnedTables:
+		return &UnsupportedSchemaError{
+			Database:       database,
+			Detail:         "legacy Beacon tables are missing schema_version",
+			CurrentVersion: CurrentSchemaVersion,
+		}
+	case allowEmpty:
+		return nil
+	default:
+		return fmt.Errorf("Beacon ClickHouse schema is not initialized in database %q; run `beacon db migrate` or `beacon db reset --force`", database)
+	}
+}
+
+func readSchemaVersion(ctx context.Context, db *sql.DB, database string) (int, bool, error) {
+	var rows uint64
+	var version uint32
+	err := db.QueryRowContext(ctx,
+		fmt.Sprintf(`SELECT count(), if(count() = 0, toUInt32(0), argMax(version, updated_at)) FROM %s.%s WHERE id = ?`, database, schemaVersionTable),
+		schemaVersionRowID,
+	).Scan(&rows, &version)
+	if err != nil {
+		return 0, false, err
+	}
+	return int(version), rows > 0, nil
+}
+
+func writeSchemaVersion(ctx context.Context, db *sql.DB, database string) error {
+	_, err := db.ExecContext(ctx,
+		fmt.Sprintf(`INSERT INTO %s.%s (id, version) VALUES (?, ?)`, database, schemaVersionTable),
+		schemaVersionRowID,
+		CurrentSchemaVersion,
+	)
+	return err
+}
+
 func Schema(database string) []string {
 	database = cleanIdent(database)
 	db := func(table string) string { return database + "." + table }
 
 	return []string{
 		`CREATE DATABASE IF NOT EXISTS ` + database,
+
+		`CREATE TABLE IF NOT EXISTS ` + db(schemaVersionTable) + ` (
+			id UInt8,
+			version UInt32,
+			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
+		)
+		ENGINE = ReplacingMergeTree(updated_at)
+		ORDER BY id`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("raw_records") + ` (
 			record_uid String,
@@ -157,8 +316,6 @@ func Schema(database string) []string {
 		)
 		ENGINE = ReplacingMergeTree(updated_at)
 		ORDER BY (source_name, source_file)`,
-
-		`ALTER TABLE ` + db("capture_checkpoints") + ` ADD COLUMN IF NOT EXISTS state_json String DEFAULT ''`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("capture_heartbeats") + ` (
 			source_name LowCardinality(String),

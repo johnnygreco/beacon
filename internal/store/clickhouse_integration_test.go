@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -20,13 +22,19 @@ func setupLiveClickHouse(t *testing.T) *Store {
 	opts := DefaultOptions()
 	opts.Addrs = []string{addr}
 	opts.Database = "beacon_test_store"
-	ch, err := Open(context.Background(), opts)
+	resetter, err := OpenForReset(context.Background(), opts)
 	if err != nil {
 		t.Skipf("clickhouse unavailable: %v", err)
 	}
-	if err := Reset(context.Background(), ch.DB, ch.Database()); err != nil {
-		ch.Close()
+	if err := Reset(context.Background(), resetter.DB, resetter.Database()); err != nil {
+		resetter.Close()
 		t.Fatalf("reset: %v", err)
+	}
+	resetter.Close()
+
+	ch, err := Open(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("open reset clickhouse store: %v", err)
 	}
 	t.Cleanup(func() { _ = ch.Close() })
 	return ch
@@ -93,6 +101,123 @@ func TestClickHouseResetDropsRowsAndRecreatesTables(t *testing.T) {
 	}
 	if got := countRows("session_projection"); got != 1 {
 		t.Fatalf("session_projection after post-reset flush = %d, want 1", got)
+	}
+}
+
+func TestClickHouseSchemaVersionRecorded(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	version, ok, err := DetectSchemaVersion(context.Background(), ch.DB, ch.Database())
+	if err != nil {
+		t.Fatalf("detect schema version: %v", err)
+	}
+	if !ok || version != CurrentSchemaVersion {
+		t.Fatalf("schema version = %d ok=%v, want %d true", version, ok, CurrentSchemaVersion)
+	}
+}
+
+func TestClickHouseMigrateRejectsLegacySchemaWithoutVersion(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+
+	if _, err := ch.DB.ExecContext(ctx, "DROP TABLE IF EXISTS "+schemaVersionTable); err != nil {
+		t.Fatalf("drop schema version table: %v", err)
+	}
+	err := Migrate(ctx, ch.DB, ch.Database())
+	if err == nil {
+		t.Fatalf("Migrate returned nil for legacy schema")
+	}
+	if !strings.Contains(err.Error(), "legacy Beacon tables are missing schema_version") ||
+		!strings.Contains(err.Error(), "beacon db reset --force") {
+		t.Fatalf("Migrate error = %q, want legacy reset instruction", err.Error())
+	}
+
+	if err := Reset(ctx, ch.DB, ch.Database()); err != nil {
+		t.Fatalf("reset after legacy rejection: %v", err)
+	}
+}
+
+func TestClickHouseFreshMigrateAndResetCreateSameTables(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	database := "beacon_test_schema_exact"
+	if _, err := ch.DB.ExecContext(ctx, "DROP DATABASE IF EXISTS "+database); err != nil {
+		t.Fatalf("drop test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = ch.DB.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+database)
+	})
+
+	if err := Migrate(ctx, ch.DB, database); err != nil {
+		t.Fatalf("fresh migrate: %v", err)
+	}
+	freshTables := clickHouseTableSet(t, ch.DB, database)
+	assertBeaconTableSet(t, freshTables)
+	freshSchema := clickHouseCreateStatements(t, ch.DB, database)
+
+	if err := Reset(ctx, ch.DB, database); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	resetTables := clickHouseTableSet(t, ch.DB, database)
+	assertBeaconTableSet(t, resetTables)
+	resetSchema := clickHouseCreateStatements(t, ch.DB, database)
+
+	if len(freshTables) != len(resetTables) {
+		t.Fatalf("fresh tables = %v, reset tables = %v", freshTables, resetTables)
+	}
+	for table := range freshTables {
+		if !resetTables[table] {
+			t.Fatalf("table %s exists after fresh migrate but not reset; fresh=%v reset=%v", table, freshTables, resetTables)
+		}
+		if resetSchema[table] != freshSchema[table] {
+			t.Fatalf("schema for %s differs after reset\nfresh:\n%s\nreset:\n%s", table, freshSchema[table], resetSchema[table])
+		}
+	}
+}
+
+func clickHouseTableSet(t *testing.T, db *sql.DB, database string) map[string]bool {
+	t.Helper()
+	rows, err := db.QueryContext(context.Background(), `SELECT name FROM system.tables WHERE database = ?`, database)
+	if err != nil {
+		t.Fatalf("query tables: %v", err)
+	}
+	defer rows.Close()
+
+	tables := make(map[string]bool)
+	for rows.Next() {
+		var table string
+		if err := rows.Scan(&table); err != nil {
+			t.Fatalf("scan table: %v", err)
+		}
+		tables[table] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read tables: %v", err)
+	}
+	return tables
+}
+
+func clickHouseCreateStatements(t *testing.T, db *sql.DB, database string) map[string]string {
+	t.Helper()
+	schema := make(map[string]string, len(tableNames))
+	for _, table := range tableNames {
+		var stmt string
+		if err := db.QueryRowContext(context.Background(), fmt.Sprintf("SHOW CREATE TABLE %s.%s", database, table)).Scan(&stmt); err != nil {
+			t.Fatalf("show create table %s: %v", table, err)
+		}
+		schema[table] = stmt
+	}
+	return schema
+}
+
+func assertBeaconTableSet(t *testing.T, tables map[string]bool) {
+	t.Helper()
+	if len(tables) != len(tableNames) {
+		t.Fatalf("tables = %v, want %d Beacon tables", tables, len(tableNames))
+	}
+	for _, table := range tableNames {
+		if !tables[table] {
+			t.Fatalf("missing Beacon table %s in %v", table, tables)
+		}
 	}
 }
 

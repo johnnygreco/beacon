@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -45,6 +46,23 @@ func TestSchemaIncludesSourceMetadataColumns(t *testing.T) {
 	}
 }
 
+func TestSchemaIncludesVersionTableWithoutCompatibilityAlters(t *testing.T) {
+	schema := strings.Join(Schema("beacon"), "\n")
+	for _, expected := range []string{
+		"beacon.schema_version",
+		"version UInt32",
+		"ReplacingMergeTree(updated_at)",
+		"ORDER BY id",
+	} {
+		if !strings.Contains(schema, expected) {
+			t.Fatalf("schema missing %s", expected)
+		}
+	}
+	if strings.Contains(schema, "ALTER TABLE") {
+		t.Fatalf("schema should not include compatibility ALTER statements")
+	}
+}
+
 func TestSchemaIncludesAnalyticsProjection(t *testing.T) {
 	schema := strings.Join(Schema("beacon"), "\n")
 	for _, expected := range []string{
@@ -57,6 +75,44 @@ func TestSchemaIncludesAnalyticsProjection(t *testing.T) {
 		if !strings.Contains(schema, expected) {
 			t.Fatalf("schema missing %s", expected)
 		}
+	}
+}
+
+func TestValidateSchemaStateRejectsUnsupportedSchemas(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		state schemaState
+		want  string
+	}{
+		{
+			name:  "legacy tables",
+			state: schemaState{hasOwnedTables: true},
+			want:  "legacy Beacon tables are missing schema_version",
+		},
+		{
+			name:  "wrong version",
+			state: schemaState{hasVersionTable: true, hasVersionRow: true, version: CurrentSchemaVersion + 1},
+			want:  "found version",
+		},
+		{
+			name:  "empty version table",
+			state: schemaState{hasVersionTable: true},
+			want:  "schema_version table has no version row",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSchemaState(tt.state, "beacon", true)
+			if err == nil {
+				t.Fatalf("validateSchemaState returned nil")
+			}
+			var unsupported *UnsupportedSchemaError
+			if !errors.As(err, &unsupported) {
+				t.Fatalf("error = %T, want UnsupportedSchemaError", err)
+			}
+			if !strings.Contains(err.Error(), tt.want) || !strings.Contains(err.Error(), "beacon db reset --force") {
+				t.Fatalf("error = %q, want %q and reset instruction", err.Error(), tt.want)
+			}
+		})
 	}
 }
 

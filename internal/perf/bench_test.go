@@ -44,14 +44,26 @@ func TestMain(m *testing.M) {
 	}
 	seedSize := perf.ParseSeedSize(sizeStr)
 
-	var err error
-	sharedStore, err = store.Open(ctx, store.Options{Addrs: []string{addr}, Database: "beacon_perf", ReadPoolSize: 4})
+	storeOpts := store.Options{Addrs: []string{addr}, Database: "beacon_perf", ReadPoolSize: 4}
+	resetter, err := store.OpenForReset(ctx, storeOpts)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to open reset store: %v\n", err)
+		os.Exit(1)
+	}
+	if err := store.Reset(ctx, resetter.DB, resetter.Database()); err != nil {
+		resetter.Close()
+		fmt.Fprintf(os.Stderr, "failed to reset perf database: %v\n", err)
+		os.Exit(1)
+	}
+	resetter.Close()
+
+	sharedStore, err = store.Open(ctx, storeOpts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to open store: %v\n", err)
 		os.Exit(1)
 	}
 
-	stats, err := perf.ResetAndSeed(ctx, sharedStore, seedSize)
+	stats, err := perf.Seed(ctx, sharedStore, seedSize)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to seed: %v\n", err)
 		os.Exit(1)

@@ -24,7 +24,22 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
-	ch, err := store.Open(ctx, store.Options{Addrs: []string{*addr}, Database: *database, ReadPoolSize: 4})
+	storeOpts := store.Options{Addrs: []string{*addr}, Database: *database, ReadPoolSize: 4}
+	if *reset {
+		resetter, err := store.OpenForReset(ctx, storeOpts)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "open clickhouse reset store: %v\n", err)
+			os.Exit(1)
+		}
+		if err := store.Reset(ctx, resetter.DB, resetter.Database()); err != nil {
+			resetter.Close()
+			fmt.Fprintf(os.Stderr, "reset failed: %v\n", err)
+			os.Exit(1)
+		}
+		resetter.Close()
+	}
+
+	ch, err := store.Open(ctx, storeOpts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "open clickhouse store: %v\n", err)
 		os.Exit(1)
@@ -32,11 +47,7 @@ func main() {
 	defer ch.Close()
 
 	var stats perf.Stats
-	if *reset {
-		stats, err = perf.ResetAndSeed(ctx, ch, seedSize)
-	} else {
-		stats, err = perf.Seed(ctx, ch, seedSize)
-	}
+	stats, err = perf.Seed(ctx, ch, seedSize)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "seed failed: %v\n", err)
 		os.Exit(1)

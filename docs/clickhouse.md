@@ -9,23 +9,35 @@ The default database is `beacon`. A different database name can be configured in
 
 ## Migration behavior
 
-`store.Open` automatically migrates the configured ClickHouse database every time
-Beacon opens the write store. It first connects to the `default` ClickHouse
-database, runs `store.Migrate`, then opens the configured Beacon database for
-normal reads and writes.
+`store.Open` automatically checks and migrates the configured ClickHouse database
+every time Beacon opens the write store. It first connects to the `default`
+ClickHouse database, runs `store.Migrate`, then opens the configured Beacon
+database for normal reads and writes.
 
 Commands that use the write store, including `beacon up`, `beacon watch`,
 `beacon db up`, and `beacon db migrate`, therefore create the database and latest
-tables before ingest starts. `store.OpenReadOnly` does not run migrations.
+tables before ingest starts. `store.OpenReadOnly` does not run migrations, but it
+still requires the current schema version marker before serving read-only tools.
 
-Migrations are intentionally simple: `CREATE DATABASE IF NOT EXISTS`, `CREATE
-TABLE IF NOT EXISTS`, and targeted `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
-statements when a small additive change is useful.
+The current schema version is recorded in the `schema_version` table. Fresh
+empty databases are initialized to the current version. Databases with Beacon
+tables but no version marker, an empty version marker, or an unsupported version
+fail with reset guidance instead of receiving compatibility alters.
+
+Migrations are intentionally simple: they create the current schema and record
+the supported schema version. Beacon does not preserve old local schemas.
 
 ## Schema ownership
 
 Beacon owns every table in the configured database listed below. External tools
 may read them, but should not write or mutate them directly.
+
+### `schema_version`
+
+Purpose: one-row marker for the ClickHouse schema version supported by this
+Beacon build. The current version is defined by `store.CurrentSchemaVersion`.
+
+Owner: `store.Migrate` and `store.Reset`.
 
 ### `raw_records`
 
@@ -157,6 +169,7 @@ command prompts before dropping data.
 
 Reset removes:
 
+- schema version metadata;
 - captured raw records and normalized events;
 - tool payloads and event links;
 - capture errors, checkpoints, and heartbeats;
@@ -218,10 +231,10 @@ Beacon is a local-first application and currently does not promise backwards
 compatibility for old local ClickHouse schemas.
 
 The supported schema is the latest schema in `internal/store/migrations.go`.
-During active development, schema changes may drop, rename, or recreate tables
-instead of preserving every historical local schema. Additive migrations are fine
-when they are simple, but compatibility migrations for older development schemas
-are not required.
+During active development, schema changes may drop, rename, or recreate tables.
+Compatibility migrations for older development schemas are intentionally not
+kept. When a schema change is not compatible with local data, increment
+`store.CurrentSchemaVersion` and require a reset.
 
 When a local database cannot be migrated cleanly, the intended recovery path is:
 
