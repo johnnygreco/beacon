@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -42,16 +43,27 @@ func TestParseHermesSQLite_MockStateDB(t *testing.T) {
 	}
 }
 
-func TestParseHermesSQLite_LegacyReasoningSchema(t *testing.T) {
-	dbPath := createSQLiteFixture(t, "hermes_legacy_state.sql")
+func TestParseHermesSQLite_UnsupportedSchemaRequiresReasoningContent(t *testing.T) {
+	dbPath := createSQLiteFixtureFromSQL(t, `
+CREATE TABLE sessions (id TEXT PRIMARY KEY);
+CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT,
+  timestamp REAL NOT NULL,
+  reasoning TEXT,
+  reasoning_details TEXT
+);
+`)
 
-	events, err := ParseHermesSQLite(dbPath)
-	if err != nil {
-		t.Fatal(err)
+	_, err := ParseHermesSQLite(dbPath)
+	if err == nil {
+		t.Fatal("expected unsupported schema error")
 	}
-
-	assertEvent(t, events, "reasoning", "assistant", "Legacy reasoning column.")
-	assertEvent(t, events, "message", "assistant", "Legacy schemas still parse.")
+	if !strings.Contains(err.Error(), "messages.reasoning_content column is required") {
+		t.Fatalf("error = %q, want reasoning_content requirement", err)
+	}
 }
 
 func TestParseOpenCodeSQLite_MockStateDB(t *testing.T) {
@@ -150,6 +162,20 @@ func createSQLiteFixture(t *testing.T, name string) string {
 	}
 	defer db.Close()
 	if _, err := db.Exec(string(body)); err != nil {
+		t.Fatal(err)
+	}
+	return dbPath
+}
+
+func createSQLiteFixtureFromSQL(t *testing.T, body string) string {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "fixture.db")
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(body); err != nil {
 		t.Fatal(err)
 	}
 	return dbPath
