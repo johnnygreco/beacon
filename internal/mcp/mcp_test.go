@@ -1,10 +1,14 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -58,6 +62,47 @@ func TestDispatch_Initialize(t *testing.T) {
 	if serverInfo["name"] != "beacon" {
 		t.Errorf("expected server name beacon, got %v", serverInfo["name"])
 	}
+}
+
+func TestRunReturnsWhenContextCancelsClosableInput(t *testing.T) {
+	srv := testServer()
+	input := &blockingReadCloser{closed: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+
+	go func() {
+		errCh <- srv.run(ctx, input, io.Discard)
+	}()
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("run error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("run did not return after context cancellation")
+	}
+	select {
+	case <-input.closed:
+	default:
+		t.Fatal("input was not closed on context cancellation")
+	}
+}
+
+type blockingReadCloser struct {
+	closed    chan struct{}
+	closeOnce sync.Once
+}
+
+func (r *blockingReadCloser) Read([]byte) (int, error) {
+	<-r.closed
+	return 0, io.EOF
+}
+
+func (r *blockingReadCloser) Close() error {
+	r.closeOnce.Do(func() { close(r.closed) })
+	return nil
 }
 
 func TestDispatch_Initialized(t *testing.T) {

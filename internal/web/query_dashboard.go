@@ -17,6 +17,8 @@ func QueryDashboardData(ctx context.Context, db *sql.DB) views.DashboardData {
 	var wg sync.WaitGroup
 	defaultRange := "24h"
 	wg.Add(4)
+	// QueryDashboardData owns these short-lived query workers and waits for all
+	// of them before returning. Each worker uses the caller's context.
 	go func() {
 		defer wg.Done()
 		data.ActiveSessions, data.CompletedSessions, data.HasMoreSessions = QueryDashboardSessions(ctx, db)

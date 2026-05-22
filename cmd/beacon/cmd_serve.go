@@ -74,14 +74,18 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	bg := newBackgroundGroup(ctx, cancel, logger)
 
-	// Start batcher
-	go batcher.Run(ctx)
+	bg.Go("capture batcher", func(ctx context.Context) error {
+		batcher.Run(ctx)
+		return nil
+	})
 
-	// Start updater (debounced dirty-signal loop + periodic refresh)
-	go updater.Run(ctx)
+	bg.Go("dashboard updater", func(ctx context.Context) error {
+		updater.Run(ctx)
+		return nil
+	})
 
-	// Start capture watcher
 	if cfg.Capture.Enabled {
 		for _, s := range sources {
 			logger.Info("capture source configured", "name", s.Name, "runtime", s.Runtime, "provider", s.Provider, "globs", s.Globs)
@@ -96,21 +100,22 @@ func runServe(cmd *cobra.Command, args []string) error {
 			cfg.Capture.BackfillOnStart,
 			cfg.Capture.BackfillWorkers,
 		)
-		go func() {
-			if err := watcher.Run(ctx); err != nil {
-				logger.Error("capture stopped", "error", err)
-			}
-		}()
+		bg.Go("capture watcher", watcher.Run)
 	}
 
 	searcher := search.NewSearcher(ch.DB, logger, cfg.Search.MaxResults, cfg.Search.RebuildInterval)
-	go searcher.MonitorIndex(ctx)
+	bg.Go("search index monitor", func(ctx context.Context) error {
+		searcher.MonitorIndex(ctx)
+		return nil
+	})
 
 	// Web server
 	handlers := web.NewHandlers(ch.DB, searcher, logger)
 	apiHandlers := web.NewAPIHandlers(ch.DB, searcher, logger)
 	staticFS, err := fs.Sub(beacon.StaticFS, "static")
 	if err != nil {
+		cancel()
+		_ = bg.Wait()
 		return fmt.Errorf("preparing static filesystem: %w", err)
 	}
 	router := web.NewRouter(staticFS, broker, handlers, apiHandlers)
@@ -131,21 +136,22 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 
-	go func() {
-		<-sigCh
-		logger.Info("shutting down...")
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer shutdownCancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			logger.Error("shutdown error", "error", err)
-		}
-		cancel()
-	}()
+	bg.Go("signal handler", signalCancelWorker(sigCh, cancel, logger, "shutting down..."))
+	bg.Go("http shutdown", func(ctx context.Context) error {
+		return shutdownHTTPServerOnContext(ctx, srv, 10*time.Second)
+	})
 
 	logger.Info("server listening", "addr", addr)
-	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+	err = srv.ListenAndServe()
+	cancel()
+	bgErr := bg.Wait()
+	if err != nil && err != http.ErrServerClosed {
 		return err
+	}
+	if bgErr != nil {
+		return bgErr
 	}
 
 	logger.Info("server stopped")
