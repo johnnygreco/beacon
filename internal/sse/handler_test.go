@@ -51,5 +51,5 @@ type nonFlushableWriter struct {
 }
 
 func (w *nonFlushableWriter) Header() http.Header         { return w.rec.Header() }
-func (w *nonFlushableWriter) Write(b []byte) (int, error)  { return w.rec.Write(b) }
-func (w *nonFlushableWriter) WriteHeader(code int)         { w.rec.WriteHeader(code) }
+func (w *nonFlushableWriter) Write(b []byte) (int, error) { return w.rec.Write(b) }
+func (w *nonFlushableWriter) WriteHeader(code int)        { w.rec.WriteHeader(code) }
