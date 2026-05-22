@@ -164,6 +164,30 @@ func TestDashboardSearchMetadataSort(t *testing.T) {
 	}
 }
 
+func TestDashboardSortSearchItemsOrdersMixedResultsByTime(t *testing.T) {
+	older := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 5, 21, 10, 0, 0, 0, time.UTC)
+	items := []APIDashboardSearchResult{
+		{ResultType: "event", SessionID: "event-session", Timestamp: older},
+		{ResultType: "session", SessionID: "metadata-session", Timestamp: newer},
+	}
+
+	dashboardSortSearchItems(items, "newest")
+	if items[0].SessionID != "metadata-session" {
+		t.Fatalf("newest sort first = %q, want metadata-session", items[0].SessionID)
+	}
+
+	dashboardSortSearchItems(items, "oldest")
+	if items[0].SessionID != "event-session" {
+		t.Fatalf("oldest sort first = %q, want event-session", items[0].SessionID)
+	}
+
+	dashboardSortSearchItems(items, "relevance")
+	if items[0].SessionID != "event-session" {
+		t.Fatalf("relevance sort should preserve existing order, first = %q", items[0].SessionID)
+	}
+}
+
 func TestDashboardSearch_IdleAndUnavailableStates(t *testing.T) {
 	fake := &fakeAPISearcher{}
 	handlers := &APIHandlers{searcher: fake, logger: testLogger()}

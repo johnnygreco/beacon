@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -256,10 +257,6 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	hasMore := len(results) > limit
-	if hasMore {
-		results = results[:limit]
-	}
 	sessionMeta := a.dashboardSearchSessionMeta(r.Context(), searchResultSessionIDs(results))
 	items := make([]APIDashboardSearchResult, 0, len(results))
 	seenSessions := make(map[string]struct{}, len(results))
@@ -284,12 +281,18 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 			WorkingDir:   meta.workingDir,
 		})
 	}
-	if query != "" && eventKind == "" && len(items) < limit {
-		sessionItems, sessionHasMore := a.dashboardSearchSessionMetadataResults(r.Context(), query, rangeVal, sessionID, sortBy, seenSessions, limit-len(items))
+	hasMore := len(items) > limit
+	if query != "" && eventKind == "" {
+		sessionItems, sessionHasMore := a.dashboardSearchSessionMetadataResults(r.Context(), query, rangeVal, sessionID, sortBy, seenSessions, limit+1)
 		if sessionHasMore {
 			hasMore = true
 		}
 		items = append(items, sessionItems...)
+	}
+	dashboardSortSearchItems(items, sortBy)
+	if len(items) > limit {
+		hasMore = true
+		items = items[:limit]
 	}
 
 	a.jsonResponse(w, APIDashboardSearchResponse{
@@ -368,6 +371,19 @@ func dashboardSearchMetadataSort(sortBy string) (string, bool) {
 		return "ended", true
 	default:
 		return "ended", false
+	}
+}
+
+func dashboardSortSearchItems(items []APIDashboardSearchResult, sortBy string) {
+	switch sortBy {
+	case "newest":
+		sort.SliceStable(items, func(i, j int) bool {
+			return items[i].Timestamp.After(items[j].Timestamp)
+		})
+	case "oldest":
+		sort.SliceStable(items, func(i, j int) bool {
+			return items[i].Timestamp.Before(items[j].Timestamp)
+		})
 	}
 }
 

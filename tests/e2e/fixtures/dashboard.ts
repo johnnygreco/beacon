@@ -457,6 +457,11 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
     return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
   });
   const sorted = [...sortedEvents, ...sortedSessionResults];
+  if (sort === 'newest') {
+    sorted.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  } else if (sort === 'oldest') {
+    sorted.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }
   return {
     state: 'ready',
     query,
