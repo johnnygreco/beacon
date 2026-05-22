@@ -1,7 +1,7 @@
 package store
 
 import (
-	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -64,6 +64,47 @@ func TestSessionProjectionSQLIgnoresZeroTimestampForTiming(t *testing.T) {
 	}
 	if !strings.Contains(query, "max(if("+sessionEndProjectionPredicate+", 1, 0)) AS has_session_end") {
 		t.Fatalf("session end detection should remain independent from timestamp validity: %s", query)
+	}
+}
+
+func TestProjectionInsertSQLUsesDedupedActivityEvents(t *testing.T) {
+	tests := []struct {
+		name  string
+		query string
+		want  []string
+	}{
+		{
+			name:  "session projection",
+			query: sessionProjectionInsertSQL("?,?"),
+			want: []string{
+				"FROM (\n\t\t\tSELECT event_uid",
+				"argMax(session_id, captured_at) AS projected_session_id",
+				"WHERE session_id IN (?,?)",
+				"GROUP BY event_uid",
+				"GROUP BY projected_session_id",
+			},
+		},
+		{
+			name:  "analytics projection",
+			query: analyticsProjectionInsertSQL("?,?,?"),
+			want: []string{
+				"FROM (\n\t\t\tSELECT event_uid",
+				"argMax(session_id, captured_at) AS projected_session_id",
+				"WHERE session_id IN (?,?,?)",
+				"GROUP BY event_uid",
+				"GROUP BY projected_session_id, minute, provider, model, tool_name, event_kind",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, fragment := range tt.want {
+				if !strings.Contains(tt.query, fragment) {
+					t.Fatalf("%s SQL missing %q:\n%s", tt.name, fragment, tt.query)
+				}
+			}
+		})
 	}
 }
 
@@ -190,34 +231,142 @@ func TestRecordUIDChangesWithSourceGenerationAndPayload(t *testing.T) {
 func TestStorePureHelpers(t *testing.T) {
 	now := time.Date(2026, 5, 22, 12, 0, 0, 123, time.FixedZone("offset", -5*60*60))
 
-	if got := runtimeForSource("claude"); got != "claude-code" {
-		t.Fatalf("runtimeForSource(claude) = %q", got)
+	for _, tt := range []struct {
+		source string
+		want   string
+	}{
+		{source: "claude", want: "claude-code"},
+		{source: "codex", want: "codex"},
+		{source: "custom", want: "custom"},
+	} {
+		t.Run("runtimeForSource/"+tt.source, func(t *testing.T) {
+			if got := runtimeForSource(tt.source); got != tt.want {
+				t.Fatalf("runtimeForSource(%q) = %q, want %q", tt.source, got, tt.want)
+			}
+		})
 	}
-	if got := runtimeForSource("custom"); got != "custom" {
-		t.Fatalf("runtimeForSource(custom) = %q", got)
+
+	for _, tt := range []struct {
+		name     string
+		value    string
+		fallback string
+		want     string
+	}{
+		{name: "value present", value: "value", fallback: "fallback", want: "value"},
+		{name: "fallback used", fallback: "fallback", want: "fallback"},
+	} {
+		t.Run("firstNonEmpty/"+tt.name, func(t *testing.T) {
+			if got := firstNonEmpty(tt.value, tt.fallback); got != tt.want {
+				t.Fatalf("firstNonEmpty(%q, %q) = %q, want %q", tt.value, tt.fallback, got, tt.want)
+			}
+		})
 	}
-	if got := firstNonEmpty("", "fallback"); got != "fallback" {
-		t.Fatalf("firstNonEmpty blank = %q", got)
+
+	for _, tt := range []struct {
+		name   string
+		events []models.Event
+		want   []string
+	}{
+		{name: "filters empty ids", events: []models.Event{{SessionID: "s1"}, {}, {SessionID: "s2"}}, want: []string{"s1", "s2"}},
+		{name: "empty", events: nil, want: []string{}},
+	} {
+		t.Run("sessionIDs/"+tt.name, func(t *testing.T) {
+			if got := sessionIDs(tt.events); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("sessionIDs = %#v, want %#v", got, tt.want)
+			}
+		})
 	}
-	if got := fmt.Sprint(sessionIDs([]models.Event{{SessionID: "s1"}, {}, {SessionID: "s2"}})); got != "[s1 s2]" {
-		t.Fatalf("sessionIDs = %s", got)
+
+	for _, tt := range []struct {
+		name   string
+		values []string
+		want   []string
+	}{
+		{name: "dedupes and filters empty", values: []string{"s1", "", "s2", "s1"}, want: []string{"s1", "s2"}},
+		{name: "keeps order", values: []string{"b", "a", "b"}, want: []string{"b", "a"}},
+	} {
+		t.Run("uniqStrings/"+tt.name, func(t *testing.T) {
+			if got := uniqStrings(tt.values); !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("uniqStrings = %#v, want %#v", got, tt.want)
+			}
+		})
 	}
-	if got := fmt.Sprint(uniqStrings([]string{"s1", "", "s2", "s1"})); got != "[s1 s2]" {
-		t.Fatalf("uniqStrings = %s", got)
+
+	for _, tt := range []struct {
+		name string
+		n    int
+		want string
+	}{
+		{name: "zero", n: 0, want: ""},
+		{name: "negative", n: -1, want: ""},
+		{name: "three", n: 3, want: "?,?,?"},
+	} {
+		t.Run("placeholders/"+tt.name, func(t *testing.T) {
+			if got := placeholders(tt.n); got != tt.want {
+				t.Fatalf("placeholders(%d) = %q, want %q", tt.n, got, tt.want)
+			}
+		})
 	}
-	if got := placeholders(3); got != "?,?,?" {
-		t.Fatalf("placeholders = %q", got)
+
+	for _, tt := range []struct {
+		name     string
+		t        time.Time
+		fallback time.Time
+		want     time.Time
+	}{
+		{name: "zero uses fallback", fallback: now, want: now.UTC()},
+		{name: "non-zero converted to UTC", t: now, fallback: time.Time{}, want: now.UTC()},
+	} {
+		t.Run("nonZeroTime/"+tt.name, func(t *testing.T) {
+			if got := nonZeroTime(tt.t, tt.fallback); !got.Equal(tt.want) {
+				t.Fatalf("nonZeroTime = %s, want %s", got, tt.want)
+			}
+		})
 	}
-	if got := nonZeroTime(time.Time{}, now); !got.Equal(now.UTC()) {
-		t.Fatalf("nonZeroTime zero = %s, want %s", got, now.UTC())
+
+	for _, tt := range []struct {
+		name string
+		in   int
+		want int
+	}{
+		{name: "positive", in: 7, want: 7},
+		{name: "negative", in: -7, want: 0},
+	} {
+		t.Run("nonNegativeInt/"+tt.name, func(t *testing.T) {
+			if got := nonNegativeInt(tt.in); got != tt.want {
+				t.Fatalf("nonNegativeInt(%d) = %d, want %d", tt.in, got, tt.want)
+			}
+		})
 	}
-	if got := nonNegativeInt(-7); got != 0 {
-		t.Fatalf("nonNegativeInt = %d, want 0", got)
+
+	for _, tt := range []struct {
+		name string
+		in   int64
+		want int64
+	}{
+		{name: "positive", in: 9, want: 9},
+		{name: "negative", in: -9, want: 0},
+	} {
+		t.Run("nonNegativeInt64/"+tt.name, func(t *testing.T) {
+			if got := nonNegativeInt64(tt.in); got != tt.want {
+				t.Fatalf("nonNegativeInt64(%d) = %d, want %d", tt.in, got, tt.want)
+			}
+		})
 	}
-	if got := nonNegativeInt64(-9); got != 0 {
-		t.Fatalf("nonNegativeInt64 = %d, want 0", got)
-	}
-	if got := truncateString("abcdef", 3); got != "abc" {
-		t.Fatalf("truncateString = %q, want abc", got)
+
+	for _, tt := range []struct {
+		name string
+		in   string
+		max  int
+		want string
+	}{
+		{name: "truncates", in: "abcdef", max: 3, want: "abc"},
+		{name: "keeps short", in: "abc", max: 3, want: "abc"},
+	} {
+		t.Run("truncateString/"+tt.name, func(t *testing.T) {
+			if got := truncateString(tt.in, tt.max); got != tt.want {
+				t.Fatalf("truncateString(%q, %d) = %q, want %q", tt.in, tt.max, got, tt.want)
+			}
+		})
 	}
 }
