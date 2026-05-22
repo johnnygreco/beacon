@@ -138,6 +138,17 @@ Because the projection tables are derived from `activity_events`, they can be
 dropped and rebuilt from captured source files by resetting the database and
 letting Beacon backfill. They should not be edited by hand.
 
+## Store integration tests
+
+Most `internal/store` coverage runs without ClickHouse. The live ClickHouse
+regression tests are opt-in and reset the `beacon_test_store` database, so point
+them only at a disposable local server:
+
+```bash
+beacon db up
+BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/store
+```
+
 ## Reset and destructive behavior
 
 `beacon db reset --force` is destructive. It drops all Beacon-owned tables in the

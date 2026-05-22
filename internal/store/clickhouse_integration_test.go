@@ -336,3 +336,406 @@ func TestClickHouseProjectionRejectsLegacyLastPromptEventMsgAsSessionEnd(t *test
 		t.Fatalf("legacy event_msg last-prompt has_session_end = %d, want 0", hasSessionEnd)
 	}
 }
+
+func TestClickHouseFlushProjectsSessionStatesSubagentsErrorsAndSearchRows(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	base := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	parentID := "projection-parent"
+	childID := "projection-child"
+	activeID := "projection-active"
+	batch := RowBatch{
+		ActivityEvents: []models.Event{
+			{
+				EventUID:          "evt-parent-user",
+				SessionID:         parentID,
+				SourceName:        "claude",
+				Provider:          "anthropic",
+				EventKind:         "message",
+				ActorRole:         "user",
+				Timestamp:         base,
+				TextContent:       "parent asks for integrationneedle search coverage",
+				TextPreview:       "parent asks for integrationneedle search coverage",
+				InputTokens:       10,
+				OutputTokens:      2,
+				CacheReadTokens:   1,
+				CacheCreateTokens: 2,
+				Model:             "claude-sonnet-4",
+				CWD:               "/tmp/beacon-parent",
+				SourceFile:        "parent.jsonl",
+				SourceLineNo:      1,
+				SourceOffset:      10,
+				EventVersion:      1,
+				CreatedAt:         base,
+			},
+			{
+				EventUID:          "evt-parent-bash-call",
+				SessionID:         parentID,
+				SourceName:        "claude",
+				Provider:          "anthropic",
+				EventKind:         "tool_call",
+				ToolName:          "Bash",
+				Timestamp:         base.Add(time.Minute),
+				InputTokens:       3,
+				OutputTokens:      4,
+				CacheReadTokens:   5,
+				CacheCreateTokens: 6,
+				DurationMs:        250,
+				Model:             "claude-sonnet-4",
+				SourceFile:        "parent.jsonl",
+				SourceLineNo:      2,
+				SourceOffset:      20,
+				EventVersion:      1,
+				CreatedAt:         base.Add(time.Minute),
+			},
+			{
+				EventUID:          "evt-parent-mcp-call",
+				SessionID:         parentID,
+				SourceName:        "claude",
+				Provider:          "anthropic",
+				EventKind:         "tool_call",
+				ToolName:          "mcp__repo__search",
+				Timestamp:         base.Add(2 * time.Minute),
+				InputTokens:       7,
+				OutputTokens:      8,
+				CacheReadTokens:   9,
+				CacheCreateTokens: 10,
+				DurationMs:        300,
+				Model:             "claude-sonnet-4",
+				SourceFile:        "parent.jsonl",
+				SourceLineNo:      3,
+				SourceOffset:      30,
+				EventVersion:      1,
+				CreatedAt:         base.Add(2 * time.Minute),
+			},
+			{
+				EventUID:     "evt-parent-result",
+				SessionID:    parentID,
+				SourceName:   "claude",
+				Provider:     "anthropic",
+				EventKind:    "tool_result",
+				ToolName:     "Bash",
+				Timestamp:    base.Add(3 * time.Minute),
+				DurationMs:   50,
+				Model:        "claude-sonnet-4",
+				SourceFile:   "parent.jsonl",
+				SourceLineNo: 4,
+				SourceOffset: 40,
+				EventVersion: 1,
+				CreatedAt:    base.Add(3 * time.Minute),
+			},
+			{
+				EventUID:     "evt-parent-error",
+				SessionID:    parentID,
+				SourceName:   "claude",
+				Provider:     "anthropic",
+				EventKind:    "error",
+				Timestamp:    base.Add(4 * time.Minute),
+				ErrorCode:    "exit_1",
+				ErrorMessage: "integrationneedle parser failed",
+				SourceFile:   "parent.jsonl",
+				SourceLineNo: 5,
+				SourceOffset: 50,
+				CreatedAt:    base.Add(4 * time.Minute),
+			},
+			{
+				EventUID:     "evt-parent-tool-error",
+				SessionID:    parentID,
+				SourceName:   "claude",
+				Provider:     "anthropic",
+				EventKind:    "tool_error",
+				ToolName:     "Bash",
+				Timestamp:    base.Add(5 * time.Minute),
+				ErrorCode:    "exit_2",
+				ErrorMessage: "integrationneedle command failed",
+				SourceFile:   "parent.jsonl",
+				SourceLineNo: 6,
+				SourceOffset: 60,
+				CreatedAt:    base.Add(5 * time.Minute),
+			},
+			{
+				EventUID:     "evt-parent-end",
+				SessionID:    parentID,
+				SourceName:   "claude",
+				Provider:     "anthropic",
+				EventKind:    "session_end",
+				ActorRole:    "system",
+				Timestamp:    base.Add(6 * time.Minute),
+				SourceFile:   "parent.jsonl",
+				SourceLineNo: 7,
+				SourceOffset: 70,
+				CreatedAt:    base.Add(6 * time.Minute),
+			},
+			{
+				EventUID:        "evt-child-user",
+				SessionID:       childID,
+				ParentSessionID: parentID,
+				SourceName:      "codex",
+				Provider:        "openai",
+				EventKind:       "message",
+				ActorRole:       "user",
+				Timestamp:       base.Add(7 * time.Minute),
+				TextPreview:     "child subagent work",
+				InputTokens:     5,
+				OutputTokens:    7,
+				Model:           "gpt-5.4-codex",
+				CWD:             "/tmp/beacon-child",
+				SourceFile:      "child.jsonl",
+				SourceLineNo:    1,
+				SourceOffset:    80,
+				CreatedAt:       base.Add(7 * time.Minute),
+			},
+			{
+				EventUID:        "evt-child-end",
+				SessionID:       childID,
+				ParentSessionID: parentID,
+				SourceName:      "codex",
+				Provider:        "openai",
+				EventKind:       "session_end",
+				ActorRole:       "system",
+				Timestamp:       base.Add(8 * time.Minute),
+				SourceFile:      "child.jsonl",
+				SourceLineNo:    2,
+				SourceOffset:    90,
+				CreatedAt:       base.Add(8 * time.Minute),
+			},
+			{
+				EventUID:     "evt-active-user",
+				SessionID:    activeID,
+				SourceName:   "codex",
+				Provider:     "openai",
+				EventKind:    "message",
+				ActorRole:    "user",
+				Timestamp:    base.Add(9 * time.Minute),
+				TextPreview:  "active session still running",
+				InputTokens:  11,
+				OutputTokens: 13,
+				Model:        "gpt-5.4-codex",
+				CWD:          "/tmp/beacon-active",
+				SourceFile:   "active.jsonl",
+				SourceLineNo: 1,
+				SourceOffset: 100,
+				CreatedAt:    base.Add(9 * time.Minute),
+			},
+		},
+		ToolPayloads: []models.ToolPayload{
+			{
+				EventUID:     "evt-parent-bash-call",
+				ToolName:     "Bash",
+				ToolPhase:    "call",
+				InputPreview: `{"command":"echo ordinary tool"}`,
+			},
+			{
+				EventUID:     "evt-parent-mcp-call",
+				ToolName:     "mcp__repo__search",
+				ToolPhase:    "call",
+				InputJSON:    `{"query":"full payload should not be needed"}`,
+				InputPreview: `{"query":"integrationneedle integrationneedle repo search"}`,
+			},
+			{
+				EventUID:      "evt-parent-result",
+				ToolName:      "Bash",
+				ToolPhase:     "result",
+				OutputPreview: "ordinary tool completed",
+			},
+			{
+				EventUID:      "evt-parent-tool-error",
+				ToolName:      "Bash",
+				ToolPhase:     "result",
+				OutputPreview: "integrationneedle command failed",
+			},
+		},
+	}
+	for _, event := range batch.ActivityEvents {
+		batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+	}
+
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	var parentEvents, parentTurns, parentInput, parentOutput, parentCacheRead, parentCacheCreate, parentTokens uint64
+	var parentTools, parentMCP, parentErrors, parentEnded uint64
+	var parentModel, parentDir string
+	if err := ch.DB.QueryRowContext(context.Background(),
+		`SELECT argMax(event_count, updated_at),
+		        argMax(turn_count, updated_at),
+		        argMax(total_input_tokens, updated_at),
+		        argMax(total_output_tokens, updated_at),
+		        argMax(total_cache_read_tokens, updated_at),
+		        argMax(total_cache_create_tokens, updated_at),
+		        argMax(total_tokens, updated_at),
+		        argMax(tool_call_count, updated_at),
+		        argMax(mcp_call_count, updated_at),
+		        argMax(error_count, updated_at),
+		        argMax(has_session_end, updated_at),
+		        argMax(last_model, updated_at),
+		        argMax(working_dir, updated_at)
+		 FROM session_projection
+		 WHERE session_id = ?`, parentID).Scan(
+		&parentEvents,
+		&parentTurns,
+		&parentInput,
+		&parentOutput,
+		&parentCacheRead,
+		&parentCacheCreate,
+		&parentTokens,
+		&parentTools,
+		&parentMCP,
+		&parentErrors,
+		&parentEnded,
+		&parentModel,
+		&parentDir,
+	); err != nil {
+		t.Fatalf("parent projection query: %v", err)
+	}
+	if parentEvents != 7 || parentTurns != 1 || parentInput != 20 || parentOutput != 14 ||
+		parentCacheRead != 15 || parentCacheCreate != 18 || parentTokens != 34 ||
+		parentTools != 2 || parentMCP != 1 || parentErrors != 2 || parentEnded != 1 {
+		t.Fatalf("parent projection = events %d turns %d input %d output %d cache %d/%d tokens %d tools %d mcp %d errors %d ended %d",
+			parentEvents, parentTurns, parentInput, parentOutput, parentCacheRead, parentCacheCreate,
+			parentTokens, parentTools, parentMCP, parentErrors, parentEnded)
+	}
+	if parentModel != "claude-sonnet-4" || parentDir != "/tmp/beacon-parent" {
+		t.Fatalf("parent model/dir = %q/%q", parentModel, parentDir)
+	}
+
+	var childParent string
+	var childEnded uint64
+	if err := ch.DB.QueryRowContext(context.Background(),
+		`SELECT argMax(parent_session_id, updated_at), argMax(has_session_end, updated_at)
+		 FROM session_projection
+		 WHERE session_id = ?`, childID).Scan(&childParent, &childEnded); err != nil {
+		t.Fatalf("child projection query: %v", err)
+	}
+	if childParent != parentID || childEnded != 1 {
+		t.Fatalf("child parent/ended = %q/%d, want %q/1", childParent, childEnded, parentID)
+	}
+
+	var activeEnded, activeTokens uint64
+	if err := ch.DB.QueryRowContext(context.Background(),
+		`SELECT argMax(has_session_end, updated_at), argMax(total_tokens, updated_at)
+		 FROM session_projection
+		 WHERE session_id = ?`, activeID).Scan(&activeEnded, &activeTokens); err != nil {
+		t.Fatalf("active projection query: %v", err)
+	}
+	if activeEnded != 0 || activeTokens != 24 {
+		t.Fatalf("active ended/tokens = %d/%d, want 0/24", activeEnded, activeTokens)
+	}
+
+	var parentRawRecords uint64
+	if err := ch.DB.QueryRowContext(context.Background(),
+		`SELECT count() FROM raw_records WHERE session_id = ?`, parentID).Scan(&parentRawRecords); err != nil {
+		t.Fatalf("raw records query: %v", err)
+	}
+	if parentRawRecords != 7 {
+		t.Fatalf("parent raw records = %d, want 7", parentRawRecords)
+	}
+
+	var analyticsEvents, analyticsCalls, analyticsToolCalls, analyticsToolResults uint64
+	var analyticsInput, analyticsOutput, analyticsCacheRead, analyticsCacheCreate, analyticsTokens, analyticsDuration uint64
+	if err := ch.DB.QueryRowContext(context.Background(),
+		`SELECT sum(event_count),
+		        sum(call_count),
+		        sum(tool_call_count),
+		        sum(tool_result_count),
+		        sum(input_tokens),
+		        sum(output_tokens),
+		        sum(cache_read_tokens),
+		        sum(cache_create_tokens),
+		        sum(total_tokens),
+		        sum(duration_ms_sum)
+		 FROM (
+			SELECT session_id, minute, provider, model, tool_name, event_kind,
+			       argMax(event_count, updated_at) AS event_count,
+			       argMax(call_count, updated_at) AS call_count,
+			       argMax(tool_call_count, updated_at) AS tool_call_count,
+			       argMax(tool_result_count, updated_at) AS tool_result_count,
+			       argMax(input_tokens, updated_at) AS input_tokens,
+			       argMax(output_tokens, updated_at) AS output_tokens,
+			       argMax(cache_read_tokens, updated_at) AS cache_read_tokens,
+			       argMax(cache_create_tokens, updated_at) AS cache_create_tokens,
+			       argMax(total_tokens, updated_at) AS total_tokens,
+			       argMax(duration_ms_sum, updated_at) AS duration_ms_sum
+			FROM analytics_projection
+			WHERE session_id = ?
+			GROUP BY session_id, minute, provider, model, tool_name, event_kind
+		 )`, parentID).Scan(
+		&analyticsEvents,
+		&analyticsCalls,
+		&analyticsToolCalls,
+		&analyticsToolResults,
+		&analyticsInput,
+		&analyticsOutput,
+		&analyticsCacheRead,
+		&analyticsCacheCreate,
+		&analyticsTokens,
+		&analyticsDuration,
+	); err != nil {
+		t.Fatalf("analytics projection query: %v", err)
+	}
+	if analyticsEvents != 7 || analyticsCalls != 3 || analyticsToolCalls != 2 || analyticsToolResults != 1 ||
+		analyticsInput != 20 || analyticsOutput != 14 || analyticsCacheRead != 15 || analyticsCacheCreate != 18 ||
+		analyticsTokens != 34 || analyticsDuration != 600 {
+		t.Fatalf("analytics projection = events %d calls %d tool calls/results %d/%d input %d output %d cache %d/%d tokens %d duration %d",
+			analyticsEvents, analyticsCalls, analyticsToolCalls, analyticsToolResults, analyticsInput, analyticsOutput,
+			analyticsCacheRead, analyticsCacheCreate, analyticsTokens, analyticsDuration)
+	}
+
+	var searchDocs uint64
+	var documentLen uint32
+	var documentTool, documentModel, documentProvider string
+	if err := ch.DB.QueryRowContext(context.Background(),
+		`SELECT count(),
+		        argMax(document_len, updated_at),
+		        argMax(tool_name, updated_at),
+		        argMax(model, updated_at),
+		        argMax(provider, updated_at)
+		 FROM search_documents
+		 WHERE event_uid = ? AND position(searchable_text, 'integrationneedle') > 0`, "evt-parent-mcp-call").Scan(
+		&searchDocs,
+		&documentLen,
+		&documentTool,
+		&documentModel,
+		&documentProvider,
+	); err != nil {
+		t.Fatalf("search docs query: %v", err)
+	}
+	if searchDocs != 1 || documentLen == 0 || documentTool != "mcp__repo__search" ||
+		documentModel != "claude-sonnet-4" || documentProvider != "anthropic" {
+		t.Fatalf("search document = count %d len %d tool/model/provider %q/%q/%q",
+			searchDocs, documentLen, documentTool, documentModel, documentProvider)
+	}
+
+	var searchPostings uint64
+	var termFrequency uint32
+	var postingEventUID, postingSessionID, postingEventKind, postingTool, postingModel, postingProvider string
+	if err := ch.DB.QueryRowContext(context.Background(),
+		`SELECT count(),
+		        argMax(term_frequency, updated_at),
+		        argMax(event_uid, updated_at),
+		        argMax(session_id, updated_at),
+		        argMax(event_kind, updated_at),
+		        argMax(tool_name, updated_at),
+		        argMax(model, updated_at),
+		        argMax(provider, updated_at)
+		 FROM search_postings
+		 WHERE token = ? AND event_uid = ?`, "integrationneedle", "evt-parent-mcp-call").Scan(
+		&searchPostings,
+		&termFrequency,
+		&postingEventUID,
+		&postingSessionID,
+		&postingEventKind,
+		&postingTool,
+		&postingModel,
+		&postingProvider,
+	); err != nil {
+		t.Fatalf("search postings query: %v", err)
+	}
+	if searchPostings != 1 || termFrequency != 2 || postingEventUID != "evt-parent-mcp-call" ||
+		postingSessionID != parentID || postingEventKind != "tool_call" || postingTool != "mcp__repo__search" ||
+		postingModel != "claude-sonnet-4" || postingProvider != "anthropic" {
+		t.Fatalf("search posting = count %d frequency %d event/session/kind/tool/model/provider %q/%q/%q/%q/%q/%q",
+			searchPostings, termFrequency, postingEventUID, postingSessionID, postingEventKind,
+			postingTool, postingModel, postingProvider)
+	}
+}
