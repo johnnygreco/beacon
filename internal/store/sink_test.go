@@ -39,15 +39,14 @@ func TestBuildSearchRowsUsesToolInputPreviewForSnippet(t *testing.T) {
 	}
 }
 
-func TestSessionEndProjectionPredicateRecognizesHarnessEndEvents(t *testing.T) {
-	if !strings.Contains(sessionEndProjectionPredicate, "event_kind = 'session_end'") {
-		t.Fatalf("predicate must recognize session_end events: %q", sessionEndProjectionPredicate)
+func TestSessionEndProjectionPredicateRequiresNormalizedEventKind(t *testing.T) {
+	if sessionEndProjectionPredicate != "event_kind = 'session_end'" {
+		t.Fatalf("predicate = %q, want normalized session_end only", sessionEndProjectionPredicate)
 	}
-	if strings.Contains(sessionEndProjectionPredicate, "event_kind = 'session_end' AND payload_type") {
-		t.Fatalf("session_end events must not be restricted to one payload type: %q", sessionEndProjectionPredicate)
-	}
-	if !strings.Contains(sessionEndProjectionPredicate, "payload_type = 'last-prompt'") {
-		t.Fatalf("predicate must preserve legacy last-prompt event_msg handling: %q", sessionEndProjectionPredicate)
+	for _, legacyFragment := range []string{"event_msg", "payload_type", "last-prompt"} {
+		if strings.Contains(sessionEndProjectionPredicate, legacyFragment) {
+			t.Fatalf("predicate must not preserve legacy %q handling: %q", legacyFragment, sessionEndProjectionPredicate)
+		}
 	}
 }
 

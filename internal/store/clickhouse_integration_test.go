@@ -259,4 +259,80 @@ func TestClickHouseProjectionIgnoresZeroTimestampEventsForDuration(t *testing.T)
 	if duration := projectedEnd.Sub(projectedStart); duration != 2*time.Minute {
 		t.Fatalf("duration = %s, want 2m", duration)
 	}
+
+	refreshed, err := ch.RefreshAllProjections(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("refresh all projections: %v", err)
+	}
+	if refreshed != 1 {
+		t.Fatalf("refreshed sessions = %d, want 1", refreshed)
+	}
+
+	var rebuiltHasSessionEnd uint64
+	if err := ch.DB.QueryRowContext(context.Background(),
+		`SELECT argMax(has_session_end, updated_at)
+		 FROM session_projection
+		 WHERE session_id = ?`, sessionID).Scan(&rebuiltHasSessionEnd); err != nil {
+		t.Fatalf("rebuilt projection query: %v", err)
+	}
+	if rebuiltHasSessionEnd != 1 {
+		t.Fatalf("rebuilt has_session_end = %d, want 1", rebuiltHasSessionEnd)
+	}
+}
+
+func TestClickHouseProjectionRejectsLegacyLastPromptEventMsgAsSessionEnd(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	sessionID := "legacy-last-prompt-session"
+	start := time.Date(2026, 5, 22, 13, 0, 0, 0, time.UTC)
+
+	batch := RowBatch{
+		ActivityEvents: []models.Event{
+			{
+				EventUID:   "evt-message",
+				SessionID:  sessionID,
+				SourceName: "claude",
+				Runtime:    "claude-code",
+				Provider:   "anthropic",
+				Format:     "jsonl",
+				EventKind:  "message",
+				ActorRole:  "user",
+				Timestamp:  start,
+				SourceFile: "claude.jsonl",
+			},
+			{
+				EventUID:    "evt-legacy-last-prompt",
+				SessionID:   sessionID,
+				SourceName:  "claude",
+				Runtime:     "claude-code",
+				Provider:    "anthropic",
+				Format:      "jsonl",
+				EventKind:   "event_msg",
+				PayloadType: "last-prompt",
+				ActorRole:   "system",
+				Timestamp:   start.Add(time.Minute),
+				SourceFile:  "claude.jsonl",
+			},
+		},
+	}
+	for _, event := range batch.ActivityEvents {
+		batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+	}
+
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+	if _, err := ch.RefreshAllProjections(context.Background(), 0); err != nil {
+		t.Fatalf("refresh all projections: %v", err)
+	}
+
+	var hasSessionEnd uint64
+	if err := ch.DB.QueryRowContext(context.Background(),
+		`SELECT argMax(has_session_end, updated_at)
+		 FROM session_projection
+		 WHERE session_id = ?`, sessionID).Scan(&hasSessionEnd); err != nil {
+		t.Fatalf("projection query: %v", err)
+	}
+	if hasSessionEnd != 0 {
+		t.Fatalf("legacy event_msg last-prompt has_session_end = %d, want 0", hasSessionEnd)
+	}
 }
