@@ -1,10 +1,22 @@
 package capture
 
 import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
+	"github.com/johnnygreco/beacon/internal/models"
 )
+
+var watcherTestLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 func TestWatcherFindSourceExpandsHomeGlobs(t *testing.T) {
 	home := t.TempDir()
@@ -26,6 +38,406 @@ func TestWatcherFindSourceExpandsHomeGlobs(t *testing.T) {
 		t.Fatalf("findSource(%q) = nil, want hermes source", file)
 	} else if src.Name != "hermes" {
 		t.Fatalf("findSource(%q).Name = %q, want hermes", file, src.Name)
+	}
+}
+
+func TestNewWatcherDefaultsWorkersAndCheckpointManagers(t *testing.T) {
+	events := make(chan BatchEvent, 1)
+	w := NewWatcher(
+		[]WatchSource{{Name: "codex"}, {Name: "hermes"}},
+		events,
+		nil,
+		watcherTestLogger,
+		time.Second,
+		time.Minute,
+		true,
+		0,
+	)
+
+	if w.backfillWorkers != 4 {
+		t.Fatalf("backfillWorkers = %d, want default 4", w.backfillWorkers)
+	}
+	if w.eventCh != events || !w.backfillOnStart {
+		t.Fatalf("watcher fields not preserved: eventCh=%v backfill=%v", w.eventCh == events, w.backfillOnStart)
+	}
+	for _, source := range []string{"codex", "hermes"} {
+		if w.checkpoints[source] == nil {
+			t.Fatalf("missing checkpoint manager for %s", source)
+		}
+	}
+}
+
+func TestRunReturnsWhenContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	src := WatchSource{Name: "codex"}
+	w := newFakeWatcher(src, newFakeWatcherStore(), make(chan BatchEvent, 1))
+	w.debounceDelay = time.Hour
+	w.reconcileInterval = time.Hour
+
+	if err := w.Run(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context.Canceled", err)
+	}
+}
+
+func TestWatchDirRegistersExistingDirectoryOnce(t *testing.T) {
+	fsw, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fsw.Close()
+	dir := t.TempDir()
+	watched := make(map[string]bool)
+	w := &Watcher{logger: watcherTestLogger}
+
+	w.watchDir(fsw, watched, dir)
+	w.watchDir(fsw, watched, dir)
+	w.watchDir(fsw, watched, filepath.Join(dir, "missing"))
+
+	if len(watched) != 1 || !watched[dir] {
+		t.Fatalf("watched dirs = %#v, want only %q", watched, dir)
+	}
+}
+
+func TestCheckpointManagerLoadSaveAndRotation(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "session.jsonl")
+	if err := os.WriteFile(file, []byte("short\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeWatcherStore()
+	fake.seed("codex", models.Checkpoint{
+		SourceName:       "codex",
+		SourceFile:       file,
+		SourceInode:      123,
+		SourceGeneration: 2,
+		LastOffset:       100,
+		LastLineNo:       10,
+	})
+	cm := NewCheckpointManager(fake, "codex")
+
+	if err := cm.Load(ctx); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := cm.Get(file); got == nil || got.SourceGeneration != 2 {
+		t.Fatalf("loaded checkpoint = %#v, want generation 2", got)
+	}
+	fi, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cm.CheckRotation(file, fi) {
+		t.Fatal("CheckRotation = false, want true when file shrinks below checkpoint offset")
+	}
+
+	next := &models.Checkpoint{
+		SourceName:       "codex",
+		SourceFile:       file,
+		SourceInode:      fileInode(fi),
+		SourceGeneration: 3,
+		LastOffset:       fi.Size(),
+		LastLineNo:       1,
+	}
+	if err := cm.Save(ctx, next); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if got := cm.Get(file); got == nil || got.SourceGeneration != 3 || got.LastOffset != fi.Size() {
+		t.Fatalf("saved checkpoint = %#v, want generation 3 offset %d", got, fi.Size())
+	}
+	if len(fake.saved) != 1 || fake.saved[0].SourceGeneration != 3 {
+		t.Fatalf("fake saved = %#v, want generation 3", fake.saved)
+	}
+}
+
+func TestProcessFileLegacyCheckpointReplaysContextButEmitsOnlyNewRows(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "session.jsonl")
+	content := "old-model\nold-token\nnew-message\n"
+	if err := os.WriteFile(file, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	checkpointOffset := int64(len("old-model\n" + "old-token\n"))
+	fake := newFakeWatcherStore()
+	fake.seed("codex", models.Checkpoint{
+		SourceName:       "codex",
+		SourceFile:       file,
+		SourceGeneration: 2,
+		LastOffset:       checkpointOffset,
+		LastLineNo:       2,
+	})
+	events := make(chan BatchEvent, 8)
+	src := WatchSource{
+		Name:     "codex",
+		Runtime:  "codex",
+		Provider: "openai",
+		Format:   "jsonl",
+		Parser:   lineTextParser(t),
+	}
+	w := newFakeWatcher(src, fake, events)
+
+	w.processFile(ctx, src, file)
+
+	got := drainBatchEvents(events)
+	if len(got) != 1 {
+		t.Fatalf("events = %#v, want only the new post-checkpoint row", got)
+	}
+	if got[0].TextContent != "new-message" || got[0].SourceLineNo != 3 || got[0].SourceOffset != checkpointOffset {
+		t.Fatalf("event = %#v, want line 3 at checkpoint offset", got[0])
+	}
+	if got[0].Model != "old-model" {
+		t.Fatalf("replayed model context = %q, want old-model", got[0].Model)
+	}
+	if got[0].SourceGeneration != 2 || got[0].Runtime != "codex" || got[0].Provider != "openai" {
+		t.Fatalf("event metadata = generation %d runtime %q provider %q", got[0].SourceGeneration, got[0].Runtime, got[0].Provider)
+	}
+	saved := fake.lastCheckpoint(t, file)
+	if saved.LastOffset != int64(len(content)) || saved.LastLineNo != 3 || saved.SourceGeneration != 2 {
+		t.Fatalf("saved checkpoint = %#v, want end of file generation 2", saved)
+	}
+	if state, ok := decodeLineParserCheckpointState(saved.StateJSON, nil); !ok || state.ReplayStartLineNo != 1 || state.ReplayStartOffset != 0 {
+		t.Fatalf("saved replay state = %#v ok=%v, want replay from line 1 offset 0", state, ok)
+	}
+
+	appended := content + "newer-message\n"
+	if err := os.WriteFile(file, []byte(appended), 0644); err != nil {
+		t.Fatal(err)
+	}
+	w.processFile(ctx, src, file)
+	got = drainBatchEvents(events)
+	if len(got) != 1 {
+		t.Fatalf("second replay events = %#v, want only one appended row", got)
+	}
+	if got[0].TextContent != "newer-message" || got[0].SourceOffset != int64(len(content)) {
+		t.Fatalf("second replay event = %#v, want appended row at offset %d", got[0], len(content))
+	}
+	if got[0].Model != "old-model" {
+		t.Fatalf("second replay model context = %q, want old-model", got[0].Model)
+	}
+}
+
+func TestProcessFileRotationIncrementsSourceGeneration(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "rotating.jsonl")
+	if err := os.WriteFile(file, []byte("old file contents\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	oldInfo, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldInode := fileInode(oldInfo)
+	if oldInode == 0 {
+		t.Skip("filesystem does not expose inode numbers")
+	}
+	if err := os.Rename(file, file+".rotated"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("fresh\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	newInfo, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fileInode(newInfo) == oldInode {
+		t.Skip("replacement reused inode; cannot exercise inode rotation path")
+	}
+	fake := newFakeWatcherStore()
+	fake.seed("codex", models.Checkpoint{
+		SourceName:       "codex",
+		SourceFile:       file,
+		SourceInode:      oldInode,
+		SourceGeneration: 4,
+		LastOffset:       0,
+		LastLineNo:       8,
+	})
+	events := make(chan BatchEvent, 4)
+	src := WatchSource{Name: "codex", Parser: lineTextParser(t)}
+	w := newFakeWatcher(src, fake, events)
+
+	w.processFile(ctx, src, file)
+
+	got := drainBatchEvents(events)
+	if len(got) != 1 {
+		t.Fatalf("events = %#v, want fresh rotated row", got)
+	}
+	if got[0].SourceGeneration != 5 {
+		t.Fatalf("event source generation = %d, want 5", got[0].SourceGeneration)
+	}
+	if len(fake.saved) < 2 {
+		t.Fatalf("saved checkpoints = %#v, want rotation and final checkpoint", fake.saved)
+	}
+	if fake.saved[0].SourceGeneration != 5 || fake.saved[0].LastOffset != 0 {
+		t.Fatalf("rotation checkpoint = %#v, want generation 5 offset 0", fake.saved[0])
+	}
+	if saved := fake.lastCheckpoint(t, file); saved.SourceGeneration != 5 || saved.LastLineNo != 1 {
+		t.Fatalf("final checkpoint = %#v, want generation 5 line 1", saved)
+	}
+}
+
+func TestProcessFileRecordsParseErrorsAndContinues(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "errors.jsonl")
+	if err := os.WriteFile(file, []byte("bad\nok\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeWatcherStore()
+	events := make(chan BatchEvent, 4)
+	src := WatchSource{
+		Name: "codex",
+		Parser: func(line []byte, file string, lineNo int, offset int64) ([]NormalizedEvent, error) {
+			if string(line) == "bad" {
+				return nil, errors.New("bad line")
+			}
+			return []NormalizedEvent{lineEvent(file, lineNo, offset, string(line))}, nil
+		},
+	}
+	w := newFakeWatcher(src, fake, events)
+
+	w.processFile(ctx, src, file)
+
+	if len(fake.captureErrors) != 1 {
+		t.Fatalf("capture errors = %#v, want one parse error", fake.captureErrors)
+	}
+	if fake.captureErrors[0].SourceLineNo != 1 || fake.captureErrors[0].ErrorClass != "parse_error" || fake.captureErrors[0].ContextFragment != "bad" {
+		t.Fatalf("capture error = %#v", fake.captureErrors[0])
+	}
+	got := drainBatchEvents(events)
+	if len(got) != 1 || got[0].TextContent != "ok" {
+		t.Fatalf("events after parse error = %#v, want ok row", got)
+	}
+	if saved := fake.lastCheckpoint(t, file); saved.LastLineNo != 2 {
+		t.Fatalf("checkpoint after parse error = %#v, want line 2", saved)
+	}
+}
+
+func TestProcessWholeFileParserEmitsRowsAndSavesCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "state.db")
+	if err := os.WriteFile(file, []byte("sqlite fixture"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeWatcherStore()
+	events := make(chan BatchEvent, 4)
+	src := WatchSource{
+		Name:     "hermes",
+		Runtime:  "hermes-agent",
+		Provider: "multi",
+		Format:   "sqlite",
+		FileParser: func(file string) ([]NormalizedEvent, error) {
+			return []NormalizedEvent{
+				{SessionID: "session-1", EventKind: "message", TextContent: "hello", SourceFile: file, RawPayload: "one"},
+				{SessionID: "session-1", EventKind: "message", TextContent: "world", SourceFile: file, RawPayload: "two"},
+			}, nil
+		},
+	}
+	w := newFakeWatcher(src, fake, events)
+
+	w.processFile(ctx, src, file)
+
+	got := drainBatchEvents(events)
+	if len(got) != 2 {
+		t.Fatalf("events = %#v, want two whole-file rows", got)
+	}
+	for _, evt := range got {
+		if evt.SourceName != "hermes" || evt.Runtime != "hermes-agent" || evt.Provider != "multi" || evt.Format != "sqlite" {
+			t.Fatalf("whole-file metadata = %#v", evt)
+		}
+	}
+	if saved := fake.lastCheckpoint(t, file); saved.LastOffset != 0 || saved.LastLineNo != 0 {
+		t.Fatalf("whole-file checkpoint = %#v, want zero offset/line", saved)
+	}
+}
+
+func TestProcessWholeFileParserRecordsParseError(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "broken.db")
+	if err := os.WriteFile(file, []byte("broken"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeWatcherStore()
+	src := WatchSource{
+		Name: "hermes",
+		FileParser: func(string) ([]NormalizedEvent, error) {
+			return nil, errors.New("sqlite parse failed")
+		},
+	}
+	w := newFakeWatcher(src, fake, make(chan BatchEvent, 1))
+
+	w.processFile(ctx, src, file)
+
+	if len(fake.captureErrors) != 1 || fake.captureErrors[0].ErrorMessage != "sqlite parse failed" {
+		t.Fatalf("capture errors = %#v, want sqlite parse failure", fake.captureErrors)
+	}
+	if len(fake.saved) != 0 {
+		t.Fatalf("checkpoints saved after whole-file parse error = %#v, want none", fake.saved)
+	}
+}
+
+func TestProcessFilesCancellationReturnsWithoutLeakingWorkers(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "blocked.jsonl")
+	if err := os.WriteFile(file, []byte("row\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	parserStarted := make(chan struct{})
+	var once sync.Once
+	src := WatchSource{
+		Name: "codex",
+		Parser: func(line []byte, file string, lineNo int, offset int64) ([]NormalizedEvent, error) {
+			once.Do(func() { close(parserStarted) })
+			return []NormalizedEvent{lineEvent(file, lineNo, offset, string(line))}, nil
+		},
+	}
+	w := newFakeWatcher(src, newFakeWatcherStore(), make(chan BatchEvent))
+	w.backfillWorkers = 2
+	done := make(chan struct{})
+
+	go func() {
+		w.processFiles(ctx, src, []string{file, filepath.Join(dir, "missing.jsonl")})
+		close(done)
+	}()
+
+	select {
+	case <-parserStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("parser did not start")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("processFiles did not return after cancellation while worker was sending")
+	}
+}
+
+func TestResolveGlobsDeduplicatesMatches(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "one.jsonl")
+	second := filepath.Join(dir, "two.jsonl")
+	if err := os.WriteFile(first, []byte("one\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("two\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	w := &Watcher{logger: watcherTestLogger}
+
+	got := w.resolveGlobs([]string{filepath.Join(dir, "*.jsonl"), first})
+	if len(got) != 2 {
+		t.Fatalf("resolved globs = %#v, want two unique files", got)
+	}
+	seen := map[string]bool{got[0]: true, got[1]: true}
+	if !seen[first] || !seen[second] {
+		t.Fatalf("resolved globs = %#v, want %q and %q", got, first, second)
 	}
 }
 
@@ -146,5 +558,129 @@ func TestTailLinesBeforeOffsetUsesBoundedWindow(t *testing.T) {
 	}
 	if lines[1].lineNo != 4 || string(lines[1].line) != "keep-2" {
 		t.Fatalf("second tail line = line %d %q, want line 4 keep-2", lines[1].lineNo, lines[1].line)
+	}
+}
+
+type fakeWatcherStore struct {
+	mu            sync.Mutex
+	checkpoints   map[string]map[string]*models.Checkpoint
+	saved         []models.Checkpoint
+	captureErrors []models.CaptureError
+}
+
+func newFakeWatcherStore() *fakeWatcherStore {
+	return &fakeWatcherStore{checkpoints: make(map[string]map[string]*models.Checkpoint)}
+}
+
+func (f *fakeWatcherStore) seed(source string, cp models.Checkpoint) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.checkpoints[source] == nil {
+		f.checkpoints[source] = make(map[string]*models.Checkpoint)
+	}
+	cpCopy := cp
+	f.checkpoints[source][cp.SourceFile] = &cpCopy
+}
+
+func (f *fakeWatcherStore) LoadCheckpoints(_ context.Context, sourceName string) (map[string]*models.Checkpoint, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	result := make(map[string]*models.Checkpoint)
+	for file, cp := range f.checkpoints[sourceName] {
+		cpCopy := *cp
+		result[file] = &cpCopy
+	}
+	return result, nil
+}
+
+func (f *fakeWatcherStore) UpsertCheckpoint(_ context.Context, cp models.Checkpoint) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.checkpoints[cp.SourceName] == nil {
+		f.checkpoints[cp.SourceName] = make(map[string]*models.Checkpoint)
+	}
+	cpCopy := cp
+	f.checkpoints[cp.SourceName][cp.SourceFile] = &cpCopy
+	f.saved = append(f.saved, cp)
+	return nil
+}
+
+func (f *fakeWatcherStore) InsertCaptureError(_ context.Context, err models.CaptureError) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.captureErrors = append(f.captureErrors, err)
+	return nil
+}
+
+func (f *fakeWatcherStore) lastCheckpoint(t *testing.T, file string) models.Checkpoint {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := len(f.saved) - 1; i >= 0; i-- {
+		if f.saved[i].SourceFile == file {
+			return f.saved[i]
+		}
+	}
+	t.Fatalf("no saved checkpoint for %s; saved=%#v", file, f.saved)
+	return models.Checkpoint{}
+}
+
+func newFakeWatcher(src WatchSource, fake *fakeWatcherStore, events chan<- BatchEvent) *Watcher {
+	w := &Watcher{
+		sources:         []WatchSource{src},
+		eventCh:         events,
+		store:           fake,
+		logger:          watcherTestLogger,
+		backfillWorkers: 1,
+		checkpoints: map[string]*CheckpointManager{
+			src.Name: NewCheckpointManager(fake, src.Name),
+		},
+	}
+	_ = w.checkpoints[src.Name].Load(context.Background())
+	return w
+}
+
+func lineTextParser(t *testing.T) func([]byte, string, int, int64) ([]NormalizedEvent, error) {
+	t.Helper()
+	return func(line []byte, file string, lineNo int, offset int64) ([]NormalizedEvent, error) {
+		text := string(line)
+		evt := lineEvent(file, lineNo, offset, text)
+		if strings.Contains(text, "model") {
+			evt.Model = text
+		}
+		if strings.Contains(text, "token") {
+			evt.PayloadType = "token_count"
+			evt.TokenUsageTotalKey = "1:0:0:1"
+			evt.InputTokens = 1
+		}
+		return []NormalizedEvent{evt}, nil
+	}
+}
+
+func lineEvent(file string, lineNo int, offset int64, text string) NormalizedEvent {
+	return NormalizedEvent{
+		SessionID:    "session-1",
+		EventKind:    "message",
+		TextContent:  text,
+		SourceFile:   file,
+		SourceLineNo: lineNo,
+		SourceOffset: offset,
+		RawPayload:   text,
+		MessageUUID:  text,
+		Timestamp:    time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC),
+	}
+}
+
+func drainBatchEvents(ch <-chan BatchEvent) []NormalizedEvent {
+	var events []NormalizedEvent
+	for {
+		select {
+		case evt := <-ch:
+			if evt.Insert != nil {
+				events = append(events, evt.Insert.Normalized)
+			}
+		default:
+			return events
+		}
 	}
 }

@@ -44,6 +44,10 @@ type replayLine struct {
 	seq    int
 }
 
+type captureErrorStore interface {
+	InsertCaptureError(ctx context.Context, err models.CaptureError) error
+}
+
 // WatchSource defines a source to watch for JSONL files.
 type WatchSource struct {
 	Name       string
@@ -60,7 +64,7 @@ type WatchSource struct {
 type Watcher struct {
 	sources           []WatchSource
 	eventCh           chan<- BatchEvent
-	store             *store.Store
+	store             captureErrorStore
 	logger            *slog.Logger
 	debounceDelay     time.Duration
 	reconcileInterval time.Duration
@@ -332,7 +336,6 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 	var lineNo int
 	var checkpointOffset int64
 	var initialState lineParserState
-	emitReplay := true
 	if cp != nil {
 		offset = cp.LastOffset
 		lineNo = cp.LastLineNo
@@ -354,7 +357,6 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 			// Legacy checkpoints do not know the parser state at the replay
 			// boundary. Use the replay window only as context, then emit new
 			// rows; subsequent checkpoints persist exact replay state.
-			emitReplay = false
 		}
 	}
 
@@ -439,10 +441,12 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 	nextState := buildLineParserCheckpointState(initialState, allEvents, replayLines)
 
 	for _, evt := range allEvents {
-		if cp != nil && !emitReplay && evt.SourceOffset < checkpointOffset {
+		if cp != nil && evt.SourceOffset < checkpointOffset {
 			continue
 		}
-		w.eventCh <- BatchEvent{Insert: &InsertEvent{Normalized: evt}}
+		if !w.sendEvent(ctx, BatchEvent{Insert: &InsertEvent{Normalized: evt}}) {
+			return
+		}
 	}
 
 	// Save checkpoint after processing
@@ -707,7 +711,9 @@ func (w *Watcher) processWholeFile(ctx context.Context, src WatchSource, file st
 	events = DeduplicateTokens(events)
 
 	for _, evt := range events {
-		w.eventCh <- BatchEvent{Insert: &InsertEvent{Normalized: evt}}
+		if !w.sendEvent(ctx, BatchEvent{Insert: &InsertEvent{Normalized: evt}}) {
+			return
+		}
 	}
 
 	newCP := &models.Checkpoint{
@@ -724,6 +730,15 @@ func (w *Watcher) processWholeFile(ctx context.Context, src WatchSource, file st
 	}
 	if err := w.checkpoints[src.Name].Save(ctx, newCP); err != nil {
 		w.logger.Error("save checkpoint failed", "file", file, "error", err)
+	}
+}
+
+func (w *Watcher) sendEvent(ctx context.Context, evt BatchEvent) bool {
+	select {
+	case <-ctx.Done():
+		return false
+	case w.eventCh <- evt:
+		return true
 	}
 }
 
