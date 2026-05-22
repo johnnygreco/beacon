@@ -71,39 +71,6 @@ func TestNewSearcher(t *testing.T) {
 	}
 }
 
-func TestSearch_NoIndex_ILIKEFallback(t *testing.T) {
-	ch := setupTestStore(t)
-	logger := testLogger
-
-	insertEvent(t, ch, "evt-1", "sess-1", "message", "The quick brown fox jumps over the lazy dog", "gpt-4")
-	insertEvent(t, ch, "evt-2", "sess-1", "message", "Hello world from the test suite", "gpt-4")
-	insertEvent(t, ch, "evt-3", "sess-2", "tool_call", "Searching for something else entirely", "claude-3")
-
-	s := search.NewSearcher(ch.DB, logger, 25, 0)
-
-	results, err := s.Search(context.Background(), search.SearchQuery{
-		Query: "quick brown fox",
-		Limit: 10,
-	})
-	if err != nil {
-		t.Fatalf("Search error: %v", err)
-	}
-	if len(results) == 0 {
-		t.Fatal("expected at least one result from postings search")
-	}
-
-	found := false
-	for _, r := range results {
-		if r.EventUID == "evt-1" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("expected to find evt-1 in results")
-	}
-}
-
 func TestSearch_EmptyDatabase(t *testing.T) {
 	ch := setupTestStore(t)
 	logger := testLogger

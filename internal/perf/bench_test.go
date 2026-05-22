@@ -125,7 +125,7 @@ func BenchmarkSearchBM25(b *testing.B) {
 	}
 }
 
-func BenchmarkSearchILIKE(b *testing.B) {
+func BenchmarkSearchKeyword(b *testing.B) {
 	ch := requirePerfStore(b)
 	ctx := context.Background()
 	s := search.NewSearcher(ch.DB, benchLogger, 25, 0)
