@@ -15,8 +15,12 @@ import (
 
 type Server struct {
 	db       *sql.DB
-	searcher *search.Searcher
+	searcher searcher
 	logger   *slog.Logger
+}
+
+type searcher interface {
+	Search(ctx context.Context, q search.SearchQuery) ([]search.SearchResult, error)
 }
 
 func NewServer(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) *Server {
@@ -44,9 +48,13 @@ type jsonRPCError struct {
 
 // Run reads JSON-RPC requests from stdin and writes responses to stdout.
 func (s *Server) Run(ctx context.Context) error {
-	scanner := bufio.NewScanner(os.Stdin)
+	return s.run(ctx, os.Stdin, os.Stdout)
+}
+
+func (s *Server) run(ctx context.Context, in io.Reader, out io.Writer) error {
+	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 4<<20), 4<<20)
-	writer := bufio.NewWriter(os.Stdout)
+	writer := bufio.NewWriter(out)
 
 	for scanner.Scan() {
 		select {
@@ -71,6 +79,9 @@ func (s *Server) Run(ctx context.Context) error {
 		resp := s.dispatch(ctx, &req)
 		if resp == nil {
 			// Notification — no response
+			continue
+		}
+		if req.ID == nil {
 			continue
 		}
 
@@ -189,6 +200,9 @@ func writeJSONRPC(w *bufio.Writer, resp *jsonRPCResponse) error {
 }
 
 func (s *Server) writeError(w *bufio.Writer, id json.RawMessage, code int, msg string) error {
+	if id == nil {
+		id = json.RawMessage("null")
+	}
 	return writeJSONRPC(w, &jsonRPCResponse{
 		JSONRPC: "2.0",
 		ID:      id,
