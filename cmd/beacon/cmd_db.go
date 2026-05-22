@@ -83,7 +83,7 @@ func runDBUp(cmd *cobra.Command, args []string) error {
 
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
-		cfg = &config.Config{}
+		return fmt.Errorf("loading config: %w", err)
 	}
 	opts := storeOptionsFromConfig(cfg)
 
@@ -157,7 +157,7 @@ func runDBDown(cmd *cobra.Command, args []string) error {
 func runDBMigrate(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
-		cfg = &config.Config{}
+		return fmt.Errorf("loading config: %w", err)
 	}
 	opts := storeOptionsFromConfig(cfg)
 	ch, err := store.Open(context.Background(), opts)
@@ -172,7 +172,7 @@ func runDBMigrate(cmd *cobra.Command, args []string) error {
 func runDBRefreshProjections(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
-		cfg = &config.Config{}
+		return fmt.Errorf("loading config: %w", err)
 	}
 	opts := storeOptionsFromConfig(cfg)
 	ch, err := store.Open(context.Background(), opts)
@@ -205,7 +205,7 @@ func runDBReset(cmd *cobra.Command, args []string) error {
 
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
-		cfg = &config.Config{}
+		return fmt.Errorf("loading config: %w", err)
 	}
 
 	opts := storeOptionsFromConfig(cfg)

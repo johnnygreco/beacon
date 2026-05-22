@@ -131,6 +131,12 @@ watch_root = "~/.codex/sessions"
 format = "jsonl"
 ```
 
+Ports must be in `1..65535`, ClickHouse addresses must include a host and port,
+and each capture source must set `name`, `runtime`, `provider`, `format`,
+`watch_root`, and either `glob` or `globs`. Supported runtime/format pairs are
+`claude-code/jsonl`, `codex/jsonl`, `hermes-agent/sqlite`, `opencode/sqlite`,
+and `pi-coding-agent/jsonl`.
+
 If `[database].addrs` points to a remote ClickHouse host, Beacon will not start ClickHouse for you. Start the database yourself and run `beacon db migrate`.
 
 ## Documentation

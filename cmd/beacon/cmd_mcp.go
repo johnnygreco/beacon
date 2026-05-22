@@ -33,8 +33,7 @@ func runMCP(cmd *cobra.Command, args []string) error {
 
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
-		// Don't fail on missing config for MCP
-		cfg = &config.Config{}
+		return fmt.Errorf("loading config: %w", err)
 	}
 
 	opts := storeOptionsFromConfig(cfg)
