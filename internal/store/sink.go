@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	sessionEndProjectionPredicate = "event_kind = 'session_end' OR (event_kind = 'event_msg' AND payload_type = 'last-prompt')"
+	sessionEndProjectionPredicate = "event_kind = 'session_end'"
 	validEventTimestampPredicate  = "timestamp > toDateTime64(0, 3, 'UTC')"
 	defaultProjectionRefreshBatch = 500
 )
