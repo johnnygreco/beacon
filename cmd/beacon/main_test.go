@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"io"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/store"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func TestRootCommandShowsHelpWithoutSubcommand(t *testing.T) {
@@ -153,13 +155,16 @@ func TestBuildSourcesMapsRuntimeParsersAndGlobs(t *testing.T) {
 			Glob:      "~/.codex/latest.jsonl",
 			WatchRoot: "~/.codex",
 		},
-		{Name: "hermes", Runtime: "hermes-agent", WatchRoot: "~/.hermes"},
-		{Name: "opencode", Runtime: "opencode", WatchRoot: "~/.local/share/opencode"},
-		{Name: "pi", Runtime: "pi-coding-agent", WatchRoot: "~/.pi"},
-		{Name: "claude", Runtime: "claude-code", WatchRoot: "~/.claude"},
+		{Name: "hermes", Runtime: "hermes-agent", Format: "sqlite", WatchRoot: "~/.hermes"},
+		{Name: "opencode", Runtime: "opencode", Format: "sqlite", WatchRoot: "~/.local/share/opencode"},
+		{Name: "pi", Runtime: "pi-coding-agent", Format: "jsonl", WatchRoot: "~/.pi"},
+		{Name: "claude", Runtime: "claude-code", Format: "jsonl", WatchRoot: "~/.claude"},
 	}
 
-	sources := buildSources(cfg)
+	sources, err := buildSources(cfg)
+	if err != nil {
+		t.Fatalf("buildSources: %v", err)
+	}
 	if len(sources) != len(cfg.Capture.Sources) {
 		t.Fatalf("sources length = %d, want %d", len(sources), len(cfg.Capture.Sources))
 	}
@@ -181,6 +186,83 @@ func TestBuildSourcesMapsRuntimeParsersAndGlobs(t *testing.T) {
 		}
 	}
 	if sources[4].Parser == nil || sources[4].FileParser != nil {
-		t.Fatal("claude source should default to a line parser only")
+		t.Fatal("claude source should use a line parser only")
+	}
+}
+
+func TestBuildSourcesCoversDefaultSources(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Capture.Sources = []config.SourceConfig{
+		{Name: "claude", Runtime: "claude-code", Format: "jsonl"},
+		{Name: "codex", Runtime: "codex", Format: "jsonl"},
+		{Name: "hermes", Runtime: "hermes-agent", Format: "sqlite"},
+		{Name: "opencode", Runtime: "opencode", Format: "sqlite"},
+		{Name: "pi", Runtime: "pi-coding-agent", Format: "jsonl"},
+	}
+
+	sources, err := buildSources(cfg)
+	if err != nil {
+		t.Fatalf("buildSources default sources: %v", err)
+	}
+	for _, source := range sources {
+		if source.Parser == nil && source.FileParser == nil {
+			t.Fatalf("%s source has no parser", source.Name)
+		}
+		if source.Parser != nil && source.FileParser != nil {
+			t.Fatalf("%s source has both line and file parsers", source.Name)
+		}
+	}
+}
+
+func TestBuildSourcesRejectsUnsupportedRuntimeFormat(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Capture.Sources = []config.SourceConfig{
+		{Name: "bad", Runtime: "mystery-agent", Format: "jsonl"},
+	}
+
+	_, err := buildSources(cfg)
+	if err == nil {
+		t.Fatal("buildSources returned nil error for unsupported source")
+	}
+	if !strings.Contains(err.Error(), `unsupported capture source "bad" runtime/format "mystery-agent"/"jsonl"`) ||
+		!strings.Contains(err.Error(), "claude-code/jsonl") {
+		t.Fatalf("error = %q, want unsupported source with supported pairs", err.Error())
+	}
+}
+
+func TestRunWatchValidatesSourcesBeforeClickHouse(t *testing.T) {
+	cfgPath := t.TempDir() + "/beacon.toml"
+	if err := os.WriteFile(cfgPath, []byte(`
+[database]
+addrs = ["127.0.0.1:1"]
+
+[[capture.sources]]
+name = "bad"
+runtime = "mystery-agent"
+format = "jsonl"
+glob = "/tmp/nope.jsonl"
+watch_root = "/tmp"
+`), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	oldCfgFile := cfgFile
+	cfgFile = cfgPath
+	viper.Reset()
+	t.Cleanup(func() {
+		cfgFile = oldCfgFile
+		viper.Reset()
+	})
+
+	err := runWatch(newWatchCmd(), nil)
+	if err == nil {
+		t.Fatal("runWatch returned nil error")
+	}
+	if !strings.Contains(err.Error(), "capture source config") ||
+		!strings.Contains(err.Error(), `unsupported capture source "bad"`) {
+		t.Fatalf("runWatch error = %q, want source config error", err.Error())
+	}
+	if strings.Contains(err.Error(), "clickhouse") {
+		t.Fatalf("runWatch error = %q, validation should happen before ClickHouse", err.Error())
 	}
 }
