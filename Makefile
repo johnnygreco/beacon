@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build run generate clean clean-local clean-deps simulator publish test test-race test-cover perf-bench perf-explain fmt fmt-check lint
+.PHONY: help build run generate generate-check clean clean-local clean-deps simulator publish test test-race test-cover perf-bench perf-explain fmt fmt-check lint
 
 GO_PACKAGE_DIRS = $(shell go list -f '{{.Dir}}' ./... | grep -v '/node_modules/')
 GO_PACKAGES = $(patsubst $(CURDIR)%,.%,$(GO_PACKAGE_DIRS))
@@ -15,6 +15,17 @@ run: generate ## Run the beacon server
 
 generate: ## Generate templ templates
 	go tool templ generate
+
+generate-check: ## Verify templ generated files are current
+	go tool templ generate
+	@drift=$$(git status --porcelain -- ':(glob)**/*_templ.go'); \
+	if [ -n "$$drift" ]; then \
+		echo "go tool templ generate left uncommitted changes:"; \
+		echo "$$drift"; \
+		git diff --stat -- ':(glob)**/*_templ.go'; \
+		git diff --exit-code -- ':(glob)**/*_templ.go' || true; \
+		exit 1; \
+	fi
 
 clean: ## Remove build and test artifacts
 	rm -rf bin/ dist/ beacon simulator coverage.txt cover.html playwright-report/ test-results/

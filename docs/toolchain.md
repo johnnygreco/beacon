@@ -8,7 +8,8 @@ checks fail for the same reasons.
 - Go: `go.mod` `go` directive. GitHub Actions reads this with
   `actions/setup-go` `go-version-file`.
 - templ: `go.mod` `tool github.com/a-h/templ/cmd/templ`. Run with
-  `go tool templ generate`.
+  `make generate` or `go tool templ generate`; use `make generate-check` to
+  verify generated output is current.
 - golangci-lint: `.github/workflows/ci.yml` `GOLANGCI_LINT_VERSION`.
   CI must not use `latest`; update intentionally after a local lint pass.
 - govulncheck Go: `.github/workflows/ci.yml` `GOVULNCHECK_GO_VERSION`.
@@ -33,7 +34,7 @@ checks fail for the same reasons.
 1. Update one tool or dependency group at a time.
 2. Regenerate the relevant lock or generated files:
    - Go modules: `go get` or `go mod tidy`;
-   - templ output: `go tool templ generate`;
+   - templ output: `make generate`;
    - npm packages: `npm install`;
    - vendored browser assets: `npm run vendor`.
 3. Run the relevant local checks:
@@ -54,8 +55,8 @@ Do not replace pinned CI tool versions with floating aliases such as `latest`.
 CI runs these hygiene gates on pull requests:
 
 - `format`: `make fmt-check` fails on tracked Go files with gofmt drift.
-- `generated`: `go tool templ generate` fails if generated templ files are
-  stale or missing from the commit.
+- `generated`: `make generate-check` fails if generated templ files are stale
+  or missing from the commit.
 - `test`: `go test -race -coverprofile=coverage.txt -covermode=atomic ./...`
   runs Go tests and `scripts/check-coverage.sh` enforces package coverage
   floors.
@@ -75,6 +76,12 @@ CI runs these hygiene gates on pull requests:
 
 Run the matching local commands before opening dependency, generated-code, or
 toolchain PRs.
+
+For template changes, commit both the `.templ` source and the matching
+`_templ.go` output. Keep component tests focused on rendered HTML behavior,
+escaping, and helper-visible output; coverage gates intentionally avoid
+package floors for generated templ packages so tests do not chase generated
+line coverage.
 
 The visual Playwright suite is excluded from CI by design while only Darwin
 baselines are checked in. Keep that exclusion explicit in PRs that touch

@@ -32,15 +32,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Check templ generated files
-        run: |
-          go tool templ generate
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "go tool templ generate left uncommitted changes:"
-            git status --short
-            git diff --stat
-            git diff --exit-code || true
-            exit 1
-          fi
+        run: make generate-check
 
   govulncheck:
     runs-on: ubuntu-latest
