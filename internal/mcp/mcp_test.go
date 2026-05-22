@@ -287,6 +287,33 @@ func TestFormatOpenContext(t *testing.T) {
 	}
 }
 
+func TestMCPFormattersEscapeHTMLPayloads(t *testing.T) {
+	payload := `<script>alert(1)</script><img src=x onerror="alert(1)">`
+	searchOutput := FormatSearchResults([]search.SearchResult{{
+		EventUID:    "uid-xss",
+		SessionID:   "session-xss",
+		EventKind:   "message",
+		TextPreview: payload,
+		Timestamp:   time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC),
+	}})
+	openOutput := FormatOpenContext([]contextEvent{{
+		EventUID:    "uid-xss",
+		EventKind:   "message",
+		ActorRole:   "user",
+		TextPreview: payload,
+		Timestamp:   time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC),
+	}}, 0)
+
+	for _, output := range []string{searchOutput, openOutput} {
+		if strings.Contains(output, "<script") || strings.Contains(output, "<img") {
+			t.Fatalf("MCP formatter emitted raw HTML payload: %s", output)
+		}
+		if !strings.Contains(output, `\u003cscript\u003ealert(1)\u003c/script\u003e`) {
+			t.Fatalf("MCP formatter did not HTML-escape JSON payload: %s", output)
+		}
+	}
+}
+
 func TestFormatSessionList_Empty(t *testing.T) {
 	result := FormatSessionList(nil)
 	if !strings.Contains(result, `"schema":"beacon.mcp.list_sessions.v1"`) || !strings.Contains(result, `"results":[]`) {

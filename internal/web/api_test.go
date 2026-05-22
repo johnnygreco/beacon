@@ -409,13 +409,20 @@ func TestPointLookupBackendErrorsAreSanitized(t *testing.T) {
 func TestJsonResponse(t *testing.T) {
 	a := testAPIHandlers()
 	w := httptest.NewRecorder()
-	a.jsonResponse(w, map[string]string{"key": "value"})
+	a.jsonResponse(w, map[string]string{"key": "value", "payload": `<script>alert(1)</script><img src=x onerror="alert(1)">`})
 
 	if w.Header().Get("Content-Type") != "application/json" {
 		t.Errorf("expected Content-Type application/json, got %s", w.Header().Get("Content-Type"))
 	}
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "<script") || strings.Contains(body, "<img") {
+		t.Fatalf("jsonResponse emitted raw HTML payload: %s", body)
+	}
+	if !strings.Contains(body, `\u003cscript\u003ealert(1)\u003c/script\u003e`) {
+		t.Fatalf("jsonResponse did not HTML-escape JSON payload: %s", body)
 	}
 }
 

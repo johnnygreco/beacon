@@ -37,6 +37,26 @@ func TestRenderMarkdown(t *testing.T) {
 	})
 }
 
+func TestRenderMarkdownBlocksRawHTMLPayloads(t *testing.T) {
+	payloads := []string{
+		`<script>alert(1)</script>`,
+		`<img src=x onerror="alert(1)">`,
+		`<a href="javascript:alert(1)">click</a>`,
+		`[click](javascript:alert(1))`,
+	}
+
+	for _, input := range payloads {
+		t.Run(input, func(t *testing.T) {
+			got := strings.ToLower(RenderMarkdown(input))
+			for _, forbidden := range []string{"<script", "<img", "onerror=", "javascript:"} {
+				if strings.Contains(got, forbidden) {
+					t.Fatalf("RenderMarkdown(%q) emitted %q in %q", input, forbidden, got)
+				}
+			}
+		})
+	}
+}
+
 func TestCleanSystemTags(t *testing.T) {
 	tests := []struct {
 		name     string

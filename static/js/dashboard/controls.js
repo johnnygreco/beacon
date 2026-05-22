@@ -78,6 +78,7 @@ async function toggleJSONSubagents(button) {
 	}
 	var items = await res.json();
 	rememberSessions(items);
+	// completedRow() escapes all dynamic fields before this insertion.
 	parentRow.insertAdjacentHTML('afterend', items.map(function(session) { return completedRow(session, true, sessionID); }).join(''));
 }
 
@@ -125,6 +126,7 @@ document.addEventListener('click', function(evt) {
 
 (function() {
 	var tableHead = document.querySelector('#completed-table thead');
+	// Trusted server-rendered header reused when toggling back from search mode.
 	if (tableHead) sessionTableHeadHTML = tableHead.innerHTML;
 	var searchInput = document.getElementById('dashboard-session-search');
 	var searchClear = document.getElementById('dashboard-search-clear');
