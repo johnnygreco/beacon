@@ -124,6 +124,10 @@ format = "jsonl"
 
 If `[database].addrs` points to a remote ClickHouse host, Beacon will not start ClickHouse for you. Start the database yourself and run `beacon db migrate`.
 
+## Documentation
+
+- [Architecture and data flow](docs/architecture.md)
+
 ## ClickHouse
 
 For local addresses such as `127.0.0.1:9000`, `localhost:9000`, or `0.0.0.0:9000`, `beacon up` and `beacon watch` try to start ClickHouse when it is not already reachable.
