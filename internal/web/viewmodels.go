@@ -90,6 +90,7 @@ type APIDashboardSearchResponse struct {
 }
 
 type APIDashboardSearchResult struct {
+	ResultType   string    `json:"result_type,omitempty"`
 	EventUID     string    `json:"event_uid"`
 	SessionID    string    `json:"session_id"`
 	EventKind    string    `json:"event_kind"`

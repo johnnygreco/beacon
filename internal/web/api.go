@@ -262,9 +262,14 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 	}
 	sessionMeta := a.dashboardSearchSessionMeta(r.Context(), searchResultSessionIDs(results))
 	items := make([]APIDashboardSearchResult, 0, len(results))
+	seenSessions := make(map[string]struct{}, len(results))
 	for _, result := range results {
+		if result.SessionID != "" {
+			seenSessions[result.SessionID] = struct{}{}
+		}
 		meta := sessionMeta[result.SessionID]
 		items = append(items, APIDashboardSearchResult{
+			ResultType:   "event",
 			EventUID:     result.EventUID,
 			SessionID:    result.SessionID,
 			EventKind:    result.EventKind,
@@ -278,6 +283,13 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 			SessionTitle: meta.title,
 			WorkingDir:   meta.workingDir,
 		})
+	}
+	if query != "" && eventKind == "" && len(items) < limit {
+		sessionItems, sessionHasMore := a.dashboardSearchSessionMetadataResults(r.Context(), query, rangeVal, sessionID, seenSessions, limit-len(items))
+		if sessionHasMore {
+			hasMore = true
+		}
+		items = append(items, sessionItems...)
 	}
 
 	a.jsonResponse(w, APIDashboardSearchResponse{
@@ -328,6 +340,56 @@ func dashboardSearchSnippet(result search.SearchResult) string {
 		}
 	}
 	return snippet
+}
+
+func (a *APIHandlers) dashboardSearchSessionMetadataResults(ctx context.Context, query, rangeVal, sessionIDPrefix string, seenSessions map[string]struct{}, limit int) ([]APIDashboardSearchResult, bool) {
+	if a.db == nil || strings.TrimSpace(query) == "" || limit <= 0 {
+		return nil, false
+	}
+	fetchLimit := limit + len(seenSessions) + 1
+	sessions, storeHasMore := QueryCompletedSessionsFiltered(ctx, a.db, parseRange(rangeVal), 0, fetchLimit, query, nil, "ended", false)
+	prefix := strings.ToLower(strings.TrimSpace(sessionIDPrefix))
+	items := make([]APIDashboardSearchResult, 0, min(limit, len(sessions)))
+	for _, session := range sessions {
+		if _, ok := seenSessions[session.ID]; ok {
+			continue
+		}
+		if prefix != "" && !strings.HasPrefix(strings.ToLower(session.ID), prefix) {
+			continue
+		}
+		items = append(items, dashboardSearchSessionResult(session))
+		if len(items) > limit {
+			return items[:limit], true
+		}
+	}
+	return items, storeHasMore
+}
+
+func dashboardSearchSessionResult(session views.SessionSummary) APIDashboardSearchResult {
+	fields := []string{views.SessionTitle(session, false), session.WorkingDir, session.Provider, session.ActiveModel}
+	parts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field != "" {
+			parts = append(parts, field)
+		}
+	}
+	snippet := "Session metadata"
+	if len(parts) > 0 {
+		snippet += ": " + strings.Join(parts, " | ")
+	}
+	return APIDashboardSearchResult{
+		ResultType:   "session",
+		SessionID:    session.ID,
+		EventKind:    "session",
+		Snippet:      snippet,
+		Provider:     session.Provider,
+		Model:        session.ActiveModel,
+		Timestamp:    session.EndedAt,
+		RelativeTime: views.RelativeTime(session.EndedAt),
+		SessionTitle: views.SessionTitle(session, false),
+		WorkingDir:   session.WorkingDir,
+	}
 }
 
 type dashboardSearchSessionInfo struct {

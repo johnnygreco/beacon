@@ -15,6 +15,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var statusOpenStore = store.Open
+
 func newStatusCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
@@ -49,7 +51,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	// Store stats
 	opts := storeOptionsFromConfig(cfg)
-	ch, err := store.Open(cmd.Context(), opts)
+	ch, err := statusOpenStore(cmd.Context(), opts)
 	if err != nil {
 		fmt.Printf("ClickHouse: unavailable at %s (%v)\n", strings.Join(opts.Addrs, ","), err)
 		return nil

@@ -361,14 +361,14 @@ test.describe('dashboard battle-tested workflows', () => {
     await expectEqualDashboardChartHeights(page);
 
     await fillDashboardSearchAndWait(page, 'migration');
-    await expect(page.locator('#completed-session-status')).toHaveText(/1 event result/);
-    await waitForDashboardSearchRows(page, 1);
+    await expect(page.locator('#completed-session-status')).toHaveText(/2 search results/);
+    await waitForDashboardSearchRows(page, 2);
     await expect(page.locator('#dashboard-search-clear')).toBeVisible();
     await page.locator('#dashboard-search-clear').click();
     await waitForCompletedRows(page, 30);
 
     await fillDashboardSearchAndWait(page, 'dashboard payload');
-    await expect(page.locator('#completed-session-status')).toHaveText(/1 event result/);
+    await expect(page.locator('#completed-session-status')).toHaveText(/1 search result/);
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-session-id', SEARCH_SESSION_ID);
     await page.locator('#dashboard-search-clear').click();
@@ -666,7 +666,7 @@ test.describe('dashboard battle-tested workflows', () => {
 
     const searchStart = Date.now();
     await fillDashboardSearchAndWait(page, 'migration');
-    await waitForDashboardSearchRows(page, 1);
+    await waitForDashboardSearchRows(page, 2);
     expect(Date.now() - searchStart).toBeLessThan(800);
 
     const resizeStart = Date.now();

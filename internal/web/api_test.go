@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/search"
+	"github.com/johnnygreco/beacon/internal/views"
 )
 
 type fakeAPISearcher struct {
@@ -114,6 +116,29 @@ func TestDashboardSearch_FilterOnlyUsesBrowseAndExpandsErrors(t *testing.T) {
 	}
 	if got.State != "ready" || len(got.Items) != 1 {
 		t.Fatalf("response state/items = %q/%d, want ready/1", got.State, len(got.Items))
+	}
+}
+
+func TestDashboardSearchSessionResultFormatsMetadataMatch(t *testing.T) {
+	session := views.SessionSummary{
+		ID:          "session-meta-001",
+		Provider:    "openai",
+		ActiveModel: "gpt-5.4-codex",
+		WorkingDir:  "/Users/example/projects/beacon",
+		EndedAt:     time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC),
+	}
+
+	got := dashboardSearchSessionResult(session)
+	if got.ResultType != "session" || got.EventKind != "session" || got.EventUID != "" {
+		t.Fatalf("result type/kind/event = %q/%q/%q, want session/session/empty", got.ResultType, got.EventKind, got.EventUID)
+	}
+	if got.SessionID != session.ID || got.Provider != session.Provider || got.Model != session.ActiveModel {
+		t.Fatalf("metadata = %#v, want session metadata", got)
+	}
+	for _, want := range []string{"beacon", "gpt-5.4-codex", "openai"} {
+		if !strings.Contains(got.Snippet, want) {
+			t.Fatalf("snippet = %q, want to contain %q", got.Snippet, want)
+		}
 	}
 }
 
