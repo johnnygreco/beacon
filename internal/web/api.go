@@ -18,24 +18,24 @@ import (
 
 const completedSessionEventSearchLimit = 5000
 
-type legacySearcher interface {
-	LegacySearch(ctx context.Context, query string, limit int) ([]search.SearchResult, error)
+type apiSearcher interface {
+	Search(ctx context.Context, q search.SearchQuery) ([]search.SearchResult, error)
 }
 
 // APIHandlers serves JSON API endpoints.
 type APIHandlers struct {
 	db       *sql.DB
-	searcher legacySearcher
+	searcher apiSearcher
 	logger   *slog.Logger
 }
 
 // NewAPIHandlers creates API handlers.
 func NewAPIHandlers(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) *APIHandlers {
-	var legacy legacySearcher
+	var backend apiSearcher
 	if searcher != nil {
-		legacy = searcher
+		backend = searcher
 	}
-	return &APIHandlers{db: db, searcher: legacy, logger: logger}
+	return &APIHandlers{db: db, searcher: backend, logger: logger}
 }
 
 func (a *APIHandlers) jsonResponse(w http.ResponseWriter, data any) {
@@ -170,7 +170,7 @@ func (a *APIHandlers) completedSessionEventSearchSessionIDs(ctx context.Context,
 	if strings.TrimSpace(query) == "" || a.searcher == nil {
 		return nil, nil
 	}
-	results, err := a.searcher.LegacySearch(ctx, query, completedSessionEventSearchLimit)
+	results, err := a.searcher.Search(ctx, search.SearchQuery{Query: query, Limit: completedSessionEventSearchLimit})
 	if err != nil {
 		return nil, err
 	}
@@ -428,7 +428,7 @@ func (a *APIHandlers) SearchEvents(w http.ResponseWriter, r *http.Request) {
 		limit = 20
 	}
 
-	results, err := a.searcher.LegacySearch(r.Context(), query, limit)
+	results, err := a.searcher.Search(r.Context(), search.SearchQuery{Query: query, Limit: limit})
 	if err != nil {
 		a.jsonError(w, err.Error(), http.StatusInternalServerError)
 		return

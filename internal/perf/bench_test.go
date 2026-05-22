@@ -116,7 +116,7 @@ func BenchmarkSearchBM25(b *testing.B) {
 	ch := requirePerfStore(b)
 	ctx := context.Background()
 	s := search.NewSearcher(ch.DB, benchLogger, 25, 0)
-	s.RunIndexer(ctx)
+	s.MonitorIndex(ctx)
 
 	q := search.SearchQuery{Query: "binary search", Limit: 25}
 	b.ResetTimer()

@@ -95,7 +95,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 
 	searcher := search.NewSearcher(ch.DB, logger, cfg.Search.MaxResults, cfg.Search.RebuildInterval)
-	go searcher.RunIndexer(ctx)
+	go searcher.MonitorIndex(ctx)
 
 	// Web server
 	handlers := web.NewHandlers(ch.DB, searcher, logger)
