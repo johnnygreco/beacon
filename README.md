@@ -210,6 +210,8 @@ Development commands:
 
 ```bash
 make generate       # regenerate templ output
+make fmt            # gofmt tracked Go files
+make fmt-check      # verify tracked Go files are gofmt formatted
 make test           # generate templates and run Go tests
 make test-race      # run Go tests with the race detector
 make perf-bench     # run perf benchmarks; set PERF_SIZE=small|medium|large

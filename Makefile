@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build run generate clean simulator publish test test-race test-cover perf-bench lint
+.PHONY: help build run generate clean simulator publish test test-race test-cover perf-bench fmt fmt-check lint
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -33,6 +33,18 @@ perf-bench: ## Run perf benchmarks (PERF_SIZE=small|medium|large)
 	@PERF_SIZE=$${PERF_SIZE:-medium} && \
 	echo "=== Beacon Perf Bench (size=$$PERF_SIZE, rev=$$(git rev-parse --short HEAD)) ===" && \
 	PERF_SIZE=$$PERF_SIZE go test -bench=. -benchmem -count=1 -timeout=10m ./internal/perf/
+
+fmt: ## Format tracked Go files
+	git ls-files '*.go' | xargs gofmt -w
+
+fmt-check: ## Check tracked Go files are gofmt formatted
+	@drift=$$(git ls-files '*.go' | xargs gofmt -l); \
+	if [ -n "$$drift" ]; then \
+		echo "gofmt drift detected:"; \
+		echo "$$drift"; \
+		echo "Run 'make fmt'."; \
+		exit 1; \
+	fi
 
 lint: ## Run linter
 	golangci-lint run ./...
