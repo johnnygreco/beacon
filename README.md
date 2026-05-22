@@ -277,6 +277,8 @@ Playwright tests require Node dependencies from `npm install` and a Chromium bro
 
 This project was inspired by Wes McKinney's [agentsview](https://github.com/wesm/agentsview), Eric Tramel's [moraine](https://github.com/eric-tramel/moraine), and Simon Willison's [claude-code-transcripts](https://github.com/simonw/claude-code-transcripts).
 
+Third-party browser asset notices are tracked in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
 ## License
 
 [Apache License 2.0](LICENSE)
