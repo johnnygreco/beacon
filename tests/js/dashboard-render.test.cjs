@@ -1,0 +1,136 @@
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+const vm = require("node:vm");
+
+const utils = require("../../static/js/dashboard/utils.js");
+
+function loadRenderSandbox() {
+  const sandbox = {
+    window: {
+      BeaconDashboard: { utils },
+      dashboardSessionIndex: {},
+      AbortController: globalThis.AbortController,
+    },
+    document: {
+      getElementById() {
+        return null;
+      },
+      querySelector() {
+        return null;
+      },
+    },
+    currentSearchSort: "relevance",
+    currentSearchQuery: "",
+    currentSearchRange: "",
+    currentSearchEventKind: "",
+    currentSearchSessionID: "",
+    currentRange: "24h",
+    completedPageSize: 50,
+    sessionTableHeadHTML: "",
+    dashboardRequestSeq: {},
+    dashboardControllers: {},
+    updateCompletedSortIndicators() {},
+    loadCompletedSessions() {},
+  };
+  vm.createContext(sandbox);
+  const renderPath = path.join(__dirname, "../../static/js/dashboard/render.js");
+  vm.runInContext(fs.readFileSync(renderPath, "utf8"), sandbox, { filename: renderPath });
+  return sandbox;
+}
+
+function assertNoRawPayloadHTML(html) {
+  for (const fragment of ["<script", "<img", "<iframe", "<object", "javascript:alert"]) {
+    assert.equal(html.toLowerCase().includes(fragment), false, `unexpected raw fragment ${fragment} in ${html}`);
+  }
+  for (const fragment of [`onclick="alert`, `onmouseover="alert`, `onerror="alert`]) {
+    assert.equal(html.toLowerCase().includes(fragment), false, `unexpected raw handler ${fragment} in ${html}`);
+  }
+  assert.equal(html.includes("NaN"), false, `unexpected NaN in ${html}`);
+}
+
+test("completed session rows escape malicious payload fields", () => {
+  const sandbox = loadRenderSandbox();
+  const payload = `"><img src=x onerror="alert(1)"><script>alert(1)</script>`;
+  const html = sandbox.completedRow({
+    id: `session-${payload}`,
+    title: payload,
+    provider: payload,
+    last_model: payload,
+    total_tokens: payload,
+    turn_count: payload,
+    tool_call_count: payload,
+    duration: payload,
+    working_dir: `/tmp/${payload}`,
+    ended_at: payload,
+    subagent_count: payload,
+  }, false, "");
+
+  assertNoRawPayloadHTML(html);
+  assert.match(html, /&lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
+  assert.match(html, /data-sort-tokens="0"/);
+  assert.match(html, /data-sort-turns="0"/);
+  assert.match(html, /data-sort-tools="0"/);
+});
+
+test("dashboard search rows escape snippets and metadata", () => {
+  const sandbox = loadRenderSandbox();
+  const payload = `"><img src=x onerror="alert(1)"><script>alert(1)</script>`;
+  const html = sandbox.searchRow({
+    session_id: `session-${payload}`,
+    event_uid: `event-${payload}`,
+    event_kind: payload,
+    snippet: `match ${payload}`,
+    tool_name: payload,
+    provider: payload,
+    model: payload,
+    session_title: payload,
+    working_dir: payload,
+    relative_time: payload,
+    score: `9${payload}`,
+  });
+
+  assertNoRawPayloadHTML(html);
+  assert.match(html, /match &quot;&gt;&lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
+});
+
+test("active cards and activity feed escape JSON-rendered payloads", () => {
+  const sandbox = loadRenderSandbox();
+  const payload = `"><img src=x onerror="alert(1)"><script>alert(1)</script>`;
+  const card = sandbox.activeCard({
+    id: `session-${payload}`,
+    title: payload,
+    status: "active",
+    provider: payload,
+    last_model: payload,
+    total_tokens: payload,
+    turn_count: payload,
+    tool_call_count: payload,
+    duration: payload,
+    working_dir: payload,
+    child_sessions: [{
+      id: `child-${payload}`,
+      status: "active",
+      last_model: payload,
+      duration: payload,
+      total_tokens: payload,
+      tool_call_count: payload,
+    }],
+  });
+  assertNoRawPayloadHTML(card);
+
+  const feed = {};
+  sandbox.document.getElementById = (id) => (id === "activity-feed" ? feed : null);
+  sandbox.renderActivity([{
+    id: `event-${payload}`,
+    type: payload,
+    summary: `activity ${payload}`,
+    session_id: `session-${payload}`,
+    provider: payload,
+    relative_time: payload,
+  }]);
+
+  assertNoRawPayloadHTML(feed.innerHTML);
+  assert.match(feed.innerHTML, /activity &quot;&gt;&lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
+});

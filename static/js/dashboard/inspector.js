@@ -48,7 +48,7 @@
 	}
 
 	function metric(label, value) {
-		return '<div><p class="text-xs text-gray-500">' + label + '</p><p class="text-gray-200 font-medium">' + escapeHTML(value) + '</p></div>';
+		return '<div><p class="text-xs text-gray-500">' + escapeHTML(label) + '</p><p class="text-gray-200 font-medium">' + escapeHTML(value) + '</p></div>';
 	}
 
 	function renderSummary(session) {
@@ -56,9 +56,11 @@
 		subtitle.textContent = session ? session.id : selectedSessionId;
 		fullLink.href = '/sessions/' + encodeURIComponent(selectedSessionId);
 		if (!session) {
+			// Summary markup is static; values go through metric(), which escapes text.
 			summary.innerHTML = metric('Status', 'Loading');
 			return;
 		}
+		// Summary markup is static; values go through metric(), which escapes text.
 		summary.innerHTML = [
 			metric('Duration', session.duration || ''),
 			metric('Tokens', session.total_tokens || 0),
@@ -87,11 +89,17 @@
 		};
 	}
 
+	function payloadElementID(eventUID) {
+		return 'payload-' + String(eventUID || 'event').replace(/[^A-Za-z0-9_-]/g, '-');
+	}
+
 	function eventRow(event) {
+		event = event || {};
 		var meta = [event.event_kind, event.actor_role, event.tool_name, event.model].filter(Boolean).join(' · ');
-		var payloadID = 'payload-' + escapeAttr(event.event_uid);
+		var eventUID = String(event.event_uid || '');
+		var payloadID = payloadElementID(eventUID);
 		var payloadButton = event.tool_name ? '<button type="button" class="payload-btn text-xs text-blue-400 hover:text-blue-300" data-event-id="' + escapeAttr(event.event_uid) + '" aria-expanded="false" aria-controls="' + payloadID + '">Payload</button>' : '';
-		return '<div class="rounded border border-gray-800 bg-gray-900/60 p-3" data-event="' + escapeHTML(event.event_uid) + '">' +
+		return '<div class="rounded border border-gray-800 bg-gray-900/60 p-3" data-event="' + escapeAttr(eventUID) + '">' +
 			'<div class="flex items-center justify-between gap-3 mb-1">' +
 			'<p class="text-xs text-gray-500 truncate">' + escapeHTML(meta) + '</p>' + payloadButton +
 			'</div>' +
@@ -150,6 +158,8 @@
 		inspectorLauncherSession = id;
 		inspector.classList.remove('hidden');
 		setInspectorBackgroundInert(true);
+		// Inspector event rows are static shells built by eventRow(); all event
+		// fields are escaped before insertion and payload bodies use textContent.
 		events.innerHTML = '<div class="text-sm text-gray-500">Loading events...</div>';
 		renderSummary(null);
 		try {
@@ -163,10 +173,12 @@
 			if (!res.ok) throw new Error('events failed');
 			var items = await res.json();
 			if (seq !== inspectorSeq) return;
+			// eventRow() escapes dynamic values; empty/error states are static.
 			events.innerHTML = items.length ? items.map(eventRow).join('') : '<div class="text-sm text-gray-500">No events</div>';
 		} catch (err) {
 			if (err && err.name === 'AbortError') return;
 			if (seq !== inspectorSeq) return;
+			// Static error state.
 			events.innerHTML = '<div class="text-sm text-red-400">Unable to load session</div>';
 		}
 	}

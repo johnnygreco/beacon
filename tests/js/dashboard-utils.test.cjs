@@ -6,6 +6,15 @@ const utils = require("../../static/js/dashboard/utils.js");
 test("dashboard text helpers escape HTML and attributes", () => {
   assert.equal(utils.escapeHTML(`<span data-x="1">&'</span>`), "&lt;span data-x=&quot;1&quot;&gt;&amp;&#39;&lt;/span&gt;");
   assert.equal(utils.escapeAttr("`quoted`"), "&#96;quoted&#96;");
+  assert.equal(utils.escapeAttr(`" onmouseover="alert(1)`), "&quot; onmouseover=&quot;alert(1)");
+});
+
+test("dashboard numeric helpers normalize untrusted API fields", () => {
+  assert.equal(utils.numericValue("12.5", 0), 12.5);
+  assert.equal(utils.numericValue(`1"><script>alert(1)</script>`, 7), 7);
+  assert.equal(utils.nonNegativeInt("4.8"), 4);
+  assert.equal(utils.nonNegativeInt("-3"), 0);
+  assert.equal(utils.formatTokens(`"><img src=x onerror=alert(1)>`), "0");
 });
 
 test("dashboard URL helper preserves empty range but omits empty filters", () => {

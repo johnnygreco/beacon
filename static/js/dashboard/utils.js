@@ -11,6 +11,17 @@
 		return escapeHTML(value).replace(/`/g, '&#96;');
 	}
 
+	function numericValue(value, fallback) {
+		var n = Number(value);
+		if (Number.isFinite(n)) return n;
+		n = Number(fallback || 0);
+		return Number.isFinite(n) ? n : 0;
+	}
+
+	function nonNegativeInt(value, fallback) {
+		return Math.max(0, Math.floor(numericValue(value, fallback)));
+	}
+
 	function cssEscape(value) {
 		if (global.CSS && global.CSS.escape) return global.CSS.escape(value);
 		return String(value || '').replace(/["\\]/g, '\\$&');
@@ -33,7 +44,7 @@
 	}
 
 	function formatTokens(n) {
-		n = Number(n || 0);
+		n = numericValue(n, 0);
 		if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
 		if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
 		return String(n);
@@ -77,6 +88,8 @@
 	dashboard.utils = {
 		escapeHTML: escapeHTML,
 		escapeAttr: escapeAttr,
+		numericValue: numericValue,
+		nonNegativeInt: nonNegativeInt,
 		cssEscape: cssEscape,
 		shortID: shortID,
 		shortModel: shortModel,

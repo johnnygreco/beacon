@@ -17,7 +17,9 @@ var md = goldmark.New(
 	),
 )
 
-// RenderMarkdown converts markdown text to HTML for assistant messages.
+// RenderMarkdown converts markdown text to HTML for transcript messages.
+// Goldmark's unsafe HTML mode is intentionally disabled, so raw HTML payloads
+// are omitted before callers render the result with templ.Raw.
 func RenderMarkdown(text string) string {
 	var buf bytes.Buffer
 	if err := md.Convert([]byte(text), &buf); err != nil {
