@@ -67,6 +67,42 @@ func TestNewWatcherDefaultsWorkersAndCheckpointManagers(t *testing.T) {
 	}
 }
 
+func TestWatcherCountsBackpressuredEventSends(t *testing.T) {
+	events := make(chan BatchEvent, 1)
+	events <- BatchEvent{}
+	w := &Watcher{eventCh: events, logger: watcherTestLogger}
+
+	done := make(chan bool, 1)
+	go func() {
+		done <- w.sendEvent(context.Background(), BatchEvent{})
+	}()
+
+	deadline := time.After(100 * time.Millisecond)
+	for w.BackpressuredSendCount() == 0 {
+		select {
+		case <-done:
+			t.Fatal("send completed without observing backpressure")
+		case <-deadline:
+			t.Fatal("timed out waiting for send to hit backpressure")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+
+	<-events
+	select {
+	case ok := <-done:
+		if !ok {
+			t.Fatal("sendEvent returned false after capacity was released")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out waiting for blocked send")
+	}
+	if got := w.BackpressuredSendCount(); got != 1 {
+		t.Fatalf("BackpressuredSendCount = %d, want 1", got)
+	}
+}
+
 func TestRunReturnsWhenContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

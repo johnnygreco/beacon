@@ -3,6 +3,8 @@ package web
 import (
 	"log/slog"
 	"os"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -48,5 +50,27 @@ func TestUpdaterNotifyChangesBroadcastsDashboardAndTranscriptInvalidations(t *te
 	case msg := <-otherSession.Chan():
 		t.Fatalf("unexpected other-session event: %s", msg.Event)
 	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestUpdaterCoalescesBurstDirtySignalsWithoutDroppingSessionIDs(t *testing.T) {
+	updater, _ := testUpdater()
+	wantSessions := make([]string, 0, 10)
+
+	for i := range 10 {
+		sessionID := "session-" + string(rune('a'+i))
+		wantSessions = append(wantSessions, sessionID)
+		updater.MarkDirty([]string{sessionID})
+	}
+
+	if got := updater.CoalescedSignalCount(); got != 9 {
+		t.Fatalf("CoalescedSignalCount = %d, want 9", got)
+	}
+
+	gotSessions := updater.drainPendingSessions()
+	sort.Strings(gotSessions)
+	sort.Strings(wantSessions)
+	if !reflect.DeepEqual(gotSessions, wantSessions) {
+		t.Fatalf("pending sessions = %#v, want %#v", gotSessions, wantSessions)
 	}
 }

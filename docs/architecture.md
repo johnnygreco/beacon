@@ -187,6 +187,27 @@ The ingest-to-browser refresh path is deliberately an invalidation path:
 The SSE payload is only `{"dirty":true}`. Fresh data is loaded by the normal
 query handlers, so capture does not block on server-side template rendering.
 
+### Backpressure and drop policies
+
+Live update paths use explicit buffering rules:
+
+- Capture watcher -> batcher: the batcher input channel is `batch_size * 2`.
+  Watcher sends block when it is full and unblock on context cancellation; parsed
+  capture events are not dropped. Delayed sends are counted and logged at debug
+  level.
+- Watcher backfill: `capture.backfill_workers` bounds concurrent file workers.
+  File jobs are unbuffered so backfills cannot queue unbounded file work in
+  memory.
+- Batcher -> updater: `Updater.MarkDirty` has a single pending dirty signal.
+  Additional dirty wakeups are coalesced, counted, and logged at debug level,
+  while changed session IDs stay buffered until notification.
+- Updater -> SSE broker: each subscriber has a `sse.subscriber_buffer` channel.
+  Broadcasts are best effort per subscriber; full subscriber buffers drop only
+  that subscriber's event and increment/log the broker drop count.
+- Search query logging: result queries never wait on `search_query_log` writes.
+  A four-slot semaphore bounds async inserts; saturated query-log attempts are
+  counted and logged at debug level without affecting search results.
+
 ### 7. MCP read path
 
 `beacon mcp` opens ClickHouse in read-only mode and starts `internal/mcp.Server`

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 )
 
 // SSEMessage is a named SSE event with data payload.
@@ -43,6 +44,7 @@ type Broker struct {
 	subscribers map[*Subscriber]struct{}
 	logger      *slog.Logger
 	bufferSize  int
+	dropped     atomic.Uint64
 }
 
 // NewBroker creates a new SSE broker.
@@ -86,8 +88,11 @@ func (s *Subscriber) Chan() <-chan SSEMessage {
 	return s.ch
 }
 
-// Broadcast sends a named SSE message to all subscribers matching the topic.
-// It pre-formats the wire bytes once before distributing to subscribers.
+// Broadcast sends a named SSE message to all subscribers matching the topic. It
+// pre-formats the wire bytes once before distributing to subscribers. Delivery
+// is best effort per subscriber: if a subscriber's configured buffer is full,
+// the event is dropped for that subscriber and counted/logged so one slow
+// browser cannot block capture, storage, or other subscribers.
 func (b *Broker) Broadcast(topic string, msg SSEMessage) {
 	if msg.Formatted == nil {
 		msg.Formatted = FormatSSE(msg.Event, msg.Data)
@@ -103,8 +108,14 @@ func (b *Broker) Broadcast(topic string, msg SSEMessage) {
 			select {
 			case sub.ch <- msg:
 			default:
-				// Drop event if subscriber buffer is full
-				b.logger.Warn("dropping SSE event for slow subscriber")
+				dropped := b.dropped.Add(1)
+				b.logger.Warn("dropping SSE event for slow subscriber",
+					"topic", topic,
+					"event", msg.Event,
+					"subscriber_topics", len(sub.topics),
+					"buffer_size", b.bufferSize,
+					"dropped_total", dropped,
+				)
 			}
 		}
 	}
@@ -121,4 +132,10 @@ func (b *Broker) SubscriberCount() int {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return len(b.subscribers)
+}
+
+// DroppedCount returns the number of per-subscriber events dropped because a
+// subscriber buffer was full.
+func (b *Broker) DroppedCount() uint64 {
+	return b.dropped.Load()
 }

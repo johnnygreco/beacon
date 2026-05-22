@@ -318,6 +318,26 @@ func TestSearchIgnoresQueryLogInsertFailure(t *testing.T) {
 	}
 }
 
+func TestSearchCountsDroppedQueryLogsWhenLoggerQueueIsFull(t *testing.T) {
+	db, stub := newSearchStubDB(t, nil, nil)
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	s := NewSearcher(db, discardLogger, 25, 0)
+	for i := 0; i < cap(s.logSem); i++ {
+		s.logSem <- struct{}{}
+	}
+
+	s.logQuery("alpha", []string{"alpha"}, 1, time.Millisecond)
+
+	if got := s.DroppedQueryLogCount(); got != 1 {
+		t.Fatalf("DroppedQueryLogCount = %d, want 1", got)
+	}
+	for i := 0; i < cap(s.logSem); i++ {
+		<-s.logSem
+	}
+}
+
 func TestScanResultsReturnsScanErrors(t *testing.T) {
 	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
 	scanErr := errors.New("bad row")

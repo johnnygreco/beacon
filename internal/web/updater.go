@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/sse"
@@ -13,11 +14,12 @@ import (
 // It decouples capture from rendering via a dirty-signal channel with
 // debounce (250ms) and max-staleness (1s) guarantees.
 type Updater struct {
-	broker          *sse.Broker
-	logger          *slog.Logger
-	dirty           chan struct{}
-	mu              sync.Mutex
-	pendingSessions map[string]struct{}
+	broker                *sse.Broker
+	logger                *slog.Logger
+	dirty                 chan struct{}
+	mu                    sync.Mutex
+	pendingSessions       map[string]struct{}
+	coalescedDirtySignals atomic.Uint64
 }
 
 // NewUpdater creates a new dashboard updater.
@@ -31,7 +33,8 @@ func NewUpdater(broker *sse.Broker, logger *slog.Logger) *Updater {
 }
 
 // MarkDirty signals that new data has been flushed and the dashboard should
-// refresh. It is non-blocking: if a signal is already pending it is a no-op.
+// refresh. It is non-blocking: if a signal is already pending, only the wakeup
+// is coalesced while session IDs remain buffered until the next notification.
 func (u *Updater) MarkDirty(sessionIDs []string) {
 	u.mu.Lock()
 	for _, id := range sessionIDs {
@@ -39,12 +42,24 @@ func (u *Updater) MarkDirty(sessionIDs []string) {
 			u.pendingSessions[id] = struct{}{}
 		}
 	}
+	pendingCount := len(u.pendingSessions)
 	u.mu.Unlock()
 
 	select {
 	case u.dirty <- struct{}{}:
 	default:
+		coalesced := u.coalescedDirtySignals.Add(1)
+		u.logger.Debug("coalesced dashboard dirty signal",
+			"coalesced_total", coalesced,
+			"pending_sessions", pendingCount,
+		)
 	}
+}
+
+// CoalescedSignalCount returns dirty wakeups that were already represented by
+// a pending updater signal. Session IDs from those calls are still retained.
+func (u *Updater) CoalescedSignalCount() uint64 {
+	return u.coalescedDirtySignals.Load()
 }
 
 func (u *Updater) drainPendingSessions() []string {

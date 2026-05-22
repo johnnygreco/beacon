@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/textindex"
@@ -37,17 +38,18 @@ type SearchResult struct {
 }
 
 type Searcher struct {
-	db              *sql.DB
-	logger          *slog.Logger
-	maxResults      int
-	logSem          chan struct{}
-	mu              sync.RWMutex
-	lastIndexBuild  time.Time
-	indexExists     bool
-	statsRefreshed  time.Time
-	totalDocs       int64
-	avgDocLen       float64
-	rebuildInterval time.Duration
+	db               *sql.DB
+	logger           *slog.Logger
+	maxResults       int
+	logSem           chan struct{}
+	droppedQueryLogs atomic.Uint64
+	mu               sync.RWMutex
+	lastIndexBuild   time.Time
+	indexExists      bool
+	statsRefreshed   time.Time
+	totalDocs        int64
+	avgDocLen        float64
+	rebuildInterval  time.Duration
 }
 
 const searchStatsTTL = 30 * time.Second
@@ -115,7 +117,8 @@ func (s *Searcher) logQuery(query string, tokens []string, resultCount int, dura
 	select {
 	case s.logSem <- struct{}{}:
 	default:
-		s.logger.Debug("search query log dropped", "query", query)
+		dropped := s.droppedQueryLogs.Add(1)
+		s.logger.Debug("search query log dropped", "query", query, "dropped_total", dropped)
 		return
 	}
 
@@ -134,6 +137,12 @@ func (s *Searcher) logQuery(query string, tokens []string, resultCount int, dura
 			s.logger.Debug("search query log insert failed", "query", query, "error", err)
 		}
 	}()
+}
+
+// DroppedQueryLogCount returns async query-log records skipped because the
+// bounded logging queue was saturated. Search results are unaffected.
+func (s *Searcher) DroppedQueryLogCount() uint64 {
+	return s.droppedQueryLogs.Load()
 }
 
 func (s *Searcher) postingsSearch(ctx context.Context, q SearchQuery, tokens []string) ([]SearchResult, error) {
