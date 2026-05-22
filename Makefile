@@ -17,7 +17,8 @@ clean: ## Remove build and test artifacts
 	rm -rf bin/ dist/ beacon simulator coverage.txt cover.html playwright-report/ test-results/
 
 clean-local: clean ## Remove repo-local scratch environments and local databases
-	rm -rf .scratch/ .venv/ .ralphkit/ .claude/
+	rm -rf .scratch/ .venv/ .ralphkit/ .claude/ .kraang/ plans/
+	rm -f .mcp.json plan.md task*.md
 	rm -f ./*.duckdb ./*.duckdb.wal
 
 clean-deps: ## Remove dependency installs

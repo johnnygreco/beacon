@@ -226,7 +226,7 @@ make test           # generate templates and run Go tests
 make test-race      # run Go tests with the race detector
 make perf-bench     # run perf benchmarks; set PERF_SIZE=small|medium|large
 make clean          # remove build/test outputs such as bin, dist, coverage, and reports
-make clean-local    # also remove repo-local scratch dirs, virtualenvs, and local DuckDB files
+make clean-local    # also remove ignored repo-local scratch/agent dirs and local DB files
 make clean-deps     # remove node_modules
 npm install         # install Playwright and asset-vendoring dependencies
 npm run vendor      # refresh vendored frontend assets
