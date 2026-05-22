@@ -10,9 +10,9 @@ import (
 func runtimeForSource(source string) string {
 	switch source {
 	case "claude":
-		return "claude-code"
+		return models.RuntimeClaudeCode
 	case "codex":
-		return "codex"
+		return models.RuntimeCodex
 	default:
 		return source
 	}

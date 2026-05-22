@@ -135,12 +135,12 @@ func seedBatch(ctx context.Context, ch *store.Store, rng *rand.Rand, cfg seedCon
 		}
 
 		source := "claude"
-		runtime := "claude-code"
-		provider := "anthropic"
+		runtime := models.RuntimeClaudeCode
+		provider := models.ProviderAnthropic
 		if rng.Float64() < 0.15 {
 			source = "codex"
-			runtime = "codex"
-			provider = "openai"
+			runtime = models.RuntimeCodex
+			provider = models.ProviderOpenAI
 		}
 
 		sessionStart := baseTime.Add(time.Duration(rng.Int63n(int64(6 * 24 * time.Hour))))
@@ -157,7 +157,7 @@ func seedBatch(ctx context.Context, ch *store.Store, rng *rand.Rand, cfg seedCon
 
 		// session_meta event
 		uid := seedUID(s, eventIdx)
-		appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, "session_meta", "init", "", eventTime, "", "", "", model, 0, 0, 0, 0, 0, "", "", cwd, s, eventIdx)
+		appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, models.EventKindSessionMeta, "init", "", eventTime, "", "", "", model, 0, 0, 0, 0, 0, "", "", cwd, s, eventIdx)
 		eventIdx++
 
 		// Generate conversation turns until we reach numEvents
@@ -171,7 +171,7 @@ func seedBatch(ctx context.Context, ch *store.Store, rng *rand.Rand, cfg seedCon
 			// User message
 			uid = seedUID(s, eventIdx)
 			userText := userTexts[rng.Intn(len(userTexts))]
-			appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, "message", "text", "user", eventTime, userText, "", "", "", 0, 0, 0, 0, 0, "", "", cwd, s, eventIdx)
+			appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, models.EventKindMessage, "text", models.ActorRoleUser, eventTime, userText, "", "", "", 0, 0, 0, 0, 0, "", "", cwd, s, eventIdx)
 			eventIdx++
 			if eventIdx >= numEvents {
 				break
@@ -188,7 +188,7 @@ func seedBatch(ctx context.Context, ch *store.Store, rng *rand.Rand, cfg seedCon
 			outTok := int64(rng.Intn(4000) + 100)
 			cacheRead := int64(rng.Intn(30000))
 			cacheCreate := int64(rng.Intn(5000))
-			appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, "message", "text", "assistant", eventTime, asstText, "", "", turnModel, inTok, outTok, cacheRead, cacheCreate, int64(rng.Intn(5000)+100), "", "", cwd, s, eventIdx)
+			appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, models.EventKindMessage, "text", models.ActorRoleAssistant, eventTime, asstText, "", "", turnModel, inTok, outTok, cacheRead, cacheCreate, int64(rng.Intn(5000)+100), "", "", cwd, s, eventIdx)
 			eventIdx++
 			if eventIdx >= numEvents {
 				break
@@ -205,8 +205,8 @@ func seedBatch(ctx context.Context, ch *store.Store, rng *rand.Rand, cfg seedCon
 				uid = seedUID(s, eventIdx)
 				inputJSON := toolInputs[rng.Intn(len(toolInputs))]
 				inputPreview := truncateSeed(inputJSON, 320)
-				appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, "tool_call", "tool_use", "", eventTime, "", toolName, toolUseID, turnModel, 0, 0, 0, 0, int64(rng.Intn(2000)), "", "", cwd, s, eventIdx)
-				batch.ToolPayloads = append(batch.ToolPayloads, models.ToolPayload{EventUID: uid, ToolName: toolName, ToolPhase: "call", InputJSON: inputJSON, InputPreview: inputPreview})
+				appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, models.EventKindToolCall, "tool_use", "", eventTime, "", toolName, toolUseID, turnModel, 0, 0, 0, 0, int64(rng.Intn(2000)), "", "", cwd, s, eventIdx)
+				batch.ToolPayloads = append(batch.ToolPayloads, models.ToolPayload{EventUID: uid, ToolName: toolName, ToolPhase: models.ToolPhaseCall, InputJSON: inputJSON, InputPreview: inputPreview})
 				stats.Payloads++
 				eventIdx++
 
@@ -215,8 +215,8 @@ func seedBatch(ctx context.Context, ch *store.Store, rng *rand.Rand, cfg seedCon
 				resultUID := seedUID(s, eventIdx)
 				outputText := toolOutputs[rng.Intn(len(toolOutputs))]
 				outputPreview := truncateSeed(outputText, 320)
-				appendSeedEvent(&batch, stats, resultUID, sessionID, parentSessID, source, runtime, provider, "tool_result", "tool_result", "", eventTime, outputText, toolName, toolUseID, "", 0, 0, 0, 0, 0, "", "", cwd, s, eventIdx)
-				batch.ToolPayloads = append(batch.ToolPayloads, models.ToolPayload{EventUID: resultUID, ToolName: toolName, ToolPhase: "result", OutputJSON: outputText, OutputPreview: outputPreview})
+				appendSeedEvent(&batch, stats, resultUID, sessionID, parentSessID, source, runtime, provider, models.EventKindToolResult, models.EventKindToolResult, "", eventTime, outputText, toolName, toolUseID, "", 0, 0, 0, 0, 0, "", "", cwd, s, eventIdx)
+				batch.ToolPayloads = append(batch.ToolPayloads, models.ToolPayload{EventUID: resultUID, ToolName: toolName, ToolPhase: models.ToolPhaseResult, OutputJSON: outputText, OutputPreview: outputPreview})
 				stats.Payloads++
 				eventIdx++
 			}
@@ -226,7 +226,7 @@ func seedBatch(ctx context.Context, ch *store.Store, rng *rand.Rand, cfg seedCon
 				eventTime = eventTime.Add(time.Duration(rng.Intn(500)+50) * time.Millisecond)
 				uid = seedUID(s, eventIdx)
 				errMsg := errorMessages[rng.Intn(len(errorMessages))]
-				appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, "error", "error", "system", eventTime, errMsg, "", "", "", 0, 0, 0, 0, 0, "rate_limit", errMsg, cwd, s, eventIdx)
+				appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, models.EventKindError, models.EventKindError, models.ActorRoleSystem, eventTime, errMsg, "", "", "", 0, 0, 0, 0, 0, "rate_limit", errMsg, cwd, s, eventIdx)
 				eventIdx++
 			}
 		}
@@ -245,7 +245,7 @@ func appendSeedEvent(batch *store.RowBatch, stats *Stats, uid, sessionID, parent
 		SourceName:        source,
 		Runtime:           runtime,
 		Provider:          provider,
-		Format:            "jsonl",
+		Format:            models.FormatJSONL,
 		EventKind:         kind,
 		PayloadType:       payloadType,
 		ActorRole:         role,
@@ -286,7 +286,7 @@ func truncateSeed(s string, max int) string {
 }
 
 func pickModel(rng *rand.Rand, provider string) string {
-	if provider == "openai" {
+	if provider == models.ProviderOpenAI {
 		m := openaiModels[rng.Intn(len(openaiModels))]
 		return m
 	}

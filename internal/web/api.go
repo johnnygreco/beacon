@@ -315,8 +315,8 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 
 func dashboardSearchEventKinds(eventKind string) []string {
 	switch eventKind {
-	case "error":
-		return []string{"error", "tool_error"}
+	case models.EventKindError:
+		return []string{models.EventKindError, models.EventKindToolError}
 	case "":
 		return nil
 	default:
@@ -326,7 +326,7 @@ func dashboardSearchEventKinds(eventKind string) []string {
 
 func dashboardSearchSnippet(result search.SearchResult) string {
 	snippet := result.TextPreview
-	if result.EventKind == "tool_call" && result.ToolName != "" {
+	if result.EventKind == models.EventKindToolCall && result.ToolName != "" {
 		raw := strings.TrimPrefix(snippet, result.ToolName+": ")
 		if raw == result.ToolName || raw == "" {
 			return ""

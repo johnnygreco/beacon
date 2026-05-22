@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/views"
 )
 
@@ -32,7 +33,13 @@ func QueryRecentActivityFiltered(ctx context.Context, db *sql.DB, since *time.Ti
 	return QueryRecentActivityFilteredByKind(ctx, db, since, nil)
 }
 
-var defaultActivityEventKinds = []string{"message", "tool_call", "error", "tool_error", "session_meta"}
+var defaultActivityEventKinds = []string{
+	models.EventKindMessage,
+	models.EventKindToolCall,
+	models.EventKindError,
+	models.EventKindToolError,
+	models.EventKindSessionMeta,
+}
 
 func recentActivityKindFilter(eventKinds []string) (string, []any) {
 	kinds := make([]string, 0, len(eventKinds))

@@ -67,7 +67,7 @@ func searchPreview(event models.Event, payload models.ToolPayload) string {
 		return truncateString(eventPreview, 512)
 	}
 	candidates := []string{payload.InputPreview, payload.OutputPreview}
-	if event.EventKind == "tool_result" || event.EventKind == "tool_error" {
+	if event.EventKind == models.EventKindToolResult || event.EventKind == models.EventKindToolError {
 		candidates = []string{payload.OutputPreview, payload.InputPreview}
 	}
 	for _, candidate := range candidates {
@@ -80,7 +80,7 @@ func searchPreview(event models.Event, payload models.ToolPayload) string {
 }
 
 func isToolEvent(event models.Event) bool {
-	return event.ToolName != "" || strings.HasPrefix(event.EventKind, "tool_")
+	return event.ToolName != "" || strings.HasPrefix(event.EventKind, models.EventKindToolPrefix)
 }
 
 func searchableText(event models.Event, payload models.ToolPayload) string {

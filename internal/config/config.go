@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/spf13/viper"
 )
 
@@ -141,11 +142,11 @@ func setDefaults(v *viper.Viper) {
 
 func DefaultCaptureSources() []SourceConfig {
 	return []SourceConfig{
-		{Name: "claude", Runtime: "claude-code", Provider: "anthropic", Glob: "~/.claude/projects/**/*.jsonl", WatchRoot: "~/.claude/projects", Format: "jsonl"},
-		{Name: "codex", Runtime: "codex", Provider: "openai", Glob: "~/.codex/sessions/**/*.jsonl", WatchRoot: "~/.codex/sessions", Format: "jsonl"},
-		{Name: "hermes", Runtime: "hermes-agent", Provider: "multi", Glob: "~/.hermes/state.db", WatchRoot: "~/.hermes", Format: "sqlite"},
-		{Name: "opencode", Runtime: "opencode", Provider: "multi", Glob: "~/.local/share/opencode/opencode*.db", WatchRoot: "~/.local/share/opencode", Format: "sqlite"},
-		{Name: "pi", Runtime: "pi-coding-agent", Provider: "multi", Glob: "~/.pi/agent/sessions/**/*.jsonl", WatchRoot: "~/.pi/agent/sessions", Format: "jsonl"},
+		{Name: "claude", Runtime: models.RuntimeClaudeCode, Provider: models.ProviderAnthropic, Glob: "~/.claude/projects/**/*.jsonl", WatchRoot: "~/.claude/projects", Format: models.FormatJSONL},
+		{Name: "codex", Runtime: models.RuntimeCodex, Provider: models.ProviderOpenAI, Glob: "~/.codex/sessions/**/*.jsonl", WatchRoot: "~/.codex/sessions", Format: models.FormatJSONL},
+		{Name: "hermes", Runtime: models.RuntimeHermesAgent, Provider: models.ProviderMulti, Glob: "~/.hermes/state.db", WatchRoot: "~/.hermes", Format: models.FormatSQLite},
+		{Name: "opencode", Runtime: models.RuntimeOpenCode, Provider: models.ProviderMulti, Glob: "~/.local/share/opencode/opencode*.db", WatchRoot: "~/.local/share/opencode", Format: models.FormatSQLite},
+		{Name: "pi", Runtime: models.RuntimePiCodingAgent, Provider: models.ProviderMulti, Glob: "~/.pi/agent/sessions/**/*.jsonl", WatchRoot: "~/.pi/agent/sessions", Format: models.FormatJSONL},
 	}
 }
 
@@ -155,11 +156,11 @@ type SourceRuntimeFormat struct {
 }
 
 var supportedSourceRuntimeFormats = map[SourceRuntimeFormat]struct{}{
-	{Runtime: "claude-code", Format: "jsonl"}:     {},
-	{Runtime: "codex", Format: "jsonl"}:           {},
-	{Runtime: "hermes-agent", Format: "sqlite"}:   {},
-	{Runtime: "opencode", Format: "sqlite"}:       {},
-	{Runtime: "pi-coding-agent", Format: "jsonl"}: {},
+	{Runtime: models.RuntimeClaudeCode, Format: models.FormatJSONL}:    {},
+	{Runtime: models.RuntimeCodex, Format: models.FormatJSONL}:         {},
+	{Runtime: models.RuntimeHermesAgent, Format: models.FormatSQLite}:  {},
+	{Runtime: models.RuntimeOpenCode, Format: models.FormatSQLite}:     {},
+	{Runtime: models.RuntimePiCodingAgent, Format: models.FormatJSONL}: {},
 }
 
 func IsSupportedSourceRuntimeFormat(runtime, format string) bool {

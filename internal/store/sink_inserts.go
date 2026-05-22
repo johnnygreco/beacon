@@ -62,7 +62,7 @@ func (s *Store) insertActivityEvents(ctx context.Context, events []models.Event)
 			e.SourceName,
 			firstNonEmpty(e.Runtime, runtimeForSource(e.SourceName)),
 			e.Provider,
-			firstNonEmpty(e.Format, "jsonl"),
+			firstNonEmpty(e.Format, models.FormatJSONL),
 			e.EventKind,
 			e.PayloadType,
 			e.ActorRole,

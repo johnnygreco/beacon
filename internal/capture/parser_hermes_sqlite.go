@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+
+	"github.com/johnnygreco/beacon/internal/models"
 )
 
 type hermesSessionRow struct {
@@ -122,9 +124,9 @@ func hermesSessionEvents(file string, sess hermesSessionRow) []NormalizedEvent {
 	base := NormalizedEvent{
 		SessionID:       sess.id,
 		SourceName:      "hermes",
-		Runtime:         "hermes-agent",
-		Provider:        firstNonEmpty(sess.billingProvider, "multi"),
-		Format:          "sqlite",
+		Runtime:         models.RuntimeHermesAgent,
+		Provider:        firstNonEmpty(sess.billingProvider, models.ProviderMulti),
+		Format:          models.FormatSQLite,
 		Timestamp:       timeFromUnixSeconds(sess.startedAt),
 		Model:           sess.model,
 		ParentSessionID: sess.parentSessionID,
@@ -134,8 +136,8 @@ func hermesSessionEvents(file string, sess hermesSessionRow) []NormalizedEvent {
 	}
 
 	meta := base
-	meta.EventKind = "session_meta"
-	meta.ActorRole = "system"
+	meta.EventKind = models.EventKindSessionMeta
+	meta.ActorRole = models.ActorRoleSystem
 	meta.PayloadType = firstNonEmpty(sess.source, "session")
 	meta.TextContent = sess.title
 	meta.RawPayload = sqliteStableRaw("hermes", "sessions", sess.id, "session_meta")
@@ -144,8 +146,8 @@ func hermesSessionEvents(file string, sess hermesSessionRow) []NormalizedEvent {
 
 	if sess.inputTokens > 0 || sess.outputTokens > 0 || sess.cacheReadTokens > 0 || sess.cacheCreateTokens > 0 || sess.costUSD > 0 {
 		usage := base
-		usage.EventKind = "event_msg"
-		usage.ActorRole = "system"
+		usage.EventKind = models.EventKindEventMsg
+		usage.ActorRole = models.ActorRoleSystem
 		usage.PayloadType = "usage"
 		usage.TextContent = "usage"
 		usage.InputTokens = sess.inputTokens
@@ -160,8 +162,8 @@ func hermesSessionEvents(file string, sess hermesSessionRow) []NormalizedEvent {
 
 	if sess.endedAt > 0 || sess.endReason != "" {
 		end := base
-		end.EventKind = "session_end"
-		end.ActorRole = "system"
+		end.EventKind = models.EventKindSessionEnd
+		end.ActorRole = models.ActorRoleSystem
 		end.PayloadType = firstNonEmpty(sess.endReason, "ended")
 		end.Timestamp = timeFromUnixSeconds(sess.endedAt)
 		end.TextContent = sess.endReason
@@ -208,9 +210,9 @@ func loadHermesMessages(db *sql.DB, file string, sessions map[string]hermesSessi
 		base := NormalizedEvent{
 			SessionID:       sessionID,
 			SourceName:      "hermes",
-			Runtime:         "hermes-agent",
-			Provider:        firstNonEmpty(sess.billingProvider, "multi"),
-			Format:          "sqlite",
+			Runtime:         models.RuntimeHermesAgent,
+			Provider:        firstNonEmpty(sess.billingProvider, models.ProviderMulti),
+			Format:          models.FormatSQLite,
 			Timestamp:       timeFromUnixSeconds(ts.Float64),
 			Model:           sess.model,
 			ParentSessionID: sess.parentSessionID,
@@ -233,8 +235,8 @@ func hermesMessageEvents(base NormalizedEvent, rowID int64, role, rawContent, to
 
 	if reasoningText := textFromHarnessContent(decodeHarnessJSON(reasoningContent)); reasoningText != "" {
 		evt := base
-		evt.EventKind = "reasoning"
-		evt.ActorRole = "assistant"
+		evt.EventKind = models.EventKindReasoning
+		evt.ActorRole = models.ActorRoleAssistant
 		evt.TextContent = reasoningText
 		evt.SourceOffset = stableOffset("hermes", "messages", rowKey, "reasoning")
 		evt.RawPayload = sqliteStableRaw("hermes", "messages", rowKey, "reasoning")
@@ -243,8 +245,8 @@ func hermesMessageEvents(base NormalizedEvent, rowID int64, role, rawContent, to
 
 	if finishReason == "error" {
 		evt := base
-		evt.EventKind = "error"
-		evt.ActorRole = "assistant"
+		evt.EventKind = models.EventKindError
+		evt.ActorRole = models.ActorRoleAssistant
 		evt.ErrorCode = "error"
 		evt.ErrorMessage = content
 		evt.TextContent = content
@@ -257,8 +259,8 @@ func hermesMessageEvents(base NormalizedEvent, rowID int64, role, rawContent, to
 	case "assistant":
 		if content != "" {
 			evt := base
-			evt.EventKind = "message"
-			evt.ActorRole = "assistant"
+			evt.EventKind = models.EventKindMessage
+			evt.ActorRole = models.ActorRoleAssistant
 			evt.TextContent = content
 			evt.SourceOffset = stableOffset("hermes", "messages", rowKey, "message")
 			evt.RawPayload = sqliteStableRaw("hermes", "messages", rowKey, "message")
@@ -266,9 +268,9 @@ func hermesMessageEvents(base NormalizedEvent, rowID int64, role, rawContent, to
 		}
 		for i, call := range hermesToolCalls(toolCalls) {
 			evt := base
-			evt.EventKind = "tool_call"
-			evt.ActorRole = "assistant"
-			evt.ToolPhase = "call"
+			evt.EventKind = models.EventKindToolCall
+			evt.ActorRole = models.ActorRoleAssistant
+			evt.ToolPhase = models.ToolPhaseCall
 			evt.ToolUseID = call.id
 			evt.ToolName = call.name
 			evt.ToolInput = call.input
@@ -279,9 +281,9 @@ func hermesMessageEvents(base NormalizedEvent, rowID int64, role, rawContent, to
 		}
 	case "tool":
 		evt := base
-		evt.EventKind = "tool_result"
-		evt.ActorRole = "tool"
-		evt.ToolPhase = "result"
+		evt.EventKind = models.EventKindToolResult
+		evt.ActorRole = models.ActorRoleTool
+		evt.ToolPhase = models.ToolPhaseResult
 		evt.ToolUseID = toolCallID
 		evt.ToolName = toolName
 		evt.ToolOutput = content
@@ -292,7 +294,7 @@ func hermesMessageEvents(base NormalizedEvent, rowID int64, role, rawContent, to
 	case "system", "user":
 		if content != "" {
 			evt := base
-			evt.EventKind = "message"
+			evt.EventKind = models.EventKindMessage
 			evt.ActorRole = role
 			evt.TextContent = content
 			evt.SourceOffset = stableOffset("hermes", "messages", rowKey, "message")
@@ -301,8 +303,8 @@ func hermesMessageEvents(base NormalizedEvent, rowID int64, role, rawContent, to
 		}
 	default:
 		evt := base
-		evt.EventKind = "event_msg"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindEventMsg
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = role
 		evt.TextContent = content
 		evt.SourceOffset = stableOffset("hermes", "messages", rowKey, "event")

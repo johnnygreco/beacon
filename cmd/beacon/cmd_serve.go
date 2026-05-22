@@ -18,6 +18,7 @@ import (
 	beacon "github.com/johnnygreco/beacon"
 	"github.com/johnnygreco/beacon/internal/capture"
 	"github.com/johnnygreco/beacon/internal/config"
+	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/search"
 	"github.com/johnnygreco/beacon/internal/sse"
 	"github.com/johnnygreco/beacon/internal/store"
@@ -178,11 +179,11 @@ type captureParserBinding struct {
 }
 
 var captureParserRegistry = map[captureParserKey]captureParserBinding{
-	{runtime: "claude-code", format: "jsonl"}:     {lineParser: capture.ParseClaudeJSONL},
-	{runtime: "codex", format: "jsonl"}:           {lineParser: capture.ParseCodexJSONL},
-	{runtime: "hermes-agent", format: "sqlite"}:   {fileParser: capture.ParseHermesSQLite},
-	{runtime: "opencode", format: "sqlite"}:       {fileParser: capture.ParseOpenCodeSQLite},
-	{runtime: "pi-coding-agent", format: "jsonl"}: {fileParser: capture.ParsePiSessionFile},
+	{runtime: models.RuntimeClaudeCode, format: models.FormatJSONL}:    {lineParser: capture.ParseClaudeJSONL},
+	{runtime: models.RuntimeCodex, format: models.FormatJSONL}:         {lineParser: capture.ParseCodexJSONL},
+	{runtime: models.RuntimeHermesAgent, format: models.FormatSQLite}:  {fileParser: capture.ParseHermesSQLite},
+	{runtime: models.RuntimeOpenCode, format: models.FormatSQLite}:     {fileParser: capture.ParseOpenCodeSQLite},
+	{runtime: models.RuntimePiCodingAgent, format: models.FormatJSONL}: {fileParser: capture.ParsePiSessionFile},
 }
 
 func buildSources(cfg *config.Config) ([]capture.WatchSource, error) {

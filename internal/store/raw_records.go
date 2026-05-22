@@ -16,7 +16,7 @@ func NewRawRecord(event models.Event) models.RawRecord {
 		SourceName:       event.SourceName,
 		Runtime:          firstNonEmpty(event.Runtime, runtimeForSource(event.SourceName)),
 		Provider:         event.Provider,
-		Format:           firstNonEmpty(event.Format, "jsonl"),
+		Format:           firstNonEmpty(event.Format, models.FormatJSONL),
 		SourceFile:       event.SourceFile,
 		SourceLineNo:     event.SourceLineNo,
 		SourceOffset:     event.SourceOffset,

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/johnnygreco/beacon/internal/models"
 )
 
 type openCodeSessionRow struct {
@@ -95,11 +97,11 @@ func openCodeSessionMeta(file string, sess openCodeSessionRow) NormalizedEvent {
 	return NormalizedEvent{
 		SessionID:       sess.id,
 		SourceName:      "opencode",
-		Runtime:         "opencode",
-		Provider:        firstNonEmpty(sess.provider, "multi"),
-		Format:          "sqlite",
-		EventKind:       "session_meta",
-		ActorRole:       "system",
+		Runtime:         models.RuntimeOpenCode,
+		Provider:        firstNonEmpty(sess.provider, models.ProviderMulti),
+		Format:          models.FormatSQLite,
+		EventKind:       models.EventKindSessionMeta,
+		ActorRole:       models.ActorRoleSystem,
 		PayloadType:     firstNonEmpty(sess.agent, "session"),
 		Timestamp:       timeFromUnixMillis(sess.timeCreated),
 		TextContent:     sess.title,
@@ -137,9 +139,9 @@ func loadOpenCodeMessages(db *sql.DB, file string, sessions map[string]openCodeS
 		base := NormalizedEvent{
 			SessionID:       sessionID,
 			SourceName:      "opencode",
-			Runtime:         "opencode",
-			Provider:        firstNonEmpty(sess.provider, "multi"),
-			Format:          "sqlite",
+			Runtime:         models.RuntimeOpenCode,
+			Provider:        firstNonEmpty(sess.provider, models.ProviderMulti),
+			Format:          models.FormatSQLite,
 			Timestamp:       openCodeDataTime(data, created),
 			Model:           sess.model,
 			ParentSessionID: sess.parentID,
@@ -167,8 +169,8 @@ func openCodeMessageEvents(base NormalizedEvent, rowID, msgType string, data map
 	switch msgType {
 	case "user":
 		evt := base
-		evt.EventKind = "message"
-		evt.ActorRole = "user"
+		evt.EventKind = models.EventKindMessage
+		evt.ActorRole = models.ActorRoleUser
 		evt.TextContent = stringFromAny(data["text"])
 		evt.MessageUUID = scopedMessageUUID(rowID, "message")
 		evt.SourceOffset = stableOffset("opencode", "session_message", rowID, "message")
@@ -176,8 +178,8 @@ func openCodeMessageEvents(base NormalizedEvent, rowID, msgType string, data map
 		return []NormalizedEvent{evt}
 	case "synthetic":
 		evt := base
-		evt.EventKind = "message"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindMessage
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = "synthetic"
 		evt.TextContent = stringFromAny(data["text"])
 		evt.MessageUUID = scopedMessageUUID(rowID, "synthetic")
@@ -190,8 +192,8 @@ func openCodeMessageEvents(base NormalizedEvent, rowID, msgType string, data map
 		return openCodeShellEvents(base, rowID, data)
 	case "compaction":
 		evt := base
-		evt.EventKind = "context_snapshot"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindContextSnapshot
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = "compaction"
 		evt.TextContent = stringFromAny(data["summary"])
 		evt.MessageUUID = scopedMessageUUID(rowID, "compaction")
@@ -200,8 +202,8 @@ func openCodeMessageEvents(base NormalizedEvent, rowID, msgType string, data map
 		return []NormalizedEvent{evt}
 	case "model-switched":
 		evt := base
-		evt.EventKind = "turn_context"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindTurnContext
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = "model-switched"
 		if model := objectFromAny(data["model"]); model != nil {
 			evt.Model = firstNonEmpty(stringFromAny(model["id"]), stringFromAny(model["modelID"]))
@@ -214,8 +216,8 @@ func openCodeMessageEvents(base NormalizedEvent, rowID, msgType string, data map
 		return []NormalizedEvent{evt}
 	case "agent-switched":
 		evt := base
-		evt.EventKind = "event_msg"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindEventMsg
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = "agent-switched"
 		evt.TextContent = stringFromAny(data["agent"])
 		evt.MessageUUID = scopedMessageUUID(rowID, "agent-switched")
@@ -224,8 +226,8 @@ func openCodeMessageEvents(base NormalizedEvent, rowID, msgType string, data map
 		return []NormalizedEvent{evt}
 	default:
 		evt := base
-		evt.EventKind = "event_msg"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindEventMsg
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = msgType
 		evt.TextContent = textFromHarnessContent(data)
 		evt.MessageUUID = scopedMessageUUID(rowID, "event")
@@ -268,8 +270,8 @@ func openCodeAssistantEvents(base NormalizedEvent, rowID string, data map[string
 		switch partType {
 		case "text":
 			evt := base
-			evt.EventKind = "message"
-			evt.ActorRole = "assistant"
+			evt.EventKind = models.EventKindMessage
+			evt.ActorRole = models.ActorRoleAssistant
 			evt.TextContent = stringFromAny(pm["text"])
 			evt.MessageUUID = scopedMessageUUID(rowID, "text", fmt.Sprint(i))
 			evt.SourceOffset = stableOffset("opencode", "session_message", rowID, "text", fmt.Sprint(i))
@@ -278,8 +280,8 @@ func openCodeAssistantEvents(base NormalizedEvent, rowID string, data map[string
 			events = append(events, evt)
 		case "reasoning":
 			evt := base
-			evt.EventKind = "reasoning"
-			evt.ActorRole = "assistant"
+			evt.EventKind = models.EventKindReasoning
+			evt.ActorRole = models.ActorRoleAssistant
 			evt.TextContent = stringFromAny(pm["text"])
 			evt.MessageUUID = scopedMessageUUID(rowID, "reasoning", fmt.Sprint(i))
 			evt.SourceOffset = stableOffset("opencode", "session_message", rowID, "reasoning", fmt.Sprint(i))
@@ -297,8 +299,8 @@ func openCodeAssistantEvents(base NormalizedEvent, rowID string, data map[string
 
 	if errData := objectFromAny(data["error"]); errData != nil {
 		evt := base
-		evt.EventKind = "error"
-		evt.ActorRole = "assistant"
+		evt.EventKind = models.EventKindError
+		evt.ActorRole = models.ActorRoleAssistant
 		evt.ErrorCode = firstNonEmpty(stringFromAny(errData["type"]), "error")
 		evt.ErrorMessage = stringFromAny(errData["message"])
 		evt.TextContent = evt.ErrorMessage
@@ -311,8 +313,8 @@ func openCodeAssistantEvents(base NormalizedEvent, rowID string, data map[string
 
 	if len(events) == 0 {
 		evt := base
-		evt.EventKind = "message"
-		evt.ActorRole = "assistant"
+		evt.EventKind = models.EventKindMessage
+		evt.ActorRole = models.ActorRoleAssistant
 		evt.MessageUUID = scopedMessageUUID(rowID, "message")
 		evt.SourceOffset = stableOffset("opencode", "session_message", rowID, "message")
 		evt.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "message")
@@ -329,9 +331,9 @@ func openCodeToolEvents(base NormalizedEvent, rowID string, index int, part map[
 	status := stringFromAny(state["status"])
 
 	call := base
-	call.EventKind = "tool_call"
-	call.ActorRole = "assistant"
-	call.ToolPhase = "call"
+	call.EventKind = models.EventKindToolCall
+	call.ActorRole = models.ActorRoleAssistant
+	call.ToolPhase = models.ToolPhaseCall
 	call.ToolUseID = callID
 	call.ToolName = toolName
 	call.ToolInput = jsonPayload(state["input"])
@@ -346,16 +348,16 @@ func openCodeToolEvents(base NormalizedEvent, rowID string, index int, part map[
 	events := []NormalizedEvent{call}
 	if status == "completed" || status == "error" {
 		result := base
-		result.EventKind = "tool_result"
+		result.EventKind = models.EventKindToolResult
 		if status == "error" {
-			result.EventKind = "tool_error"
+			result.EventKind = models.EventKindToolError
 			result.ErrorCode = "tool_execution_failed"
 			if errData := objectFromAny(state["error"]); errData != nil {
 				result.ErrorMessage = stringFromAny(errData["message"])
 			}
 		}
-		result.ActorRole = "tool"
-		result.ToolPhase = "result"
+		result.ActorRole = models.ActorRoleTool
+		result.ToolPhase = models.ToolPhaseResult
 		result.ToolUseID = callID
 		result.ToolName = toolName
 		result.ToolOutput = openCodeToolOutput(state)
@@ -387,9 +389,9 @@ func openCodeToolOutput(state map[string]any) string {
 func openCodeShellEvents(base NormalizedEvent, rowID string, data map[string]any) []NormalizedEvent {
 	callID := stringFromAny(data["callID"])
 	call := base
-	call.EventKind = "tool_call"
-	call.ActorRole = "assistant"
-	call.ToolPhase = "call"
+	call.EventKind = models.EventKindToolCall
+	call.ActorRole = models.ActorRoleAssistant
+	call.ToolPhase = models.ToolPhaseCall
 	call.ToolUseID = callID
 	call.ToolName = "shell"
 	call.ToolInput = jsonPayload(map[string]any{"command": stringFromAny(data["command"])})
@@ -399,9 +401,9 @@ func openCodeShellEvents(base NormalizedEvent, rowID string, data map[string]any
 	call.RawPayload = sqliteStableRaw("opencode", "session_message", rowID, "shell_call")
 
 	result := base
-	result.EventKind = "tool_result"
-	result.ActorRole = "tool"
-	result.ToolPhase = "result"
+	result.EventKind = models.EventKindToolResult
+	result.ActorRole = models.ActorRoleTool
+	result.ToolPhase = models.ToolPhaseResult
 	result.ToolUseID = callID
 	result.ToolName = "shell"
 	result.ToolOutput = stringFromAny(data["output"])

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/johnnygreco/beacon/internal/models"
 )
 
 // ParseCodexJSONL parses a single JSONL line from Codex logs.
@@ -29,7 +31,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 	base := NormalizedEvent{
 		SessionID:    sessionID,
 		SourceName:   "codex",
-		Provider:     "openai",
+		Provider:     models.ProviderOpenAI,
 		Timestamp:    ts,
 		SourceFile:   file,
 		SourceLineNo: lineNo,
@@ -54,15 +56,15 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 	switch eventType {
 	case "session_meta":
 		evt := base
-		evt.EventKind = "session_meta"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindSessionMeta
+		evt.ActorRole = models.ActorRoleSystem
 		evt.TextContent = stringField(payload, "description")
 		events = append(events, evt)
 
 	case "turn_context":
 		evt := base
-		evt.EventKind = "turn_context"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindTurnContext
+		evt.ActorRole = models.ActorRoleSystem
 		// Extract model from turn_context payload (Codex puts it here)
 		if m := stringField(payload, "model"); m != "" {
 			evt.Model = m
@@ -74,10 +76,10 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		switch payloadType {
 		case "message":
 			evt := base
-			evt.EventKind = "message"
+			evt.EventKind = models.EventKindMessage
 			evt.ActorRole = stringField(payload, "role")
 			if evt.ActorRole == "" {
-				evt.ActorRole = "assistant"
+				evt.ActorRole = models.ActorRoleAssistant
 			}
 			// Skip developer/system setup messages that don't contain user-relevant content
 			if evt.ActorRole == "developer" {
@@ -104,10 +106,10 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 
 		case "function_call":
 			evt := base
-			evt.EventKind = "tool_call"
-			evt.ActorRole = "assistant"
+			evt.EventKind = models.EventKindToolCall
+			evt.ActorRole = models.ActorRoleAssistant
 			evt.ToolName = stringField(payload, "name")
-			evt.ToolPhase = "call"
+			evt.ToolPhase = models.ToolPhaseCall
 			evt.ToolInput = stringField(payload, "arguments")
 			evt.ToolUseID = stringField(payload, "call_id")
 			evt.TextContent = evt.ToolName
@@ -119,10 +121,10 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 
 		case "function_call_output":
 			evt := base
-			evt.EventKind = "tool_result"
-			evt.ActorRole = "tool"
+			evt.EventKind = models.EventKindToolResult
+			evt.ActorRole = models.ActorRoleTool
 			evt.ToolName = stringField(payload, "name")
-			evt.ToolPhase = "result"
+			evt.ToolPhase = models.ToolPhaseResult
 			evt.ToolOutput = stringField(payload, "output")
 			evt.ToolUseID = stringField(payload, "call_id")
 			evt.TextContent = stringField(payload, "output")
@@ -135,7 +137,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 				}
 			}
 			if isCodexToolError(evt.ToolOutput) {
-				evt.EventKind = "tool_error"
+				evt.EventKind = models.EventKindToolError
 				evt.ErrorCode = "tool_execution_failed"
 				evt.ErrorMessage = evt.ToolOutput
 			}
@@ -144,10 +146,10 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		case "function_call_output_summary":
 			// Codex sometimes emits a summary of tool output — treat as tool_result
 			evt := base
-			evt.EventKind = "tool_result"
-			evt.ActorRole = "tool"
+			evt.EventKind = models.EventKindToolResult
+			evt.ActorRole = models.ActorRoleTool
 			evt.ToolName = stringField(payload, "name")
-			evt.ToolPhase = "result"
+			evt.ToolPhase = models.ToolPhaseResult
 			evt.ToolOutput = stringField(payload, "output")
 			evt.ToolUseID = stringField(payload, "call_id")
 			evt.TextContent = stringField(payload, "output")
@@ -156,10 +158,10 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		case "custom_tool_call":
 			// Codex built-in tools (apply_patch, etc.)
 			evt := base
-			evt.EventKind = "tool_call"
-			evt.ActorRole = "assistant"
+			evt.EventKind = models.EventKindToolCall
+			evt.ActorRole = models.ActorRoleAssistant
 			evt.ToolName = stringField(payload, "name")
-			evt.ToolPhase = "call"
+			evt.ToolPhase = models.ToolPhaseCall
 			evt.ToolInput = stringField(payload, "input")
 			evt.ToolUseID = stringField(payload, "call_id")
 			evt.TextContent = evt.ToolName
@@ -168,14 +170,14 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		case "custom_tool_call_output":
 			// Codex built-in tool results
 			evt := base
-			evt.EventKind = "tool_result"
-			evt.ActorRole = "tool"
-			evt.ToolPhase = "result"
+			evt.EventKind = models.EventKindToolResult
+			evt.ActorRole = models.ActorRoleTool
+			evt.ToolPhase = models.ToolPhaseResult
 			evt.ToolOutput = stringField(payload, "output")
 			evt.ToolUseID = stringField(payload, "call_id")
 			evt.TextContent = stringField(payload, "output")
 			if isCodexToolError(evt.ToolOutput) {
-				evt.EventKind = "tool_error"
+				evt.EventKind = models.EventKindToolError
 				evt.ErrorCode = "tool_execution_failed"
 				evt.ErrorMessage = evt.ToolOutput
 			}
@@ -183,8 +185,8 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 
 		case "reasoning":
 			evt := base
-			evt.EventKind = "reasoning"
-			evt.ActorRole = "assistant"
+			evt.EventKind = models.EventKindReasoning
+			evt.ActorRole = models.ActorRoleAssistant
 			for _, s := range arrayFromAny(payload["summary"]) {
 				sm := objectFromAny(s)
 				if sm == nil {
@@ -203,7 +205,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 
 		default:
 			evt := base
-			evt.EventKind = "event_msg"
+			evt.EventKind = models.EventKindEventMsg
 			evt.PayloadType = payloadType
 			events = append(events, evt)
 		}
@@ -215,8 +217,8 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			// Codex emits task_complete at turn boundaries, not only when the
 			// session is fully over.
 			evt := base
-			evt.EventKind = "event_msg"
-			evt.ActorRole = "assistant"
+			evt.EventKind = models.EventKindEventMsg
+			evt.ActorRole = models.ActorRoleAssistant
 			evt.PayloadType = "task_complete"
 			evt.TextContent = stringField(payload, "last_agent_message")
 			events = append(events, evt)
@@ -224,36 +226,36 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		case "agent_message":
 			// Codex status/commentary messages from the agent
 			evt := base
-			evt.EventKind = "message"
-			evt.ActorRole = "assistant"
+			evt.EventKind = models.EventKindMessage
+			evt.ActorRole = models.ActorRoleAssistant
 			evt.TextContent = stringField(payload, "message")
 			events = append(events, evt)
 
 		case "token_count":
 			// Token usage event — store as event_msg but ensure tokens are captured
 			evt := base
-			evt.EventKind = "event_msg"
+			evt.EventKind = models.EventKindEventMsg
 			evt.PayloadType = payloadType
 			events = append(events, evt)
 
 		case "task_started":
 			evt := base
-			evt.EventKind = "session_meta"
-			evt.ActorRole = "system"
+			evt.EventKind = models.EventKindSessionMeta
+			evt.ActorRole = models.ActorRoleSystem
 			evt.TextContent = "Task started"
 			events = append(events, evt)
 
 		case "user_message":
 			// User message echoed back by Codex
 			evt := base
-			evt.EventKind = "message"
-			evt.ActorRole = "user"
+			evt.EventKind = models.EventKindMessage
+			evt.ActorRole = models.ActorRoleUser
 			evt.TextContent = stringField(payload, "message")
 			events = append(events, evt)
 
 		default:
 			evt := base
-			evt.EventKind = "event_msg"
+			evt.EventKind = models.EventKindEventMsg
 			evt.PayloadType = payloadType
 			evt.TextContent = stringField(payload, "message")
 			events = append(events, evt)
@@ -261,14 +263,14 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 
 	case "compacted":
 		evt := base
-		evt.EventKind = "context_snapshot"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindContextSnapshot
+		evt.ActorRole = models.ActorRoleSystem
 		events = append(events, evt)
 
 	case "error":
 		evt := base
-		evt.EventKind = "error"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindError
+		evt.ActorRole = models.ActorRoleSystem
 		evt.ErrorCode = stringField(payload, "code")
 		evt.ErrorMessage = stringField(payload, "message")
 		evt.TextContent = evt.ErrorMessage
@@ -276,7 +278,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 
 	default:
 		evt := base
-		evt.EventKind = "event_msg"
+		evt.EventKind = models.EventKindEventMsg
 		evt.PayloadType = eventType
 		events = append(events, evt)
 	}
