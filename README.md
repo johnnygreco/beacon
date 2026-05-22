@@ -210,7 +210,8 @@ Available tools:
 
 ## Build From Source
 
-Source builds require Go 1.24.1 or newer. Node/npm are only needed for Playwright tests and vendoring browser assets.
+Source builds require Go 1.24.1 or newer. Node/npm are only needed for
+Playwright tests and vendoring browser assets.
 
 ```bash
 git clone https://github.com/johnnygreco/beacon.git

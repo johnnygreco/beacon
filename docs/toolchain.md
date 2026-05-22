@@ -11,6 +11,12 @@ checks fail for the same reasons.
   `go tool templ generate`.
 - golangci-lint: `.github/workflows/ci.yml` `GOLANGCI_LINT_VERSION`.
   CI must not use `latest`; update intentionally after a local lint pass.
+- govulncheck Go: `.github/workflows/ci.yml` `GOVULNCHECK_GO_VERSION`.
+  This should stay on a patched Go release so standard-library vulnerability
+  checks start from a fixed toolchain.
+- govulncheck: `.github/workflows/ci.yml` `GOVULNCHECK_VERSION`.
+  CI must not use `latest`; update intentionally after a local vulnerability
+  scan.
 - Node.js: `.github/workflows/ci.yml` `NODE_VERSION`. Node is required for npm
   scripts and Playwright tests.
 - npm packages: `package-lock.json`. Update with `npm install` and review the
@@ -29,9 +35,26 @@ checks fail for the same reasons.
 3. Run the relevant local checks:
    - `make fmt-check`;
    - `go test ./...`;
+   - `govulncheck ./...`;
    - `golangci-lint run ./...`;
    - `npm audit --audit-level=moderate`;
    - Playwright suites when npm or frontend assets changed.
 4. Review generated, vendored, and lockfile diffs before opening a PR.
 
 Do not replace pinned CI tool versions with floating aliases such as `latest`.
+
+## Pull-request hygiene gates
+
+CI runs these hygiene gates on pull requests:
+
+- `format`: `make fmt-check` fails on tracked Go files with gofmt drift.
+- `generated`: `go tool templ generate` fails if generated templ files are
+  stale or missing from the commit.
+- `govulncheck`: `govulncheck ./...` fails on reachable Go vulnerabilities.
+- `npm-audit`: `npm audit --audit-level=moderate` fails on moderate or higher
+  npm advisories.
+- `dependency-review`: GitHub dependency review fails pull requests introducing
+  moderate or higher dependency vulnerabilities.
+
+Run the matching local commands before opening dependency, generated-code, or
+toolchain PRs.
