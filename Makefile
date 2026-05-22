@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build run generate clean simulator publish test test-race test-cover perf-bench fmt fmt-check lint
+.PHONY: help build run generate clean clean-local clean-deps simulator publish test test-race test-cover perf-bench fmt fmt-check lint
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -13,8 +13,15 @@ run: generate ## Run the beacon server
 generate: ## Generate templ templates
 	go tool templ generate
 
-clean: ## Remove build artifacts
-	rm -rf bin/ dist/
+clean: ## Remove build and test artifacts
+	rm -rf bin/ dist/ beacon simulator coverage.txt cover.html playwright-report/ test-results/
+
+clean-local: clean ## Remove repo-local scratch environments and local databases
+	rm -rf .scratch/ .venv/ .ralphkit/ .claude/
+	rm -f ./*.duckdb ./*.duckdb.wal
+
+clean-deps: ## Remove dependency installs
+	rm -rf node_modules/
 
 simulator: ## Build the simulator binary
 	go build -o bin/simulator ./cmd/simulator
