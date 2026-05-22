@@ -130,6 +130,7 @@ If `[database].addrs` points to a remote ClickHouse host, Beacon will not start 
 
 - [Architecture and data flow](docs/architecture.md)
 - [Privacy, retention, and local data boundaries](docs/privacy.md)
+- [Pricing estimate data and fallback behavior](docs/pricing.md)
 - [Toolchain and dependency updates](docs/toolchain.md)
 
 ## ClickHouse
