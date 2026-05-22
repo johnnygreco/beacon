@@ -194,7 +194,7 @@ func searchResultSessionIDs(results []search.SearchResult) []string {
 	return ids
 }
 
-// GetDashboardSearch returns event-level search results for the dashboard table.
+// GetDashboardSearch returns event and session-metadata search results for the dashboard table.
 func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	rangeVal := strings.TrimSpace(r.URL.Query().Get("range"))
@@ -285,7 +285,7 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 		})
 	}
 	if query != "" && eventKind == "" && len(items) < limit {
-		sessionItems, sessionHasMore := a.dashboardSearchSessionMetadataResults(r.Context(), query, rangeVal, sessionID, seenSessions, limit-len(items))
+		sessionItems, sessionHasMore := a.dashboardSearchSessionMetadataResults(r.Context(), query, rangeVal, sessionID, sortBy, seenSessions, limit-len(items))
 		if sessionHasMore {
 			hasMore = true
 		}
@@ -342,19 +342,16 @@ func dashboardSearchSnippet(result search.SearchResult) string {
 	return snippet
 }
 
-func (a *APIHandlers) dashboardSearchSessionMetadataResults(ctx context.Context, query, rangeVal, sessionIDPrefix string, seenSessions map[string]struct{}, limit int) ([]APIDashboardSearchResult, bool) {
+func (a *APIHandlers) dashboardSearchSessionMetadataResults(ctx context.Context, query, rangeVal, sessionIDPrefix, sortBy string, seenSessions map[string]struct{}, limit int) ([]APIDashboardSearchResult, bool) {
 	if a.db == nil || strings.TrimSpace(query) == "" || limit <= 0 {
 		return nil, false
 	}
 	fetchLimit := limit + len(seenSessions) + 1
-	sessions, storeHasMore := QueryCompletedSessionsFiltered(ctx, a.db, parseRange(rangeVal), 0, fetchLimit, query, nil, "ended", false)
-	prefix := strings.ToLower(strings.TrimSpace(sessionIDPrefix))
+	sortKey, sortAsc := dashboardSearchMetadataSort(sortBy)
+	sessions, storeHasMore := queryCompletedSessionsFiltered(ctx, a.db, parseRange(rangeVal), 0, fetchLimit, query, nil, sortKey, sortAsc, sessionIDPrefix)
 	items := make([]APIDashboardSearchResult, 0, min(limit, len(sessions)))
 	for _, session := range sessions {
 		if _, ok := seenSessions[session.ID]; ok {
-			continue
-		}
-		if prefix != "" && !strings.HasPrefix(strings.ToLower(session.ID), prefix) {
 			continue
 		}
 		items = append(items, dashboardSearchSessionResult(session))
@@ -363,6 +360,15 @@ func (a *APIHandlers) dashboardSearchSessionMetadataResults(ctx context.Context,
 		}
 	}
 	return items, storeHasMore
+}
+
+func dashboardSearchMetadataSort(sortBy string) (string, bool) {
+	switch sortBy {
+	case "oldest":
+		return "ended", true
+	default:
+		return "ended", false
+	}
 }
 
 func dashboardSearchSessionResult(session views.SessionSummary) APIDashboardSearchResult {

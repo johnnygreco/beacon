@@ -326,6 +326,7 @@ function activityItems(scenario: Scenario) {
 function dashboardSearchBaseResults() {
   return [
     {
+      result_type: 'event',
       event_uid: 'event-search-001',
       session_id: SEARCH_SESSION_ID,
       event_kind: 'message',
@@ -339,6 +340,7 @@ function dashboardSearchBaseResults() {
       working_dir: '/Users/example/projects/beacon/search',
     },
     {
+      result_type: 'event',
       event_uid: 'event-search-002',
       session_id: SEARCH_SESSION_ID,
       event_kind: 'tool_call',
@@ -353,6 +355,7 @@ function dashboardSearchBaseResults() {
       working_dir: '/Users/example/projects/beacon/search',
     },
     {
+      result_type: 'event',
       event_uid: 'event-search-003',
       session_id: 'session-search-002',
       event_kind: 'error',
@@ -449,7 +452,11 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
         working_dir: session.working_dir,
       }))
     : [];
-  const sorted = [...sortedEvents, ...sessionResults];
+  const sortedSessionResults = [...sessionResults].sort((a, b) => {
+    if (sort === 'oldest') return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+  });
+  const sorted = [...sortedEvents, ...sortedSessionResults];
   return {
     state: 'ready',
     query,

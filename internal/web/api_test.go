@@ -142,6 +142,28 @@ func TestDashboardSearchSessionResultFormatsMetadataMatch(t *testing.T) {
 	}
 }
 
+func TestDashboardSearchMetadataSort(t *testing.T) {
+	tests := []struct {
+		sortBy  string
+		wantKey string
+		wantAsc bool
+	}{
+		{sortBy: "oldest", wantKey: "ended", wantAsc: true},
+		{sortBy: "newest", wantKey: "ended", wantAsc: false},
+		{sortBy: "relevance", wantKey: "ended", wantAsc: false},
+		{sortBy: "", wantKey: "ended", wantAsc: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.sortBy, func(t *testing.T) {
+			key, asc := dashboardSearchMetadataSort(tt.sortBy)
+			if key != tt.wantKey || asc != tt.wantAsc {
+				t.Fatalf("dashboardSearchMetadataSort(%q) = %q/%v, want %q/%v", tt.sortBy, key, asc, tt.wantKey, tt.wantAsc)
+			}
+		})
+	}
+}
+
 func TestDashboardSearch_IdleAndUnavailableStates(t *testing.T) {
 	fake := &fakeAPISearcher{}
 	handlers := &APIHandlers{searcher: fake, logger: testLogger()}
