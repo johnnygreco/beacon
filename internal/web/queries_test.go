@@ -78,6 +78,61 @@ func TestCompletedSessionIDPrefixClause(t *testing.T) {
 	}
 }
 
+func TestSQLHelperSubqueries(t *testing.T) {
+	if got := sqlWhereClause("  "); got != "" {
+		t.Fatalf("blank where clause = %q, want empty", got)
+	}
+	if got := sqlWhereClause("session_id = ?"); got != "WHERE session_id = ?" {
+		t.Fatalf("where clause = %q", got)
+	}
+
+	latest := latestActivityEventsSubquery("ae.session_id = ?")
+	for _, fragment := range []string{
+		"FROM activity_events AS ae WHERE ae.session_id = ?",
+		"argMax(text_preview, captured_at) AS text_preview",
+		"GROUP BY event_uid",
+	} {
+		if !strings.Contains(latest, fragment) {
+			t.Fatalf("latest activity subquery missing %q: %s", fragment, latest)
+		}
+	}
+
+	recent := recentActivityEventsSubquery("ae.event_kind IN ('message')")
+	if !strings.Contains(recent, fmt.Sprintf("LIMIT %d", recentActivityCandidates)) {
+		t.Fatalf("recent activity subquery missing candidate limit: %s", recent)
+	}
+	if !strings.Contains(sessionProjectionSubquery("session_id = ?"), "FROM session_projection FINAL WHERE session_id = ?") {
+		t.Fatalf("session projection subquery did not apply where clause")
+	}
+	if !strings.Contains(analyticsProjectionSubquery("session_id = ?"), "FROM analytics_projection FINAL WHERE session_id = ?") {
+		t.Fatalf("analytics projection subquery did not apply where clause")
+	}
+}
+
+func TestTimeAndPresentationHelpers(t *testing.T) {
+	if got := dashboardTimeUnit(1); got != "minute" {
+		t.Fatalf("dashboardTimeUnit(1) = %q", got)
+	}
+	if got := dashboardTimeUnit(120); got != "hour" {
+		t.Fatalf("dashboardTimeUnit(120) = %q", got)
+	}
+	if got := dashboardTimeUnit(1440); got != "day" {
+		t.Fatalf("dashboardTimeUnit(1440) = %q", got)
+	}
+	if got := shortenActivitySummary("Tool: mcp__repo__search"); got != "Tool: search" {
+		t.Fatalf("shortenActivitySummary = %q", got)
+	}
+	if got := shortenActivitySummary("message"); got != "message" {
+		t.Fatalf("shortenActivitySummary plain = %q", got)
+	}
+	if got := formatDuration(90 * time.Second); got != "1m 30s" {
+		t.Fatalf("formatDuration = %q", got)
+	}
+	if got := formatDuration(2*time.Hour + 3*time.Minute + 4*time.Second); got != "2h 3m" {
+		t.Fatalf("formatDuration hours = %q", got)
+	}
+}
+
 func TestCompletedSessionsOrderByNameUsesRenderedProjectName(t *testing.T) {
 	orderBy := completedSessionsOrderBy("name", true)
 	if !strings.Contains(orderBy, "replaceRegexpOne") {
