@@ -27,6 +27,11 @@ const (
 	nativeClickHouseHTTPPort = 8123
 )
 
+var (
+	dbResetOpenStore = store.Open
+	dbResetStore     = store.Reset
+)
+
 func newDBCmd() *cobra.Command {
 	dbCmd := &cobra.Command{
 		Use:   "db",
@@ -204,13 +209,13 @@ func runDBReset(cmd *cobra.Command, args []string) error {
 	}
 
 	opts := storeOptionsFromConfig(cfg)
-	ch, err := store.Open(context.Background(), opts)
+	ch, err := dbResetOpenStore(context.Background(), opts)
 	if err != nil {
 		return storeOpenError("opening clickhouse store", err)
 	}
 	defer ch.Close()
 
-	if err := store.Reset(context.Background(), ch.DB, ch.Database()); err != nil {
+	if err := dbResetStore(context.Background(), ch.DB, ch.Database()); err != nil {
 		return fmt.Errorf("reset failed: %w", err)
 	}
 
