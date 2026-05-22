@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/views"
 )
 
@@ -158,7 +159,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 		resultByCallID := make(map[string]int) // tool_use_id → event index
 		consumedResults := make(map[int]bool)
 		for idx, e := range t.Events {
-			if e.EventKind == "tool_result" && e.ToolUseID != "" {
+			if e.EventKind == models.EventKindToolResult && e.ToolUseID != "" {
 				resultByCallID[e.ToolUseID] = idx
 			}
 		}
@@ -167,7 +168,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 			e := t.Events[i]
 
 			switch e.EventKind {
-			case "tool_call":
+			case models.EventKindToolCall:
 				inputForParams := e.InputJSON
 				if inputForParams == "" {
 					inputForParams = e.InputPreview
@@ -199,7 +200,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 				} else {
 					// Fallback: sequential look-ahead for sources without call_id
 					for j := i + 1; j < len(t.Events); j++ {
-						if t.Events[j].EventKind == "tool_result" && !consumedResults[j] {
+						if t.Events[j].EventKind == models.EventKindToolResult && !consumedResults[j] {
 							consumedResults[j] = true
 							i = j
 							result := t.Events[j]
@@ -210,7 +211,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 							}
 							item.OutputJSON = result.OutputJSON
 							break
-						} else if t.Events[j].EventKind == "event_msg" {
+						} else if t.Events[j].EventKind == models.EventKindEventMsg {
 							continue // skip intermediate log events
 						} else {
 							break // something else — don't consume it
@@ -219,7 +220,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 				}
 				pendingToolChain = append(pendingToolChain, item)
 
-			case "tool_result":
+			case models.EventKindToolResult:
 				if consumedResults[i] {
 					break // Already paired with a tool_call
 				}
@@ -235,18 +236,18 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 				}
 				pendingToolChain = append(pendingToolChain, item)
 
-			case "message":
+			case models.EventKindMessage:
 				// Don't let empty assistant messages break a tool chain
 				text := e.TextContent
 				if text == "" {
 					text = e.TextPreview
 				}
-				if e.ActorRole == "user" || strings.TrimSpace(text) != "" {
+				if e.ActorRole == models.ActorRoleUser || strings.TrimSpace(text) != "" {
 					flushReasoning()
 					flushToolChain()
 					eCopy := e
 					kind := views.ChatBlockAssistantMessage
-					if e.ActorRole == "user" {
+					if e.ActorRole == models.ActorRoleUser {
 						kind = views.ChatBlockUserMessage
 					}
 					ct.Blocks = append(ct.Blocks, views.ChatBlock{
@@ -255,11 +256,11 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 					})
 				}
 
-			case "reasoning":
+			case models.EventKindReasoning:
 				// Accumulate consecutive reasoning events into a group
 				pendingReasoning = append(pendingReasoning, e)
 
-			case "error":
+			case models.EventKindError:
 				flushReasoning()
 				flushToolChain()
 				eCopy := e
@@ -268,7 +269,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 					Message: &eCopy,
 				})
 
-			case "tool_error":
+			case models.EventKindToolError:
 				flushReasoning()
 				flushToolChain()
 				eCopy := e
@@ -277,7 +278,7 @@ func buildChatTurns(turns []views.TurnDetail) []views.ChatTurn {
 					Message: &eCopy,
 				})
 
-			case "event_msg":
+			case models.EventKindEventMsg:
 				// Intermediate log events — skip without breaking tool chains
 
 			default:
@@ -336,10 +337,10 @@ func deduplicateTurns(turns []views.TurnDetail) []views.TurnDetail {
 		// Merge orphan turn: if this turn has a single user message that's
 		// identical to the first user message in the next turn, skip it.
 		if i+1 < len(turns) && len(t.Events) == 1 &&
-			t.Events[0].EventKind == "message" && t.Events[0].ActorRole == "user" {
+			t.Events[0].EventKind == models.EventKindMessage && t.Events[0].ActorRole == models.ActorRoleUser {
 			nextTurn := turns[i+1]
-			if len(nextTurn.Events) > 0 && nextTurn.Events[0].EventKind == "message" &&
-				nextTurn.Events[0].ActorRole == "user" &&
+			if len(nextTurn.Events) > 0 && nextTurn.Events[0].EventKind == models.EventKindMessage &&
+				nextTurn.Events[0].ActorRole == models.ActorRoleUser &&
 				nextTurn.Events[0].TextContent == t.Events[0].TextContent {
 				continue // skip this orphan turn
 			}
@@ -354,12 +355,12 @@ func deduplicateTurns(turns []views.TurnDetail) []views.TurnDetail {
 		for _, e := range t.Events {
 			var key string
 			switch {
-			case e.EventKind == "reasoning" && e.TextContent != "":
+			case e.EventKind == models.EventKindReasoning && e.TextContent != "":
 				key = e.EventKind + "|" + e.TextContent
-			case e.EventKind == "reasoning":
+			case e.EventKind == models.EventKindReasoning:
 				// Empty reasoning (redacted thinking) — use UID to preserve each block
 				key = e.EventUID
-			case e.EventKind == "message" && e.TextContent != "":
+			case e.EventKind == models.EventKindMessage && e.TextContent != "":
 				key = e.EventKind + "|" + e.ActorRole + "|" + e.TextContent
 			default:
 				key = e.EventUID + "|" + e.EventKind + "|" + e.ActorRole + "|" + e.TextContent + "|" + e.ToolName + "|" + e.InputJSON + "|" + e.InputPreview

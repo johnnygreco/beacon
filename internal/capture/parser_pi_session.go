@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/johnnygreco/beacon/internal/models"
 )
 
 // ParsePiSessionFile parses Pi coding-agent JSONL session files.
@@ -53,11 +55,11 @@ func ParsePiSessionFile(file string) ([]NormalizedEvent, error) {
 			evt := NormalizedEvent{
 				SessionID:       sessionID,
 				SourceName:      "pi",
-				Runtime:         "pi-coding-agent",
-				Provider:        "multi",
-				Format:          "jsonl",
-				EventKind:       "session_meta",
-				ActorRole:       "system",
+				Runtime:         models.RuntimePiCodingAgent,
+				Provider:        models.ProviderMulti,
+				Format:          models.FormatJSONL,
+				EventKind:       models.EventKindSessionMeta,
+				ActorRole:       models.ActorRoleSystem,
 				PayloadType:     "session",
 				Timestamp:       parseTimestamp(stringField(raw, "timestamp")),
 				CWD:             cwd,
@@ -75,9 +77,9 @@ func ParsePiSessionFile(file string) ([]NormalizedEvent, error) {
 		base := NormalizedEvent{
 			SessionID:       sessionID,
 			SourceName:      "pi",
-			Runtime:         "pi-coding-agent",
-			Provider:        "multi",
-			Format:          "jsonl",
+			Runtime:         models.RuntimePiCodingAgent,
+			Provider:        models.ProviderMulti,
+			Format:          models.FormatJSONL,
 			Timestamp:       parseTimestamp(stringField(raw, "timestamp")),
 			ParentUUID:      stringField(raw, "parentId"),
 			MessageUUID:     stringField(raw, "id"),
@@ -102,50 +104,50 @@ func piEntryEvents(base NormalizedEvent, lineNo int, raw map[string]any) []Norma
 		return piMessageEvents(base, lineNo, msg)
 	case "model_change":
 		evt := base
-		evt.EventKind = "turn_context"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindTurnContext
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = "model_change"
-		evt.Provider = firstNonEmpty(stringField(raw, "provider"), "multi")
+		evt.Provider = firstNonEmpty(stringField(raw, "provider"), models.ProviderMulti)
 		evt.Model = stringField(raw, "modelId")
 		evt.TextContent = evt.Model
 		evt.RawPayload = piStableRaw(lineNo, "model_change")
 		return []NormalizedEvent{evt}
 	case "thinking_level_change":
 		evt := base
-		evt.EventKind = "event_msg"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindEventMsg
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = "thinking_level_change"
 		evt.TextContent = stringField(raw, "thinkingLevel")
 		evt.RawPayload = piStableRaw(lineNo, "thinking_level_change")
 		return []NormalizedEvent{evt}
 	case "compaction", "branch_summary":
 		evt := base
-		evt.EventKind = "context_snapshot"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindContextSnapshot
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = entryType
 		evt.TextContent = stringField(raw, "summary")
 		evt.RawPayload = piStableRaw(lineNo, entryType)
 		return []NormalizedEvent{evt}
 	case "custom_message":
 		evt := base
-		evt.EventKind = "message"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindMessage
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = stringField(raw, "customType")
 		evt.TextContent = textFromHarnessContent(raw["content"])
 		evt.RawPayload = piStableRaw(lineNo, "custom_message")
 		return []NormalizedEvent{evt}
 	case "session_info":
 		evt := base
-		evt.EventKind = "session_meta"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindSessionMeta
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = "session_info"
 		evt.TextContent = stringField(raw, "name")
 		evt.RawPayload = piStableRaw(lineNo, "session_info")
 		return []NormalizedEvent{evt}
 	default:
 		evt := base
-		evt.EventKind = "event_msg"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindEventMsg
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = entryType
 		evt.TextContent = textFromHarnessContent(raw)
 		evt.RawPayload = piStableRaw(lineNo, "event")
@@ -158,8 +160,8 @@ func piMessageEvents(base NormalizedEvent, lineNo int, msg map[string]any) []Nor
 	switch role {
 	case "user":
 		evt := base
-		evt.EventKind = "message"
-		evt.ActorRole = "user"
+		evt.EventKind = models.EventKindMessage
+		evt.ActorRole = models.ActorRoleUser
 		evt.TextContent = textFromHarnessContent(msg["content"])
 		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "message")
 		evt.RawPayload = piStableRaw(lineNo, "message")
@@ -168,18 +170,18 @@ func piMessageEvents(base NormalizedEvent, lineNo int, msg map[string]any) []Nor
 		return piAssistantEvents(base, lineNo, msg)
 	case "toolResult":
 		evt := base
-		evt.EventKind = "tool_result"
+		evt.EventKind = models.EventKindToolResult
 		if isErr, ok := msg["isError"].(bool); ok && isErr {
-			evt.EventKind = "tool_error"
+			evt.EventKind = models.EventKindToolError
 			evt.ErrorCode = "tool_execution_failed"
 		}
-		evt.ActorRole = "tool"
-		evt.ToolPhase = "result"
+		evt.ActorRole = models.ActorRoleTool
+		evt.ToolPhase = models.ToolPhaseResult
 		evt.ToolUseID = stringField(msg, "toolCallId")
 		evt.ToolName = stringField(msg, "toolName")
 		evt.ToolOutput = textFromHarnessContent(msg["content"])
 		evt.TextContent = evt.ToolOutput
-		if evt.EventKind == "tool_error" {
+		if evt.EventKind == models.EventKindToolError {
 			evt.ErrorMessage = evt.ToolOutput
 		}
 		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "tool_result")
@@ -189,8 +191,8 @@ func piMessageEvents(base NormalizedEvent, lineNo int, msg map[string]any) []Nor
 		return piBashExecutionEvents(base, lineNo, msg)
 	case "custom":
 		evt := base
-		evt.EventKind = "message"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindMessage
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = stringField(msg, "customType")
 		evt.TextContent = textFromHarnessContent(msg["content"])
 		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "custom")
@@ -198,8 +200,8 @@ func piMessageEvents(base NormalizedEvent, lineNo int, msg map[string]any) []Nor
 		return []NormalizedEvent{evt}
 	case "branchSummary":
 		evt := base
-		evt.EventKind = "context_snapshot"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindContextSnapshot
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = "branchSummary"
 		evt.TextContent = stringField(msg, "summary")
 		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "branch_summary")
@@ -207,8 +209,8 @@ func piMessageEvents(base NormalizedEvent, lineNo int, msg map[string]any) []Nor
 		return []NormalizedEvent{evt}
 	case "compactionSummary":
 		evt := base
-		evt.EventKind = "context_snapshot"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindContextSnapshot
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = "compactionSummary"
 		evt.TextContent = stringField(msg, "summary")
 		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "compaction_summary")
@@ -216,8 +218,8 @@ func piMessageEvents(base NormalizedEvent, lineNo int, msg map[string]any) []Nor
 		return []NormalizedEvent{evt}
 	default:
 		evt := base
-		evt.EventKind = "event_msg"
-		evt.ActorRole = "system"
+		evt.EventKind = models.EventKindEventMsg
+		evt.ActorRole = models.ActorRoleSystem
 		evt.PayloadType = role
 		evt.TextContent = textFromHarnessContent(msg)
 		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "event")
@@ -256,8 +258,8 @@ func piAssistantEvents(base NormalizedEvent, lineNo int, msg map[string]any) []N
 		switch blockType {
 		case "text":
 			evt := base
-			evt.EventKind = "message"
-			evt.ActorRole = "assistant"
+			evt.EventKind = models.EventKindMessage
+			evt.ActorRole = models.ActorRoleAssistant
 			evt.TextContent = stringField(bm, "text")
 			evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "text", fmt.Sprint(i))
 			evt.RawPayload = piStableRaw(lineNo, "text:"+fmt.Sprint(i))
@@ -265,8 +267,8 @@ func piAssistantEvents(base NormalizedEvent, lineNo int, msg map[string]any) []N
 			events = append(events, evt)
 		case "thinking":
 			evt := base
-			evt.EventKind = "reasoning"
-			evt.ActorRole = "assistant"
+			evt.EventKind = models.EventKindReasoning
+			evt.ActorRole = models.ActorRoleAssistant
 			evt.TextContent = stringField(bm, "thinking")
 			evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "thinking", fmt.Sprint(i))
 			evt.RawPayload = piStableRaw(lineNo, "thinking:"+fmt.Sprint(i))
@@ -274,9 +276,9 @@ func piAssistantEvents(base NormalizedEvent, lineNo int, msg map[string]any) []N
 			events = append(events, evt)
 		case "toolCall":
 			evt := base
-			evt.EventKind = "tool_call"
-			evt.ActorRole = "assistant"
-			evt.ToolPhase = "call"
+			evt.EventKind = models.EventKindToolCall
+			evt.ActorRole = models.ActorRoleAssistant
+			evt.ToolPhase = models.ToolPhaseCall
 			evt.ToolUseID = stringField(bm, "id")
 			evt.ToolName = stringField(bm, "name")
 			evt.ToolInput = jsonPayload(bm["arguments"])
@@ -289,8 +291,8 @@ func piAssistantEvents(base NormalizedEvent, lineNo int, msg map[string]any) []N
 	}
 	if errMsg := stringField(msg, "errorMessage"); errMsg != "" {
 		evt := base
-		evt.EventKind = "error"
-		evt.ActorRole = "assistant"
+		evt.EventKind = models.EventKindError
+		evt.ActorRole = models.ActorRoleAssistant
 		evt.ErrorCode = firstNonEmpty(stringField(msg, "stopReason"), "error")
 		evt.ErrorMessage = errMsg
 		evt.TextContent = errMsg
@@ -301,8 +303,8 @@ func piAssistantEvents(base NormalizedEvent, lineNo int, msg map[string]any) []N
 	}
 	if len(events) == 0 {
 		evt := base
-		evt.EventKind = "message"
-		evt.ActorRole = "assistant"
+		evt.EventKind = models.EventKindMessage
+		evt.ActorRole = models.ActorRoleAssistant
 		evt.TextContent = textFromHarnessContent(msg["content"])
 		evt.MessageUUID = scopedMessageUUID(base.MessageUUID, "message")
 		evt.RawPayload = piStableRaw(lineNo, "message")
@@ -314,9 +316,9 @@ func piAssistantEvents(base NormalizedEvent, lineNo int, msg map[string]any) []N
 
 func piBashExecutionEvents(base NormalizedEvent, lineNo int, msg map[string]any) []NormalizedEvent {
 	call := base
-	call.EventKind = "tool_call"
-	call.ActorRole = "assistant"
-	call.ToolPhase = "call"
+	call.EventKind = models.EventKindToolCall
+	call.ActorRole = models.ActorRoleAssistant
+	call.ToolPhase = models.ToolPhaseCall
 	call.ToolName = "bash"
 	call.ToolUseID = base.MessageUUID
 	call.ToolInput = jsonPayload(map[string]any{"command": stringField(msg, "command")})
@@ -325,18 +327,18 @@ func piBashExecutionEvents(base NormalizedEvent, lineNo int, msg map[string]any)
 	call.RawPayload = piStableRaw(lineNo, "bash_call")
 
 	result := base
-	result.EventKind = "tool_result"
+	result.EventKind = models.EventKindToolResult
 	if code := numberFromAny(msg["exitCode"]); code != 0 {
-		result.EventKind = "tool_error"
+		result.EventKind = models.EventKindToolError
 		result.ErrorCode = "tool_execution_failed"
 	}
-	result.ActorRole = "tool"
-	result.ToolPhase = "result"
+	result.ActorRole = models.ActorRoleTool
+	result.ToolPhase = models.ToolPhaseResult
 	result.ToolName = "bash"
 	result.ToolUseID = base.MessageUUID
 	result.ToolOutput = stringField(msg, "output")
 	result.TextContent = result.ToolOutput
-	if result.EventKind == "tool_error" {
+	if result.EventKind == models.EventKindToolError {
 		result.ErrorMessage = result.ToolOutput
 	}
 	result.MessageUUID = scopedMessageUUID(base.MessageUUID, "bash_result")

@@ -1,5 +1,7 @@
 package capture
 
+import "github.com/johnnygreco/beacon/internal/models"
+
 // DeduplicateTokens removes duplicate token counts that arise from
 // providers writing multiple JSONL lines for the same logical usage event.
 //
@@ -40,7 +42,7 @@ func DeduplicateTokensWithInitial(events []NormalizedEvent, initial map[string]s
 		if evt.MessageUUID == "" {
 			continue
 		}
-		if evt.ActorRole == "assistant" {
+		if evt.ActorRole == models.ActorRoleAssistant {
 			assistantUUIDs[evt.MessageUUID] = i
 		}
 	}
@@ -48,7 +50,7 @@ func DeduplicateTokensWithInitial(events []NormalizedEvent, initial map[string]s
 	// Build a child map among assistant events only.
 	childOf := make(map[string]int, len(events))
 	for i, evt := range events {
-		if evt.ParentUUID == "" || evt.ActorRole != "assistant" {
+		if evt.ParentUUID == "" || evt.ActorRole != models.ActorRoleAssistant {
 			continue
 		}
 		if _, parentIsAssistant := assistantUUIDs[evt.ParentUUID]; parentIsAssistant {
@@ -60,7 +62,7 @@ func DeduplicateTokensWithInitial(events []NormalizedEvent, initial map[string]s
 	// either absent from the batch or not an assistant event.
 	inChain := make(map[int]bool, len(events))
 	for i, evt := range events {
-		if inChain[i] || evt.ActorRole != "assistant" || evt.MessageUUID == "" {
+		if inChain[i] || evt.ActorRole != models.ActorRoleAssistant || evt.MessageUUID == "" {
 			continue
 		}
 		// Skip non-roots.

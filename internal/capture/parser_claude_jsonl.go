@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/johnnygreco/beacon/internal/models"
 )
 
 // ParseClaudeJSONL parses a single JSONL line from Claude Code logs.
@@ -46,7 +48,7 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 	base := NormalizedEvent{
 		SessionID:       sessionID,
 		SourceName:      "claude",
-		Provider:        "anthropic",
+		Provider:        models.ProviderAnthropic,
 		Timestamp:       ts,
 		ParentUUID:      parentUUID,
 		MessageUUID:     uuid,
@@ -64,18 +66,18 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 	case "summary":
 		// Summary messages are metadata about the session
 		evt := base
-		evt.EventKind = "session_meta"
+		evt.EventKind = models.EventKindSessionMeta
 		evt.PayloadType = "summary"
-		evt.ActorRole = "system"
+		evt.ActorRole = models.ActorRoleSystem
 		evt.TextContent = stringField(raw, "summary")
 		events = append(events, evt)
 
 	case "last-prompt":
 		// Definitive session-end signal emitted when Claude Code exits.
 		evt := base
-		evt.EventKind = "session_end"
+		evt.EventKind = models.EventKindSessionEnd
 		evt.PayloadType = "last-prompt"
-		evt.ActorRole = "system"
+		evt.ActorRole = models.ActorRoleSystem
 		events = append(events, evt)
 
 	default:
@@ -84,7 +86,7 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 		if msg == nil {
 			// Fallback: treat as generic event
 			evt := base
-			evt.EventKind = "event_msg"
+			evt.EventKind = models.EventKindEventMsg
 			evt.PayloadType = eventType
 			events = append(events, evt)
 			return events, nil
@@ -94,8 +96,8 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 		// Claude Code sets "error" and "isApiErrorMessage" at the top level.
 		if errCode := stringField(raw, "error"); errCode != "" {
 			evt := base
-			evt.EventKind = "error"
-			evt.ActorRole = "system"
+			evt.EventKind = models.EventKindError
+			evt.ActorRole = models.ActorRoleSystem
 			evt.ErrorCode = errCode
 			// Extract error text from content blocks
 			for _, block := range arrayFromAny(msg["content"]) {
@@ -140,7 +142,7 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 			// Plain-text content (common for user prompts)
 			if c != "" {
 				evt := base
-				evt.EventKind = "message"
+				evt.EventKind = models.EventKindMessage
 				evt.ActorRole = role
 				evt.Model = model
 				evt.TextContent = c
@@ -156,7 +158,7 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 		if len(content) == 0 {
 			// No content at all — emit a bare message event
 			evt := base
-			evt.EventKind = "message"
+			evt.EventKind = models.EventKindMessage
 			evt.ActorRole = role
 			evt.Model = model
 			evt.InputTokens = inputTokens
@@ -178,16 +180,16 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 
 			switch blockType {
 			case "text":
-				evt.EventKind = "message"
+				evt.EventKind = models.EventKindMessage
 				evt.ActorRole = role
 				evt.Model = model
 				evt.TextContent = stringField(bm, "text")
 
 			case "tool_use":
-				evt.EventKind = "tool_call"
-				evt.ActorRole = "assistant"
+				evt.EventKind = models.EventKindToolCall
+				evt.ActorRole = models.ActorRoleAssistant
 				evt.ToolName = stringField(bm, "name")
-				evt.ToolPhase = "call"
+				evt.ToolPhase = models.ToolPhaseCall
 				evt.ToolUseID = stringField(bm, "id")
 				if inputRaw, ok := bm["input"]; ok {
 					if b, err := json.Marshal(inputRaw); err == nil {
@@ -198,10 +200,10 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 				evt.TextContent = evt.ToolName
 
 			case "tool_result":
-				evt.EventKind = "tool_result"
-				evt.ActorRole = "tool"
+				evt.EventKind = models.EventKindToolResult
+				evt.ActorRole = models.ActorRoleTool
 				evt.ToolName = stringField(bm, "name")
-				evt.ToolPhase = "result"
+				evt.ToolPhase = models.ToolPhaseResult
 				evt.ToolUseID = stringField(bm, "tool_use_id")
 				// Content can be string or nested
 				if c, ok := bm["content"].(string); ok {
@@ -221,7 +223,7 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 				}
 				// Detect tool execution failures via is_error flag
 				if isErr, ok := bm["is_error"].(bool); ok && isErr {
-					evt.EventKind = "tool_error"
+					evt.EventKind = models.EventKindToolError
 					evt.ErrorCode = "tool_execution_failed"
 					msg := evt.TextContent
 					// Strip <tool_use_error> wrapper tags for cleaner display
@@ -231,12 +233,12 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 				}
 
 			case "thinking":
-				evt.EventKind = "reasoning"
-				evt.ActorRole = "assistant"
+				evt.EventKind = models.EventKindReasoning
+				evt.ActorRole = models.ActorRoleAssistant
 				evt.TextContent = stringField(bm, "thinking")
 
 			default:
-				evt.EventKind = "message"
+				evt.EventKind = models.EventKindMessage
 				evt.ActorRole = role
 				evt.PayloadType = blockType
 			}

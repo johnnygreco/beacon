@@ -5,7 +5,43 @@ import (
 	"time"
 )
 
-const MCPToolPrefix = "mcp__"
+const (
+	MCPToolPrefix = "mcp__"
+
+	RuntimeClaudeCode    = "claude-code"
+	RuntimeCodex         = "codex"
+	RuntimeHermesAgent   = "hermes-agent"
+	RuntimeOpenCode      = "opencode"
+	RuntimePiCodingAgent = "pi-coding-agent"
+
+	ProviderAnthropic = "anthropic"
+	ProviderOpenAI    = "openai"
+	ProviderMulti     = "multi"
+
+	FormatJSONL  = "jsonl"
+	FormatSQLite = "sqlite"
+
+	EventKindMessage         = "message"
+	EventKindToolCall        = "tool_call"
+	EventKindToolResult      = "tool_result"
+	EventKindToolError       = "tool_error"
+	EventKindError           = "error"
+	EventKindReasoning       = "reasoning"
+	EventKindSessionMeta     = "session_meta"
+	EventKindSessionEnd      = "session_end"
+	EventKindEventMsg        = "event_msg"
+	EventKindTurnContext     = "turn_context"
+	EventKindContextSnapshot = "context_snapshot"
+	EventKindToolPrefix      = "tool_"
+
+	ActorRoleUser      = "user"
+	ActorRoleAssistant = "assistant"
+	ActorRoleTool      = "tool"
+	ActorRoleSystem    = "system"
+
+	ToolPhaseCall   = "call"
+	ToolPhaseResult = "result"
+)
 
 // IsMCPTool returns true if the tool name indicates an MCP tool.
 func IsMCPTool(name string) bool {
