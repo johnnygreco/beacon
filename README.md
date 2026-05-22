@@ -140,6 +140,7 @@ Manual database commands:
 beacon db up            # start local ClickHouse and migrate tables
 beacon db down          # stop Beacon-managed local ClickHouse
 beacon db migrate       # migrate an already-running ClickHouse
+beacon db refresh-projections # rebuild derived session and analytics projections
 beacon db reset --force # destructive: drop and recreate Beacon tables
 ```
 

@@ -51,6 +51,22 @@ func TestSessionEndProjectionPredicateRecognizesHarnessEndEvents(t *testing.T) {
 	}
 }
 
+func TestSessionProjectionSQLIgnoresZeroTimestampForTiming(t *testing.T) {
+	query := sessionProjectionInsertSQL("?,?")
+	if !strings.Contains(query, "minIf(timestamp, "+validEventTimestampPredicate+")") {
+		t.Fatalf("session started_at must ignore zero timestamp events: %s", query)
+	}
+	if !strings.Contains(query, "maxIf(timestamp, "+validEventTimestampPredicate+")") {
+		t.Fatalf("session ended_at must ignore zero timestamp events: %s", query)
+	}
+	if !strings.Contains(query, "countIf("+validEventTimestampPredicate+") > 0") {
+		t.Fatalf("session projection must guard sessions with no valid timestamps: %s", query)
+	}
+	if !strings.Contains(query, "max(if("+sessionEndProjectionPredicate+", 1, 0)) AS has_session_end") {
+		t.Fatalf("session end detection should remain independent from timestamp validity: %s", query)
+	}
+}
+
 func TestBuildSearchRowsUsesToolOutputPreviewForSnippet(t *testing.T) {
 	event := models.Event{
 		EventUID:  "evt-tool-error",

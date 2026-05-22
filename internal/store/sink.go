@@ -12,7 +12,11 @@ import (
 	"github.com/johnnygreco/beacon/internal/textindex"
 )
 
-const sessionEndProjectionPredicate = "event_kind = 'session_end' OR (event_kind = 'event_msg' AND payload_type = 'last-prompt')"
+const (
+	sessionEndProjectionPredicate = "event_kind = 'session_end' OR (event_kind = 'event_msg' AND payload_type = 'last-prompt')"
+	validEventTimestampPredicate  = "timestamp > toDateTime64(0, 3, 'UTC')"
+	defaultProjectionRefreshBatch = 500
+)
 
 type RowBatch struct {
 	RawRecords     []models.RawRecord
@@ -134,13 +138,19 @@ func (s *Store) RefreshSessionProjections(ctx context.Context, ids []string) err
 		args[i] = id
 	}
 
-	query := fmt.Sprintf(`INSERT INTO session_projection
+	query := sessionProjectionInsertSQL(placeholders)
+	_, err := s.DB.ExecContext(ctx, query, args...)
+	return err
+}
+
+func sessionProjectionInsertSQL(placeholders string) string {
+	return fmt.Sprintf(`INSERT INTO session_projection
 		SELECT
 			projected_session_id AS session_id,
 			argMax(source_name, timestamp) AS source_name,
 			argMax(provider, timestamp) AS provider,
-			min(timestamp) AS started_at,
-			max(timestamp) AS ended_at,
+			if(countIf(%[1]s) > 0, minIf(timestamp, %[1]s), min(timestamp)) AS started_at,
+			if(countIf(%[1]s) > 0, maxIf(timestamp, %[1]s), max(timestamp)) AS ended_at,
 			count() AS event_count,
 			uniqExactIf(event_uid, event_kind = 'message' AND actor_role = 'user') AS turn_count,
 			sum(input_tokens) AS total_input_tokens,
@@ -154,7 +164,7 @@ func (s *Store) RefreshSessionProjections(ctx context.Context, ids []string) err
 			argMaxIf(model, timestamp, model != '') AS last_model,
 			argMaxIf(cwd, timestamp, cwd != '') AS working_dir,
 			argMaxIf(parent_session_id, timestamp, parent_session_id != '') AS parent_session_id,
-			max(if(%s, 1, 0)) AS has_session_end,
+			max(if(%[2]s, 1, 0)) AS has_session_end,
 			now64(3) AS updated_at
 		FROM (
 			SELECT event_uid,
@@ -174,12 +184,58 @@ func (s *Store) RefreshSessionProjections(ctx context.Context, ids []string) err
 			       argMax(cwd, captured_at) AS cwd,
 			       argMax(parent_session_id, captured_at) AS parent_session_id
 			FROM activity_events
-			WHERE session_id IN (%s)
+			WHERE session_id IN (%[3]s)
 			GROUP BY event_uid
 		)
-		GROUP BY projected_session_id`, sessionEndProjectionPredicate, placeholders)
-	_, err := s.DB.ExecContext(ctx, query, args...)
-	return err
+		GROUP BY projected_session_id`, validEventTimestampPredicate, sessionEndProjectionPredicate, placeholders)
+}
+
+func (s *Store) RefreshAllProjections(ctx context.Context, batchSize int) (int, error) {
+	if batchSize <= 0 {
+		batchSize = defaultProjectionRefreshBatch
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT DISTINCT session_id FROM activity_events WHERE session_id != ''`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	total := 0
+	batch := make([]string, 0, batchSize)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		if err := s.RefreshSessionProjections(ctx, batch); err != nil {
+			return fmt.Errorf("refresh session projections: %w", err)
+		}
+		if err := s.RefreshAnalyticsProjections(ctx, batch); err != nil {
+			return fmt.Errorf("refresh analytics projections: %w", err)
+		}
+		total += len(batch)
+		batch = batch[:0]
+		return nil
+	}
+
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return total, err
+		}
+		batch = append(batch, id)
+		if len(batch) >= batchSize {
+			if err := flush(); err != nil {
+				return total, err
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return total, err
+	}
+	if err := flush(); err != nil {
+		return total, err
+	}
+	return total, nil
 }
 
 func (s *Store) RefreshAnalyticsProjections(ctx context.Context, ids []string) error {
