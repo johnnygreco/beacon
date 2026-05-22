@@ -31,6 +31,11 @@ func runWatch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
+	sources, err := buildSources(cfg)
+	if err != nil {
+		return fmt.Errorf("capture source config: %w", err)
+	}
+
 	storeOpts := storeOptionsFromConfig(cfg)
 	if err := ensureLocalClickHouse(storeOpts); err != nil {
 		return fmt.Errorf("starting clickhouse: %w", err)
@@ -54,7 +59,6 @@ func runWatch(cmd *cobra.Command, args []string) error {
 
 	go batcher.Run(ctx)
 
-	sources := buildSources(cfg)
 	watcher := capture.NewWatcher(
 		sources, batcher.EventCh(), ch, logger,
 		time.Duration(cfg.Capture.DebounceMs)*time.Millisecond,

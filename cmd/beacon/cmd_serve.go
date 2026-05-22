@@ -9,7 +9,9 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,6 +31,14 @@ func runServe(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
+	}
+
+	var sources []capture.WatchSource
+	if cfg.Capture.Enabled {
+		sources, err = buildSources(cfg)
+		if err != nil {
+			return fmt.Errorf("capture source config: %w", err)
+		}
 	}
 
 	storeOpts := storeOptionsFromConfig(cfg)
@@ -73,7 +83,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Start capture watcher
 	if cfg.Capture.Enabled {
-		sources := buildSources(cfg)
 		for _, s := range sources {
 			logger.Info("capture source configured", "name", s.Name, "runtime", s.Runtime, "provider", s.Provider, "globs", s.Globs)
 		}
@@ -152,22 +161,34 @@ func pidfilePath() string {
 	return filepath.Join(home, ".beacon", "beacon.pid")
 }
 
-func buildSources(cfg *config.Config) []capture.WatchSource {
+type captureParserKey struct {
+	runtime string
+	format  string
+}
+
+type captureParserBinding struct {
+	lineParser func(line []byte, file string, lineNo int, offset int64) ([]capture.NormalizedEvent, error)
+	fileParser func(file string) ([]capture.NormalizedEvent, error)
+}
+
+var captureParserRegistry = map[captureParserKey]captureParserBinding{
+	{runtime: "claude-code", format: "jsonl"}:     {lineParser: capture.ParseClaudeJSONL},
+	{runtime: "codex", format: "jsonl"}:           {lineParser: capture.ParseCodexJSONL},
+	{runtime: "hermes-agent", format: "sqlite"}:   {fileParser: capture.ParseHermesSQLite},
+	{runtime: "opencode", format: "sqlite"}:       {fileParser: capture.ParseOpenCodeSQLite},
+	{runtime: "pi-coding-agent", format: "jsonl"}: {fileParser: capture.ParsePiSessionFile},
+}
+
+func buildSources(cfg *config.Config) ([]capture.WatchSource, error) {
 	var sources []capture.WatchSource
 	for _, sc := range cfg.Capture.Sources {
-		var parser func(line []byte, file string, lineNo int, offset int64) ([]capture.NormalizedEvent, error)
-		var fileParser func(file string) ([]capture.NormalizedEvent, error)
-		switch sc.Runtime {
-		case "codex":
-			parser = capture.ParseCodexJSONL
-		case "hermes-agent":
-			fileParser = capture.ParseHermesSQLite
-		case "opencode":
-			fileParser = capture.ParseOpenCodeSQLite
-		case "pi-coding-agent":
-			fileParser = capture.ParsePiSessionFile
-		default:
-			parser = capture.ParseClaudeJSONL
+		key := captureParserKey{
+			runtime: strings.TrimSpace(sc.Runtime),
+			format:  strings.TrimSpace(sc.Format),
+		}
+		binding, err := parserBindingForSource(sc.Name, key)
+		if err != nil {
+			return nil, err
 		}
 		globs := append([]string{}, sc.Globs...)
 		if sc.Glob != "" {
@@ -175,14 +196,39 @@ func buildSources(cfg *config.Config) []capture.WatchSource {
 		}
 		sources = append(sources, capture.WatchSource{
 			Name:       sc.Name,
-			Runtime:    sc.Runtime,
+			Runtime:    key.runtime,
 			Provider:   sc.Provider,
-			Format:     sc.Format,
+			Format:     key.format,
 			Globs:      globs,
 			WatchRoots: []string{sc.WatchRoot},
-			Parser:     parser,
-			FileParser: fileParser,
+			Parser:     binding.lineParser,
+			FileParser: binding.fileParser,
 		})
 	}
-	return sources
+	return sources, nil
+}
+
+func parserBindingForSource(name string, key captureParserKey) (captureParserBinding, error) {
+	if binding, ok := captureParserRegistry[key]; ok {
+		return binding, nil
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "<unnamed>"
+	}
+	return captureParserBinding{}, fmt.Errorf("unsupported capture source %q runtime/format %q/%q; supported runtime/format pairs: %s",
+		name,
+		key.runtime,
+		key.format,
+		supportedCaptureParserPairs(),
+	)
+}
+
+func supportedCaptureParserPairs() string {
+	pairs := make([]string, 0, len(captureParserRegistry))
+	for key := range captureParserRegistry {
+		pairs = append(pairs, key.runtime+"/"+key.format)
+	}
+	sort.Strings(pairs)
+	return strings.Join(pairs, ", ")
 }
