@@ -27,6 +27,13 @@ func NewServer(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) *Serv
 	return &Server{db: db, searcher: searcher, logger: logger}
 }
 
+func (s *Server) log() *slog.Logger {
+	if s != nil && s.logger != nil {
+		return s.logger
+	}
+	return slog.Default()
+}
+
 type jsonRPCRequest struct {
 	JSONRPC string          `json:"jsonrpc"`
 	ID      json.RawMessage `json:"id,omitempty"`
@@ -193,12 +200,16 @@ func (s *Server) handleToolsCall(ctx context.Context, req *jsonRPCRequest) *json
 
 	result, err := s.callTool(ctx, params.Name, params.Arguments)
 	if err != nil {
+		publicMessage := publicToolErrorMessage(err)
+		if shouldLogToolError(err) {
+			s.log().Warn("mcp tool call failed", "tool", params.Name, "public_error", publicMessage, "error", err)
+		}
 		return &jsonRPCResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
 			Result: map[string]any{
 				"content": []map[string]any{
-					{"type": "text", "text": fmt.Sprintf("Error: %s", err.Error())},
+					{"type": "text", "text": fmt.Sprintf("Error: %s", publicMessage)},
 				},
 				"isError": true,
 			},

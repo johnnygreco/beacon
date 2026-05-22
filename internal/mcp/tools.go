@@ -66,7 +66,7 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 	case "list_sessions":
 		return s.toolListSessions(ctx, args)
 	default:
-		return "", fmt.Errorf("unknown tool: %s", name)
+		return "", userToolError("unknown tool: %s", name)
 	}
 }
 
@@ -78,15 +78,18 @@ func (s *Server) toolSearch(ctx context.Context, args json.RawMessage) (string, 
 		EventKinds []string `json:"event_kinds"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid arguments: %w", err)
+		return "", userToolError("invalid arguments")
 	}
 	if params.Query == "" {
-		return "", fmt.Errorf("query is required")
+		return "", userToolError("query is required")
 	}
 	if params.Limit <= 0 {
 		params.Limit = 25
 	}
 
+	if s.searcher == nil {
+		return "", internalToolError("search unavailable", fmt.Errorf("search backend is not configured"))
+	}
 	results, err := s.searcher.Search(ctx, search.SearchQuery{
 		Query:          params.Query,
 		Limit:          params.Limit,
@@ -95,7 +98,7 @@ func (s *Server) toolSearch(ctx context.Context, args json.RawMessage) (string, 
 		ExcludeMCPSelf: true,
 	})
 	if err != nil {
-		return "", err
+		return "", internalToolError("search failed", err)
 	}
 
 	return FormatSearchResults(results), nil
@@ -109,14 +112,14 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 		After    int    `json:"after"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
-		return "", fmt.Errorf("invalid arguments: %w", err)
+		return "", userToolError("invalid arguments")
 	}
 	eventUID := params.EventUID
 	if eventUID == "" {
 		eventUID = stripBeaconPrefix(params.ID, "event:")
 	}
 	if eventUID == "" {
-		return "", fmt.Errorf("event_uid is required")
+		return "", userToolError("event_uid is required")
 	}
 	if params.Before <= 0 {
 		params.Before = 3
@@ -166,7 +169,7 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 		 ORDER BY n.rn`,
 		eventUID, eventUID, params.Before, params.After)
 	if err != nil {
-		return "", err
+		return "", internalToolError("failed to open event context", err)
 	}
 	defer rows.Close()
 
@@ -175,7 +178,7 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 	for rows.Next() {
 		var e contextEvent
 		if err := rows.Scan(&e.EventUID, &e.EventKind, &e.ActorRole, &e.TextPreview, &e.ToolName, &e.Model, &e.Tokens, &e.Timestamp); err != nil {
-			return "", fmt.Errorf("scan context event: %w", err)
+			return "", internalToolError("failed to open event context", fmt.Errorf("scan context event: %w", err))
 		}
 		if e.EventUID == eventUID {
 			targetIdx = len(window)
@@ -183,11 +186,11 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 		window = append(window, e)
 	}
 	if err := rows.Err(); err != nil {
-		return "", fmt.Errorf("reading context events: %w", err)
+		return "", internalToolError("failed to open event context", fmt.Errorf("reading context events: %w", err))
 	}
 
 	if targetIdx == -1 {
-		return "", fmt.Errorf("event not found: %s", eventUID)
+		return "", userToolError("event not found: %s", eventUID)
 	}
 
 	return FormatOpenContext(window, targetIdx), nil
@@ -200,7 +203,7 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 	}
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &params); err != nil {
-			return "", fmt.Errorf("invalid arguments: %w", err)
+			return "", userToolError("invalid arguments")
 		}
 	}
 	if params.Limit <= 0 {
@@ -213,7 +216,7 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 	if params.Since != "" {
 		since, parseErr := time.Parse(time.RFC3339, params.Since)
 		if parseErr != nil {
-			return "", fmt.Errorf("invalid since timestamp: %w", parseErr)
+			return "", userToolError("invalid since timestamp")
 		}
 		rows, err = s.db.QueryContext(ctx,
 			`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
@@ -228,7 +231,7 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 			 ORDER BY started_at DESC LIMIT ?`, params.Limit)
 	}
 	if err != nil {
-		return "", err
+		return "", internalToolError("failed to list sessions", err)
 	}
 	defer rows.Close()
 
@@ -237,12 +240,12 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 		var s sessionInfo
 		if err := rows.Scan(&s.SessionID, &s.SourceName, &s.StartedAt, &s.EndedAt,
 			&s.EventCount, &s.TurnCount, &s.TotalTokens, &s.ToolCallCount, &s.MCPCallCount, &s.ErrorCount, &s.LastModel); err != nil {
-			return "", fmt.Errorf("scan session: %w", err)
+			return "", internalToolError("failed to list sessions", fmt.Errorf("scan session: %w", err))
 		}
 		sessions = append(sessions, s)
 	}
 	if err := rows.Err(); err != nil {
-		return "", fmt.Errorf("reading sessions: %w", err)
+		return "", internalToolError("failed to list sessions", fmt.Errorf("reading sessions: %w", err))
 	}
 
 	return FormatSessionList(sessions), nil
