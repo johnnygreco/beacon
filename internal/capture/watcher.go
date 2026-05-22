@@ -237,6 +237,9 @@ func (w *Watcher) processFiles(ctx context.Context, src WatchSource, files []str
 	var wg sync.WaitGroup
 	wg.Add(workers)
 	for range workers {
+		// processFiles owns these bounded backfill workers and waits for all of
+		// them before returning; each worker exits when ctx is cancelled or the
+		// jobs channel is closed.
 		go func() {
 			defer wg.Done()
 			for {

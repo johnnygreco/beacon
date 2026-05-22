@@ -59,13 +59,15 @@ func runMCP(cmd *cobra.Command, args []string) error {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	bg := newBackgroundGroup(ctx, cancel, logger)
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		cancel()
-	}()
+	defer signal.Stop(sigCh)
+	bg.Go("signal handler", signalCancelWorker(sigCh, cancel, logger, "shutting down mcp..."))
 
-	return server.Run(ctx)
+	err = server.Run(ctx)
+	cancel()
+	bgErr := bg.Wait()
+	return commandLifecycleError(err, bgErr)
 }

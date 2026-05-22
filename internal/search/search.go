@@ -120,6 +120,9 @@ func (s *Searcher) logQuery(query string, tokens []string, resultCount int, dura
 	}
 
 	tokenCopy := append([]string(nil), tokens...)
+	// Searcher owns this short-lived logging goroutine. logSem bounds the
+	// number of concurrent writes, and the context timeout guarantees release
+	// even if ClickHouse is slow or unavailable.
 	go func() {
 		defer func() { <-s.logSem }()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

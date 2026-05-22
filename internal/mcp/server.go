@@ -52,6 +52,9 @@ func (s *Server) Run(ctx context.Context) error {
 }
 
 func (s *Server) run(ctx context.Context, in io.Reader, out io.Writer) error {
+	stopContextClose := closeReaderOnContext(ctx, in)
+	defer stopContextClose()
+
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 4<<20), 4<<20)
 	writer := bufio.NewWriter(out)
@@ -91,9 +94,37 @@ func (s *Server) run(ctx context.Context, in io.Reader, out io.Writer) error {
 	}
 
 	if err := scanner.Err(); err != nil && err != io.EOF {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 		return err
 	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
 	return nil
+}
+
+func closeReaderOnContext(ctx context.Context, r io.Reader) func() {
+	closer, ok := r.(io.Closer)
+	if !ok {
+		return func() {}
+	}
+	done := make(chan struct{})
+	// Server.run owns this cancellation watcher. It closes cancel-aware
+	// transports such as os.Stdin so scanner.Scan can unblock on shutdown.
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = closer.Close()
+		case <-done:
+		}
+	}()
+	return func() { close(done) }
 }
 
 func (s *Server) dispatch(ctx context.Context, req *jsonRPCRequest) *jsonRPCResponse {

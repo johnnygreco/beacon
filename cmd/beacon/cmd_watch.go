@@ -57,8 +57,6 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	go batcher.Run(ctx)
-
 	watcher := capture.NewWatcher(
 		sources, batcher.EventCh(), ch, logger,
 		time.Duration(cfg.Capture.DebounceMs)*time.Millisecond,
@@ -69,12 +67,11 @@ func runWatch(cmd *cobra.Command, args []string) error {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	go func() {
-		<-sigCh
-		logger.Info("shutting down capture...")
-		cancel()
-	}()
+	defer signal.Stop(sigCh)
+
+	bg := newBackgroundGroup(ctx, cancel, logger)
+	bg.Go("signal handler", signalCancelWorker(sigCh, cancel, logger, "shutting down capture..."))
 
 	logger.Info("starting headless capture")
-	return watcher.Run(ctx)
+	return runWatchServices(bg, batcher.Run, watcher.Run)
 }
