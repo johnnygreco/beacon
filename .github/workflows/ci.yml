@@ -129,8 +129,17 @@ jobs:
       - name: Build
         run: go build ./cmd/beacon
 
-  e2e-search:
+  playwright:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: dashboard
+            command: npm run test:e2e
+          - suite: accessibility
+            command: npm run test:a11y
+    name: playwright-${{ matrix.suite }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -151,5 +160,21 @@ jobs:
       - name: Generate templates
         run: go tool templ generate
 
-      - name: Run search e2e tests
-        run: npm run test:e2e:search
+      - name: Run Playwright ${{ matrix.suite }} tests
+        run: ${{ matrix.command }}
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ matrix.suite }}
+          path: playwright-report/
+          if-no-files-found: ignore
+
+      - name: Upload Playwright traces and media
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results-${{ matrix.suite }}
+          path: test-results/playwright/
+          if-no-files-found: ignore
