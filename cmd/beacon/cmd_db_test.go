@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -9,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/johnnygreco/beacon/internal/store"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func TestDockerEnvWithAPIVersionUsesDetectedServerVersion(t *testing.T) {
@@ -138,14 +142,138 @@ func TestShouldAutoStartClickHouse(t *testing.T) {
 	}
 }
 
-func TestDBCommandExposesRefreshProjections(t *testing.T) {
+func TestDBCommandExposesExpectedCommandsAndFlags(t *testing.T) {
 	cmd := newDBCmd()
 	var names []string
 	for _, sub := range cmd.Commands() {
 		names = append(names, sub.Name())
 	}
-	if !slices.Contains(names, "refresh-projections") {
-		t.Fatalf("db commands = %v, want refresh-projections", names)
+	for _, want := range []string{"up", "down", "migrate", "refresh-projections", "reset"} {
+		if !slices.Contains(names, want) {
+			t.Fatalf("db commands = %v, want %s", names, want)
+		}
+	}
+
+	reset := dbSubcommand(t, cmd, "reset")
+	if reset.Flags().Lookup("force") == nil {
+		t.Fatal("db reset is missing --force")
+	}
+
+	up := dbSubcommand(t, cmd, "up")
+	for _, flag := range []string{"image", "runtime", "no-migrate"} {
+		if up.Flags().Lookup(flag) == nil {
+			t.Fatalf("db up is missing --%s", flag)
+		}
+	}
+}
+
+func TestClickHouseBinaryRejectsNonExecutableEnvOverride(t *testing.T) {
+	tmp := t.TempDir()
+	bin := filepath.Join(tmp, "clickhouse")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0644); err != nil {
+		t.Fatalf("write clickhouse fixture: %v", err)
+	}
+	t.Setenv("BEACON_CLICKHOUSE_BIN", bin)
+
+	_, err := clickHouseBinary()
+	if err == nil || !strings.Contains(err.Error(), "not executable") {
+		t.Fatalf("clickHouseBinary error = %v, want not executable", err)
+	}
+}
+
+func TestStartClickHouseRejectsUnknownRuntime(t *testing.T) {
+	err := startClickHouse("podman", clickHouseImage, store.Options{})
+	if err == nil || !strings.Contains(err.Error(), "unknown ClickHouse runtime") {
+		t.Fatalf("startClickHouse error = %v, want unknown runtime", err)
+	}
+}
+
+func TestStartClickHouseAutoErrorsWithoutNativeOrDockerRuntime(t *testing.T) {
+	tmp := t.TempDir()
+	pathDir := filepath.Join(tmp, "bin")
+	if err := os.MkdirAll(pathDir, 0755); err != nil {
+		t.Fatalf("create PATH fixture: %v", err)
+	}
+	t.Setenv("BEACON_CLICKHOUSE_BIN", filepath.Join(tmp, "missing-clickhouse"))
+	t.Setenv("PATH", pathDir)
+
+	err := startClickHouseAuto(clickHouseImage, store.Options{})
+	if err == nil || !strings.Contains(err.Error(), "requires either a local clickhouse binary or Docker") {
+		t.Fatalf("startClickHouseAuto error = %v, want missing runtime guidance", err)
+	}
+}
+
+func TestReadNativeClickHousePIDRemovesStalePIDFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	baseDir := filepath.Join(home, ".beacon", "clickhouse")
+	if err := os.MkdirAll(baseDir, 0755); err != nil {
+		t.Fatalf("create native ClickHouse dir: %v", err)
+	}
+	pidPath := nativeClickHousePIDPath(baseDir)
+	if err := os.WriteFile(pidPath, []byte("999999999"), 0644); err != nil {
+		t.Fatalf("write pidfile: %v", err)
+	}
+
+	if got := readNativeClickHousePID(); got != 0 {
+		t.Fatalf("readNativeClickHousePID() = %d, want 0", got)
+	}
+	if _, err := os.Stat(pidPath); !os.IsNotExist(err) {
+		t.Fatalf("stale pidfile still exists; stat error = %v", err)
+	}
+}
+
+func TestRunDBResetAbortsWhenConfirmationDeclined(t *testing.T) {
+	resetConfigState(t)
+	setStdin(t, "n\n")
+	stubDBResetStore(t,
+		func(context.Context, store.Options) (*store.Store, error) {
+			t.Fatal("db reset opened store after declined confirmation")
+			return nil, nil
+		},
+		func(context.Context, *sql.DB, string) error {
+			t.Fatal("db reset ran reset after declined confirmation")
+			return nil
+		},
+	)
+
+	cmd := dbSubcommand(t, newDBCmd(), "reset")
+	if err := runDBReset(cmd, nil); err != nil {
+		t.Fatalf("runDBReset() returned error: %v", err)
+	}
+}
+
+func TestRunDBResetForceSkipsConfirmationAndResets(t *testing.T) {
+	resetConfigState(t)
+	setStdin(t, "")
+	opened := false
+	reset := false
+	stubDBResetStore(t,
+		func(_ context.Context, opts store.Options) (*store.Store, error) {
+			opened = true
+			if !slices.Equal(opts.Addrs, store.DefaultOptions().Addrs) {
+				t.Fatalf("Addrs = %v, want defaults", opts.Addrs)
+			}
+			return &store.Store{}, nil
+		},
+		func(context.Context, *sql.DB, string) error {
+			reset = true
+			return nil
+		},
+	)
+
+	cmd := dbSubcommand(t, newDBCmd(), "reset")
+	if err := cmd.Flags().Set("force", "true"); err != nil {
+		t.Fatalf("set force flag: %v", err)
+	}
+	if err := runDBReset(cmd, nil); err != nil {
+		t.Fatalf("runDBReset() returned error: %v", err)
+	}
+	if !opened {
+		t.Fatal("db reset --force did not open the store")
+	}
+	if !reset {
+		t.Fatal("db reset --force did not reset the store")
 	}
 }
 
@@ -183,4 +311,65 @@ func TestManagedClickHouseMetadataHintIgnoresRemoteErrors(t *testing.T) {
 	if hint := managedClickHouseMetadataHint(err); hint != "" {
 		t.Fatalf("hint = %q, want empty", hint)
 	}
+}
+
+func dbSubcommand(t *testing.T, cmd *cobra.Command, name string) *cobra.Command {
+	t.Helper()
+	for _, sub := range cmd.Commands() {
+		if sub.Name() == name {
+			return sub
+		}
+	}
+	t.Fatalf("missing db subcommand %q", name)
+	return nil
+}
+
+func resetConfigState(t *testing.T) {
+	t.Helper()
+	oldCfgFile := cfgFile
+	cfgFile = ""
+	viper.Reset()
+	t.Setenv("HOME", t.TempDir())
+	t.Cleanup(func() {
+		cfgFile = oldCfgFile
+		viper.Reset()
+	})
+}
+
+func setStdin(t *testing.T, input string) {
+	t.Helper()
+	oldStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdin pipe: %v", err)
+	}
+	if input != "" {
+		if _, err := w.WriteString(input); err != nil {
+			t.Fatalf("write stdin fixture: %v", err)
+		}
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stdin writer: %v", err)
+	}
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = oldStdin
+		_ = r.Close()
+	})
+}
+
+func stubDBResetStore(
+	t *testing.T,
+	open func(context.Context, store.Options) (*store.Store, error),
+	reset func(context.Context, *sql.DB, string) error,
+) {
+	t.Helper()
+	oldOpen := dbResetOpenStore
+	oldReset := dbResetStore
+	dbResetOpenStore = open
+	dbResetStore = reset
+	t.Cleanup(func() {
+		dbResetOpenStore = oldOpen
+		dbResetStore = oldReset
+	})
 }
