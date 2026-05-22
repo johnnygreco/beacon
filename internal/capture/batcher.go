@@ -16,6 +16,9 @@ import (
 const previewMaxLen = 320
 
 // Batcher accumulates events and flushes them to ClickHouse in table batches.
+// Its input channel is sized to twice the configured batch size and applies
+// backpressure to watcher sends when full; capture does not drop parsed events
+// under bursty ingest.
 type Batcher struct {
 	eventCh chan BatchEvent
 	store   *store.Store
@@ -42,7 +45,8 @@ func NewBatcher(ch *store.Store, batchSize int, flushInterval time.Duration, def
 	}
 }
 
-// EventCh returns the channel to send events to.
+// EventCh returns the channel to send events to. Senders should select on their
+// context when writing so cancellation can break out of batcher backpressure.
 func (b *Batcher) EventCh() chan<- BatchEvent {
 	return b.eventCh
 }

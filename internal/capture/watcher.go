@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -62,15 +63,16 @@ type WatchSource struct {
 
 // Watcher monitors JSONL files and sends parsed events to the batcher.
 type Watcher struct {
-	sources           []WatchSource
-	eventCh           chan<- BatchEvent
-	store             captureErrorStore
-	logger            *slog.Logger
-	debounceDelay     time.Duration
-	reconcileInterval time.Duration
-	backfillOnStart   bool
-	backfillWorkers   int
-	checkpoints       map[string]*CheckpointManager
+	sources            []WatchSource
+	eventCh            chan<- BatchEvent
+	store              captureErrorStore
+	logger             *slog.Logger
+	debounceDelay      time.Duration
+	reconcileInterval  time.Duration
+	backfillOnStart    bool
+	backfillWorkers    int
+	checkpoints        map[string]*CheckpointManager
+	backpressuredSends atomic.Uint64
 }
 
 // NewWatcher creates a new JSONL file watcher.
@@ -742,7 +744,30 @@ func (w *Watcher) sendEvent(ctx context.Context, evt BatchEvent) bool {
 		return false
 	case w.eventCh <- evt:
 		return true
+	default:
 	}
+
+	start := time.Now()
+	blocked := w.backpressuredSends.Add(1)
+	select {
+	case <-ctx.Done():
+		return false
+	case w.eventCh <- evt:
+		if w.logger != nil {
+			w.logger.Debug("capture event send delayed by batcher backpressure",
+				"duration", time.Since(start),
+				"delayed_total", blocked,
+			)
+		}
+		return true
+	}
+}
+
+// BackpressuredSendCount returns watcher sends that encountered full batcher
+// input capacity. These sends are delayed, not dropped, unless the context is
+// cancelled while waiting.
+func (w *Watcher) BackpressuredSendCount() uint64 {
+	return w.backpressuredSends.Load()
 }
 
 func firstNonEmpty(value, fallback string) string {

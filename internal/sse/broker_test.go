@@ -138,6 +138,23 @@ func TestBrokerDropsMessageForSlowSubscriber(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 		t.Error("should receive at least the first message")
 	}
+	if got := b.DroppedCount(); got != 1 {
+		t.Fatalf("DroppedCount = %d, want 1", got)
+	}
+}
+
+func TestBrokerCountsBurstDropsForSlowSubscriber(t *testing.T) {
+	b := NewBroker(2, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
+	sub := b.Subscribe("dashboard")
+	defer b.Unsubscribe(sub)
+
+	for i := range 10 {
+		b.Broadcast("dashboard", SSEMessage{Event: "burst", Data: []byte{byte(i)}})
+	}
+
+	if got := b.DroppedCount(); got != 8 {
+		t.Fatalf("DroppedCount = %d, want 8", got)
+	}
 }
 
 func TestBrokerNotify(t *testing.T) {
