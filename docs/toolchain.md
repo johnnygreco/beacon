@@ -23,6 +23,10 @@ checks fail for the same reasons.
   lockfile diff.
 - Playwright: `package-lock.json` via `@playwright/test`. Browser install
   happens in CI with `npx playwright install --with-deps chromium`.
+  Dashboard/search and accessibility suites are portable Chromium checks.
+  Visual regression snapshots are Darwin Chromium baselines and remain
+  local-only until the project maintains CI-compatible baselines or a stable
+  macOS visual runner.
 
 ## Update process
 
@@ -39,6 +43,8 @@ checks fail for the same reasons.
    - `golangci-lint run ./...`;
    - `npm audit --audit-level=moderate`;
    - Playwright suites when npm or frontend assets changed.
+     Use `npm run test:visual -- --update-snapshots` only when intentionally
+     accepting visual changes on Darwin.
 4. Review generated, vendored, and lockfile diffs before opening a PR.
 
 Do not replace pinned CI tool versions with floating aliases such as `latest`.
@@ -58,3 +64,9 @@ CI runs these hygiene gates on pull requests:
 
 Run the matching local commands before opening dependency, generated-code, or
 toolchain PRs.
+
+The visual Playwright suite is excluded from CI by design while only Darwin
+baselines are checked in. Keep that exclusion explicit in PRs that touch
+`tests/e2e/visual.spec.ts` or its snapshots, and document any future move to
+Linux or hosted macOS visual baselines in the same change that enables the CI
+job.
