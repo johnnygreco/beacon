@@ -1,0 +1,193 @@
+{
+  "APISessionSummary": {
+    "required": {
+      "id": "string",
+      "title": "string",
+      "source": "string",
+      "provider": "string",
+      "status": "string",
+      "started_at": "string",
+      "ended_at": "string",
+      "duration": "string",
+      "turn_count": "integer",
+      "total_tokens": "integer",
+      "input_tokens": "integer",
+      "output_tokens": "integer",
+      "cache_read_tokens": "integer",
+      "cache_create_tokens": "integer",
+      "tool_call_count": "integer",
+      "mcp_call_count": "integer",
+      "error_count": "integer",
+      "last_model": "string",
+      "working_dir": "string",
+      "has_session_end": "boolean",
+      "subagent_count": "integer"
+    },
+    "optional": {
+      "parent_session_id": "string",
+      "child_sessions": "APISessionSummary[]"
+    }
+  },
+  "APIDashboardSessionsResponse": {
+    "required": {
+      "state": "string",
+      "range": "string",
+      "offset": "integer",
+      "limit": "integer",
+      "has_more": "boolean",
+      "items": "APISessionSummary[]"
+    },
+    "optional": {
+      "query": "string"
+    }
+  },
+  "APIDashboardSearchResult": {
+    "required": {
+      "event_uid": "string",
+      "session_id": "string",
+      "event_kind": "string",
+      "snippet": "string",
+      "timestamp": "string",
+      "relative_time": "string"
+    },
+    "optional": {
+      "result_type": "string",
+      "tool_name": "string",
+      "provider": "string",
+      "model": "string",
+      "score": "number",
+      "session_title": "string",
+      "working_dir": "string"
+    }
+  },
+  "APIDashboardSearchResponse": {
+    "required": {
+      "state": "string",
+      "sort": "string",
+      "limit": "integer",
+      "has_more": "boolean",
+      "items": "APIDashboardSearchResult[]"
+    },
+    "optional": {
+      "query": "string",
+      "range": "string",
+      "event_kind": "string",
+      "session_id": "string"
+    }
+  },
+  "APIActivityItem": {
+    "required": {
+      "id": "string",
+      "type": "string",
+      "summary": "string",
+      "session_id": "string",
+      "provider": "string",
+      "timestamp": "string",
+      "relative_time": "string"
+    },
+    "optional": {}
+  },
+  "APIDashboardCharts": {
+    "required": {
+      "range": "string",
+      "token_cumulative": "ModelSeriesChart",
+      "model_activity": "ModelMetricChart"
+    },
+    "optional": {}
+  },
+  "ModelSeriesChart": {
+    "required": {
+      "labels": "string[]",
+      "datasets": "ModelSeriesDataset[]",
+      "summary": "ModelAnalyticsSummary",
+      "time_unit": "string",
+      "bucket_minutes": "integer"
+    },
+    "optional": {}
+  },
+  "ModelMetricChart": {
+    "required": {
+      "labels": "string[]",
+      "metrics": "map:ModelMetricSeries",
+      "summary": "ModelAnalyticsSummary",
+      "time_unit": "string",
+      "bucket_minutes": "integer"
+    },
+    "optional": {}
+  },
+  "ModelMetricSeries": {
+    "required": {
+      "label": "string",
+      "unit": "string",
+      "datasets": "ModelSeriesDataset[]"
+    },
+    "optional": {}
+  },
+  "ModelSeriesDataset": {
+    "required": {
+      "label": "string",
+      "model": "string",
+      "provider": "string",
+      "provider_label": "string",
+      "values": "number[]"
+    },
+    "optional": {
+      "total_tokens": "integer",
+      "input_tokens": "integer",
+      "output_tokens": "integer",
+      "cache_read_tokens": "integer",
+      "tool_call_count": "integer",
+      "call_count": "integer",
+      "error_count": "integer"
+    }
+  },
+  "ModelAnalyticsSummary": {
+    "required": {
+      "total_tokens": "integer",
+      "tool_call_count": "integer",
+      "call_count": "integer",
+      "error_count": "integer",
+      "error_rate": "number",
+      "model_count": "integer"
+    },
+    "optional": {}
+  },
+  "APISessionDetail": {
+    "required": {
+      "session": "APISessionSummary"
+    },
+    "optional": {}
+  },
+  "APISessionEvent": {
+    "required": {
+      "event_uid": "string",
+      "session_id": "string",
+      "event_kind": "string",
+      "payload_type": "string",
+      "actor_role": "string",
+      "timestamp": "string",
+      "text_preview": "string",
+      "tool_name": "string",
+      "tool_use_id": "string",
+      "model": "string",
+      "tokens": "integer",
+      "duration_ms": "integer"
+    },
+    "optional": {
+      "input_preview": "string",
+      "output_preview": "string"
+    }
+  },
+  "APIToolPayload": {
+    "required": {
+      "event_uid": "string",
+      "tool_name": "string",
+      "tool_phase": "string",
+      "input_json": "string",
+      "output_json": "string",
+      "input_preview": "string",
+      "output_preview": "string"
+    },
+    "optional": {}
+  }
+}

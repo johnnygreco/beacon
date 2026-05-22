@@ -74,18 +74,18 @@
 	}
 
 	function normalizeSessionDetail(data) {
-		var session = data && (data.session || data.Session || data);
+		var session = data && (data.session || data);
 		if (!session) return null;
 		return {
-			id: session.id || session.ID || '',
-			duration: session.duration || session.Duration || '',
-			total_tokens: session.total_tokens || session.TotalTokens || 0,
-			turn_count: session.turn_count || session.TurnCount || 0,
-			tool_call_count: session.tool_call_count || session.ToolCallCount || 0,
-			source: session.source || session.Actor || '',
-			last_model: session.last_model || session.ActiveModel || '',
-			input_tokens: session.input_tokens || session.InputTokens || 0,
-			output_tokens: session.output_tokens || session.OutputTokens || 0
+			id: session.id || '',
+			duration: session.duration || '',
+			total_tokens: session.total_tokens || 0,
+			turn_count: session.turn_count || 0,
+			tool_call_count: session.tool_call_count || 0,
+			source: session.source || '',
+			last_model: session.last_model || '',
+			input_tokens: session.input_tokens || 0,
+			output_tokens: session.output_tokens || 0
 		};
 	}
 
