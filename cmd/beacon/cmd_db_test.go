@@ -138,6 +138,17 @@ func TestShouldAutoStartClickHouse(t *testing.T) {
 	}
 }
 
+func TestDBCommandExposesRefreshProjections(t *testing.T) {
+	cmd := newDBCmd()
+	var names []string
+	for _, sub := range cmd.Commands() {
+		names = append(names, sub.Name())
+	}
+	if !slices.Contains(names, "refresh-projections") {
+		t.Fatalf("db commands = %v, want refresh-projections", names)
+	}
+}
+
 func TestParseManagedNativeClickHousePIDs(t *testing.T) {
 	dataDir := "/home/ubuntu/.beacon/clickhouse/data"
 	psOutput := `

@@ -163,3 +163,100 @@ func TestClickHouseFlushRefreshesDeduplicatedProjection(t *testing.T) {
 		t.Fatalf("full payload leaked into search_documents: %d docs", secretDocs)
 	}
 }
+
+func TestClickHouseProjectionIgnoresZeroTimestampEventsForDuration(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	sessionID := "missing-timestamp-session"
+	start := time.Date(2026, 5, 22, 12, 0, 0, 123000000, time.UTC)
+	end := start.Add(2 * time.Minute)
+
+	batch := RowBatch{
+		ActivityEvents: []models.Event{
+			{
+				EventUID:     "evt-file-history",
+				SessionID:    sessionID,
+				SourceName:   "claude",
+				Runtime:      "claude-code",
+				Provider:     "anthropic",
+				Format:       "jsonl",
+				EventKind:    "event_msg",
+				PayloadType:  "file-history-snapshot",
+				ActorRole:    "system",
+				SourceFile:   "claude.jsonl",
+				SourceLineNo: 1,
+			},
+			{
+				EventUID:     "evt-start",
+				SessionID:    sessionID,
+				SourceName:   "claude",
+				Runtime:      "claude-code",
+				Provider:     "anthropic",
+				Format:       "jsonl",
+				EventKind:    "message",
+				ActorRole:    "user",
+				Timestamp:    start,
+				TextPreview:  "start",
+				SourceFile:   "claude.jsonl",
+				SourceLineNo: 2,
+			},
+			{
+				EventUID:     "evt-end",
+				SessionID:    sessionID,
+				SourceName:   "claude",
+				Runtime:      "claude-code",
+				Provider:     "anthropic",
+				Format:       "jsonl",
+				EventKind:    "message",
+				ActorRole:    "assistant",
+				Timestamp:    end,
+				TextPreview:  "end",
+				SourceFile:   "claude.jsonl",
+				SourceLineNo: 3,
+			},
+			{
+				EventUID:     "evt-last-prompt",
+				SessionID:    sessionID,
+				SourceName:   "claude",
+				Runtime:      "claude-code",
+				Provider:     "anthropic",
+				Format:       "jsonl",
+				EventKind:    "session_end",
+				PayloadType:  "last-prompt",
+				ActorRole:    "system",
+				SourceFile:   "claude.jsonl",
+				SourceLineNo: 4,
+			},
+		},
+	}
+	for _, event := range batch.ActivityEvents {
+		batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+	}
+
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	var projectedStart, projectedEnd time.Time
+	var hasSessionEnd, eventCount uint64
+	if err := ch.DB.QueryRowContext(context.Background(),
+		`SELECT argMax(started_at, updated_at),
+		        argMax(ended_at, updated_at),
+		        argMax(has_session_end, updated_at),
+		        argMax(event_count, updated_at)
+		 FROM session_projection
+		 WHERE session_id = ?`, sessionID).Scan(&projectedStart, &projectedEnd, &hasSessionEnd, &eventCount); err != nil {
+		t.Fatalf("projection query: %v", err)
+	}
+	if !projectedStart.Equal(start) || !projectedEnd.Equal(end) {
+		t.Fatalf("projection range = %s..%s, want %s..%s", projectedStart, projectedEnd, start, end)
+	}
+	if hasSessionEnd != 1 {
+		t.Fatalf("has_session_end = %d, want 1", hasSessionEnd)
+	}
+	if eventCount != 4 {
+		t.Fatalf("event_count = %d, want 4", eventCount)
+	}
+	if duration := projectedEnd.Sub(projectedStart); duration != 2*time.Minute {
+		t.Fatalf("duration = %s, want 2m", duration)
+	}
+}

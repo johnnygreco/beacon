@@ -46,6 +46,12 @@ func newDBCmd() *cobra.Command {
 		RunE:  runDBMigrate,
 	}
 
+	refreshProjectionsCmd := &cobra.Command{
+		Use:   "refresh-projections",
+		Short: "Rebuild derived ClickHouse projections",
+		RunE:  runDBRefreshProjections,
+	}
+
 	upCmd := &cobra.Command{
 		Use:   "up",
 		Short: "Start local ClickHouse and migrate the schema",
@@ -61,7 +67,7 @@ func newDBCmd() *cobra.Command {
 		RunE:  runDBDown,
 	}
 
-	dbCmd.AddCommand(upCmd, downCmd, migrateCmd, resetCmd)
+	dbCmd.AddCommand(upCmd, downCmd, migrateCmd, refreshProjectionsCmd, resetCmd)
 	return dbCmd
 }
 
@@ -155,6 +161,26 @@ func runDBMigrate(cmd *cobra.Command, args []string) error {
 	}
 	defer ch.Close()
 	fmt.Println("ClickHouse schema migrated.")
+	return nil
+}
+
+func runDBRefreshProjections(cmd *cobra.Command, args []string) error {
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		cfg = &config.Config{}
+	}
+	opts := storeOptionsFromConfig(cfg)
+	ch, err := store.Open(context.Background(), opts)
+	if err != nil {
+		return storeOpenError("refresh projections failed", err)
+	}
+	defer ch.Close()
+
+	count, err := ch.RefreshAllProjections(context.Background(), 0)
+	if err != nil {
+		return fmt.Errorf("refresh projections failed: %w", err)
+	}
+	fmt.Printf("Refreshed projections for %d sessions.\n", count)
 	return nil
 }
 

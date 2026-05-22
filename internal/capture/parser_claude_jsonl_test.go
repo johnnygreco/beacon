@@ -360,6 +360,80 @@ func TestParseClaudeJSONL_NoMessageField(t *testing.T) {
 	}
 }
 
+func TestParseClaudeJSONL_TimestamplessMetadataKeepsZeroTimestamp(t *testing.T) {
+	tests := []struct {
+		name        string
+		raw         map[string]any
+		wantKind    string
+		wantPayload string
+	}{
+		{
+			name: "permission mode",
+			raw: map[string]any{
+				"sessionId":      "sess-1",
+				"type":           "permission-mode",
+				"permissionMode": "acceptEdits",
+			},
+			wantKind:    "event_msg",
+			wantPayload: "permission-mode",
+		},
+		{
+			name: "file history snapshot",
+			raw: map[string]any{
+				"sessionId":        "sess-1",
+				"type":             "file-history-snapshot",
+				"isSnapshotUpdate": true,
+				"messageId":        "msg-1",
+				"snapshot":         map[string]any{"files": []any{}},
+			},
+			wantKind:    "event_msg",
+			wantPayload: "file-history-snapshot",
+		},
+		{
+			name: "ai title",
+			raw: map[string]any{
+				"sessionId": "sess-1",
+				"type":      "ai-title",
+				"aiTitle":   "Debug flaky test",
+			},
+			wantKind:    "event_msg",
+			wantPayload: "ai-title",
+		},
+		{
+			name: "last prompt",
+			raw: map[string]any{
+				"sessionId":  "sess-1",
+				"type":       "last-prompt",
+				"lastPrompt": "ship it",
+				"leafUuid":   "leaf-1",
+			},
+			wantKind:    "session_end",
+			wantPayload: "last-prompt",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			events, err := ParseClaudeJSONL(toJSONL(t, tt.raw), "test.jsonl", 1, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(events) != 1 {
+				t.Fatalf("expected 1 event, got %d", len(events))
+			}
+			if events[0].EventKind != tt.wantKind {
+				t.Fatalf("event kind = %q, want %q", events[0].EventKind, tt.wantKind)
+			}
+			if events[0].PayloadType != tt.wantPayload {
+				t.Fatalf("payload type = %q, want %q", events[0].PayloadType, tt.wantPayload)
+			}
+			if !events[0].Timestamp.IsZero() {
+				t.Fatalf("timestamp = %s, want zero for timestamp-less metadata", events[0].Timestamp)
+			}
+		})
+	}
+}
+
 func TestParseClaudeJSONL_CWDExtracted(t *testing.T) {
 	line := toJSONL(t, map[string]any{
 		"sessionId": "sess-1",
