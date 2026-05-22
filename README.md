@@ -203,6 +203,7 @@ Available tools:
 | `beacon db up` | Start local ClickHouse and migrate tables |
 | `beacon db down` | Stop Beacon-managed local ClickHouse |
 | `beacon db migrate` | Create or update ClickHouse tables |
+| `beacon db refresh-projections` | Rebuild derived session and analytics projections |
 | `beacon db reset --force` | Delete Beacon data and recreate tables |
 
 ## Build From Source
@@ -240,7 +241,7 @@ make publish VERSION=x.y.z
 
 `make publish` expects a clean, up-to-date `main` branch, a working `gh` authentication or `GITHUB_TOKEN`, `zig` for Linux CGO cross-builds, and `goreleaser` on `PATH`. It creates and pushes tag `vx.y.z`, runs a local GoReleaser build before publishing, and uploads the release artifacts to GitHub Releases.
 
-Most Go tests do not need a live ClickHouse server. Live ClickHouse integration and perf tests are opt-in:
+Most Go tests do not need a live ClickHouse server. Live ClickHouse integration and perf tests are opt-in and require a reachable ClickHouse TCP endpoint:
 
 ```bash
 beacon db up
@@ -248,7 +249,7 @@ BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/store ./internal/search
 BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/perf -bench . -run '^$'
 ```
 
-Playwright tests start their own e2e server by default. To test against an already running Beacon-compatible server, set `BEACON_E2E_BASE_URL`.
+Playwright tests require Node dependencies from `npm install` and a Chromium browser installed by Playwright. They start their own e2e server by default. To test against an already running Beacon-compatible server, set `BEACON_E2E_BASE_URL`. Visual regression snapshots currently have Darwin baselines only, so `npm run test:visual` skips on other platforms.
 
 ## Troubleshooting
 
