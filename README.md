@@ -152,6 +152,9 @@ By default, `beacon db up` uses the managed ClickHouse binary when available and
 
 Native ClickHouse data lives under `~/.beacon/clickhouse`. Docker mode uses the `beacon-clickhouse-data` volume.
 
+For schema ownership, migration behavior, reset policy, and local data
+locations, see [docs/clickhouse.md](docs/clickhouse.md).
+
 ## MCP Integration
 
 Run `beacon db up` first so ClickHouse is available and migrated, then add Beacon to your MCP client:
