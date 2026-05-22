@@ -2,7 +2,9 @@
 
 Beacon vendors browser JavaScript and CSS assets into `static/` so the
 dashboard can run locally without loading CDN resources. These files are copied
-from npm packages by `npm run vendor`.
+from npm packages by `npm run vendor`. `static/vendor-manifest.json` records
+the exact package versions, licenses, upstream URLs, source paths, and SHA-256
+hashes used for the current vendored files.
 
 | Vendored file | Source package | Version | License | Upstream |
 | --- | --- | --- | --- | --- |
@@ -15,8 +17,12 @@ from npm packages by `npm run vendor`.
 | `static/css/vendor/github-dark.min.css` | `@highlightjs/cdn-assets` | 11.11.1 | BSD-3-Clause | <https://github.com/highlightjs/highlight.js> |
 
 Release archives include this notice file and Beacon's repository license.
-When vendored assets are refreshed, update this table from `package-lock.json`
-and the package license metadata in `node_modules`.
+When vendored assets are refreshed, run `npm run vendor`, review
+`static/vendor-manifest.json`, and update this table from `package-lock.json`
+and the package license metadata in `node_modules`. Run `npm run vendor:check`
+before opening the PR; CI uses the same check to catch stale assets, manifest
+metadata, notice entries, and unconfigured files left in the vendor
+directories.
 
 ## htmx.org
 

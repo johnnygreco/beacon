@@ -251,7 +251,8 @@ make clean          # remove build/test outputs such as bin, dist, coverage, and
 make clean-local    # also remove ignored repo-local scratch/agent dirs and local DB files
 make clean-deps     # remove node_modules
 npm install         # install Playwright and asset-vendoring dependencies
-npm run vendor      # refresh vendored frontend assets
+npm run vendor       # refresh vendored frontend assets
+npm run vendor:check # verify vendored frontend assets and notices are current
 npm run test:e2e    # dashboard and search Playwright tests
 npm run test:a11y   # accessibility tests
 npm run test:visual # visual regression tests
