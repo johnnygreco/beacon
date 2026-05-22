@@ -553,7 +553,7 @@ test.describe('dashboard battle-tested workflows', () => {
       localStorage.setItem('beacon-timeline-prev-width', '420');
     });
     let releaseDashboardScript: (() => void) | undefined;
-    await page.route('**/static/js/dashboard.js', async (route) => {
+    await page.route('**/static/js/dashboard/timeline.js', async (route) => {
       await new Promise<void>((resolve) => {
         releaseDashboardScript = resolve;
       });

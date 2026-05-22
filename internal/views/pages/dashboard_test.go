@@ -68,8 +68,8 @@ func TestDashboardGoToSessionUsesParsedPathname(t *testing.T) {
 		t.Fatalf("render dashboard: %v", err)
 	}
 	html := buf.String()
-	if !strings.Contains(html, `/static/js/dashboard.js`) {
-		t.Fatal("dashboard page does not load dashboard.js")
+	if !strings.Contains(html, `/static/js/dashboard/controls.js`) {
+		t.Fatal("dashboard page does not load split dashboard scripts")
 	}
 	script := dashboardClientScript(t)
 	for _, expected := range []string{
@@ -119,11 +119,26 @@ func TestDashboardLiveAnalyticsChartsUseSharedRange(t *testing.T) {
 
 func dashboardClientScript(t *testing.T) string {
 	t.Helper()
-	body, err := os.ReadFile("../../../static/js/dashboard.js")
-	if err != nil {
-		t.Fatalf("read dashboard.js: %v", err)
+	paths := []string{
+		"../../../static/js/dashboard/utils.js",
+		"../../../static/js/dashboard/theme.js",
+		"../../../static/js/dashboard/inspector.js",
+		"../../../static/js/dashboard/timeline.js",
+		"../../../static/js/dashboard/state.js",
+		"../../../static/js/dashboard/table.js",
+		"../../../static/js/dashboard/render.js",
+		"../../../static/js/dashboard/controls.js",
 	}
-	return string(body)
+	var out strings.Builder
+	for _, path := range paths {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		out.Write(body)
+		out.WriteByte('\n')
+	}
+	return out.String()
 }
 
 func TestDashboardTokensByModelData_SingleProvider(t *testing.T) {

@@ -1,6 +1,9 @@
 .DEFAULT_GOAL := help
 .PHONY: help build run generate clean clean-local clean-deps simulator publish test test-race test-cover perf-bench perf-explain fmt fmt-check lint
 
+GO_PACKAGE_DIRS = $(shell go list -f '{{.Dir}}' ./... | grep -v '/node_modules/')
+GO_PACKAGES = $(patsubst $(CURDIR)%,.%,$(GO_PACKAGE_DIRS))
+
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
@@ -28,13 +31,13 @@ simulator: ## Build the simulator binary
 	go build -o bin/simulator ./cmd/simulator
 
 test: generate ## Run all tests
-	go test ./...
+	go test $(GO_PACKAGES)
 
 test-race: generate ## Run tests with race detector
-	go test -race ./...
+	go test -race $(GO_PACKAGES)
 
 test-cover: generate ## Run tests with coverage report and threshold checks
-	go test -race -coverprofile=coverage.txt ./...
+	go test -race -coverprofile=coverage.txt $(GO_PACKAGES)
 	go tool cover -func=coverage.txt | tail -1
 	./scripts/check-coverage.sh coverage.txt
 
@@ -64,7 +67,7 @@ fmt-check: ## Check tracked Go files are gofmt formatted
 	fi
 
 lint: ## Run linter
-	golangci-lint run ./...
+	golangci-lint run $(GO_PACKAGES)
 
 publish: ## Publish a release (usage: make publish VERSION=x.y.z)
 	./scripts/publish.sh $(VERSION)
