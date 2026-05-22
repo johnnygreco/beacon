@@ -44,6 +44,10 @@ type replayLine struct {
 	seq    int
 }
 
+type captureErrorStore interface {
+	InsertCaptureError(ctx context.Context, err models.CaptureError) error
+}
+
 // WatchSource defines a source to watch for JSONL files.
 type WatchSource struct {
 	Name       string
@@ -60,7 +64,7 @@ type WatchSource struct {
 type Watcher struct {
 	sources           []WatchSource
 	eventCh           chan<- BatchEvent
-	store             *store.Store
+	store             captureErrorStore
 	logger            *slog.Logger
 	debounceDelay     time.Duration
 	reconcileInterval time.Duration

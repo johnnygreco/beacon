@@ -7,19 +7,23 @@ import (
 	"syscall"
 
 	"github.com/johnnygreco/beacon/internal/models"
-	"github.com/johnnygreco/beacon/internal/store"
 )
+
+type checkpointStore interface {
+	LoadCheckpoints(ctx context.Context, sourceName string) (map[string]*models.Checkpoint, error)
+	UpsertCheckpoint(ctx context.Context, cp models.Checkpoint) error
+}
 
 // CheckpointManager loads and saves file processing checkpoints.
 type CheckpointManager struct {
-	store      *store.Store
+	store      checkpointStore
 	sourceName string
 	mu         sync.RWMutex
 	cache      map[string]*models.Checkpoint
 }
 
 // NewCheckpointManager creates a checkpoint manager for a given source.
-func NewCheckpointManager(ch *store.Store, sourceName string) *CheckpointManager {
+func NewCheckpointManager(ch checkpointStore, sourceName string) *CheckpointManager {
 	return &CheckpointManager{
 		store:      ch,
 		sourceName: sourceName,
