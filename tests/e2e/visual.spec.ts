@@ -2,12 +2,13 @@ import { expect, test } from '@playwright/test';
 import {
   TEST_SESSION_ID,
   expectEqualDashboardChartHeights,
+  fillDashboardSearchAndWait,
   gotoDashboard,
   installDashboardFixtures,
   visualMasks,
   waitForCompletedRows,
+  waitForDashboardSearchRows,
 } from './fixtures/dashboard';
-import { fillSearchAndWait } from './fixtures/search';
 
 test.describe('dashboard visual regression baselines', () => {
   test.skip(process.platform !== 'darwin', 'Visual snapshots currently have Darwin baselines only.');
@@ -79,8 +80,8 @@ test.describe('dashboard visual regression baselines', () => {
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
 
-    await page.locator('#dashboard-session-search').fill('migration');
-    await waitForCompletedRows(page, 1);
+    await fillDashboardSearchAndWait(page, 'migration');
+    await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#completed-table')).toHaveScreenshot('dashboard-table-search.png');
 
     await expect(page.locator('xpath=//canvas[@id="dashboardTokenCumulativeChart"]/ancestor::div[contains(@class,"bg-gray-800")][1]')).toHaveScreenshot('dashboard-chart-controls.png');
@@ -144,20 +145,5 @@ test.describe('dashboard visual regression baselines', () => {
     await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
     await expect(page.locator('#sidebar')).toHaveCount(0);
     await expect(page.locator('#transcript-wrap')).toHaveScreenshot('transcript-desktop-themed.png');
-  });
-
-  test('search page desktop and mobile states', async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto('/search', { waitUntil: 'domcontentloaded' });
-    await fillSearchAndWait(page, 'many');
-    await expect(page.locator('.search-result-card')).toHaveCount(30);
-    await expect(page.locator('#search-filters')).toHaveScreenshot('search-desktop-filters.png');
-    await expect(page.locator('.search-result-card').first()).toHaveScreenshot('search-desktop-result-card.png');
-
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/search', { waitUntil: 'domcontentloaded' });
-    await fillSearchAndWait(page, 'many');
-    await expect(page.locator('.search-result-card')).toHaveCount(30);
-    await expect(page.locator('.search-result-card').first()).toHaveScreenshot('search-mobile-result-card.png');
   });
 });

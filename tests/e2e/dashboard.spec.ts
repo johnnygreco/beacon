@@ -1,15 +1,18 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
   ACTIVE_SESSION_ID,
+  SEARCH_SESSION_ID,
   TEST_EVENT_ID,
   TEST_SESSION_ID,
   attachPageGuards,
   expectEqualDashboardChartHeights,
   expectLogAndModelControlsAligned,
   expectNoHorizontalOverflow,
+  fillDashboardSearchAndWait,
   gotoDashboard,
   installDashboardFixtures,
   waitForCompletedRows,
+  waitForDashboardSearchRows,
 } from './fixtures/dashboard';
 
 async function installTranscriptRealtimeFixture(page: Page) {
@@ -130,7 +133,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
-  test('keeps the dashboard search link visible, keyboard reachable, and contained', async ({ page }) => {
+  test('keeps the dashboard search control visible, keyboard reachable, and contained', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);
 
@@ -141,13 +144,12 @@ test.describe('dashboard battle-tested workflows', () => {
       await page.setViewportSize(viewport);
       await gotoDashboard(page);
 
-      const searchLink = page.locator('#dashboard-search-link');
-      await expect(searchLink).toBeVisible();
-      await expect(searchLink).toHaveAttribute('href', '/search');
-      await expect(searchLink).toHaveAttribute('aria-label', 'Open search');
+      const searchButton = page.locator('#dashboard-search-focus');
+      await expect(searchButton).toBeVisible();
+      await expect(searchButton).toHaveAttribute('aria-label', 'Focus search');
       await expectNoHorizontalOverflow(page);
 
-      const metrics = await searchLink.evaluate((el) => {
+      const metrics = await searchButton.evaluate((el) => {
         const rect = el.getBoundingClientRect();
         return {
           left: Math.floor(rect.left),
@@ -162,13 +164,13 @@ test.describe('dashboard battle-tested workflows', () => {
     }
 
     await page.keyboard.press('Tab');
-    for (let i = 0; i < 20 && !(await page.locator('#dashboard-search-link').evaluate((el) => el === document.activeElement)); i++) {
+    for (let i = 0; i < 20 && !(await page.locator('#dashboard-search-focus').evaluate((el) => el === document.activeElement)); i++) {
       await page.keyboard.press('Tab');
     }
-    await expect(page.locator('#dashboard-search-link')).toBeFocused();
+    await expect(page.locator('#dashboard-search-focus')).toBeFocused();
     await page.keyboard.press('Enter');
-    await expect(page).toHaveURL(/\/search$/);
-    await expect(page.getByRole('heading', { name: 'Search' })).toBeVisible();
+    await expect(page.locator('#dashboard-session-search')).toBeFocused();
+    await expect(page).toHaveURL(/\/$/);
 
     await guards.expectClean();
   });
@@ -261,9 +263,9 @@ test.describe('dashboard battle-tested workflows', () => {
 
     await expectLogAndModelControlsAligned(page);
 
-    await page.getByRole('button', { name: '7d' }).click();
+    await page.locator('#dashboard-range-control').getByRole('button', { name: '7d' }).click();
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 7 days');
-    await expect(page.getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
 
     const allChartsRequest = page.waitForRequest((request) => {
       const url = new URL(request.url());
@@ -358,17 +360,17 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(divider).toHaveAttribute('aria-valuenow', '380');
     await expectEqualDashboardChartHeights(page);
 
-    await page.locator('#dashboard-session-search').fill('migration');
-    await expect(page.locator('#completed-session-status')).toHaveText(/1 search result/);
-    await waitForCompletedRows(page, 1);
+    await fillDashboardSearchAndWait(page, 'migration');
+    await expect(page.locator('#completed-session-status')).toHaveText(/1 event result/);
+    await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#dashboard-search-clear')).toBeVisible();
     await page.locator('#dashboard-search-clear').click();
     await waitForCompletedRows(page, 30);
 
-    await page.locator('#dashboard-session-search').fill('dashboard payload');
-    await expect(page.locator('#completed-session-status')).toHaveText(/1 search result/);
-    await waitForCompletedRows(page, 1);
-    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-id', TEST_SESSION_ID);
+    await fillDashboardSearchAndWait(page, 'dashboard payload');
+    await expect(page.locator('#completed-session-status')).toHaveText(/1 event result/);
+    await waitForDashboardSearchRows(page, 1);
+    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-session-id', SEARCH_SESSION_ID);
     await page.locator('#dashboard-search-clear').click();
     await waitForCompletedRows(page, 30);
 
@@ -395,13 +397,11 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator('.json-page-btn', { hasText: 'Previous' }).click();
     await waitForCompletedRows(page, 30);
 
-    await page.locator('#dashboard-session-search').fill('migration');
+    await page.locator('.json-page-btn', { hasText: 'Next' }).click();
     await waitForCompletedRows(page, 1);
     await page.locator(`button.json-subagent-toggle[data-session-id="${TEST_SESSION_ID}"]`).click();
     await expect(page.locator(`tr[data-parent="${TEST_SESSION_ID}"]`)).toHaveCount(2);
     await expect(page.locator(`button.json-subagent-toggle[data-session-id="${TEST_SESSION_ID}"]`)).toHaveAttribute('aria-expanded', 'true');
-    await page.locator('#dashboard-search-clear').click();
-    await waitForCompletedRows(page, 30);
     await page.locator('#dashboard-wrap').click({ position: { x: 20, y: 20 } });
 
     await page.keyboard.press('t');
@@ -508,7 +508,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#dashboard-session-search')).toBeFocused();
     await expect(page.locator('#inspector-full-link')).not.toBeFocused();
 
-    await page.locator('#dashboard-session-search').fill('migration');
+    await page.locator('.json-page-btn', { hasText: 'Next' }).click();
     await waitForCompletedRows(page, 1);
     const completedRow = page.locator(`tr[data-sort-id="${TEST_SESSION_ID}"]`);
     const completedOpenButton = completedRow.locator('.session-row-open');
@@ -585,7 +585,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#timeline-sidebar').getByRole('button', { name: 'Errors' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#activity-feed a[data-type="error"], #activity-feed a[data-type="tool_error"]')).toHaveCount(2);
 
-    await page.getByRole('button', { name: 'All' }).last().click();
+    await page.locator('#timeline-sidebar').getByRole('button', { name: 'All' }).click();
     await expect(page.locator('#activity-feed a[data-transcript-link]').first()).toBeVisible();
     await page.locator('#activity-feed a[data-transcript-link]').first().click();
     await expect(page).toHaveURL(new RegExp(`/sessions/${TEST_SESSION_ID}#${TEST_EVENT_ID}`));
@@ -659,14 +659,14 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(Date.now() - start).toBeLessThan(2000);
 
     const rangeStart = Date.now();
-    await page.getByRole('button', { name: '1h' }).click();
+    await page.locator('#dashboard-range-control').getByRole('button', { name: '1h' }).click();
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last hour');
     await expect(page.locator('#completed-session-status')).toContainText('shown');
     expect(Date.now() - rangeStart).toBeLessThan(800);
 
     const searchStart = Date.now();
-    await page.locator('#dashboard-session-search').fill('migration');
-    await waitForCompletedRows(page, 1);
+    await fillDashboardSearchAndWait(page, 'migration');
+    await waitForDashboardSearchRows(page, 1);
     expect(Date.now() - searchStart).toBeLessThan(800);
 
     const resizeStart = Date.now();

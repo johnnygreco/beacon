@@ -20,6 +20,7 @@ const completedSessionEventSearchLimit = 5000
 
 type apiSearcher interface {
 	Search(ctx context.Context, q search.SearchQuery) ([]search.SearchResult, error)
+	Browse(ctx context.Context, q search.SearchQuery) ([]search.SearchResult, error)
 }
 
 // APIHandlers serves JSON API endpoints.
@@ -191,6 +192,187 @@ func searchResultSessionIDs(results []search.SearchResult) []string {
 		ids = append(ids, result.SessionID)
 	}
 	return ids
+}
+
+// GetDashboardSearch returns event-level search results for the dashboard table.
+func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request) {
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	rangeVal := strings.TrimSpace(r.URL.Query().Get("range"))
+	eventKind := strings.TrimSpace(r.URL.Query().Get("event_kind"))
+	sessionID := strings.TrimSpace(r.URL.Query().Get("session_id"))
+	sortBy := strings.TrimSpace(r.URL.Query().Get("sort"))
+	if sortBy == "" {
+		sortBy = "relevance"
+	}
+
+	limit := parseDashboardSearchLimit(r.URL.Query().Get("limit"))
+	active := query != "" || rangeVal != "" || eventKind != "" || sessionID != ""
+	if !active {
+		a.jsonResponse(w, APIDashboardSearchResponse{
+			State: "idle",
+			Sort:  sortBy,
+			Limit: limit,
+			Items: []APIDashboardSearchResult{},
+		})
+		return
+	}
+	if a.searcher == nil {
+		a.jsonResponse(w, APIDashboardSearchResponse{
+			State:     "unavailable",
+			Query:     query,
+			Range:     rangeVal,
+			EventKind: eventKind,
+			SessionID: sessionID,
+			Sort:      sortBy,
+			Limit:     limit,
+			Items:     []APIDashboardSearchResult{},
+		})
+		return
+	}
+
+	sq := search.SearchQuery{
+		Query:      query,
+		Limit:      limit + 1,
+		SessionID:  sessionID,
+		EventKinds: dashboardSearchEventKinds(eventKind),
+		SortBy:     sortBy,
+	}
+	if t := parseRange(rangeVal); t != nil {
+		sq.FromTime = *t
+	}
+
+	var (
+		results []search.SearchResult
+		err     error
+	)
+	if query == "" {
+		results, err = a.searcher.Browse(r.Context(), sq)
+	} else {
+		results, err = a.searcher.Search(r.Context(), sq)
+	}
+	if err != nil {
+		a.logger.Error("dashboard search failed", "error", err)
+		a.jsonError(w, "search failed", http.StatusInternalServerError)
+		return
+	}
+
+	hasMore := len(results) > limit
+	if hasMore {
+		results = results[:limit]
+	}
+	sessionMeta := a.dashboardSearchSessionMeta(r.Context(), searchResultSessionIDs(results))
+	items := make([]APIDashboardSearchResult, 0, len(results))
+	for _, result := range results {
+		meta := sessionMeta[result.SessionID]
+		items = append(items, APIDashboardSearchResult{
+			EventUID:     result.EventUID,
+			SessionID:    result.SessionID,
+			EventKind:    result.EventKind,
+			Snippet:      dashboardSearchSnippet(result),
+			ToolName:     result.ToolName,
+			Provider:     result.Provider,
+			Model:        result.Model,
+			Score:        result.Score,
+			Timestamp:    result.Timestamp,
+			RelativeTime: views.RelativeTime(result.Timestamp),
+			SessionTitle: meta.title,
+			WorkingDir:   meta.workingDir,
+		})
+	}
+
+	a.jsonResponse(w, APIDashboardSearchResponse{
+		State:     "ready",
+		Query:     query,
+		Range:     rangeVal,
+		EventKind: eventKind,
+		SessionID: sessionID,
+		Sort:      sortBy,
+		Limit:     limit,
+		HasMore:   hasMore,
+		Items:     items,
+	})
+}
+
+func parseDashboardSearchLimit(raw string) int {
+	limit, _ := strconv.Atoi(raw)
+	switch {
+	case limit <= 0:
+		return defaultSearchPageSize
+	case limit > 240:
+		return 240
+	default:
+		return limit
+	}
+}
+
+func dashboardSearchEventKinds(eventKind string) []string {
+	switch eventKind {
+	case "error":
+		return []string{"error", "tool_error"}
+	case "":
+		return nil
+	default:
+		return []string{eventKind}
+	}
+}
+
+func dashboardSearchSnippet(result search.SearchResult) string {
+	snippet := result.TextPreview
+	if result.EventKind == "tool_call" && result.ToolName != "" {
+		raw := strings.TrimPrefix(snippet, result.ToolName+": ")
+		if raw == result.ToolName || raw == "" {
+			return ""
+		}
+		if formatted := formatToolCallSnippet(result.ToolName, raw); formatted != "" {
+			return formatted
+		}
+	}
+	return snippet
+}
+
+type dashboardSearchSessionInfo struct {
+	title      string
+	workingDir string
+}
+
+func (a *APIHandlers) dashboardSearchSessionMeta(ctx context.Context, ids []string) map[string]dashboardSearchSessionInfo {
+	meta := make(map[string]dashboardSearchSessionInfo, len(ids))
+	if a.db == nil || len(ids) == 0 {
+		return meta
+	}
+	args := make([]any, len(ids))
+	placeholders := make([]string, len(ids))
+	for i, id := range ids {
+		args[i] = id
+		placeholders[i] = "?"
+	}
+	rows, err := a.db.QueryContext(ctx,
+		`SELECT session_id, COALESCE(source_name, ''), started_at, COALESCE(working_dir, '')
+		 FROM session_projection FINAL
+		 WHERE session_id IN (`+strings.Join(placeholders, ",")+`)`, args...)
+	if err != nil {
+		return meta
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var sessionID, source, workingDir string
+		var startedAt time.Time
+		if err := rows.Scan(&sessionID, &source, &startedAt, &workingDir); err != nil {
+			continue
+		}
+		summary := views.SessionSummary{
+			ID:         sessionID,
+			Actor:      source,
+			StartedAt:  startedAt,
+			WorkingDir: workingDir,
+		}
+		meta[sessionID] = dashboardSearchSessionInfo{
+			title:      views.SessionTitle(summary, false),
+			workingDir: workingDir,
+		}
+	}
+	return meta
 }
 
 // GetSessionSubagents returns child sessions for a parent session as JSON.
@@ -421,6 +603,10 @@ func (a *APIHandlers) SearchEvents(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
 	if query == "" {
 		a.jsonError(w, "missing query parameter 'q'", http.StatusBadRequest)
+		return
+	}
+	if a.searcher == nil {
+		a.jsonError(w, "search unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))

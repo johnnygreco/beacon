@@ -387,7 +387,7 @@
 			return;
 		}
 		var link = evt.target.closest && evt.target.closest('a[href^="/sessions/"]');
-		if (link && link.id !== 'inspector-full-link' && !link.closest('#activity-feed')) {
+		if (link && link.id !== 'inspector-full-link' && !link.closest('#activity-feed') && !link.closest('[data-transcript-link]')) {
 			evt.preventDefault();
 			window.goToSession(link.getAttribute('href'), link);
 			return;
@@ -713,12 +713,19 @@ var currentRange = '24h';
 var currentDashboardMetric = 'error_rate';
 var currentCompletedOffset = 0;
 var currentSearchQuery = '';
+var currentSearchRange = '';
+var currentSearchEventKind = '';
+var currentSearchSessionID = '';
+var currentSearchSort = 'relevance';
+var currentSearchLimit = 30;
 var dashboardSearchTimer = 0;
 var completedPageSize = 30;
 var sortColumn = 'ended';
 var sortAsc = false;
 var dashboardRequestSeq = {};
 var dashboardControllers = {};
+var sessionTableHeadHTML = '';
+var searchLimitSteps = [30, 60, 120, 240];
 window.dashboardSessionIndex = window.dashboardSessionIndex || {};
 
 function escapeHTML(value) {
@@ -844,6 +851,32 @@ function requestURL(path, params) {
 	return path + (qs ? '?' + qs : '');
 }
 
+function isSearchMode() {
+	return currentSearchQuery !== '' || currentSearchRange !== '' || currentSearchEventKind !== '' || currentSearchSessionID !== '';
+}
+
+function setCompletedTableMode(mode) {
+	var table = document.getElementById('completed-table');
+	if (!table) return;
+	table.setAttribute('data-table-mode', mode);
+	var head = table.querySelector('thead');
+	if (!head) return;
+	if (mode === 'search') {
+		setHTMLIfChanged(head, '<tr class="text-xs text-gray-500 uppercase tracking-wider border-b border-gray-700">' +
+			'<th scope="col" class="text-left py-2 px-3 font-medium">Match</th>' +
+			'<th scope="col" class="text-left py-2 px-3 font-medium">Provider</th>' +
+			'<th scope="col" class="text-left py-2 px-3 font-medium">Model</th>' +
+			'<th scope="col" class="text-left py-2 px-3 font-medium">Session</th>' +
+			'<th scope="col" class="text-right py-2 px-3 font-medium">Time</th>' +
+			'<th scope="col" class="text-right py-2 px-3 font-medium">Score</th>' +
+			'</tr>');
+		return;
+	}
+	if (sessionTableHeadHTML) {
+		setHTMLIfChanged(head, sessionTableHeadHTML);
+	}
+}
+
 async function fetchDashboardJSON(key, url) {
 	dashboardRequestSeq[key] = (dashboardRequestSeq[key] || 0) + 1;
 	var seq = dashboardRequestSeq[key];
@@ -912,6 +945,9 @@ function completedRow(session, isSubagent, parentID) {
 
 function renderCompleted(response) {
 	var tbody = document.getElementById('completed-sessions');
+	var title = document.getElementById('completed-table-title');
+	if (title) title.textContent = 'Completed Sessions';
+	setCompletedTableMode('sessions');
 	response.items = (response.items || []).filter(validSession);
 	if ((response.items || []).length === 0 && response.offset > 0) {
 		loadCompletedSessions(Math.max(0, response.offset - (response.limit || completedPageSize)));
@@ -936,6 +972,78 @@ function renderCompleted(response) {
 	}
 	var changed = setHTMLIfChanged(tbody, rows.join(''));
 	if (changed) updateCompletedSortIndicators();
+}
+
+function searchEventLabel(kind) {
+	if (kind === 'tool_call') return 'Tool call';
+	if (kind === 'tool_result') return 'Tool result';
+	if (kind === 'tool_error') return 'Tool error';
+	if (kind === 'reasoning') return 'Reasoning';
+	if (kind === 'error') return 'Error';
+	if (kind === 'message') return 'Message';
+	return kind || 'Event';
+}
+
+function searchEventBadge(kind) {
+	if (kind === 'tool_call') return 'bg-yellow-500/15 text-yellow-400';
+	if (kind === 'tool_result') return 'bg-emerald-500/15 text-emerald-400';
+	if (kind === 'tool_error') return 'bg-orange-500/15 text-orange-400';
+	if (kind === 'reasoning') return 'bg-violet-500/15 text-violet-400';
+	if (kind === 'error') return 'bg-red-500/15 text-red-400';
+	if (kind === 'message') return 'bg-blue-500/15 text-blue-400';
+	return 'bg-gray-600/40 text-gray-400';
+}
+
+function searchResultHref(item) {
+	var base = '/sessions/' + encodeURIComponent(item.session_id || '');
+	if (item.event_uid) return base + '#' + encodeURIComponent(item.event_uid);
+	return base;
+}
+
+function searchRow(item) {
+	var href = searchResultHref(item);
+	var sessionLabel = item.session_title || shortID(item.session_id) || 'Session';
+	var project = item.working_dir ? '<div class="text-[11px] text-gray-600 truncate" title="' + escapeAttr(item.working_dir) + '">' + escapeHTML(item.working_dir) + '</div>' : '';
+	var tool = item.tool_name ? '<span class="text-[11px] text-gray-500 truncate" title="' + escapeAttr(item.tool_name) + '">' + escapeHTML(item.tool_name) + '</span>' : '';
+	var score = currentSearchSort === 'relevance' && Number(item.score || 0) > 0 ? Number(item.score).toFixed(2) : '';
+	return '<tr class="border-b border-gray-800/50 hover:bg-gray-800/40 transition-colors cursor-pointer" data-search-row data-transcript-link="true" data-href="' + escapeAttr(href) + '" data-event-kind="' + escapeAttr(item.event_kind || '') + '" data-session-id="' + escapeAttr(item.session_id || '') + '">' +
+		'<td class="py-2 px-3 min-w-[18rem]"><a href="' + escapeAttr(href) + '" data-transcript-link="true" class="dashboard-search-result-link"><div class="flex items-center gap-2 mb-1"><span class="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ' + searchEventBadge(item.event_kind) + '">' + escapeHTML(searchEventLabel(item.event_kind)) + '</span>' + tool + '</div><div class="dashboard-search-snippet">' + escapeHTML(item.snippet || '') + '</div></a></td>' +
+		'<td class="py-2 px-3 text-xs whitespace-nowrap">' + providerBadge(item.provider) + '</td>' +
+		'<td class="py-2 px-3 text-xs text-gray-400 max-w-[160px] truncate" title="' + escapeAttr(item.model || '') + '">' + escapeHTML(shortModel(item.model || '')) + '</td>' +
+		'<td class="py-2 px-3 text-xs text-gray-500 max-w-[220px]"><div class="truncate" title="' + escapeAttr(item.session_id || '') + '">' + escapeHTML(sessionLabel) + ' <span class="font-mono text-gray-600">' + escapeHTML(shortID(item.session_id)) + '</span></div>' + project + '</td>' +
+		'<td class="py-2 px-3 text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">' + escapeHTML(item.relative_time || relativeTime(item.timestamp)) + '</td>' +
+		'<td class="py-2 px-3 text-right text-xs text-gray-500 tabular-nums">' + escapeHTML(score) + '</td>' +
+		'</tr>';
+}
+
+function renderDashboardSearch(response) {
+	var tbody = document.getElementById('completed-sessions');
+	var status = document.getElementById('completed-session-status');
+	var title = document.getElementById('completed-table-title');
+	if (title) title.textContent = 'Search Results';
+	setCompletedTableMode('search');
+	response.items = response.items || [];
+	var rows = response.items.map(searchRow);
+	if (response.has_more) {
+		rows.push('<tr class="border-none" data-search-more-row><td colspan="6" class="py-3"><div class="flex items-center justify-center gap-4"><button type="button" class="dashboard-search-show-more px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Show more</button><span class="text-xs text-gray-500 tabular-nums">Showing ' + response.items.length + '+ events</span></div></td></tr>');
+	}
+	if (rows.length === 0) {
+		var message = response.state === 'unavailable'
+			? 'Search is not connected'
+			: (response.state === 'idle' ? 'Enter a query or filter to search events' : 'No matching events');
+		rows.push('<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-gray-500">' + escapeHTML(message) + '</span></td></tr>');
+	}
+	setHTMLIfChanged(tbody, rows.join(''));
+	if (status) {
+		if (response.state === 'unavailable') {
+			status.textContent = 'Search unavailable';
+		} else if (response.state === 'idle') {
+			status.textContent = 'Search events from the dashboard table';
+		} else {
+			var count = response.items.length;
+			status.textContent = count + (response.has_more ? '+' : '') + ' event result' + (count === 1 && !response.has_more ? '' : 's');
+		}
+	}
 }
 
 function renderActive(response) {
@@ -1105,7 +1213,35 @@ async function loadActiveSessions() {
 	renderActive(data);
 }
 
+async function loadDashboardSearch() {
+	currentCompletedOffset = 0;
+	var status = document.getElementById('completed-session-status');
+	if (status) status.textContent = 'Searching events...';
+	var result = await fetchDashboardJSON('completed', requestURL('/api/dashboard/search', {
+		q: currentSearchQuery,
+		range: currentSearchRange,
+		event_kind: currentSearchEventKind,
+		session_id: currentSearchSessionID,
+		sort: currentSearchSort,
+		limit: currentSearchLimit
+	}));
+	if (!result || result.stale) return;
+	if (result.error) {
+		var tbody = document.getElementById('completed-sessions');
+		var title = document.getElementById('completed-table-title');
+		if (title) title.textContent = 'Search Results';
+		setCompletedTableMode('search');
+		setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-red-400">Unable to search events. <button type="button" class="underline" onclick="loadDashboardSearch()">Retry</button></span></td></tr>');
+		if (status) status.textContent = 'Search failed';
+		return;
+	}
+	renderDashboardSearch(result.data);
+}
+
 async function loadCompletedSessions(offset) {
+	if (isSearchMode()) {
+		return loadDashboardSearch();
+	}
 	currentCompletedOffset = Math.max(0, offset || 0);
 	var status = document.getElementById('completed-session-status');
 	if (status) status.textContent = currentSearchQuery ? 'Searching sessions...' : 'Loading sessions...';
@@ -1114,7 +1250,6 @@ async function loadCompletedSessions(offset) {
 		limit: completedPageSize,
 		offset: currentCompletedOffset,
 		range: currentRange,
-		q: currentSearchQuery,
 		sort: sortColumn,
 		direction: sortAsc ? 'asc' : 'desc'
 	}));
@@ -1169,7 +1304,7 @@ function setDashboardRange(btn, value) {
 	btn.setAttribute('aria-pressed', 'true');
 	updateRangeCaption();
 	loadDashboardCharts();
-	loadCompletedSessions(0);
+	if (!isSearchMode()) loadCompletedSessions(0);
 	loadActivity();
 }
 
@@ -1227,6 +1362,20 @@ async function toggleJSONSubagents(button) {
 }
 
 document.addEventListener('click', function(evt) {
+	var moreBtn = evt.target.closest && evt.target.closest('.dashboard-search-show-more');
+	if (moreBtn) {
+		evt.preventDefault();
+		var idx = searchLimitSteps.indexOf(currentSearchLimit);
+		currentSearchLimit = searchLimitSteps[Math.min(searchLimitSteps.length - 1, idx < 0 ? 1 : idx + 1)];
+		loadDashboardSearch();
+		return;
+	}
+	var searchRowEl = evt.target.closest && evt.target.closest('tr[data-search-row]');
+	if (searchRowEl && !evt.target.closest('button') && !evt.target.closest('a')) {
+		evt.preventDefault();
+		window.location.href = searchRowEl.getAttribute('data-href');
+		return;
+	}
 	var pageBtn = evt.target.closest && evt.target.closest('.json-page-btn');
 	if (pageBtn) {
 		evt.preventDefault();
@@ -1255,23 +1404,53 @@ document.addEventListener('click', function(evt) {
 });
 
 (function() {
+	var tableHead = document.querySelector('#completed-table thead');
+	if (tableHead) sessionTableHeadHTML = tableHead.innerHTML;
 	var searchInput = document.getElementById('dashboard-session-search');
 	var searchClear = document.getElementById('dashboard-search-clear');
+	var searchFocus = document.getElementById('dashboard-search-focus');
+	var searchSession = document.getElementById('dashboard-search-session');
+	var searchSort = document.getElementById('dashboard-search-sort');
+	var searchReset = document.getElementById('dashboard-search-reset');
+	function scheduleDashboardSearch() {
+		clearTimeout(dashboardSearchTimer);
+		dashboardSearchTimer = setTimeout(function() {
+			loadCompletedSessions(0);
+		}, 250);
+	}
+	function setSearchButtonGroup(selector, attr, value) {
+		document.querySelectorAll(selector).forEach(function(button) {
+			var active = (button.getAttribute(attr) || '') === value;
+			button.classList.toggle('is-active', active);
+			button.setAttribute('aria-pressed', active ? 'true' : 'false');
+		});
+	}
+	function syncSearchControls() {
+		if (searchClear) searchClear.classList.toggle('hidden', currentSearchQuery === '');
+		if (searchInput && searchInput.value.trim() !== currentSearchQuery) searchInput.value = currentSearchQuery;
+		if (searchSession && searchSession.value.trim() !== currentSearchSessionID) searchSession.value = currentSearchSessionID;
+		if (searchSort) searchSort.value = currentSearchSort;
+		setSearchButtonGroup('[data-search-range]', 'data-search-range', currentSearchRange);
+		setSearchButtonGroup('[data-search-event-kind]', 'data-search-event-kind', currentSearchEventKind);
+	}
 	if (searchInput) {
 		searchInput.addEventListener('input', function() {
 			currentSearchQuery = searchInput.value.trim();
 			currentCompletedOffset = 0;
-			if (searchClear) searchClear.classList.toggle('hidden', currentSearchQuery === '');
-			clearTimeout(dashboardSearchTimer);
-			dashboardSearchTimer = setTimeout(function() {
-				loadCompletedSessions(0);
-			}, 250);
+			syncSearchControls();
+			scheduleDashboardSearch();
 		});
 		searchInput.addEventListener('keydown', function(evt) {
 			if (evt.key === 'Enter') {
 				evt.preventDefault();
 				clearTimeout(dashboardSearchTimer);
 				currentSearchQuery = searchInput.value.trim();
+				loadCompletedSessions(0);
+			} else if (evt.key === 'Escape' && currentSearchQuery !== '') {
+				evt.preventDefault();
+				currentSearchQuery = '';
+				searchInput.value = '';
+				syncSearchControls();
 				loadCompletedSessions(0);
 			}
 		});
@@ -1281,11 +1460,68 @@ document.addEventListener('click', function(evt) {
 			if (searchInput) searchInput.value = '';
 			currentSearchQuery = '';
 			currentCompletedOffset = 0;
-			searchClear.classList.add('hidden');
+			syncSearchControls();
 			loadCompletedSessions(0);
 			if (searchInput) searchInput.focus();
 		});
 	}
+	if (searchFocus) {
+		searchFocus.addEventListener('click', function() {
+			if (searchInput) searchInput.focus();
+		});
+	}
+	document.querySelectorAll('[data-search-range]').forEach(function(button) {
+		button.addEventListener('click', function() {
+			currentSearchRange = button.getAttribute('data-search-range') || '';
+			currentSearchLimit = 30;
+			syncSearchControls();
+			loadCompletedSessions(0);
+		});
+	});
+	document.querySelectorAll('[data-search-event-kind]').forEach(function(button) {
+		button.addEventListener('click', function() {
+			currentSearchEventKind = button.getAttribute('data-search-event-kind') || '';
+			currentSearchLimit = 30;
+			syncSearchControls();
+			loadCompletedSessions(0);
+		});
+	});
+	if (searchSession) {
+		searchSession.addEventListener('input', function() {
+			currentSearchSessionID = searchSession.value.trim();
+			currentSearchLimit = 30;
+			scheduleDashboardSearch();
+		});
+	}
+	if (searchSort) {
+		searchSort.addEventListener('change', function() {
+			currentSearchSort = searchSort.value || 'relevance';
+			currentSearchLimit = 30;
+			loadCompletedSessions(0);
+		});
+	}
+	if (searchReset) {
+		searchReset.addEventListener('click', function() {
+			currentSearchQuery = '';
+			currentSearchRange = '';
+			currentSearchEventKind = '';
+			currentSearchSessionID = '';
+			currentSearchSort = 'relevance';
+			currentSearchLimit = 30;
+			if (searchInput) searchInput.value = '';
+			if (searchSession) searchSession.value = '';
+			syncSearchControls();
+			loadCompletedSessions(0);
+			if (searchInput) searchInput.focus();
+		});
+	}
+	document.addEventListener('keydown', function(evt) {
+		var tagName = document.activeElement ? document.activeElement.tagName : '';
+		if (evt.key === '/' && !evt.ctrlKey && !evt.metaKey && ['INPUT', 'TEXTAREA', 'SELECT'].indexOf(tagName) === -1) {
+			evt.preventDefault();
+			if (searchInput) searchInput.focus();
+		}
+	});
 	if (window.EventSource) {
 		var dashboardEvents = new EventSource('/sse/dashboard');
 		dashboardEvents.onopen = function() {
@@ -1312,6 +1548,7 @@ document.addEventListener('click', function(evt) {
 	} else {
 		setDashboardConnection('Static');
 	}
+	syncSearchControls();
 	updateRangeCaption();
 	loadActiveSessions();
 	loadCompletedSessions(0);

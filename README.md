@@ -18,11 +18,7 @@ Beacon is a local dashboard for long-running AI coding agents. It watches the se
   <img src="assets/session-screenshot.png" alt="Beacon transcript replay showing session metrics, token charts, tool usage, and conversation detail" />
 </p>
 
-**Search across history.** Prompts, responses, tool calls, paths, and errors can be searched across captured sessions.
-
-<p>
-  <img src="assets/search-screenshot.png" alt="Beacon search page showing filters and ranked results across captured sessions" />
-</p>
+**Search across history.** The dashboard table can switch from completed runs to event-level search results for prompts, responses, tool calls, paths, and errors.
 
 ## Why Use Beacon
 
