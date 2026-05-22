@@ -1,8 +1,9 @@
-import { expect, type Locator, type Page, type Route } from '@playwright/test';
+import { expect, type Locator, type Page, type Request, type Response, type Route } from '@playwright/test';
 
 export const TEST_SESSION_ID = 'session-older-001';
 export const ACTIVE_SESSION_ID = 'active-parent-001';
 export const TEST_EVENT_ID = 'event-older-001';
+export const SEARCH_SESSION_ID = 'session-search-001';
 
 type Scenario = 'default' | 'empty' | 'error-heavy' | 'many-active';
 
@@ -11,6 +12,8 @@ type DashboardFixtureOptions = {
   failOnce?: Array<'active' | 'completed' | 'activity' | 'charts'>;
   disableEventSource?: boolean;
 };
+
+type DashboardSearchURLPredicate = (url: URL) => boolean;
 
 const fixedNow = '2026-05-09T18:00:00.000Z';
 
@@ -318,6 +321,120 @@ function activityItems(scenario: Scenario) {
     : base;
 }
 
+function dashboardSearchBaseResults() {
+  return [
+    {
+      event_uid: 'event-search-001',
+      session_id: SEARCH_SESSION_ID,
+      event_kind: 'message',
+      snippet: 'Dashboard payload search surfaced the exact migration note inside the assistant response.',
+      provider: 'anthropic',
+      model: 'claude-sonnet-4',
+      score: 3.18,
+      timestamp: iso(2),
+      relative_time: '2d ago',
+      session_title: 'Dashboard payload search',
+      working_dir: '/Users/example/projects/beacon/search',
+    },
+    {
+      event_uid: 'event-search-002',
+      session_id: SEARCH_SESSION_ID,
+      event_kind: 'tool_call',
+      snippet: 'internal/views/pages/dashboard.templ',
+      tool_name: 'Read',
+      provider: 'openai',
+      model: 'gpt-5.4-codex',
+      score: 2.44,
+      timestamp: iso(2, 1),
+      relative_time: '2d ago',
+      session_title: 'Tool fixture search',
+      working_dir: '/Users/example/projects/beacon/search',
+    },
+    {
+      event_uid: 'event-search-003',
+      session_id: 'session-search-002',
+      event_kind: 'error',
+      snippet: 'Recoverable search timeout while loading a large result set.',
+      provider: 'openai',
+      model: 'gpt-5.4-codex',
+      score: 1.72,
+      timestamp: iso(2, 2),
+      relative_time: '2d ago',
+      session_title: 'Search timeout diagnosis',
+      working_dir: '/Users/example/projects/beacon',
+    },
+  ];
+}
+
+function dashboardSearchManyResults() {
+  const base = dashboardSearchBaseResults();
+  return Array.from({ length: 35 }, (_, i) => {
+    const result = { ...base[i % base.length] };
+    result.event_uid = `event-many-${String(i + 1).padStart(3, '0')}`;
+    result.session_id = i % 2 === 0 ? SEARCH_SESSION_ID : 'session-search-many';
+    result.snippet = `Many-result fixture item ${i + 1} for pagination and visual density checks.`;
+    result.score = 3 - i * 0.03;
+    result.timestamp = iso(2, Math.floor(i / 6));
+    result.relative_time = '2d ago';
+    return result;
+  });
+}
+
+function dashboardSearchMatchesText(result: ReturnType<typeof dashboardSearchBaseResults>[number], query: string) {
+  const normalized = query.toLowerCase().trim();
+  if (normalized === '' || normalized === 'many') return true;
+  const haystack = [
+    result.snippet,
+    result.event_kind,
+    result.tool_name || '',
+    result.session_id,
+    result.session_title || '',
+    result.model || '',
+    result.provider || '',
+  ].join(' ').toLowerCase();
+  return normalized.split(/\s+/).filter(Boolean).every((token) => haystack.includes(token));
+}
+
+function dashboardSearchForRequest(url: URL, scenario: Scenario) {
+  const query = (url.searchParams.get('q') || '').trim();
+  const range = url.searchParams.get('range') || '';
+  const eventKind = url.searchParams.get('event_kind') || '';
+  const sessionID = (url.searchParams.get('session_id') || '').toLowerCase();
+  const sort = url.searchParams.get('sort') || 'relevance';
+  const limit = Number(url.searchParams.get('limit') || 30);
+  const active = query !== '' || range !== '' || eventKind !== '' || sessionID !== '';
+  if (!active) {
+    return { state: 'idle', sort, limit, has_more: false, items: [] };
+  }
+  if (scenario === 'empty') {
+    return { state: 'ready', query, range, event_kind: eventKind, session_id: sessionID, sort, limit, has_more: false, items: [] };
+  }
+  const source = query.toLowerCase() === 'many' ? dashboardSearchManyResults() : dashboardSearchBaseResults();
+  const acceptedKinds = eventKind === 'error' ? new Set(['error', 'tool_error']) : new Set(eventKind ? [eventKind] : []);
+  const filtered = source.filter((result) => {
+    if (!dashboardSearchMatchesText(result, query)) return false;
+    if (acceptedKinds.size > 0 && !acceptedKinds.has(result.event_kind)) return false;
+    if (sessionID && !result.session_id.toLowerCase().startsWith(sessionID)) return false;
+    return true;
+  });
+  const sorted = [...filtered].sort((a, b) => {
+    if (sort === 'newest') return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+    if (sort === 'oldest') return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+    return b.score - a.score;
+  });
+  return {
+    state: 'ready',
+    query,
+    range,
+    event_kind: eventKind,
+    session_id: sessionID,
+    sort,
+    limit,
+    has_more: sorted.length > limit,
+    items: sorted.slice(0, limit),
+  };
+}
+
 function completedForRequest(url: URL, scenario: Scenario) {
   if (scenario === 'empty') return { items: [], hasMore: false };
   const query = (url.searchParams.get('q') || '').toLowerCase();
@@ -523,6 +640,11 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
     });
   });
 
+  await page.route('**/api/dashboard/search**', async (route) => {
+    const url = new URL(route.request().url());
+    return fulfillJSON(route, dashboardSearchForRequest(url, scenario));
+  });
+
   await page.route('**/api/dashboard/charts**', async (route) => {
     if (failures.delete('charts')) return fulfillJSON(route, { error: 'fixture failure' }, 500);
     return fulfillJSON(route, chartPayload(scenario));
@@ -616,6 +738,45 @@ export async function gotoDashboard(page: Page) {
 
 export async function waitForCompletedRows(page: Page, count = 30) {
   await expect(page.locator('#completed-sessions tr[data-session-link]')).toHaveCount(count);
+}
+
+function isDashboardSearchURL(rawURL: string, predicate?: DashboardSearchURLPredicate) {
+  const url = new URL(rawURL);
+  return url.pathname === '/api/dashboard/search' && (!predicate || predicate(url));
+}
+
+export function waitForDashboardSearchRequest(page: Page, predicate?: DashboardSearchURLPredicate) {
+  return page.waitForRequest((request: Request) => isDashboardSearchURL(request.url(), predicate));
+}
+
+export async function waitForDashboardSearchResponse(page: Page, predicate?: DashboardSearchURLPredicate) {
+  const response = await page.waitForResponse((candidate: Response) => {
+    return candidate.status() === 200 && isDashboardSearchURL(candidate.url(), predicate);
+  });
+  expect(response.ok()).toBe(true);
+  return response;
+}
+
+export async function fillDashboardSearchAndWait(page: Page, value: string, predicate?: DashboardSearchURLPredicate) {
+  const responsePromise = waitForDashboardSearchResponse(page, predicate || ((url) => url.searchParams.get('q') === value));
+  await page.locator('#dashboard-session-search').fill(value);
+  return responsePromise;
+}
+
+export async function triggerDashboardSearchAndWait(
+  page: Page,
+  action: () => Promise<unknown>,
+  predicate?: DashboardSearchURLPredicate,
+) {
+  const requestPromise = waitForDashboardSearchRequest(page, predicate);
+  const responsePromise = waitForDashboardSearchResponse(page, predicate);
+  await action();
+  const [request] = await Promise.all([requestPromise, responsePromise]);
+  return new URL(request.url());
+}
+
+export async function waitForDashboardSearchRows(page: Page, count: number) {
+  await expect(page.locator('#completed-sessions tr[data-search-row]')).toHaveCount(count);
 }
 
 export async function expectNoHorizontalOverflow(page: Page) {

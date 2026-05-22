@@ -2,11 +2,12 @@ import { expect, test, type Page } from '@playwright/test';
 import axe from 'axe-core';
 import {
   TEST_SESSION_ID,
+  fillDashboardSearchAndWait,
   gotoDashboard,
   installDashboardFixtures,
   waitForCompletedRows,
+  waitForDashboardSearchRows,
 } from './fixtures/dashboard';
-import { fillSearchAndWait } from './fixtures/search';
 
 async function axeSeriousOrCritical(page: Page) {
   await page.addScriptTag({ content: axe.source });
@@ -72,10 +73,11 @@ test.describe('dashboard accessibility', () => {
     expect(await axeSeriousOrCritical(page)).toEqual([]);
   });
 
-  test('has no serious or critical axe violations on search results', async ({ page }) => {
-    await page.goto('/search', { waitUntil: 'domcontentloaded' });
-    await fillSearchAndWait(page, 'many');
-    await expect(page.locator('.search-result-card')).toHaveCount(30);
+  test('has no serious or critical axe violations on dashboard search results', async ({ page }) => {
+    await installDashboardFixtures(page);
+    await gotoDashboard(page);
+    await fillDashboardSearchAndWait(page, 'many');
+    await waitForDashboardSearchRows(page, 30);
 
     expect(await axeSeriousOrCritical(page)).toEqual([]);
   });

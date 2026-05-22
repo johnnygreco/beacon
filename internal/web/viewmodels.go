@@ -77,6 +77,33 @@ type APIDashboardSessionsResponse struct {
 	Items   []APISessionSummary `json:"items"`
 }
 
+type APIDashboardSearchResponse struct {
+	State     string                     `json:"state"`
+	Query     string                     `json:"query,omitempty"`
+	Range     string                     `json:"range,omitempty"`
+	EventKind string                     `json:"event_kind,omitempty"`
+	SessionID string                     `json:"session_id,omitempty"`
+	Sort      string                     `json:"sort"`
+	Limit     int                        `json:"limit"`
+	HasMore   bool                       `json:"has_more"`
+	Items     []APIDashboardSearchResult `json:"items"`
+}
+
+type APIDashboardSearchResult struct {
+	EventUID     string    `json:"event_uid"`
+	SessionID    string    `json:"session_id"`
+	EventKind    string    `json:"event_kind"`
+	Snippet      string    `json:"snippet"`
+	ToolName     string    `json:"tool_name,omitempty"`
+	Provider     string    `json:"provider,omitempty"`
+	Model        string    `json:"model,omitempty"`
+	Score        float64   `json:"score,omitempty"`
+	Timestamp    time.Time `json:"timestamp"`
+	RelativeTime string    `json:"relative_time"`
+	SessionTitle string    `json:"session_title,omitempty"`
+	WorkingDir   string    `json:"working_dir,omitempty"`
+}
+
 type APIActivityItem struct {
 	ID           string    `json:"id"`
 	Type         string    `json:"type"`

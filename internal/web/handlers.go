@@ -1,14 +1,9 @@
 package web
 
 import (
-	"context"
 	"database/sql"
-	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -20,23 +15,13 @@ import (
 
 // Handlers serves HTML page routes rendered with templ.
 type Handlers struct {
-	db       *sql.DB
-	searcher searchBackend
-	logger   *slog.Logger
-}
-
-type searchBackend interface {
-	Search(ctx context.Context, q search.SearchQuery) ([]search.SearchResult, error)
-	Browse(ctx context.Context, q search.SearchQuery) ([]search.SearchResult, error)
+	db     *sql.DB
+	logger *slog.Logger
 }
 
 // NewHandlers creates page handlers.
-func NewHandlers(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) *Handlers {
-	var backend searchBackend
-	if searcher != nil {
-		backend = searcher
-	}
-	return &Handlers{db: db, searcher: backend, logger: logger}
+func NewHandlers(db *sql.DB, _ *search.Searcher, logger *slog.Logger) *Handlers {
+	return &Handlers{db: db, logger: logger}
 }
 
 // Dashboard renders the dashboard shell; data loads through JSON APIs.
@@ -89,194 +74,7 @@ func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// Search renders the search page (results load via HTMX).
+// Search redirects legacy search links to the dashboard table search.
 func (h *Handlers) Search(w http.ResponseWriter, r *http.Request) {
-	if err := pages.Search(nil).Render(r.Context(), w); err != nil {
-		h.logger.Debug("render search failed", "error", err)
-	}
-}
-
-// SearchResults handles HTMX partial requests for search results.
-func (h *Handlers) SearchResults(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	sessionID := strings.TrimSpace(r.URL.Query().Get("session_id"))
-	eventKind := strings.TrimSpace(r.URL.Query().Get("event_kind"))
-	defer func() {
-		h.logger.Debug("SearchResults handler complete", "query", query, "duration", time.Since(start))
-	}()
-
-	// Show placeholder only when there's no query AND no filters
-	if query == "" && sessionID == "" && eventKind == "" {
-		if err := partials.SearchResultsState(nil, -1, false, "idle").Render(r.Context(), w); err != nil {
-			h.logger.Debug("render search results failed", "error", err)
-		}
-		return
-	}
-
-	if h.searcher == nil {
-		if err := partials.SearchResultsState(nil, 0, false, "unavailable").Render(r.Context(), w); err != nil {
-			h.logger.Debug("render search results failed", "error", err)
-		}
-		return
-	}
-
-	// Determine page size from user-selected limit.
-	pageSize := defaultSearchPageSize
-	if lim, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && lim > 0 && lim <= 500 {
-		pageSize = lim
-	}
-
-	// Fetch one extra to detect if there are more results.
-	sq := search.SearchQuery{
-		Query:     query,
-		Limit:     pageSize + 1,
-		SessionID: sessionID,
-		SortBy:    r.URL.Query().Get("sort"),
-	}
-	if eventKind != "" {
-		sq.EventKinds = []string{eventKind}
-	}
-	if t := parseRange(r.URL.Query().Get("range")); t != nil {
-		sq.FromTime = *t
-	}
-
-	// Use Browse (filter-only) when no text query, Search (BM25+ILIKE) otherwise
-	var results []search.SearchResult
-	var err error
-	if query == "" {
-		results, err = h.searcher.Browse(r.Context(), sq)
-	} else {
-		results, err = h.searcher.Search(r.Context(), sq)
-	}
-	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return
-		}
-		h.logger.Error("search failed", "error", err)
-		if err := partials.SearchResultsState(nil, 0, false, "error").Render(r.Context(), w); err != nil {
-			h.logger.Debug("render search results failed", "error", err)
-		}
-		return
-	}
-
-	hasMore := len(results) > pageSize
-	if hasMore {
-		results = results[:pageSize]
-	}
-
-	var viewResults []views.SearchResult
-	for _, sr := range results {
-		snippet := sr.TextPreview
-		// For tool_call events, extract a human-readable preview from
-		// the raw JSON input, and strip the redundant tool name prefix.
-		if sr.EventKind == "tool_call" && sr.ToolName != "" {
-			// Strip "ToolName: " prefix if present
-			raw := strings.TrimPrefix(snippet, sr.ToolName+": ")
-			if raw == sr.ToolName || raw == "" {
-				snippet = ""
-			} else if formatted := formatToolCallSnippet(sr.ToolName, raw); formatted != "" {
-				snippet = formatted
-			}
-		}
-		viewResults = append(viewResults, views.SearchResult{
-			EventUID:  sr.EventUID,
-			SessionID: sr.SessionID,
-			EventKind: sr.EventKind,
-			Snippet:   snippet,
-			ToolName:  sr.ToolName,
-			Provider:  sr.Provider,
-			Score:     sr.Score,
-			Model:     sr.Model,
-			Timestamp: sr.Timestamp,
-		})
-	}
-
-	if err := partials.SearchResultsState(viewResults, len(viewResults), hasMore, "ready").Render(r.Context(), w); err != nil {
-		h.logger.Debug("render search results failed", "error", err)
-	}
-}
-
-// formatToolCallSnippet extracts a human-readable preview from raw tool input JSON.
-// The JSON may be truncated (input_preview is capped at 320 chars), so we also
-// try regex extraction when json.Unmarshal fails.
-func formatToolCallSnippet(toolName, rawJSON string) string {
-	if rawJSON == "" || rawJSON == toolName {
-		return ""
-	}
-	var params map[string]any
-	if err := json.Unmarshal([]byte(rawJSON), &params); err != nil {
-		// Truncated JSON — try to extract the most relevant field with string matching.
-		return extractJSONField(toolName, rawJSON)
-	}
-	// Pick the most meaningful field for each tool type.
-	switch toolName {
-	case "Bash":
-		if cmd, ok := params["command"].(string); ok {
-			if desc, ok := params["description"].(string); ok && desc != "" {
-				return desc + " — " + truncateStr(cmd, 120)
-			}
-			return truncateStr(cmd, 200)
-		}
-	case "Read", "Edit", "Write":
-		if fp, ok := params["file_path"].(string); ok {
-			return fp
-		}
-	case "Glob", "Grep":
-		if p, ok := params["pattern"].(string); ok {
-			return p
-		}
-	case "Agent":
-		if p, ok := params["prompt"].(string); ok {
-			return truncateStr(p, 200)
-		}
-	}
-	// Generic: show file_path or command if present.
-	for _, key := range []string{"file_path", "command", "pattern", "prompt", "description"} {
-		if v, ok := params[key].(string); ok && v != "" {
-			return truncateStr(v, 200)
-		}
-	}
-	return truncateStr(rawJSON, 200)
-}
-
-// extractJSONField extracts a key field from possibly-truncated JSON using string matching.
-func extractJSONField(toolName, raw string) string {
-	// Determine which field to look for based on tool type.
-	keys := []string{"file_path", "command", "pattern", "prompt", "description"}
-	for _, key := range keys {
-		prefix := `"` + key + `":"`
-		idx := strings.Index(raw, prefix)
-		if idx < 0 {
-			continue
-		}
-		start := idx + len(prefix)
-		// Find the closing quote, handling escaped quotes.
-		end := start
-		for end < len(raw) {
-			if raw[end] == '\\' {
-				end += 2
-				continue
-			}
-			if raw[end] == '"' {
-				break
-			}
-			end++
-		}
-		if end > start {
-			val := raw[start:end]
-			// Unescape common JSON escapes
-			val = strings.ReplaceAll(val, `\"`, `"`)
-			val = strings.ReplaceAll(val, `\\`, `\`)
-			return truncateStr(val, 200)
-		}
-	}
-	return truncateStr(raw, 200)
-}
-
-func truncateStr(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + "..."
+	http.Redirect(w, r, "/#dashboard-search", http.StatusFound)
 }
