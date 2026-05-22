@@ -199,21 +199,59 @@ func TestProcessFileLegacyCheckpointReplaysContextButEmitsOnlyNewRows(t *testing
 	if state, ok := decodeLineParserCheckpointState(saved.StateJSON, nil); !ok || state.ReplayStartLineNo != 1 || state.ReplayStartOffset != 0 {
 		t.Fatalf("saved replay state = %#v ok=%v, want replay from line 1 offset 0", state, ok)
 	}
+
+	appended := content + "newer-message\n"
+	if err := os.WriteFile(file, []byte(appended), 0644); err != nil {
+		t.Fatal(err)
+	}
+	w.processFile(ctx, src, file)
+	got = drainBatchEvents(events)
+	if len(got) != 1 {
+		t.Fatalf("second replay events = %#v, want only one appended row", got)
+	}
+	if got[0].TextContent != "newer-message" || got[0].SourceOffset != int64(len(content)) {
+		t.Fatalf("second replay event = %#v, want appended row at offset %d", got[0], len(content))
+	}
+	if got[0].Model != "old-model" {
+		t.Fatalf("second replay model context = %q, want old-model", got[0].Model)
+	}
 }
 
 func TestProcessFileRotationIncrementsSourceGeneration(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	file := filepath.Join(dir, "rotating.jsonl")
+	if err := os.WriteFile(file, []byte("old file contents\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	oldInfo, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldInode := fileInode(oldInfo)
+	if oldInode == 0 {
+		t.Skip("filesystem does not expose inode numbers")
+	}
+	if err := os.Rename(file, file+".rotated"); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(file, []byte("fresh\n"), 0644); err != nil {
 		t.Fatal(err)
+	}
+	newInfo, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fileInode(newInfo) == oldInode {
+		t.Skip("replacement reused inode; cannot exercise inode rotation path")
 	}
 	fake := newFakeWatcherStore()
 	fake.seed("codex", models.Checkpoint{
 		SourceName:       "codex",
 		SourceFile:       file,
+		SourceInode:      oldInode,
 		SourceGeneration: 4,
-		LastOffset:       100,
+		LastOffset:       0,
 		LastLineNo:       8,
 	})
 	events := make(chan BatchEvent, 4)
@@ -344,22 +382,40 @@ func TestProcessWholeFileParserRecordsParseError(t *testing.T) {
 
 func TestProcessFilesCancellationReturnsWithoutLeakingWorkers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	src := WatchSource{Name: "codex", Parser: lineTextParser(t)}
-	w := newFakeWatcher(src, newFakeWatcherStore(), make(chan BatchEvent, 1))
-	w.backfillWorkers = 4
-	files := []string{"one.jsonl", "two.jsonl", "three.jsonl", "four.jsonl"}
+	defer cancel()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "blocked.jsonl")
+	if err := os.WriteFile(file, []byte("row\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	parserStarted := make(chan struct{})
+	var once sync.Once
+	src := WatchSource{
+		Name: "codex",
+		Parser: func(line []byte, file string, lineNo int, offset int64) ([]NormalizedEvent, error) {
+			once.Do(func() { close(parserStarted) })
+			return []NormalizedEvent{lineEvent(file, lineNo, offset, string(line))}, nil
+		},
+	}
+	w := newFakeWatcher(src, newFakeWatcherStore(), make(chan BatchEvent))
+	w.backfillWorkers = 2
 	done := make(chan struct{})
 
 	go func() {
-		w.processFiles(ctx, src, files)
+		w.processFiles(ctx, src, []string{file, filepath.Join(dir, "missing.jsonl")})
 		close(done)
 	}()
 
 	select {
+	case <-parserStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("parser did not start")
+	}
+	cancel()
+	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("processFiles did not return after cancellation")
+		t.Fatal("processFiles did not return after cancellation while worker was sending")
 	}
 }
 
