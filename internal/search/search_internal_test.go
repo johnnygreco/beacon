@@ -338,6 +338,33 @@ func TestSearchCountsDroppedQueryLogsWhenLoggerQueueIsFull(t *testing.T) {
 	}
 }
 
+func TestMonitorIndexProbeStopsOnCancel(t *testing.T) {
+	blocking := &blockingQueryDB{started: make(chan struct{})}
+	db := sql.OpenDB(blockingQueryConnector{db: blocking})
+	defer db.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	s := NewSearcher(db, discardLogger, 25, time.Hour)
+	go func() {
+		defer close(done)
+		s.MonitorIndex(ctx)
+	}()
+
+	select {
+	case <-blocking.started:
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("monitor probe did not reach query")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("MonitorIndex did not return after context cancellation")
+	}
+}
+
 func TestScanResultsReturnsScanErrors(t *testing.T) {
 	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
 	scanErr := errors.New("bad row")
@@ -515,6 +542,45 @@ func (c searchStubConn) ExecContext(_ context.Context, query string, args []driv
 	next := c.stub.execs[0]
 	c.stub.execs = c.stub.execs[1:]
 	return next(query, args)
+}
+
+type blockingQueryDB struct {
+	once    sync.Once
+	started chan struct{}
+}
+
+type blockingQueryConnector struct {
+	db *blockingQueryDB
+}
+
+func (c blockingQueryConnector) Connect(context.Context) (driver.Conn, error) {
+	return blockingQueryConn(c), nil
+}
+
+func (c blockingQueryConnector) Driver() driver.Driver {
+	return searchStubDriver{}
+}
+
+type blockingQueryConn struct {
+	db *blockingQueryDB
+}
+
+func (c blockingQueryConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("prepare unsupported")
+}
+
+func (c blockingQueryConn) Close() error {
+	return nil
+}
+
+func (c blockingQueryConn) Begin() (driver.Tx, error) {
+	return nil, errors.New("transactions unsupported")
+}
+
+func (c blockingQueryConn) QueryContext(ctx context.Context, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	c.db.once.Do(func() { close(c.db.started) })
+	<-ctx.Done()
+	return nil, ctx.Err()
 }
 
 type driverRows struct {

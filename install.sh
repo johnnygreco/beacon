@@ -2,7 +2,7 @@
 # Usage:
 #   Latest stable:     curl -sSfL https://johnnygreco.dev/beacon/install.sh | sh
 #   Latest prerelease: curl -sSfL https://johnnygreco.dev/beacon/install.sh | INCLUDE_PRERELEASE=1 sh
-#   Pinned:            curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=0.1.0 sh
+#   Pinned:            curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=x.y.z sh
 #   No DB dep:         curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_CLICKHOUSE=0 sh
 #   Skip checksums:    curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERIFY_CHECKSUMS=0 sh
 #   Uninstall:         curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
@@ -315,8 +315,12 @@ install_clickhouse() {
             clickhouse_extract_dir="${tmp_dir}/clickhouse-extract"
             mkdir -p "$clickhouse_extract_dir"
             download_file "$clickhouse_url" "${tmp_dir}/${clickhouse_asset}" "ClickHouse ${clickhouse_asset}"
-            download_file "${clickhouse_url}.sha512" "${tmp_dir}/${clickhouse_asset}.sha512" "ClickHouse ${clickhouse_asset}.sha512"
-            verify_checksum sha512 "$clickhouse_asset" "${tmp_dir}/${clickhouse_asset}" "${tmp_dir}/${clickhouse_asset}.sha512"
+            if [ "$VERIFY_CHECKSUMS" != "0" ]; then
+                download_file "${clickhouse_url}.sha512" "${tmp_dir}/${clickhouse_asset}.sha512" "ClickHouse ${clickhouse_asset}.sha512"
+                verify_checksum sha512 "$clickhouse_asset" "${tmp_dir}/${clickhouse_asset}" "${tmp_dir}/${clickhouse_asset}.sha512"
+            else
+                echo "Warning: checksum verification disabled for ${clickhouse_asset}" >&2
+            fi
             tar -xzf "${tmp_dir}/${clickhouse_asset}" -C "$clickhouse_extract_dir"
             extracted_bin="$(find "$clickhouse_extract_dir" -type f -path '*/usr/bin/clickhouse' -print -quit)"
             if [ -z "$extracted_bin" ]; then
@@ -406,8 +410,12 @@ tmp_dir="$(mktemp -d)"
 trap cleanup EXIT
 
 download_file "$URL" "${tmp_dir}/${ARCHIVE}" "${ARCHIVE}"
-download_file "$CHECKSUMS_URL" "${tmp_dir}/checksums.txt" "checksums.txt"
-verify_checksum sha256 "$ARCHIVE" "${tmp_dir}/${ARCHIVE}" "${tmp_dir}/checksums.txt"
+if [ "$VERIFY_CHECKSUMS" != "0" ]; then
+    download_file "$CHECKSUMS_URL" "${tmp_dir}/checksums.txt" "checksums.txt"
+    verify_checksum sha256 "$ARCHIVE" "${tmp_dir}/${ARCHIVE}" "${tmp_dir}/checksums.txt"
+else
+    echo "Warning: checksum verification disabled for ${ARCHIVE}" >&2
+fi
 tar -xzf "${tmp_dir}/${ARCHIVE}" -C "$tmp_dir"
 if [ ! -f "${tmp_dir}/beacon" ]; then
     echo "Error: ${ARCHIVE} did not contain a beacon binary" >&2

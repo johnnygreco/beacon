@@ -17,6 +17,24 @@ func TestSchemaContainsBeaconTables(t *testing.T) {
 	}
 }
 
+func TestTableNamesIncludesDataTables(t *testing.T) {
+	if got, want := len(tableNames), len(dataTableNames)+1; got != want {
+		t.Fatalf("tableNames length = %d, want %d", got, want)
+	}
+	present := make(map[string]bool, len(tableNames))
+	for _, table := range tableNames {
+		present[table] = true
+	}
+	if !present[schemaVersionTable] {
+		t.Fatalf("tableNames missing %s", schemaVersionTable)
+	}
+	for _, table := range dataTableNames {
+		if !present[table] {
+			t.Fatalf("tableNames missing data table %s", table)
+		}
+	}
+}
+
 func TestSchemaUsesClickHouseEngines(t *testing.T) {
 	schema := strings.Join(Schema("beacon"), "\n")
 	for _, expected := range []string{

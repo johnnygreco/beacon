@@ -136,6 +136,39 @@ func TestRunStopReturnsNilWhenServerIsNotRunning(t *testing.T) {
 	}
 }
 
+func TestRunStopUsesPidfileBeforeConfig(t *testing.T) {
+	resetConfigState(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := pidfilePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("create pidfile dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		t.Fatalf("write pidfile: %v", err)
+	}
+	cfgPath := filepath.Join(t.TempDir(), "beacon.toml")
+	if err := os.WriteFile(cfgPath, []byte("[server]\nport = 999999\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfgFile = cfgPath
+
+	oldStop := stopProcess
+	t.Cleanup(func() { stopProcess = oldStop })
+	stoppedPID := 0
+	stopProcess = func(pid int) error {
+		stoppedPID = pid
+		return nil
+	}
+
+	if err := runStop(newDownCmd(), nil); err != nil {
+		t.Fatalf("runStop() returned error: %v", err)
+	}
+	if stoppedPID != os.Getpid() {
+		t.Fatalf("stopped pid = %d, want %d", stoppedPID, os.Getpid())
+	}
+}
+
 func TestRunStatusReportsClickHouseUnavailable(t *testing.T) {
 	resetConfigState(t)
 	cfgPath := filepath.Join(t.TempDir(), "beacon.toml")

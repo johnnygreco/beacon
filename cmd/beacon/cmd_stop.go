@@ -13,16 +13,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var stopProcess = stopPid
+
 func runStop(cmd *cobra.Command, args []string) error {
+	// A pidfile is enough to stop a running Beacon process. Try it before
+	// loading config so a malformed config cannot block shutdown.
+	if pid := readPidFromFile(); pid > 0 {
+		return stopProcess(pid)
+	}
+
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
-	}
-
-	// Try pidfile first
-	pid := readPidFromFile()
-	if pid > 0 {
-		return stopPid(pid)
 	}
 
 	// No pidfile — try to find PID by port
@@ -31,7 +33,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 		if err != nil || pid <= 0 {
 			return fmt.Errorf("server is running on port %d but could not determine PID\nStop it manually with: kill $(lsof -ti :%d)", cfg.Server.Port, cfg.Server.Port)
 		}
-		return stopPid(pid)
+		return stopProcess(pid)
 	}
 
 	fmt.Println("No running beacon server found.")

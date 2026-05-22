@@ -52,7 +52,10 @@ type Searcher struct {
 	rebuildInterval  time.Duration
 }
 
-const searchStatsTTL = 30 * time.Second
+const (
+	searchStatsTTL     = 30 * time.Second
+	searchProbeTimeout = 2 * time.Second
+)
 
 func NewSearcher(db *sql.DB, logger *slog.Logger, maxResults int, rebuildInterval time.Duration) *Searcher {
 	return &Searcher{
@@ -66,7 +69,7 @@ func NewSearcher(db *sql.DB, logger *slog.Logger, maxResults int, rebuildInterva
 
 // MonitorIndex periodically probes the ingest-built search index tables.
 func (s *Searcher) MonitorIndex(ctx context.Context) {
-	s.ProbeIndex()
+	s.probeIndex(ctx)
 	if s.rebuildInterval <= 0 {
 		return
 	}
@@ -77,13 +80,24 @@ func (s *Searcher) MonitorIndex(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.ProbeIndex()
+			s.probeIndex(ctx)
 		}
 	}
 }
 
 func (s *Searcher) ProbeIndex() {
-	if _, _, err := s.refreshStats(context.Background()); err != nil {
+	s.probeIndex(context.Background())
+}
+
+func (s *Searcher) probeIndex(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, searchProbeTimeout)
+	defer cancel()
+	if _, _, err := s.refreshStats(probeCtx); err != nil {
 		s.mu.Lock()
 		s.indexExists = false
 		s.mu.Unlock()

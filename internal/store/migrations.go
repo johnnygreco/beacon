@@ -17,8 +17,6 @@ const (
 
 var validIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-var tableNames = append([]string{schemaVersionTable}, dataTableNames...)
-
 var dataTableNames = []string{
 	"raw_records",
 	"activity_events",
@@ -33,6 +31,8 @@ var dataTableNames = []string{
 	"search_postings",
 	"search_query_log",
 }
+
+var tableNames = append([]string{schemaVersionTable}, dataTableNames...)
 
 func Migrate(ctx context.Context, db *sql.DB, database string) error {
 	database = cleanIdent(database)
