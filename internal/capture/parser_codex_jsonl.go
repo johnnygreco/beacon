@@ -17,14 +17,14 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 
 	// Session ID: prefer top-level session_id, then extract from filename.
 	// Codex filenames follow "rollout-{date}-{uuid}.jsonl" format.
-	sessionID := jsonStr(raw, "session_id")
+	sessionID := stringField(raw, "session_id")
 	if sessionID == "" {
 		sessionID = codexSessionIDFromFile(file)
 	}
 
-	ts := parseTimestamp(jsonStr(raw, "timestamp"))
+	ts := parseTimestamp(stringField(raw, "timestamp"))
 
-	eventType := jsonStr(raw, "type")
+	eventType := stringField(raw, "type")
 
 	base := NormalizedEvent{
 		SessionID:    sessionID,
@@ -37,20 +37,17 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		RawPayload:   string(line),
 	}
 
-	payload, _ := raw["payload"].(map[string]any)
-	if payload == nil {
-		payload = raw // fallback: fields at top level
-	}
+	payload := objectFromAny(raw["payload"])
 
 	// Extract CWD from payload (present in session_meta and turn_context)
-	if cwd := jsonStr(payload, "cwd"); cwd != "" {
+	if cwd := stringField(payload, "cwd"); cwd != "" {
 		base.CWD = cwd
 	}
 
 	var events []NormalizedEvent
 
 	// Extract parent session ID from forked_from_id (Codex subagent linking)
-	if forkedFrom := jsonStr(payload, "forked_from_id"); forkedFrom != "" {
+	if forkedFrom := stringField(payload, "forked_from_id"); forkedFrom != "" {
 		base.ParentSessionID = forkedFrom
 	}
 
@@ -59,7 +56,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		evt := base
 		evt.EventKind = "session_meta"
 		evt.ActorRole = "system"
-		evt.TextContent = jsonStr(payload, "description")
+		evt.TextContent = stringField(payload, "description")
 		events = append(events, evt)
 
 	case "turn_context":
@@ -67,18 +64,18 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		evt.EventKind = "turn_context"
 		evt.ActorRole = "system"
 		// Extract model from turn_context payload (Codex puts it here)
-		if m := jsonStr(payload, "model"); m != "" {
+		if m := stringField(payload, "model"); m != "" {
 			evt.Model = m
 		}
 		events = append(events, evt)
 
 	case "response_item":
-		payloadType := jsonStr(payload, "type")
+		payloadType := stringField(payload, "type")
 		switch payloadType {
 		case "message":
 			evt := base
 			evt.EventKind = "message"
-			evt.ActorRole = jsonStr(payload, "role")
+			evt.ActorRole = stringField(payload, "role")
 			if evt.ActorRole == "" {
 				evt.ActorRole = "assistant"
 			}
@@ -87,21 +84,21 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 				break
 			}
 			// Extract text from content array
-			if content, ok := payload["content"].([]any); ok {
-				var texts []string
-				for _, c := range content {
-					if cm, ok := c.(map[string]any); ok {
-						ct := jsonStr(cm, "type")
-						if ct == "output_text" || ct == "text" || ct == "input_text" {
-							if t := jsonStr(cm, "text"); t != "" {
-								texts = append(texts, t)
-							}
-						}
+			var texts []string
+			for _, c := range arrayFromAny(payload["content"]) {
+				cm := objectFromAny(c)
+				if cm == nil {
+					continue
+				}
+				ct := stringField(cm, "type")
+				if ct == "output_text" || ct == "text" || ct == "input_text" {
+					if t := stringField(cm, "text"); t != "" {
+						texts = append(texts, t)
 					}
 				}
-				if len(texts) > 0 {
-					evt.TextContent = texts[len(texts)-1] // use last text block (most relevant)
-				}
+			}
+			if len(texts) > 0 {
+				evt.TextContent = texts[len(texts)-1] // use last text block (most relevant)
 			}
 			events = append(events, evt)
 
@@ -109,10 +106,10 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt := base
 			evt.EventKind = "tool_call"
 			evt.ActorRole = "assistant"
-			evt.ToolName = jsonStr(payload, "name")
+			evt.ToolName = stringField(payload, "name")
 			evt.ToolPhase = "call"
-			evt.ToolInput = jsonStr(payload, "arguments")
-			evt.ToolUseID = jsonStr(payload, "call_id")
+			evt.ToolInput = stringField(payload, "arguments")
+			evt.ToolUseID = stringField(payload, "call_id")
 			evt.TextContent = evt.ToolName
 			// Map spawn_agent to Agent for UI subagent dispatch rendering
 			if evt.ToolName == "spawn_agent" {
@@ -124,11 +121,11 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt := base
 			evt.EventKind = "tool_result"
 			evt.ActorRole = "tool"
-			evt.ToolName = jsonStr(payload, "name")
+			evt.ToolName = stringField(payload, "name")
 			evt.ToolPhase = "result"
-			evt.ToolOutput = jsonStr(payload, "output")
-			evt.ToolUseID = jsonStr(payload, "call_id")
-			evt.TextContent = jsonStr(payload, "output")
+			evt.ToolOutput = stringField(payload, "output")
+			evt.ToolUseID = stringField(payload, "call_id")
+			evt.TextContent = stringField(payload, "output")
 			// For spawn_agent results, reformat output so agentID() can extract
 			// the session ID. Codex output: {"agent_id":"xxx","nickname":"yyy"}
 			if evt.ToolName == "spawn_agent" || evt.ToolName == "" {
@@ -149,11 +146,11 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt := base
 			evt.EventKind = "tool_result"
 			evt.ActorRole = "tool"
-			evt.ToolName = jsonStr(payload, "name")
+			evt.ToolName = stringField(payload, "name")
 			evt.ToolPhase = "result"
-			evt.ToolOutput = jsonStr(payload, "output")
-			evt.ToolUseID = jsonStr(payload, "call_id")
-			evt.TextContent = jsonStr(payload, "output")
+			evt.ToolOutput = stringField(payload, "output")
+			evt.ToolUseID = stringField(payload, "call_id")
+			evt.TextContent = stringField(payload, "output")
 			events = append(events, evt)
 
 		case "custom_tool_call":
@@ -161,10 +158,10 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt := base
 			evt.EventKind = "tool_call"
 			evt.ActorRole = "assistant"
-			evt.ToolName = jsonStr(payload, "name")
+			evt.ToolName = stringField(payload, "name")
 			evt.ToolPhase = "call"
-			evt.ToolInput = jsonStr(payload, "input")
-			evt.ToolUseID = jsonStr(payload, "call_id")
+			evt.ToolInput = stringField(payload, "input")
+			evt.ToolUseID = stringField(payload, "call_id")
 			evt.TextContent = evt.ToolName
 			events = append(events, evt)
 
@@ -174,9 +171,9 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.EventKind = "tool_result"
 			evt.ActorRole = "tool"
 			evt.ToolPhase = "result"
-			evt.ToolOutput = jsonStr(payload, "output")
-			evt.ToolUseID = jsonStr(payload, "call_id")
-			evt.TextContent = jsonStr(payload, "output")
+			evt.ToolOutput = stringField(payload, "output")
+			evt.ToolUseID = stringField(payload, "call_id")
+			evt.TextContent = stringField(payload, "output")
 			if isCodexToolError(evt.ToolOutput) {
 				evt.EventKind = "tool_error"
 				evt.ErrorCode = "tool_execution_failed"
@@ -188,12 +185,12 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt := base
 			evt.EventKind = "reasoning"
 			evt.ActorRole = "assistant"
-			if summary, ok := payload["summary"].([]any); ok {
-				for _, s := range summary {
-					if sm, ok := s.(map[string]any); ok {
-						evt.TextContent += jsonStr(sm, "text")
-					}
+			for _, s := range arrayFromAny(payload["summary"]) {
+				sm := objectFromAny(s)
+				if sm == nil {
+					continue
 				}
+				evt.TextContent += stringField(sm, "text")
 			}
 			// Codex reasoning blocks often have encrypted_content with empty summary.
 			// Mark as encrypted so the UI can show appropriate messaging.
@@ -212,7 +209,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		}
 
 	case "event_msg":
-		payloadType := jsonStr(payload, "type")
+		payloadType := stringField(payload, "type")
 		switch payloadType {
 		case "task_complete":
 			// Codex emits task_complete at turn boundaries, not only when the
@@ -221,7 +218,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.EventKind = "event_msg"
 			evt.ActorRole = "assistant"
 			evt.PayloadType = "task_complete"
-			evt.TextContent = jsonStr(payload, "last_agent_message")
+			evt.TextContent = stringField(payload, "last_agent_message")
 			events = append(events, evt)
 
 		case "agent_message":
@@ -229,7 +226,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt := base
 			evt.EventKind = "message"
 			evt.ActorRole = "assistant"
-			evt.TextContent = jsonStr(payload, "message")
+			evt.TextContent = stringField(payload, "message")
 			events = append(events, evt)
 
 		case "token_count":
@@ -251,14 +248,14 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt := base
 			evt.EventKind = "message"
 			evt.ActorRole = "user"
-			evt.TextContent = jsonStr(payload, "message")
+			evt.TextContent = stringField(payload, "message")
 			events = append(events, evt)
 
 		default:
 			evt := base
 			evt.EventKind = "event_msg"
 			evt.PayloadType = payloadType
-			evt.TextContent = jsonStr(payload, "message")
+			evt.TextContent = stringField(payload, "message")
 			events = append(events, evt)
 		}
 
@@ -272,8 +269,8 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		evt := base
 		evt.EventKind = "error"
 		evt.ActorRole = "system"
-		evt.ErrorCode = jsonStr(payload, "code")
-		evt.ErrorMessage = jsonStr(payload, "message")
+		evt.ErrorCode = stringField(payload, "code")
+		evt.ErrorMessage = stringField(payload, "message")
 		evt.TextContent = evt.ErrorMessage
 		events = append(events, evt)
 
@@ -285,37 +282,34 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 	}
 
 	// Extract token usage from payload.info.last_token_usage
-	if info, ok := payload["info"].(map[string]any); ok {
-		if usage, ok := info["last_token_usage"].(map[string]any); ok {
-			grossInput := jsonInt64(usage, "input_tokens")
-			cacheRead := jsonInt64(usage, "cached_input_tokens")
-			input := grossInput - cacheRead
-			if input < 0 {
-				input = 0
-			}
-			output := jsonInt64(usage, "output_tokens")
-			for i := range events {
-				// OpenAI reports cached tokens as a subset of input_tokens, so we
-				// normalize input to uncached prompt tokens for cross-provider totals.
-				events[i].InputTokens = input
-				events[i].OutputTokens = output
-				events[i].CacheReadTokens = cacheRead
-			}
+	info := objectFromAny(payload["info"])
+	if usage := objectFromAny(info["last_token_usage"]); usage != nil {
+		grossInput := int64Field(usage, "input_tokens")
+		cacheRead := int64Field(usage, "cached_input_tokens")
+		input := grossInput - cacheRead
+		if input < 0 {
+			input = 0
 		}
-		if usage, ok := info["total_token_usage"].(map[string]any); ok {
-			key := codexUsageTotalKey(usage)
-			for i := range events {
-				events[i].TokenUsageTotalKey = key
-			}
+		output := int64Field(usage, "output_tokens")
+		for i := range events {
+			// OpenAI reports cached tokens as a subset of input_tokens, so we
+			// normalize input to uncached prompt tokens for cross-provider totals.
+			events[i].InputTokens = input
+			events[i].OutputTokens = output
+			events[i].CacheReadTokens = cacheRead
+		}
+	}
+	if usage := objectFromAny(info["total_token_usage"]); usage != nil {
+		key := codexUsageTotalKey(usage)
+		for i := range events {
+			events[i].TokenUsageTotalKey = key
 		}
 	}
 
 	// Extract model from payload
-	model := jsonStr(payload, "model")
+	model := stringField(payload, "model")
 	if model == "" {
-		if info, ok := payload["info"].(map[string]any); ok {
-			model = jsonStr(info, "model")
-		}
+		model = stringField(info, "model")
 	}
 	for i := range events {
 		if events[i].Model == "" {
@@ -341,10 +335,10 @@ func isCodexToolError(output string) bool {
 
 func codexUsageTotalKey(usage map[string]any) string {
 	return fmt.Sprintf("%d:%d:%d:%d",
-		jsonInt64(usage, "input_tokens"),
-		jsonInt64(usage, "cached_input_tokens"),
-		jsonInt64(usage, "output_tokens"),
-		jsonInt64(usage, "total_tokens"),
+		int64Field(usage, "input_tokens"),
+		int64Field(usage, "cached_input_tokens"),
+		int64Field(usage, "output_tokens"),
+		int64Field(usage, "total_tokens"),
 	)
 }
 

@@ -43,6 +43,36 @@ func TestParseCodexJSONL_SessionMeta(t *testing.T) {
 	}
 }
 
+func TestParseCodexJSONL_IgnoresTopLevelPayloadFields(t *testing.T) {
+	line := toJSONL(t, map[string]any{
+		"type":           "session_meta",
+		"session_id":     "codex-sess-1",
+		"timestamp":      "2025-06-01T10:00:00Z",
+		"description":    "legacy top-level description",
+		"cwd":            "/legacy/cwd",
+		"forked_from_id": "legacy-parent",
+	})
+
+	events, err := ParseCodexJSONL(line, "test.jsonl", 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	evt := events[0]
+	if evt.EventKind != "session_meta" {
+		t.Fatalf("expected event_kind=session_meta, got %q", evt.EventKind)
+	}
+	if evt.TextContent != "" {
+		t.Fatalf("expected top-level description to be ignored, got %q", evt.TextContent)
+	}
+	if evt.CWD != "" || evt.ParentSessionID != "" {
+		t.Fatalf("expected top-level cwd/parent to be ignored, got cwd=%q parent=%q", evt.CWD, evt.ParentSessionID)
+	}
+}
+
 func TestParseCodexJSONL_TurnContext(t *testing.T) {
 	line := toJSONL(t, map[string]any{
 		"type":       "turn_context",

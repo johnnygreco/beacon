@@ -15,27 +15,27 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 		return nil, err
 	}
 
-	sessionID := jsonStr(raw, "sessionId")
+	sessionID := stringField(raw, "sessionId")
 	if sessionID == "" {
 		// Fallback: use filename stem as session ID
 		base := filepath.Base(file)
 		sessionID = strings.TrimSuffix(base, filepath.Ext(base))
 	}
 
-	uuid := jsonStr(raw, "uuid")
-	parentUUID := jsonStr(raw, "parentUuid")
+	uuid := stringField(raw, "uuid")
+	parentUUID := stringField(raw, "parentUuid")
 
-	ts := parseTimestamp(jsonStr(raw, "timestamp"))
+	ts := parseTimestamp(stringField(raw, "timestamp"))
 
-	eventType := jsonStr(raw, "type")
+	eventType := stringField(raw, "type")
 
-	cwd := jsonStr(raw, "cwd")
+	cwd := stringField(raw, "cwd")
 
 	// Subagent detection: Claude Code subagents have isSidechain=true and agentId set.
 	// The sessionId in the JSONL refers to the parent session, so we use agentId as
 	// the session ID for subagent events and store the original as parentSessionID.
 	var parentSessionID string
-	agentID := jsonStr(raw, "agentId")
+	agentID := stringField(raw, "agentId")
 	if agentID != "" {
 		if isSidechain, ok := raw["isSidechain"].(bool); ok && isSidechain {
 			parentSessionID = sessionID
@@ -67,7 +67,7 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 		evt.EventKind = "session_meta"
 		evt.PayloadType = "summary"
 		evt.ActorRole = "system"
-		evt.TextContent = jsonStr(raw, "summary")
+		evt.TextContent = stringField(raw, "summary")
 		events = append(events, evt)
 
 	case "last-prompt":
@@ -80,7 +80,7 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 
 	default:
 		// Most Claude Code lines have a "message" field with role and content
-		msg, _ := raw["message"].(map[string]any)
+		msg := objectFromAny(raw["message"])
 		if msg == nil {
 			// Fallback: treat as generic event
 			evt := base
@@ -92,21 +92,21 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 
 		// Detect API error messages (e.g. authentication_failed, overloaded_error).
 		// Claude Code sets "error" and "isApiErrorMessage" at the top level.
-		if errCode := jsonStr(raw, "error"); errCode != "" {
+		if errCode := stringField(raw, "error"); errCode != "" {
 			evt := base
 			evt.EventKind = "error"
 			evt.ActorRole = "system"
 			evt.ErrorCode = errCode
 			// Extract error text from content blocks
-			if content, ok := msg["content"].([]any); ok {
-				for _, block := range content {
-					if bm, ok := block.(map[string]any); ok {
-						if t := jsonStr(bm, "text"); t != "" {
-							evt.ErrorMessage = t
-							evt.TextContent = t
-							break
-						}
-					}
+			for _, block := range arrayFromAny(msg["content"]) {
+				bm := objectFromAny(block)
+				if bm == nil {
+					continue
+				}
+				if t := stringField(bm, "text"); t != "" {
+					evt.ErrorMessage = t
+					evt.TextContent = t
+					break
 				}
 			}
 			if evt.ErrorMessage == "" {
@@ -117,16 +117,16 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 			return events, nil
 		}
 
-		role := jsonStr(msg, "role")
-		model := jsonStr(msg, "model")
+		role := stringField(msg, "role")
+		model := stringField(msg, "model")
 
 		// Extract usage from message
 		var inputTokens, outputTokens, cacheRead, cacheCreate int64
-		if usage, ok := msg["usage"].(map[string]any); ok {
-			inputTokens = jsonInt64(usage, "input_tokens")
-			outputTokens = jsonInt64(usage, "output_tokens")
-			cacheRead = jsonInt64(usage, "cache_read_input_tokens")
-			cacheCreate = jsonInt64(usage, "cache_creation_input_tokens")
+		if usage := objectFromAny(msg["usage"]); usage != nil {
+			inputTokens = int64Field(usage, "input_tokens")
+			outputTokens = int64Field(usage, "output_tokens")
+			cacheRead = int64Field(usage, "cache_read_input_tokens")
+			cacheCreate = int64Field(usage, "cache_creation_input_tokens")
 		}
 
 		// Parse content — may be a plain string or an array of content blocks.
@@ -168,12 +168,12 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 		}
 
 		for _, block := range content {
-			bm, ok := block.(map[string]any)
-			if !ok {
+			bm := objectFromAny(block)
+			if bm == nil {
 				continue
 			}
 
-			blockType := jsonStr(bm, "type")
+			blockType := stringField(bm, "type")
 			evt := base
 
 			switch blockType {
@@ -181,14 +181,14 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 				evt.EventKind = "message"
 				evt.ActorRole = role
 				evt.Model = model
-				evt.TextContent = jsonStr(bm, "text")
+				evt.TextContent = stringField(bm, "text")
 
 			case "tool_use":
 				evt.EventKind = "tool_call"
 				evt.ActorRole = "assistant"
-				evt.ToolName = jsonStr(bm, "name")
+				evt.ToolName = stringField(bm, "name")
 				evt.ToolPhase = "call"
-				evt.ToolUseID = jsonStr(bm, "id")
+				evt.ToolUseID = stringField(bm, "id")
 				if inputRaw, ok := bm["input"]; ok {
 					if b, err := json.Marshal(inputRaw); err == nil {
 						evt.ToolInput = string(b)
@@ -200,20 +200,22 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 			case "tool_result":
 				evt.EventKind = "tool_result"
 				evt.ActorRole = "tool"
-				evt.ToolName = jsonStr(bm, "name")
+				evt.ToolName = stringField(bm, "name")
 				evt.ToolPhase = "result"
-				evt.ToolUseID = jsonStr(bm, "tool_use_id")
+				evt.ToolUseID = stringField(bm, "tool_use_id")
 				// Content can be string or nested
 				if c, ok := bm["content"].(string); ok {
 					evt.TextContent = c
 					evt.ToolOutput = c
-				} else if contentArr, ok := bm["content"].([]any); ok {
-					for _, item := range contentArr {
-						if im, ok := item.(map[string]any); ok {
-							if jsonStr(im, "type") == "text" {
-								evt.TextContent = jsonStr(im, "text")
-								evt.ToolOutput = evt.TextContent
-							}
+				} else {
+					for _, item := range arrayFromAny(bm["content"]) {
+						im := objectFromAny(item)
+						if im == nil {
+							continue
+						}
+						if stringField(im, "type") == "text" {
+							evt.TextContent = stringField(im, "text")
+							evt.ToolOutput = evt.TextContent
 						}
 					}
 				}
@@ -231,7 +233,7 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 			case "thinking":
 				evt.EventKind = "reasoning"
 				evt.ActorRole = "assistant"
-				evt.TextContent = jsonStr(bm, "thinking")
+				evt.TextContent = stringField(bm, "thinking")
 
 			default:
 				evt.EventKind = "message"
@@ -271,28 +273,4 @@ func parseTimestamp(s string) time.Time {
 		return t
 	}
 	return time.Time{} // zero value — filtered out by views
-}
-
-func jsonStr(m map[string]any, key string) string {
-	if v, ok := m[key]; ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
-}
-
-func jsonInt64(m map[string]any, key string) int64 {
-	if v, ok := m[key]; ok {
-		switch n := v.(type) {
-		case float64:
-			return int64(n)
-		case int64:
-			return n
-		case json.Number:
-			i, _ := n.Int64()
-			return i
-		}
-	}
-	return 0
 }
