@@ -258,7 +258,25 @@ BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/store ./internal/search
 BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/perf -bench . -run '^$'
 ```
 
-Playwright tests require Node dependencies from `npm install` and a Chromium browser installed by Playwright. They start their own e2e server by default. To test against an already running Beacon-compatible server, set `BEACON_E2E_BASE_URL`. Visual regression snapshots currently have Darwin baselines only, so `npm run test:visual` skips on other platforms.
+Playwright tests require Node dependencies from `npm install` and a Chromium
+browser installed by Playwright. They start their own e2e server by default. To
+test against an already running Beacon-compatible server, set
+`BEACON_E2E_BASE_URL`.
+
+Visual regression tests are intentionally local-only for now. The checked-in
+snapshots are Chromium baselines captured on Darwin, and
+`tests/e2e/visual.spec.ts` skips on other platforms so Linux CI does not compare
+against incompatible raster output. Run them from macOS with:
+
+```bash
+npm run test:visual
+npm run test:visual -- --update-snapshots
+```
+
+Only update visual snapshots after reviewing the rendered dashboard and
+transcript states represented by the changed PNG files. Moving this suite into
+CI should include a stable Linux baseline set or a hosted macOS runner, plus the
+corresponding removal of the platform skip.
 
 ### Coverage Gates
 
