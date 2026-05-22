@@ -32,6 +32,70 @@ func setupLiveClickHouse(t *testing.T) *Store {
 	return ch
 }
 
+func TestClickHouseResetDropsRowsAndRecreatesTables(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	sessionID := "reset-session"
+	event := models.Event{
+		EventUID:     "evt-reset",
+		SessionID:    sessionID,
+		SourceName:   "codex",
+		Provider:     "openai",
+		Format:       "jsonl",
+		EventKind:    "message",
+		ActorRole:    "user",
+		Timestamp:    time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC),
+		TextContent:  "reset keeps migrations usable",
+		TextPreview:  "reset keeps migrations usable",
+		InputTokens:  1,
+		OutputTokens: 2,
+		SourceFile:   "reset.jsonl",
+		SourceLineNo: 1,
+	}
+	batch := RowBatch{
+		ActivityEvents: []models.Event{event},
+		RawRecords:     []models.RawRecord{NewRawRecord(event)},
+	}
+	countRows := func(table string) uint64 {
+		t.Helper()
+		var count uint64
+		if err := ch.DB.QueryRowContext(ctx,
+			"SELECT count() FROM "+table+" WHERE session_id = ?", sessionID).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		return count
+	}
+
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("initial flush: %v", err)
+	}
+	if got := countRows("activity_events"); got != 1 {
+		t.Fatalf("activity_events before reset = %d, want 1", got)
+	}
+	if got := countRows("raw_records"); got != 1 {
+		t.Fatalf("raw_records before reset = %d, want 1", got)
+	}
+
+	if err := Reset(ctx, ch.DB, ch.Database()); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	for _, table := range []string{"raw_records", "activity_events", "search_documents", "session_projection"} {
+		if got := countRows(table); got != 0 {
+			t.Fatalf("%s after reset = %d, want 0", table, got)
+		}
+	}
+
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("post-reset flush: %v", err)
+	}
+	if got := countRows("activity_events"); got != 1 {
+		t.Fatalf("activity_events after post-reset flush = %d, want 1", got)
+	}
+	if got := countRows("session_projection"); got != 1 {
+		t.Fatalf("session_projection after post-reset flush = %d, want 1", got)
+	}
+}
+
 func TestClickHouseFlushRefreshesDeduplicatedProjection(t *testing.T) {
 	ch := setupLiveClickHouse(t)
 	now := time.Now().UTC()
