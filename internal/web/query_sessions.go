@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"strings"
 	"time"
 
@@ -108,7 +107,14 @@ func queryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time
 		args = append(args, searchArgs...)
 	}
 	query += completedSessionsOrderBy(sortKey, sortAsc)
-	query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit+1, offset)
+	if limit <= 0 {
+		limit = defaultSessionPageSize
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	query += " LIMIT ? OFFSET ?"
+	args = append(args, limit+1, offset)
 
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {

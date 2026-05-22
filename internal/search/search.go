@@ -346,7 +346,7 @@ func scanResults(rows resultRows) ([]SearchResult, error) {
 	for rows.Next() {
 		var r SearchResult
 		if err := rows.Scan(&r.EventUID, &r.SessionID, &r.EventKind, &r.TextPreview, &r.Score, &r.Timestamp, &r.ToolName, &r.Model, &r.Provider); err != nil {
-			continue
+			return results, fmt.Errorf("scan search result: %w", err)
 		}
 		results = append(results, r)
 	}

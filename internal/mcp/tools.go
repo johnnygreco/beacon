@@ -175,7 +175,7 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 	for rows.Next() {
 		var e contextEvent
 		if err := rows.Scan(&e.EventUID, &e.EventKind, &e.ActorRole, &e.TextPreview, &e.ToolName, &e.Model, &e.Tokens, &e.Timestamp); err != nil {
-			continue
+			return "", fmt.Errorf("scan context event: %w", err)
 		}
 		if e.EventUID == eventUID {
 			targetIdx = len(window)
@@ -237,7 +237,7 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 		var s sessionInfo
 		if err := rows.Scan(&s.SessionID, &s.SourceName, &s.StartedAt, &s.EndedAt,
 			&s.EventCount, &s.TurnCount, &s.TotalTokens, &s.ToolCallCount, &s.MCPCallCount, &s.ErrorCount, &s.LastModel); err != nil {
-			continue
+			return "", fmt.Errorf("scan session: %w", err)
 		}
 		sessions = append(sessions, s)
 	}

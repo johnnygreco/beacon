@@ -109,6 +109,29 @@ func TestSQLHelperSubqueries(t *testing.T) {
 	}
 }
 
+func TestRecentActivityKindFilterUsesParameterizedArgs(t *testing.T) {
+	hostile := "message') OR 1=1 --"
+	clause, args := recentActivityKindFilter([]string{" tool_call ", hostile, ""})
+	if clause != "ae.event_kind IN (?,?)" {
+		t.Fatalf("kind filter clause = %q, want placeholders only", clause)
+	}
+	if strings.Contains(clause, hostile) || strings.Contains(clause, "OR 1=1") || strings.Contains(clause, "'") {
+		t.Fatalf("kind filter interpolated event kind: %s", clause)
+	}
+	expectedArgs := []any{"tool_call", hostile}
+	if fmt.Sprint(args) != fmt.Sprint(expectedArgs) {
+		t.Fatalf("kind filter args = %#v, want %#v", args, expectedArgs)
+	}
+
+	clause, args = recentActivityKindFilter(nil)
+	if clause != "ae.event_kind IN (?,?,?,?,?)" {
+		t.Fatalf("default kind filter clause = %q", clause)
+	}
+	if len(args) != len(defaultActivityEventKinds) {
+		t.Fatalf("default kind args = %#v, want %d", args, len(defaultActivityEventKinds))
+	}
+}
+
 func TestTimeAndPresentationHelpers(t *testing.T) {
 	if got := dashboardTimeUnit(1); got != "minute" {
 		t.Fatalf("dashboardTimeUnit(1) = %q", got)
@@ -143,6 +166,16 @@ func TestCompletedSessionsOrderByNameUsesRenderedProjectName(t *testing.T) {
 	}
 	if !strings.Contains(orderBy, "NULLIF(source_name") {
 		t.Fatalf("name sort should retain source_name fallback, got %s", orderBy)
+	}
+}
+
+func TestCompletedSessionsOrderByWhitelistsSortKey(t *testing.T) {
+	orderBy := completedSessionsOrderBy("ended_at DESC; DROP TABLE session_projection", true)
+	if strings.Contains(orderBy, "DROP") || strings.Contains(orderBy, ";") {
+		t.Fatalf("order by interpolated hostile sort key: %s", orderBy)
+	}
+	if !strings.Contains(orderBy, "ORDER BY ended_at DESC") {
+		t.Fatalf("hostile sort should fall back to ended_at DESC, got %s", orderBy)
 	}
 }
 

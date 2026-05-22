@@ -101,6 +101,14 @@ func TestSearchSortOrders(t *testing.T) {
 	if got := browseSortOrder("relevance"); got != "DESC" {
 		t.Fatalf("browseSortOrder(relevance) = %q, want DESC", got)
 	}
+
+	hostile := "timestamp DESC; DROP TABLE search_documents"
+	if got := searchSortOrder(hostile); got != "score DESC, timestamp DESC" {
+		t.Fatalf("hostile search sort = %q, want relevance fallback", got)
+	}
+	if got := browseSortOrder(hostile); got != "DESC" {
+		t.Fatalf("hostile browse sort = %q, want newest fallback", got)
+	}
 }
 
 func TestUniqPreservesFirstOccurrence(t *testing.T) {
@@ -310,26 +318,27 @@ func TestSearchIgnoresQueryLogInsertFailure(t *testing.T) {
 	}
 }
 
-func TestScanResultsSkipsScanErrors(t *testing.T) {
+func TestScanResultsReturnsScanErrors(t *testing.T) {
 	now := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	scanErr := errors.New("bad row")
 	rows := &fakeResultRows{
 		results: []SearchResult{
 			{EventUID: "evt-good-1", SessionID: "session-1", EventKind: "message", Timestamp: now},
 			{EventUID: "evt-bad", SessionID: "session-1", EventKind: "message", Timestamp: now},
 			{EventUID: "evt-good-2", SessionID: "session-2", EventKind: "tool_call", Timestamp: now.Add(time.Minute)},
 		},
-		scanErrors: map[int]error{1: errors.New("bad row")},
+		scanErrors: map[int]error{1: scanErr},
 	}
 
 	results, err := scanResults(rows)
-	if err != nil {
-		t.Fatalf("scanResults error = %v", err)
+	if !errors.Is(err, scanErr) {
+		t.Fatalf("scanResults error = %v, want %v", err, scanErr)
 	}
-	if len(results) != 2 {
-		t.Fatalf("results = %#v, want 2 good rows", results)
+	if len(results) != 1 || results[0].EventUID != "evt-good-1" {
+		t.Fatalf("results = %#v, want rows scanned before error", results)
 	}
-	if results[0].EventUID != "evt-good-1" || results[1].EventUID != "evt-good-2" {
-		t.Fatalf("results = %#v, want scan error skipped", results)
+	if !strings.Contains(err.Error(), "scan search result") {
+		t.Fatalf("scanResults error = %v, want context", err)
 	}
 }
 
