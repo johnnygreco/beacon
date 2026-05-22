@@ -22,6 +22,9 @@ checks fail for the same reasons.
   scripts and Playwright tests.
 - npm packages: `package-lock.json`. Update with `npm install` and review the
   lockfile diff.
+- Vendored browser assets: `scripts/vendor-assets.mjs` copies npm package
+  assets into `static/` and records package versions, licenses, upstreams, and
+  file hashes in `static/vendor-manifest.json`.
 - Playwright: `package-lock.json` via `@playwright/test`. Browser install
   happens in CI with `npx playwright install --with-deps chromium`.
   Dashboard/search and accessibility suites are portable Chromium checks.
@@ -42,11 +45,13 @@ checks fail for the same reasons.
    - `go test ./...`;
    - `govulncheck ./...`;
    - `golangci-lint run ./...`;
+   - `npm run vendor:check`;
    - `npm audit --audit-level=moderate`;
    - Playwright suites when npm or frontend assets changed.
      Use `npm run test:visual -- --update-snapshots` only when intentionally
      accepting visual changes on Darwin.
-4. Review generated, vendored, and lockfile diffs before opening a PR.
+4. Review generated, vendored, manifest, notice, and lockfile diffs before
+   opening a PR.
 
 Do not replace pinned CI tool versions with floating aliases such as `latest`.
 
@@ -66,6 +71,10 @@ CI runs these hygiene gates on pull requests:
 - `govulncheck`: `govulncheck ./...` fails on reachable Go vulnerabilities.
 - `npm-audit`: `npm audit --audit-level=moderate` fails on moderate or higher
   npm advisories.
+- `frontend`: `npm run vendor:check` fails if vendored browser assets,
+  `static/vendor-manifest.json`, or `THIRD_PARTY_NOTICES.md` are stale, or if
+  the vendor directories contain unconfigured files. Then
+  `npm run test:frontend` runs frontend lint and unit tests.
 - `dependency-review`: GitHub dependency review fails pull requests introducing
   moderate or higher dependency vulnerabilities.
 - `playwright-dashboard`: `npm run test:e2e` runs dashboard and dashboard
@@ -82,6 +91,17 @@ For template changes, commit both the `.templ` source and the matching
 escaping, and helper-visible output; coverage gates intentionally avoid
 package floors for generated templ packages so tests do not chase generated
 line coverage.
+
+For vendored browser asset changes, commit the updated files under
+`static/js/vendor` or `static/css/vendor`, the regenerated
+`static/vendor-manifest.json`, `package-lock.json` when package versions
+changed, and `THIRD_PARTY_NOTICES.md` when package version, license, upstream,
+or copyright text changed. `npm run vendor:check` compares each vendored file
+to the installed npm package source and verifies the manifest plus notices
+mention every vendored file, package version, license, and upstream. It also
+fails on unconfigured files left in `static/js/vendor` or `static/css/vendor`.
+If a dependency changes license, update `scripts/vendor-assets.mjs` only after
+reviewing the new license and notice text.
 
 The visual Playwright suite is excluded from CI by design while only Darwin
 baselines are checked in. Keep that exclusion explicit in PRs that touch

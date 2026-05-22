@@ -70,6 +70,8 @@ jobs:
           cache: npm
       - name: Install npm dependencies
         run: npm ci
+      - name: Check vendored frontend assets
+        run: npm run vendor:check
       - name: Run frontend lint and unit tests
         run: npm run test:frontend
 

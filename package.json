@@ -4,6 +4,7 @@
   "description": "Live dashboard for AI coding agent sessions.",
   "scripts": {
     "vendor": "node scripts/vendor-assets.mjs",
+    "vendor:check": "node scripts/vendor-assets.mjs --check",
     "lint:js": "eslint static/js tests/js --max-warnings=0",
     "test:unit": "node --test tests/js/*.test.cjs",
     "test:frontend": "npm run lint:js && npm run test:unit",
