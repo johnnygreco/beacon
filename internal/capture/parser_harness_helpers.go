@@ -157,7 +157,15 @@ func stringFromAny(v any) string {
 	return ""
 }
 
-func mapFromAny(v any) map[string]any {
+func stringField(m map[string]any, key string) string {
+	return stringFromAny(m[key])
+}
+
+func int64Field(m map[string]any, key string) int64 {
+	return numberFromAny(m[key])
+}
+
+func objectFromAny(v any) map[string]any {
 	m, _ := v.(map[string]any)
 	return m
 }

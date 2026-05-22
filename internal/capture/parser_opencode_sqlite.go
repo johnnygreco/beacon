@@ -155,7 +155,7 @@ func loadOpenCodeMessages(db *sql.DB, file string, sessions map[string]openCodeS
 }
 
 func openCodeDataTime(data map[string]any, fallback int64) time.Time {
-	if tm := mapFromAny(data["time"]); tm != nil {
+	if tm := objectFromAny(data["time"]); tm != nil {
 		if created := numberFromAny(tm["created"]); created > 0 {
 			return timeFromUnixMillis(created)
 		}
@@ -203,7 +203,7 @@ func openCodeMessageEvents(base NormalizedEvent, rowID, msgType string, data map
 		evt.EventKind = "turn_context"
 		evt.ActorRole = "system"
 		evt.PayloadType = "model-switched"
-		if model := mapFromAny(data["model"]); model != nil {
+		if model := objectFromAny(data["model"]); model != nil {
 			evt.Model = firstNonEmpty(stringFromAny(model["id"]), stringFromAny(model["modelID"]))
 			evt.Provider = firstNonEmpty(stringFromAny(model["providerID"]), evt.Provider)
 			evt.TextContent = evt.Model
@@ -236,11 +236,11 @@ func openCodeMessageEvents(base NormalizedEvent, rowID, msgType string, data map
 }
 
 func openCodeAssistantEvents(base NormalizedEvent, rowID string, data map[string]any) []NormalizedEvent {
-	if model := mapFromAny(data["model"]); model != nil {
+	if model := objectFromAny(data["model"]); model != nil {
 		base.Model = firstNonEmpty(stringFromAny(model["modelID"]), stringFromAny(model["id"]))
 		base.Provider = firstNonEmpty(stringFromAny(model["providerID"]), base.Provider)
 	}
-	tokens := mapFromAny(data["tokens"])
+	tokens := objectFromAny(data["tokens"])
 	cost := floatFromAny(data["cost"])
 	tokensAssigned := false
 	assignUsage := func(evt *NormalizedEvent) {
@@ -250,8 +250,9 @@ func openCodeAssistantEvents(base NormalizedEvent, rowID string, data map[string
 		if tokens != nil {
 			evt.InputTokens = int64(floatFromAny(tokens["input"]))
 			evt.OutputTokens = int64(floatFromAny(tokens["output"]))
-			evt.CacheReadTokens = int64(floatFromAny(mapFromAny(tokens["cache"])["read"]))
-			evt.CacheCreateTokens = int64(floatFromAny(mapFromAny(tokens["cache"])["write"]))
+			cache := objectFromAny(tokens["cache"])
+			evt.CacheReadTokens = int64(floatFromAny(cache["read"]))
+			evt.CacheCreateTokens = int64(floatFromAny(cache["write"]))
 		}
 		evt.CostUSD = cost
 		tokensAssigned = true
@@ -259,7 +260,7 @@ func openCodeAssistantEvents(base NormalizedEvent, rowID string, data map[string
 
 	var events []NormalizedEvent
 	for i, part := range arrayFromAny(data["content"]) {
-		pm := mapFromAny(part)
+		pm := objectFromAny(part)
 		if pm == nil {
 			continue
 		}
@@ -294,7 +295,7 @@ func openCodeAssistantEvents(base NormalizedEvent, rowID string, data map[string
 		}
 	}
 
-	if errData := mapFromAny(data["error"]); errData != nil {
+	if errData := objectFromAny(data["error"]); errData != nil {
 		evt := base
 		evt.EventKind = "error"
 		evt.ActorRole = "assistant"
@@ -324,7 +325,7 @@ func openCodeAssistantEvents(base NormalizedEvent, rowID string, data map[string
 func openCodeToolEvents(base NormalizedEvent, rowID string, index int, part map[string]any) []NormalizedEvent {
 	callID := stringFromAny(part["id"])
 	toolName := stringFromAny(part["name"])
-	state := mapFromAny(part["state"])
+	state := objectFromAny(part["state"])
 	status := stringFromAny(state["status"])
 
 	call := base
@@ -349,7 +350,7 @@ func openCodeToolEvents(base NormalizedEvent, rowID string, index int, part map[
 		if status == "error" {
 			result.EventKind = "tool_error"
 			result.ErrorCode = "tool_execution_failed"
-			if errData := mapFromAny(state["error"]); errData != nil {
+			if errData := objectFromAny(state["error"]); errData != nil {
 				result.ErrorMessage = stringFromAny(errData["message"])
 			}
 		}

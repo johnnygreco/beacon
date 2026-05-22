@@ -334,7 +334,7 @@ func hermesToolCalls(raw string) []hermesToolCall {
 
 	var calls []hermesToolCall
 	for _, item := range items {
-		m := mapFromAny(item)
+		m := objectFromAny(item)
 		if m == nil {
 			continue
 		}
@@ -342,7 +342,7 @@ func hermesToolCalls(raw string) []hermesToolCall {
 			id:   firstNonEmpty(stringFromAny(m["id"]), stringFromAny(m["tool_call_id"])),
 			name: stringFromAny(m["name"]),
 		}
-		if fn := mapFromAny(m["function"]); fn != nil {
+		if fn := objectFromAny(m["function"]); fn != nil {
 			call.name = firstNonEmpty(call.name, stringFromAny(fn["name"]))
 			if args, ok := fn["arguments"]; ok {
 				call.input = jsonPayload(args)
