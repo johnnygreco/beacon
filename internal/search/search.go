@@ -62,9 +62,8 @@ func NewSearcher(db *sql.DB, logger *slog.Logger, maxResults int, rebuildInterva
 	}
 }
 
-// RunIndexer is retained for caller compatibility; Beacon's search index is now
-// built at ingest time into search_documents and search_postings.
-func (s *Searcher) RunIndexer(ctx context.Context) {
+// MonitorIndex periodically probes the ingest-built search index tables.
+func (s *Searcher) MonitorIndex(ctx context.Context) {
 	s.ProbeIndex()
 	if s.rebuildInterval <= 0 {
 		return
@@ -132,10 +131,6 @@ func (s *Searcher) logQuery(query string, tokens []string, resultCount int, dura
 			s.logger.Debug("search query log insert failed", "query", query, "error", err)
 		}
 	}()
-}
-
-func (s *Searcher) LegacySearch(ctx context.Context, query string, limit int) ([]SearchResult, error) {
-	return s.Search(ctx, SearchQuery{Query: query, Limit: limit})
 }
 
 func (s *Searcher) postingsSearch(ctx context.Context, q SearchQuery, tokens []string) ([]SearchResult, error) {

@@ -244,23 +244,23 @@ func TestProbeIndex_NoIndex(t *testing.T) {
 	}
 }
 
-func TestLegacySearch(t *testing.T) {
+func TestSearch_WithQueryAndLimit(t *testing.T) {
 	ch := setupTestStore(t)
 	logger := testLogger
 
-	insertEvent(t, ch, "evt-legacy-1", "sess-1", "message", "legacy search test content", "gpt-4")
+	insertEvent(t, ch, "evt-query-1", "sess-1", "message", "query search test content", "gpt-4")
 
 	s := search.NewSearcher(ch.DB, logger, 25, 0)
 
-	results, err := s.LegacySearch(context.Background(), "legacy search", 10)
+	results, err := s.Search(context.Background(), search.SearchQuery{Query: "query search", Limit: 10})
 	if err != nil {
-		t.Fatalf("LegacySearch error: %v", err)
+		t.Fatalf("Search error: %v", err)
 	}
 	if len(results) == 0 {
-		t.Fatal("expected at least one result from LegacySearch")
+		t.Fatal("expected at least one result from Search")
 	}
-	if results[0].EventUID != "evt-legacy-1" {
-		t.Errorf("expected evt-legacy-1, got %s", results[0].EventUID)
+	if results[0].EventUID != "evt-query-1" {
+		t.Errorf("expected evt-query-1, got %s", results[0].EventUID)
 	}
 }
 

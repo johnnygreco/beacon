@@ -12,16 +12,16 @@ import (
 	"github.com/johnnygreco/beacon/internal/search"
 )
 
-type fakeLegacySearcher struct {
-	query   string
-	limit   int
-	results []search.SearchResult
-	err     error
+type fakeAPISearcher struct {
+	query       search.SearchQuery
+	searchCalls int
+	results     []search.SearchResult
+	err         error
 }
 
-func (f *fakeLegacySearcher) LegacySearch(_ context.Context, query string, limit int) ([]search.SearchResult, error) {
+func (f *fakeAPISearcher) Search(_ context.Context, query search.SearchQuery) ([]search.SearchResult, error) {
+	f.searchCalls++
 	f.query = query
-	f.limit = limit
 	return f.results, f.err
 }
 
@@ -56,8 +56,8 @@ func TestJsonError(t *testing.T) {
 	}
 }
 
-func TestCompletedSessionEventSearchSessionIDs_UsesLegacySearchForMultiTokenQuery(t *testing.T) {
-	fake := &fakeLegacySearcher{
+func TestCompletedSessionEventSearchSessionIDs_UsesSearchForMultiTokenQuery(t *testing.T) {
+	fake := &fakeAPISearcher{
 		results: []search.SearchResult{
 			{SessionID: "session-older-001"},
 			{SessionID: "session-older-001"},
@@ -70,11 +70,14 @@ func TestCompletedSessionEventSearchSessionIDs_UsesLegacySearchForMultiTokenQuer
 	if err != nil {
 		t.Fatalf("completedSessionEventSearchSessionIDs error: %v", err)
 	}
-	if fake.query != "dashboard payload" {
-		t.Fatalf("legacy search query = %q, want dashboard payload", fake.query)
+	if fake.searchCalls != 1 {
+		t.Fatalf("search calls = %d, want 1", fake.searchCalls)
 	}
-	if fake.limit != completedSessionEventSearchLimit {
-		t.Fatalf("legacy search limit = %d, want %d", fake.limit, completedSessionEventSearchLimit)
+	if fake.query.Query != "dashboard payload" {
+		t.Fatalf("search query = %q, want dashboard payload", fake.query.Query)
+	}
+	if fake.query.Limit != completedSessionEventSearchLimit {
+		t.Fatalf("search limit = %d, want %d", fake.query.Limit, completedSessionEventSearchLimit)
 	}
 	expected := []string{"session-older-001", "session-completed-002"}
 	if fmt.Sprint(ids) != fmt.Sprint(expected) {
@@ -83,7 +86,7 @@ func TestCompletedSessionEventSearchSessionIDs_UsesLegacySearchForMultiTokenQuer
 }
 
 func TestCompletedSessionEventSearchSessionIDs_SkipsBlankQueryAndMissingSearcher(t *testing.T) {
-	fake := &fakeLegacySearcher{}
+	fake := &fakeAPISearcher{}
 	handlers := &APIHandlers{searcher: fake}
 	ids, err := handlers.completedSessionEventSearchSessionIDs(t.Context(), "   ")
 	if err != nil {
@@ -92,8 +95,8 @@ func TestCompletedSessionEventSearchSessionIDs_SkipsBlankQueryAndMissingSearcher
 	if len(ids) != 0 {
 		t.Fatalf("blank query ids = %#v, want none", ids)
 	}
-	if fake.query != "" {
-		t.Fatalf("blank query should not call searcher, got query %q", fake.query)
+	if fake.searchCalls != 0 {
+		t.Fatalf("blank query should not call searcher, got %d calls", fake.searchCalls)
 	}
 
 	handlers = &APIHandlers{}
@@ -104,4 +107,19 @@ func TestCompletedSessionEventSearchSessionIDs_SkipsBlankQueryAndMissingSearcher
 	if len(ids) != 0 {
 		t.Fatalf("missing searcher ids = %#v, want none", ids)
 	}
+}
+
+func TestNewAPIHandlersWithNilSearcherSkipsEventSearch(t *testing.T) {
+	handlers := NewAPIHandlers(nil, nil, testLogger())
+	ids, err := handlers.completedSessionEventSearchSessionIDs(t.Context(), "dashboard payload")
+	if err != nil {
+		t.Fatalf("nil constructor searcher error: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Fatalf("nil constructor searcher ids = %#v, want none", ids)
+	}
+}
+
+func testLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 }
