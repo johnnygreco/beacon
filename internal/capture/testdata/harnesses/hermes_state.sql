@@ -42,9 +42,7 @@ CREATE TABLE messages (
   timestamp REAL NOT NULL,
   token_count INTEGER,
   finish_reason TEXT,
-  reasoning TEXT,
   reasoning_content TEXT,
-  reasoning_details TEXT,
   codex_reasoning_items TEXT,
   codex_message_items TEXT
 );
