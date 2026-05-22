@@ -61,6 +61,11 @@ CI runs these hygiene gates on pull requests:
   npm advisories.
 - `dependency-review`: GitHub dependency review fails pull requests introducing
   moderate or higher dependency vulnerabilities.
+- `playwright-dashboard`: `npm run test:e2e` runs dashboard and dashboard
+  search browser workflows, uploading Playwright reports and trace/media
+  outputs on failure.
+- `playwright-accessibility`: `npm run test:a11y` runs axe-backed browser
+  checks, uploading the same Playwright artifacts on failure.
 
 Run the matching local commands before opening dependency, generated-code, or
 toolchain PRs.
