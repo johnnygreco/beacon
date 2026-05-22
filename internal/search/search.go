@@ -335,7 +335,13 @@ func browseSortOrder(sortBy string) string {
 	}
 }
 
-func scanResults(rows *sql.Rows) ([]SearchResult, error) {
+type resultRows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+}
+
+func scanResults(rows resultRows) ([]SearchResult, error) {
 	var results []SearchResult
 	for rows.Next() {
 		var r SearchResult
