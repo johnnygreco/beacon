@@ -16,7 +16,7 @@ import (
 func runStop(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
-		cfg = &config.Config{}
+		return fmt.Errorf("loading config: %w", err)
 	}
 
 	// Try pidfile first

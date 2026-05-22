@@ -28,7 +28,7 @@ func newStatusCmd() *cobra.Command {
 func runStatus(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
-		cfg = &config.Config{}
+		return fmt.Errorf("loading config: %w", err)
 	}
 
 	// Server status

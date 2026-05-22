@@ -12,7 +12,6 @@ import (
 
 	"github.com/johnnygreco/beacon/internal/store"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 func TestDockerEnvWithAPIVersionUsesDetectedServerVersion(t *testing.T) {
@@ -328,11 +327,9 @@ func resetConfigState(t *testing.T) {
 	t.Helper()
 	oldCfgFile := cfgFile
 	cfgFile = ""
-	viper.Reset()
 	t.Setenv("HOME", t.TempDir())
 	t.Cleanup(func() {
 		cfgFile = oldCfgFile
-		viper.Reset()
 	})
 }
 

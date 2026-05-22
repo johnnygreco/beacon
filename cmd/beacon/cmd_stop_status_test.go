@@ -126,7 +126,7 @@ func TestWaitForExitReturnsTrueForMissingProcess(t *testing.T) {
 func TestRunStopReturnsNilWhenServerIsNotRunning(t *testing.T) {
 	resetConfigState(t)
 	cfgPath := filepath.Join(t.TempDir(), "beacon.toml")
-	if err := os.WriteFile(cfgPath, []byte("[server]\nhost = \"127.0.0.1\"\nport = 0\n"), 0644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("[server]\nhost = \"127.0.0.1\"\nport = 19001\n"), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	cfgFile = cfgPath
@@ -139,7 +139,7 @@ func TestRunStopReturnsNilWhenServerIsNotRunning(t *testing.T) {
 func TestRunStatusReportsClickHouseUnavailable(t *testing.T) {
 	resetConfigState(t)
 	cfgPath := filepath.Join(t.TempDir(), "beacon.toml")
-	config := "[server]\nhost = \"127.0.0.1\"\nport = 0\n\n[database]\naddrs = [\"127.0.0.1:19000\"]\n"
+	config := "[server]\nhost = \"127.0.0.1\"\nport = 19001\n\n[database]\naddrs = [\"127.0.0.1:19000\"]\n"
 	if err := os.WriteFile(cfgPath, []byte(config), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}

@@ -11,7 +11,6 @@ import (
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/store"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 func TestRootCommandShowsHelpWithoutSubcommand(t *testing.T) {
@@ -214,6 +213,18 @@ func TestBuildSourcesCoversDefaultSources(t *testing.T) {
 	}
 }
 
+func TestParserRegistryMatchesConfigRuntimeFormats(t *testing.T) {
+	var got []string
+	for key := range captureParserRegistry {
+		got = append(got, key.runtime+"/"+key.format)
+	}
+	slices.Sort(got)
+	want := config.SupportedSourceRuntimeFormatPairs()
+	if !slices.Equal(got, want) {
+		t.Fatalf("parser registry pairs = %v, want config-supported pairs %v", got, want)
+	}
+}
+
 func TestBuildSourcesRejectsUnsupportedRuntimeFormat(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Capture.Sources = []config.SourceConfig{
@@ -248,19 +259,17 @@ watch_root = "/tmp"
 
 	oldCfgFile := cfgFile
 	cfgFile = cfgPath
-	viper.Reset()
 	t.Cleanup(func() {
 		cfgFile = oldCfgFile
-		viper.Reset()
 	})
 
 	err := runWatch(newWatchCmd(), nil)
 	if err == nil {
 		t.Fatal("runWatch returned nil error")
 	}
-	if !strings.Contains(err.Error(), "capture source config") ||
-		!strings.Contains(err.Error(), `unsupported capture source "bad"`) {
-		t.Fatalf("runWatch error = %q, want source config error", err.Error())
+	if !strings.Contains(err.Error(), "loading config") ||
+		!strings.Contains(err.Error(), `capture.sources[0] runtime/format "mystery-agent"/"jsonl" is unsupported`) {
+		t.Fatalf("runWatch error = %q, want config validation error", err.Error())
 	}
 	if strings.Contains(err.Error(), "clickhouse") {
 		t.Fatalf("runWatch error = %q, validation should happen before ClickHouse", err.Error())

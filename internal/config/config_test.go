@@ -3,14 +3,12 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
-
-	"github.com/spf13/viper"
 )
 
 func TestLoad_Defaults(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(func() { viper.Reset() })
+	t.Setenv("HOME", t.TempDir())
 
 	cfg, err := Load("")
 	if err != nil {
@@ -81,14 +79,27 @@ func TestLoad_Defaults(t *testing.T) {
 }
 
 func TestLoad_CustomConfigFile(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(func() { viper.Reset() })
-
 	tmpFile := filepath.Join(t.TempDir(), "beacon.toml")
 	if err := os.WriteFile(tmpFile, []byte(`
 [server]
 host = "127.0.0.1"
 port = 8080
+
+[database]
+addrs = ["clickhouse.internal:9440"]
+database = "beacon_custom"
+read_pool_size = 12
+
+[capture]
+reconcile_interval = "45s"
+
+[[capture.sources]]
+name = "custom-codex"
+runtime = "codex"
+provider = "openai"
+glob = "/tmp/codex/**/*.jsonl"
+watch_root = "/tmp/codex"
+format = "jsonl"
 `), 0644); err != nil {
 		t.Fatalf("failed to write temp config: %v", err)
 	}
@@ -104,13 +115,17 @@ port = 8080
 	if cfg.Server.Port != 8080 {
 		t.Errorf("Server.Port = %d, want %d", cfg.Server.Port, 8080)
 	}
-
-	// Verify other defaults still apply
-	if cfg.Database.ReadPoolSize != 8 {
-		t.Errorf("Database.ReadPoolSize = %d, want %d (default)", cfg.Database.ReadPoolSize, 8)
+	if len(cfg.Database.Addrs) != 1 || cfg.Database.Addrs[0] != "clickhouse.internal:9440" {
+		t.Fatalf("Database.Addrs = %v, want custom addr", cfg.Database.Addrs)
 	}
-	if cfg.Capture.Enabled != true {
-		t.Errorf("Capture.Enabled = %v, want true (default)", cfg.Capture.Enabled)
+	if cfg.Database.Database != "beacon_custom" {
+		t.Errorf("Database.Database = %q, want beacon_custom", cfg.Database.Database)
+	}
+	if cfg.Database.ReadPoolSize != 12 {
+		t.Errorf("Database.ReadPoolSize = %d, want 12", cfg.Database.ReadPoolSize)
+	}
+	if len(cfg.Capture.Sources) != 1 || cfg.Capture.Sources[0].Name != "custom-codex" {
+		t.Fatalf("Capture.Sources = %#v, want custom source only", cfg.Capture.Sources)
 	}
 	if cfg.SSE.SubscriberBuffer != 64 {
 		t.Errorf("SSE.SubscriberBuffer = %d, want %d (default)", cfg.SSE.SubscriberBuffer, 64)
@@ -124,8 +139,7 @@ port = 8080
 }
 
 func TestLoad_DefaultCaptureSources(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(func() { viper.Reset() })
+	t.Setenv("HOME", t.TempDir())
 
 	cfg, err := Load("")
 	if err != nil {
@@ -163,5 +177,284 @@ func TestLoad_DefaultCaptureSources(t *testing.T) {
 		if got.Format != expected.Format {
 			t.Errorf("Sources[%d].Format = %q, want %q", i, got.Format, expected.Format)
 		}
+	}
+}
+
+func TestLoad_RepositoryExampleConfig(t *testing.T) {
+	cfg, err := Load(filepath.Join("..", "..", "beacon.toml"))
+	if err != nil {
+		t.Fatalf("Load repository beacon.toml: %v", err)
+	}
+	if len(cfg.Capture.Sources) != 5 {
+		t.Fatalf("Capture.Sources has %d entries, want 5", len(cfg.Capture.Sources))
+	}
+}
+
+func TestLoad_CustomFilesDoNotBleedState(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "first.toml")
+	second := filepath.Join(dir, "second.toml")
+	if err := os.WriteFile(first, []byte(`
+[server]
+host = "127.0.0.1"
+port = 7777
+`), 0644); err != nil {
+		t.Fatalf("write first config: %v", err)
+	}
+	if err := os.WriteFile(second, []byte(`
+[server]
+host = "127.0.0.2"
+`), 0644); err != nil {
+		t.Fatalf("write second config: %v", err)
+	}
+
+	firstCfg, err := Load(first)
+	if err != nil {
+		t.Fatalf("Load(first): %v", err)
+	}
+	secondCfg, err := Load(second)
+	if err != nil {
+		t.Fatalf("Load(second): %v", err)
+	}
+	if firstCfg.Server.Port != 7777 {
+		t.Fatalf("first port = %d, want 7777", firstCfg.Server.Port)
+	}
+	if secondCfg.Server.Port != 4600 {
+		t.Fatalf("second port = %d, want default 4600 without bleed", secondCfg.Server.Port)
+	}
+}
+
+func TestLoad_ExplicitMissingConfigFileFails(t *testing.T) {
+	_, err := Load(filepath.Join(t.TempDir(), "missing.toml"))
+	if err == nil {
+		t.Fatal("Load missing explicit config returned nil error")
+	}
+}
+
+func TestLoad_InvalidValues(t *testing.T) {
+	tests := []struct {
+		name    string
+		body    string
+		wantErr string
+	}{
+		{
+			name:    "server port",
+			body:    "[server]\nport = 0\n",
+			wantErr: "server.port must be between 1 and 65535",
+		},
+		{
+			name:    "database address",
+			body:    "[database]\naddrs = [\"127.0.0.1\"]\n",
+			wantErr: "database.addrs[0] must be host:port",
+		},
+		{
+			name:    "database name",
+			body:    "[database]\ndatabase = \"beacon-prod\"\n",
+			wantErr: "database.database",
+		},
+		{
+			name:    "reconcile duration",
+			body:    "[capture]\nreconcile_interval = \"0s\"\n",
+			wantErr: "capture.reconcile_interval must be positive",
+		},
+		{
+			name:    "debounce",
+			body:    "[capture]\ndebounce_ms = 0\n",
+			wantErr: "capture.debounce_ms must be positive",
+		},
+		{
+			name:    "workers",
+			body:    "[capture]\nbackfill_workers = 0\n",
+			wantErr: "capture.backfill_workers must be positive",
+		},
+		{
+			name:    "search max results",
+			body:    "[search]\nmax_results = -1\n",
+			wantErr: "search.max_results must be positive",
+		},
+		{
+			name:    "mcp context",
+			body:    "[mcp]\ncontext_window = -1\n",
+			wantErr: "mcp.context_window must be non-negative",
+		},
+		{
+			name: "unsupported source pair",
+			body: `
+[[capture.sources]]
+name = "bad"
+runtime = "codex"
+provider = "openai"
+glob = "/tmp/**/*.jsonl"
+watch_root = "/tmp"
+format = "sqlite"
+`,
+			wantErr: `capture.sources[0] runtime/format "codex"/"sqlite" is unsupported`,
+		},
+		{
+			name: "missing source glob",
+			body: `
+[[capture.sources]]
+name = "bad"
+runtime = "codex"
+provider = "openai"
+watch_root = "/tmp"
+format = "jsonl"
+`,
+			wantErr: "capture.sources[0] must set glob or globs",
+		},
+		{
+			name: "missing source watch root",
+			body: `
+[[capture.sources]]
+name = "bad"
+runtime = "codex"
+provider = "openai"
+glob = "/tmp/**/*.jsonl"
+format = "jsonl"
+`,
+			wantErr: "capture.sources[0].watch_root is required",
+		},
+		{
+			name: "duplicate source name",
+			body: `
+[[capture.sources]]
+name = "dup"
+runtime = "codex"
+provider = "openai"
+glob = "/tmp/a/**/*.jsonl"
+watch_root = "/tmp/a"
+format = "jsonl"
+
+[[capture.sources]]
+name = "dup"
+runtime = "claude-code"
+provider = "anthropic"
+glob = "/tmp/b/**/*.jsonl"
+watch_root = "/tmp/b"
+format = "jsonl"
+`,
+			wantErr: `capture.sources[1].name "dup" is duplicated`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "beacon.toml")
+			if err := os.WriteFile(path, []byte(tt.body), 0644); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+			_, err := Load(path)
+			if err == nil {
+				t.Fatal("Load returned nil error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidate_InvalidFields(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantErr string
+	}{
+		{name: "nil", mutate: nil, wantErr: "config is nil"},
+		{name: "server host", mutate: func(c *Config) { c.Server.Host = " " }, wantErr: "server.host is required"},
+		{name: "empty addrs", mutate: func(c *Config) { c.Database.Addrs = nil }, wantErr: "database.addrs must contain"},
+		{name: "empty addr", mutate: func(c *Config) { c.Database.Addrs = []string{" "} }, wantErr: "database.addrs[0] is required"},
+		{name: "addr host", mutate: func(c *Config) { c.Database.Addrs = []string{":9000"} }, wantErr: "database.addrs[0] host is required"},
+		{name: "addr port numeric", mutate: func(c *Config) { c.Database.Addrs = []string{"127.0.0.1:nope"} }, wantErr: "database.addrs[0] port must be numeric"},
+		{name: "addr port range", mutate: func(c *Config) { c.Database.Addrs = []string{"127.0.0.1:0"} }, wantErr: "database.addrs[0] port must be between"},
+		{name: "database required", mutate: func(c *Config) { c.Database.Database = " " }, wantErr: "database.database is required"},
+		{name: "read pool too high", mutate: func(c *Config) { c.Database.ReadPoolSize = 2048 }, wantErr: "database.read_pool_size must be <= 1024"},
+		{name: "debounce negative", mutate: func(c *Config) { c.Capture.DebounceMs = -1 }, wantErr: "capture.debounce_ms must be positive"},
+		{name: "workers too high", mutate: func(c *Config) { c.Capture.BackfillWorkers = 300 }, wantErr: "capture.backfill_workers must be <= 256"},
+		{name: "source name", mutate: func(c *Config) { c.Capture.Sources[0].Name = "" }, wantErr: "capture.sources[0].name is required"},
+		{name: "source provider", mutate: func(c *Config) { c.Capture.Sources[0].Provider = " " }, wantErr: "capture.sources[0].provider is required"},
+		{name: "source empty globs", mutate: func(c *Config) {
+			c.Capture.Sources[0].Glob = ""
+			c.Capture.Sources[0].Globs = []string{" "}
+		}, wantErr: "capture.sources[0].globs[0] is required"},
+		{name: "sse buffer", mutate: func(c *Config) { c.SSE.SubscriberBuffer = 0 }, wantErr: "sse.subscriber_buffer must be positive"},
+		{name: "sse buffer high", mutate: func(c *Config) { c.SSE.SubscriberBuffer = 100001 }, wantErr: "sse.subscriber_buffer must be <= 100000"},
+		{name: "search high", mutate: func(c *Config) { c.Search.MaxResults = 10001 }, wantErr: "search.max_results must be <= 10000"},
+		{name: "search interval", mutate: func(c *Config) { c.Search.RebuildInterval = 0 }, wantErr: "search.rebuild_interval must be positive"},
+		{name: "input pricing", mutate: func(c *Config) { c.Pricing.DefaultInputCost = -0.1 }, wantErr: "pricing.default_input_cost must be non-negative"},
+		{name: "output pricing", mutate: func(c *Config) { c.Pricing.DefaultOutputCost = -0.1 }, wantErr: "pricing.default_output_cost must be non-negative"},
+		{name: "mcp max high", mutate: func(c *Config) { c.MCP.MaxResults = 10001 }, wantErr: "mcp.max_results must be <= 10000"},
+		{name: "mcp context high", mutate: func(c *Config) { c.MCP.ContextWindow = 1001 }, wantErr: "mcp.context_window must be <= 1000"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var err error
+			if tt.mutate == nil {
+				err = Validate(nil)
+			} else {
+				cfg := validTestConfig()
+				tt.mutate(&cfg)
+				err = Validate(&cfg)
+			}
+			if err == nil {
+				t.Fatal("Validate returned nil error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidate_NormalizesTrimmedFields(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.Server.Host = " 127.0.0.1 "
+	cfg.Database.Addrs = []string{" 127.0.0.1:9000 "}
+	cfg.Database.Database = " beacon_test "
+	cfg.Capture.Sources = []SourceConfig{
+		{
+			Name:      " codex ",
+			Runtime:   " codex ",
+			Provider:  " openai ",
+			Format:    " jsonl ",
+			Globs:     []string{" /tmp/codex/**/*.jsonl "},
+			WatchRoot: " /tmp/codex ",
+		},
+	}
+	if err := Validate(&cfg); err != nil {
+		t.Fatalf("Validate returned error: %v", err)
+	}
+	if cfg.Server.Host != "127.0.0.1" || cfg.Database.Addrs[0] != "127.0.0.1:9000" || cfg.Database.Database != "beacon_test" {
+		t.Fatalf("top-level fields not normalized: %#v", cfg)
+	}
+	source := cfg.Capture.Sources[0]
+	if source.Name != "codex" || source.Runtime != "codex" || source.Provider != "openai" ||
+		source.Format != "jsonl" || source.Globs[0] != "/tmp/codex/**/*.jsonl" || source.WatchRoot != "/tmp/codex" {
+		t.Fatalf("source fields not normalized: %#v", source)
+	}
+}
+
+func validTestConfig() Config {
+	return Config{
+		Server: ServerConfig{Host: "0.0.0.0", Port: 4600},
+		Database: DatabaseConfig{
+			Addrs:        []string{"127.0.0.1:9000"},
+			Database:     "beacon",
+			Username:     "default",
+			ReadPoolSize: 8,
+		},
+		Capture: CaptureConfig{
+			Enabled:           true,
+			DebounceMs:        50,
+			ReconcileInterval: 30,
+			BackfillOnStart:   true,
+			BackfillWorkers:   4,
+			Sources:           DefaultCaptureSources(),
+		},
+		SSE:     SSEConfig{SubscriberBuffer: 64},
+		Search:  SearchConfig{MaxResults: 25, RebuildInterval: 5},
+		Pricing: PricingConfig{DefaultInputCost: 3, DefaultOutputCost: 15},
+		MCP:     MCPConfig{MaxResults: 25, ContextWindow: 3},
 	}
 }
