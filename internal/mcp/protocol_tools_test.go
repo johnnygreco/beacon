@@ -114,8 +114,11 @@ func TestToolsCallSearchSessionsSuccessAndError(t *testing.T) {
 		Params:  json.RawMessage(`{"name":"search_sessions","arguments":{"query":"needle"}}`),
 	})
 	text, isError = toolText(t, resp)
-	if !isError || !strings.Contains(text, "search backend failed") {
+	if !isError || !strings.Contains(text, "search failed") {
 		t.Fatalf("search backend error response text/isError = %q/%v", text, isError)
+	}
+	if strings.Contains(text, "search backend failed") {
+		t.Fatalf("search backend error leaked internal detail: %q", text)
 	}
 }
 
@@ -218,6 +221,32 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 	}
 }
 
+func TestToolsCallOpenBackendErrorIsSanitized(t *testing.T) {
+	db, stub := newMCPStubDB(t, []mcpStubQuery{
+		func(string, []driver.NamedValue) (driver.Rows, error) {
+			return nil, errors.New("open query failed: secret clickhouse dsn")
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	resp := srv.dispatch(context.Background(), &jsonRPCRequest{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`15`),
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"open","arguments":{"event_uid":"evt-target"}}`),
+	})
+	text, isError := toolText(t, resp)
+	if !isError || !strings.Contains(text, "failed to open event context") {
+		t.Fatalf("open backend error response text/isError = %q/%v", text, isError)
+	}
+	if strings.Contains(text, "secret clickhouse") || strings.Contains(text, "open query failed") {
+		t.Fatalf("open backend error leaked internal detail: %q", text)
+	}
+}
+
 func TestToolListSessionsSuccessAndErrors(t *testing.T) {
 	started := time.Date(2026, 5, 22, 9, 0, 0, 0, time.UTC)
 	ended := started.Add(10 * time.Minute)
@@ -277,6 +306,32 @@ func TestToolListSessionsSuccessAndErrors(t *testing.T) {
 	_, err = srv.toolListSessions(context.Background(), json.RawMessage(`{"limit":1}`))
 	if err == nil || !strings.Contains(err.Error(), "scan session") {
 		t.Fatalf("list scan error = %v", err)
+	}
+}
+
+func TestToolsCallListSessionsBackendErrorIsSanitized(t *testing.T) {
+	db, stub := newMCPStubDB(t, []mcpStubQuery{
+		func(string, []driver.NamedValue) (driver.Rows, error) {
+			return nil, errors.New("list query failed: secret clickhouse dsn")
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	resp := srv.dispatch(context.Background(), &jsonRPCRequest{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`16`),
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"list_sessions","arguments":{"limit":5}}`),
+	})
+	text, isError := toolText(t, resp)
+	if !isError || !strings.Contains(text, "failed to list sessions") {
+		t.Fatalf("list backend error response text/isError = %q/%v", text, isError)
+	}
+	if strings.Contains(text, "secret clickhouse") || strings.Contains(text, "list query failed") {
+		t.Fatalf("list backend error leaked internal detail: %q", text)
 	}
 }
 
