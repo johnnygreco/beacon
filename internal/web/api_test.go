@@ -2,16 +2,22 @@ package web
 
 import (
 	"context"
+	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/johnnygreco/beacon/internal/search"
 	"github.com/johnnygreco/beacon/internal/views"
 )
@@ -41,7 +47,7 @@ func (f *fakeAPISearcher) Browse(_ context.Context, query search.SearchQuery) ([
 }
 
 func testAPIHandlers() *APIHandlers {
-	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
 	return &APIHandlers{logger: logger}
 }
 
@@ -218,6 +224,188 @@ func TestDashboardSearch_IdleAndUnavailableStates(t *testing.T) {
 	}
 }
 
+func TestAPIIntParamParsingIsBounded(t *testing.T) {
+	spec := apiIntParam{Name: "limit", Default: 30, Min: 1, Max: 200}
+	tests := []struct {
+		name    string
+		values  url.Values
+		want    int
+		wantErr string
+	}{
+		{name: "missing", values: url.Values{}, want: 30},
+		{name: "blank", values: url.Values{"limit": {""}}, want: 30},
+		{name: "valid", values: url.Values{"limit": {"75"}}, want: 75},
+		{name: "below min", values: url.Values{"limit": {"0"}}, want: 30},
+		{name: "above max", values: url.Values{"limit": {"500"}}, want: 200},
+		{name: "malformed", values: url.Values{"limit": {"many"}}, wantErr: "invalid limit"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseAPIIntParam(tt.values, spec)
+			if tt.wantErr != "" {
+				if err == nil || err.Error() != tt.wantErr {
+					t.Fatalf("error = %v, want %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseAPIIntParam error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("parseAPIIntParam = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestAPIRequestParsingNormalizesFilters(t *testing.T) {
+	sessions, err := parseDashboardSessionsAPIRequest(url.Values{
+		"state":     {" active "},
+		"range":     {" 7d "},
+		"q":         {" dashboard "},
+		"sort":      {" oldest "},
+		"direction": {"ASC"},
+		"offset":    {"-5"},
+		"limit":     {"500"},
+	})
+	if err != nil {
+		t.Fatalf("parseDashboardSessionsAPIRequest error: %v", err)
+	}
+	if sessions.State != "active" || sessions.Range != "7d" || sessions.Query != "dashboard" || sessions.SortKey != "oldest" || !sessions.SortAsc {
+		t.Fatalf("normalized dashboard sessions request = %#v", sessions)
+	}
+	if sessions.Offset != 0 || sessions.Limit != maxDashboardSessionsAPILimit {
+		t.Fatalf("dashboard sessions offset/limit = %d/%d, want 0/%d", sessions.Offset, sessions.Limit, maxDashboardSessionsAPILimit)
+	}
+
+	activity := parseActivityAPIRequest(url.Values{
+		"range":      {""},
+		"event_kind": {" tool_call,error ", "message"},
+	})
+	if activity.Since != nil {
+		t.Fatalf("explicit blank activity range should mean all time, got %v", activity.Since)
+	}
+	expectedKinds := []string{"tool_call", "error", "message"}
+	if fmt.Sprint(activity.EventKinds) != fmt.Sprint(expectedKinds) {
+		t.Fatalf("activity event kinds = %#v, want %#v", activity.EventKinds, expectedKinds)
+	}
+
+	charts := parseDashboardChartsAPIRequest(url.Values{})
+	if charts.Range != "24h" {
+		t.Fatalf("default chart range = %q, want 24h", charts.Range)
+	}
+	charts = parseDashboardChartsAPIRequest(url.Values{"range": {""}})
+	if charts.Range != "" {
+		t.Fatalf("explicit blank chart range = %q, want all time", charts.Range)
+	}
+}
+
+func TestDashboardSearchInvalidLimitReturnsBadRequest(t *testing.T) {
+	fake := &fakeAPISearcher{}
+	handlers := &APIHandlers{searcher: fake, logger: testLogger()}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/dashboard/search?q=dashboard&limit=many", nil)
+	handlers.GetDashboardSearch(w, r)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	if fake.searchCalls != 0 || fake.browseCalls != 0 {
+		t.Fatalf("invalid request should not call backend, search=%d browse=%d", fake.searchCalls, fake.browseCalls)
+	}
+	assertAPIError(t, w.Body.String(), "invalid limit")
+}
+
+func TestSearchEventsBackendErrorIsSanitized(t *testing.T) {
+	fake := &fakeAPISearcher{err: errors.New("raw backend failure: clickhouse credentials secret")}
+	handlers := &APIHandlers{searcher: fake, logger: testLogger()}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/search?q=%20dashboard%20&limit=999", nil)
+	handlers.SearchEvents(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+	if fake.query.Query != "dashboard" || fake.query.Limit != maxSearchEventsAPILimit {
+		t.Fatalf("query = %#v, want trimmed query and capped limit", fake.query)
+	}
+	body := w.Body.String()
+	assertAPIError(t, body, "search failed")
+	if strings.Contains(body, "clickhouse credentials") {
+		t.Fatalf("response leaked backend error: %s", body)
+	}
+}
+
+func TestGetSessionsBackendErrorIsSanitized(t *testing.T) {
+	db := newFailingAPIDB(t)
+	handlers := &APIHandlers{db: db, logger: testLogger()}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	handlers.GetSessions(w, r)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+	body := w.Body.String()
+	assertAPIError(t, body, "failed to query sessions")
+	if strings.Contains(body, "raw backend") || strings.Contains(body, "session_projection") {
+		t.Fatalf("response leaked backend error: %s", body)
+	}
+}
+
+func TestPointLookupBackendErrorsAreSanitized(t *testing.T) {
+	db := newFailingAPIDB(t)
+	handlers := &APIHandlers{db: db, logger: testLogger()}
+	tests := []struct {
+		name        string
+		handler     http.HandlerFunc
+		target      string
+		routeParams []string
+		want        string
+	}{
+		{
+			name:        "session detail",
+			handler:     handlers.GetSessionDetail,
+			target:      "/api/sessions/session-1",
+			routeParams: []string{"id", "session-1"},
+			want:        "failed to query session detail",
+		},
+		{
+			name:        "event",
+			handler:     handlers.GetEvent,
+			target:      "/api/events/event-1",
+			routeParams: []string{"event_id", "event-1"},
+			want:        "failed to query event",
+		},
+		{
+			name:        "tool payload",
+			handler:     handlers.GetToolPayload,
+			target:      "/api/tool-payloads/event-1",
+			routeParams: []string{"event_id", "event-1"},
+			want:        "failed to query tool payload",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			tt.handler(w, newAPIRequest(t, tt.target, tt.routeParams...))
+			if w.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+			}
+			body := w.Body.String()
+			assertAPIError(t, body, tt.want)
+			if strings.Contains(body, "raw backend") || strings.Contains(body, "session_projection") {
+				t.Fatalf("response leaked backend error: %s", body)
+			}
+		})
+	}
+}
+
 func TestJsonResponse(t *testing.T) {
 	a := testAPIHandlers()
 	w := httptest.NewRecorder()
@@ -309,5 +497,69 @@ func TestNewAPIHandlersWithNilSearcherSkipsEventSearch(t *testing.T) {
 }
 
 func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	return slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))
+}
+
+func assertAPIError(t *testing.T, body, want string) {
+	t.Helper()
+	var got apiErrorResponse
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("decode API error: %v\n%s", err, body)
+	}
+	if got.Error != want {
+		t.Fatalf("error = %q, want %q", got.Error, want)
+	}
+}
+
+func newAPIRequest(t *testing.T, target string, routeParams ...string) *http.Request {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	if len(routeParams) == 0 {
+		return req
+	}
+	if len(routeParams)%2 != 0 {
+		t.Fatalf("route params must be key/value pairs")
+	}
+	rctx := chi.NewRouteContext()
+	for i := 0; i < len(routeParams); i += 2 {
+		rctx.URLParams.Add(routeParams[i], routeParams[i+1])
+	}
+	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+}
+
+var registerFailingAPIDriver sync.Once
+
+const failingAPIBackendError = "raw backend failure: session_projection secret"
+
+type failingAPIDriver struct{}
+
+func (failingAPIDriver) Open(string) (driver.Conn, error) {
+	return failingAPIConn{}, nil
+}
+
+type failingAPIConn struct{}
+
+func (failingAPIConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New(failingAPIBackendError)
+}
+
+func (failingAPIConn) Close() error {
+	return nil
+}
+
+func (failingAPIConn) Begin() (driver.Tx, error) {
+	return nil, errors.New(failingAPIBackendError)
+}
+
+func newFailingAPIDB(t *testing.T) *sql.DB {
+	t.Helper()
+	registerFailingAPIDriver.Do(func() {
+		sql.Register("beacon_api_failing", failingAPIDriver{})
+	})
+	db, err := sql.Open("beacon_api_failing", "")
+	if err != nil {
+		t.Fatalf("open failing db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
 }

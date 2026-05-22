@@ -4,10 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -40,19 +40,43 @@ func NewAPIHandlers(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) 
 	return &APIHandlers{db: db, searcher: backend, logger: logger}
 }
 
+type apiErrorResponse struct {
+	Error string `json:"error"`
+}
+
+func (a *APIHandlers) log() *slog.Logger {
+	if a != nil && a.logger != nil {
+		return a.logger
+	}
+	return slog.Default()
+}
+
 func (a *APIHandlers) jsonResponse(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		a.logger.Debug("json response write failed", "error", err)
+		a.log().Debug("json response write failed", "error", err)
 	}
 }
 
 func (a *APIHandlers) jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	if err := json.NewEncoder(w).Encode(map[string]string{"error": msg}); err != nil {
-		a.logger.Debug("json error response write failed", "error", err)
+	if err := json.NewEncoder(w).Encode(apiErrorResponse{Error: msg}); err != nil {
+		a.log().Debug("json error response write failed", "error", err)
 	}
+}
+
+func (a *APIHandlers) badRequest(w http.ResponseWriter, err error) {
+	a.jsonError(w, err.Error(), http.StatusBadRequest)
+}
+
+func (a *APIHandlers) internalError(w http.ResponseWriter, publicMessage string, err error) {
+	a.log().Error(publicMessage, "error", err)
+	a.jsonError(w, publicMessage, http.StatusInternalServerError)
+}
+
+func (a *APIHandlers) logSkippedRow(handler string, err error) {
+	a.log().Warn(handler+" row skipped", "error", err)
 }
 
 // GetMetrics returns current dashboard metrics.
@@ -70,7 +94,7 @@ func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(SUM(mcp_call_count), 0)
 		 FROM `+sessionProjectionSQL, activeCutoff,
 	).Scan(&totalSessions, &activeCount, &inputTokens, &outputTokens, &toolCalls, &mcpCalls); err != nil {
-		a.jsonError(w, "failed to query metrics", http.StatusInternalServerError)
+		a.internalError(w, "failed to query metrics", err)
 		return
 	}
 
@@ -88,18 +112,19 @@ func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 
 // GetSessions returns session summaries.
 func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 {
-		limit = 50
+	req, err := parseSessionsAPIRequest(r.URL.Query())
+	if err != nil {
+		a.badRequest(w, err)
+		return
 	}
 
 	rows, err := a.db.QueryContext(r.Context(),
 		`SELECT `+sessionSummaryColumns+`
 		 FROM `+sessionProjectionSQL+`
 		 ORDER BY started_at DESC
-		 LIMIT ?`, limit)
+		 LIMIT ?`, req.Limit)
 	if err != nil {
-		a.jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.internalError(w, "failed to query sessions", err)
 		return
 	}
 	defer rows.Close()
@@ -108,12 +133,13 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		s, err := scanSessionSummary(rows, time.Now())
 		if err != nil {
+			a.logSkippedRow("sessions", err)
 			continue
 		}
 		sessions = append(sessions, apiSessionSummaryFromView(s))
 	}
 	if err := rows.Err(); err != nil {
-		a.jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.internalError(w, "failed to query sessions", err)
 		return
 	}
 	a.jsonResponse(w, sessions)
@@ -121,36 +147,25 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 
 // GetDashboardSessions returns dashboard session rows as JSON for client-side rendering.
 func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Request) {
-	state := r.URL.Query().Get("state")
-	if state == "" {
-		state = "completed"
-	}
-	rangeVal := r.URL.Query().Get("range")
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	sortKey := r.URL.Query().Get("sort")
-	sortAsc := strings.EqualFold(r.URL.Query().Get("direction"), "asc")
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	if offset < 0 {
-		offset = 0
-	}
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 || limit > 200 {
-		limit = defaultSessionPageSize
+	req, err := parseDashboardSessionsAPIRequest(r.URL.Query())
+	if err != nil {
+		a.badRequest(w, err)
+		return
 	}
 
 	var sessions []views.SessionSummary
 	hasMore := false
-	switch state {
+	switch req.State {
 	case "active":
 		sessions = QueryActiveSessions(r.Context(), a.db)
 	default:
-		eventSessionIDs, err := a.completedSessionEventSearchSessionIDs(r.Context(), query)
+		eventSessionIDs, err := a.completedSessionEventSearchSessionIDs(r.Context(), req.Query)
 		if err != nil {
-			a.jsonError(w, err.Error(), http.StatusInternalServerError)
+			a.internalError(w, "search failed", err)
 			return
 		}
-		sessions, hasMore = QueryCompletedSessionsFiltered(r.Context(), a.db, parseRange(rangeVal), offset, limit, query, eventSessionIDs, sortKey, sortAsc)
-		state = "completed"
+		sessions, hasMore = QueryCompletedSessionsFiltered(r.Context(), a.db, parseRange(req.Range), req.Offset, req.Limit, req.Query, eventSessionIDs, req.SortKey, req.SortAsc)
+		req.State = "completed"
 	}
 
 	items := make([]APISessionSummary, 0, len(sessions))
@@ -158,11 +173,11 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 		items = append(items, apiSessionSummaryFromView(session))
 	}
 	a.jsonResponse(w, APIDashboardSessionsResponse{
-		State:   state,
-		Range:   rangeVal,
-		Query:   query,
-		Offset:  offset,
-		Limit:   limit,
+		State:   req.State,
+		Range:   req.Range,
+		Query:   req.Query,
+		Offset:  req.Offset,
+		Limit:   req.Limit,
 		HasMore: hasMore,
 		Items:   items,
 	})
@@ -197,22 +212,16 @@ func searchResultSessionIDs(results []search.SearchResult) []string {
 
 // GetDashboardSearch returns event and session-metadata search results for the dashboard table.
 func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request) {
-	query := strings.TrimSpace(r.URL.Query().Get("q"))
-	rangeVal := strings.TrimSpace(r.URL.Query().Get("range"))
-	eventKind := strings.TrimSpace(r.URL.Query().Get("event_kind"))
-	sessionID := strings.TrimSpace(r.URL.Query().Get("session_id"))
-	sortBy := strings.TrimSpace(r.URL.Query().Get("sort"))
-	if sortBy == "" {
-		sortBy = "relevance"
+	req, err := parseDashboardSearchAPIRequest(r.URL.Query())
+	if err != nil {
+		a.badRequest(w, err)
+		return
 	}
-
-	limit := parseDashboardSearchLimit(r.URL.Query().Get("limit"))
-	active := query != "" || rangeVal != "" || eventKind != "" || sessionID != ""
-	if !active {
+	if !req.active() {
 		a.jsonResponse(w, APIDashboardSearchResponse{
 			State: "idle",
-			Sort:  sortBy,
-			Limit: limit,
+			Sort:  req.SortBy,
+			Limit: req.Limit,
 			Items: []APIDashboardSearchResult{},
 		})
 		return
@@ -220,40 +229,36 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 	if a.searcher == nil {
 		a.jsonResponse(w, APIDashboardSearchResponse{
 			State:     "unavailable",
-			Query:     query,
-			Range:     rangeVal,
-			EventKind: eventKind,
-			SessionID: sessionID,
-			Sort:      sortBy,
-			Limit:     limit,
+			Query:     req.Query,
+			Range:     req.Range,
+			EventKind: req.EventKind,
+			SessionID: req.SessionID,
+			Sort:      req.SortBy,
+			Limit:     req.Limit,
 			Items:     []APIDashboardSearchResult{},
 		})
 		return
 	}
 
 	sq := search.SearchQuery{
-		Query:      query,
-		Limit:      limit + 1,
-		SessionID:  sessionID,
-		EventKinds: dashboardSearchEventKinds(eventKind),
-		SortBy:     sortBy,
+		Query:      req.Query,
+		Limit:      req.Limit + 1,
+		SessionID:  req.SessionID,
+		EventKinds: dashboardSearchEventKinds(req.EventKind),
+		SortBy:     req.SortBy,
 	}
-	if t := parseRange(rangeVal); t != nil {
+	if t := parseRange(req.Range); t != nil {
 		sq.FromTime = *t
 	}
 
-	var (
-		results []search.SearchResult
-		err     error
-	)
-	if query == "" {
+	var results []search.SearchResult
+	if req.Query == "" {
 		results, err = a.searcher.Browse(r.Context(), sq)
 	} else {
 		results, err = a.searcher.Search(r.Context(), sq)
 	}
 	if err != nil {
-		a.logger.Error("dashboard search failed", "error", err)
-		a.jsonError(w, "search failed", http.StatusInternalServerError)
+		a.internalError(w, "search failed", err)
 		return
 	}
 
@@ -281,43 +286,31 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 			WorkingDir:   meta.workingDir,
 		})
 	}
-	hasMore := len(items) > limit
-	if query != "" && eventKind == "" {
-		sessionItems, sessionHasMore := a.dashboardSearchSessionMetadataResults(r.Context(), query, rangeVal, sessionID, sortBy, seenSessions, limit+1)
+	hasMore := len(items) > req.Limit
+	if req.Query != "" && req.EventKind == "" {
+		sessionItems, sessionHasMore := a.dashboardSearchSessionMetadataResults(r.Context(), req.Query, req.Range, req.SessionID, req.SortBy, seenSessions, req.Limit+1)
 		if sessionHasMore {
 			hasMore = true
 		}
 		items = append(items, sessionItems...)
 	}
-	dashboardSortSearchItems(items, sortBy)
-	if len(items) > limit {
+	dashboardSortSearchItems(items, req.SortBy)
+	if len(items) > req.Limit {
 		hasMore = true
-		items = items[:limit]
+		items = items[:req.Limit]
 	}
 
 	a.jsonResponse(w, APIDashboardSearchResponse{
 		State:     "ready",
-		Query:     query,
-		Range:     rangeVal,
-		EventKind: eventKind,
-		SessionID: sessionID,
-		Sort:      sortBy,
-		Limit:     limit,
+		Query:     req.Query,
+		Range:     req.Range,
+		EventKind: req.EventKind,
+		SessionID: req.SessionID,
+		Sort:      req.SortBy,
+		Limit:     req.Limit,
 		HasMore:   hasMore,
 		Items:     items,
 	})
-}
-
-func parseDashboardSearchLimit(raw string) int {
-	limit, _ := strconv.Atoi(raw)
-	switch {
-	case limit <= 0:
-		return defaultSearchPageSize
-	case limit > 240:
-		return 240
-	default:
-		return limit
-	}
 }
 
 func dashboardSearchEventKinds(eventKind string) []string {
@@ -435,6 +428,7 @@ func (a *APIHandlers) dashboardSearchSessionMeta(ctx context.Context, ids []stri
 		 FROM session_projection FINAL
 		 WHERE session_id IN (`+strings.Join(placeholders, ",")+`)`, args...)
 	if err != nil {
+		a.log().Warn("dashboard search session metadata query failed", "error", err)
 		return meta
 	}
 	defer rows.Close()
@@ -443,6 +437,7 @@ func (a *APIHandlers) dashboardSearchSessionMeta(ctx context.Context, ids []stri
 		var sessionID, source, workingDir string
 		var startedAt time.Time
 		if err := rows.Scan(&sessionID, &source, &startedAt, &workingDir); err != nil {
+			a.logSkippedRow("dashboard search session metadata", err)
 			continue
 		}
 		summary := views.SessionSummary{
@@ -455,6 +450,9 @@ func (a *APIHandlers) dashboardSearchSessionMeta(ctx context.Context, ids []stri
 			title:      views.SessionTitle(summary, false),
 			workingDir: workingDir,
 		}
+	}
+	if err := rows.Err(); err != nil {
+		a.log().Warn("dashboard search session metadata rows failed", "error", err)
 	}
 	return meta
 }
@@ -472,27 +470,8 @@ func (a *APIHandlers) GetSessionSubagents(w http.ResponseWriter, r *http.Request
 
 // GetActivity returns recent activity items as JSON for client-side rendering.
 func (a *APIHandlers) GetActivity(w http.ResponseWriter, r *http.Request) {
-	rangeVals, hasRange := r.URL.Query()["range"]
-	rangeVal := ""
-	if len(rangeVals) > 0 {
-		rangeVal = rangeVals[0]
-	}
-	since := parseRange(rangeVal)
-	if !hasRange && since == nil {
-		t := time.Now().Add(-24 * time.Hour)
-		since = &t
-	}
-
-	var eventKinds []string
-	for _, ek := range r.URL.Query()["event_kind"] {
-		for _, k := range strings.Split(ek, ",") {
-			if k = strings.TrimSpace(k); k != "" {
-				eventKinds = append(eventKinds, k)
-			}
-		}
-	}
-
-	items := QueryRecentActivityFilteredByKind(r.Context(), a.db, since, eventKinds)
+	req := parseActivityAPIRequest(r.URL.Query())
+	items := QueryRecentActivityFilteredByKind(r.Context(), a.db, req.Since, req.EventKinds)
 	result := make([]APIActivityItem, 0, len(items))
 	for _, item := range items {
 		result = append(result, APIActivityItem{
@@ -510,18 +489,11 @@ func (a *APIHandlers) GetActivity(w http.ResponseWriter, r *http.Request) {
 
 // GetDashboardCharts returns the dashboard chart payloads as JSON.
 func (a *APIHandlers) GetDashboardCharts(w http.ResponseWriter, r *http.Request) {
-	rangeVals, hasRange := r.URL.Query()["range"]
-	rangeVal := "24h"
-	if hasRange {
-		rangeVal = ""
-		if len(rangeVals) > 0 {
-			rangeVal = rangeVals[0]
-		}
-	}
-	tokenCumulative, modelActivity := QueryDashboardModelAnalytics(r.Context(), a.db, parseRange(rangeVal), rangeVal)
+	req := parseDashboardChartsAPIRequest(r.URL.Query())
+	tokenCumulative, modelActivity := QueryDashboardModelAnalytics(r.Context(), a.db, parseRange(req.Range), req.Range)
 
 	a.jsonResponse(w, APIDashboardCharts{
-		Range:           rangeVal,
+		Range:           req.Range,
 		TokenCumulative: tokenCumulative,
 		ModelActivity:   modelActivity,
 	})
@@ -533,6 +505,10 @@ func (a *APIHandlers) GetSessionDetail(w http.ResponseWriter, r *http.Request) {
 
 	data, err := QuerySessionDetail(r.Context(), a.db, id)
 	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			a.internalError(w, "failed to query session detail", err)
+			return
+		}
 		a.jsonError(w, "session not found", http.StatusNotFound)
 		return
 	}
@@ -542,13 +518,10 @@ func (a *APIHandlers) GetSessionDetail(w http.ResponseWriter, r *http.Request) {
 // GetSessionEvents returns bounded event detail for a session.
 func (a *APIHandlers) GetSessionEvents(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 || limit > 500 {
-		limit = 200
-	}
-	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	if offset < 0 {
-		offset = 0
+	req, err := parseSessionEventsAPIRequest(r.URL.Query())
+	if err != nil {
+		a.badRequest(w, err)
+		return
 	}
 
 	rows, err := a.db.QueryContext(r.Context(),
@@ -590,9 +563,9 @@ func (a *APIHandlers) GetSessionEvents(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(p.input_preview, ''), COALESCE(p.output_preview, '')
 		 FROM session_events e
 		 LEFT JOIN payload_previews p ON e.event_uid = p.event_uid
-		 ORDER BY e.timestamp, e.event_uid`, id, limit, offset)
+		 ORDER BY e.timestamp, e.event_uid`, id, req.Limit, req.Offset)
 	if err != nil {
-		a.jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.internalError(w, "failed to query session events", err)
 		return
 	}
 	defer rows.Close()
@@ -603,12 +576,13 @@ func (a *APIHandlers) GetSessionEvents(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&e.EventUID, &e.SessionID, &e.EventKind, &e.PayloadType, &e.ActorRole,
 			&e.Timestamp, &e.TextPreview, &e.ToolName, &e.ToolUseID, &e.Model, &e.Tokens, &e.DurationMs,
 			&e.InputPreview, &e.OutputPreview); err != nil {
+			a.logSkippedRow("session events", err)
 			continue
 		}
 		events = append(events, e)
 	}
 	if err := rows.Err(); err != nil {
-		a.jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.internalError(w, "failed to query session events", err)
 		return
 	}
 	a.jsonResponse(w, events)
@@ -654,6 +628,10 @@ func (a *APIHandlers) GetEvent(w http.ResponseWriter, r *http.Request) {
 		&e.Timestamp, &e.TextPreview, &e.ToolName, &e.ToolUseID, &e.Model, &e.Tokens, &e.DurationMs,
 		&e.InputPreview, &e.OutputPreview)
 	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			a.internalError(w, "failed to query event", err)
+			return
+		}
 		a.jsonError(w, "event not found", http.StatusNotFound)
 		return
 	}
@@ -676,6 +654,10 @@ func (a *APIHandlers) GetToolPayload(w http.ResponseWriter, r *http.Request) {
 		 WHERE event_uid = ?
 		 GROUP BY event_uid`, eventID).Scan(&p.EventUID, &p.ToolName, &p.ToolPhase, &p.InputJSON, &p.OutputJSON, &p.InputPreview, &p.OutputPreview)
 	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			a.internalError(w, "failed to query tool payload", err)
+			return
+		}
 		a.jsonError(w, "payload not found", http.StatusNotFound)
 		return
 	}
@@ -684,23 +666,19 @@ func (a *APIHandlers) GetToolPayload(w http.ResponseWriter, r *http.Request) {
 
 // SearchEvents performs keyword search.
 func (a *APIHandlers) SearchEvents(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query().Get("q")
-	if query == "" {
-		a.jsonError(w, "missing query parameter 'q'", http.StatusBadRequest)
+	req, err := parseSearchEventsAPIRequest(r.URL.Query())
+	if err != nil {
+		a.badRequest(w, err)
 		return
 	}
 	if a.searcher == nil {
 		a.jsonError(w, "search unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 {
-		limit = 20
-	}
 
-	results, err := a.searcher.Search(r.Context(), search.SearchQuery{Query: query, Limit: limit})
+	results, err := a.searcher.Search(r.Context(), search.SearchQuery{Query: req.Query, Limit: req.Limit})
 	if err != nil {
-		a.jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.internalError(w, "search failed", err)
 		return
 	}
 	a.jsonResponse(w, results)
@@ -722,7 +700,7 @@ func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request)
 			LIMIT 60
 		 ) ORDER BY minute ASC`)
 	if err != nil {
-		a.jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.internalError(w, "failed to query token data", err)
 		return
 	}
 	defer rows.Close()
@@ -732,13 +710,14 @@ func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request)
 		var p APITokensPerMinute
 		var minute time.Time
 		if err := rows.Scan(&minute, &p.InputTokens, &p.OutputTokens, &p.CacheReadTokens, &p.TotalTokens, &p.CallCount); err != nil {
+			a.logSkippedRow("tokens per minute", err)
 			continue
 		}
 		p.Minute = minute.UTC().Format(time.RFC3339)
 		points = append(points, p)
 	}
 	if err := rows.Err(); err != nil {
-		a.jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.internalError(w, "failed to query token data", err)
 		return
 	}
 	a.jsonResponse(w, points)
@@ -757,7 +736,7 @@ func (a *APIHandlers) GetToolStats(w http.ResponseWriter, r *http.Request) {
 		 GROUP BY tool_name
 		 ORDER BY total DESC`)
 	if err != nil {
-		a.jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.internalError(w, "failed to query tool stats", err)
 		return
 	}
 	defer rows.Close()
@@ -766,13 +745,14 @@ func (a *APIHandlers) GetToolStats(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var s APIToolStats
 		if err := rows.Scan(&s.ToolName, &s.Calls, &s.Results, &s.Total, &s.AvgDurationMs); err != nil {
+			a.logSkippedRow("tool stats", err)
 			continue
 		}
 		s.IsMCP = models.IsMCPTool(s.ToolName)
 		stats = append(stats, s)
 	}
 	if err := rows.Err(); err != nil {
-		a.jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.internalError(w, "failed to query tool stats", err)
 		return
 	}
 	a.jsonResponse(w, stats)
@@ -793,7 +773,7 @@ func (a *APIHandlers) GetTokensByModel(w http.ResponseWriter, r *http.Request) {
 		 GROUP BY model
 		 ORDER BY tokens_total DESC`)
 	if err != nil {
-		a.jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.internalError(w, "failed to query model tokens", err)
 		return
 	}
 	defer rows.Close()
@@ -802,12 +782,13 @@ func (a *APIHandlers) GetTokensByModel(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var m APITokensByModel
 		if err := rows.Scan(&m.Model, &m.InputTokens, &m.OutputTokens, &m.CacheReadTokens, &m.CacheCreateTokens, &m.TotalTokens, &m.CallCount); err != nil {
+			a.logSkippedRow("tokens by model", err)
 			continue
 		}
 		items = append(items, m)
 	}
 	if err := rows.Err(); err != nil {
-		a.jsonError(w, err.Error(), http.StatusInternalServerError)
+		a.internalError(w, "failed to query model tokens", err)
 		return
 	}
 	a.jsonResponse(w, items)
