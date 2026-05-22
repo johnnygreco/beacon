@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build run generate clean clean-local clean-deps simulator publish test test-race test-cover perf-bench fmt fmt-check lint
+.PHONY: help build run generate clean clean-local clean-deps simulator publish test test-race test-cover perf-bench perf-explain fmt fmt-check lint
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -40,8 +40,16 @@ test-cover: generate ## Run tests with coverage report and threshold checks
 
 perf-bench: ## Run perf benchmarks (PERF_SIZE=small|medium|large)
 	@PERF_SIZE=$${PERF_SIZE:-medium} && \
-	echo "=== Beacon Perf Bench (size=$$PERF_SIZE, rev=$$(git rev-parse --short HEAD)) ===" && \
-	PERF_SIZE=$$PERF_SIZE go test -bench=. -benchmem -count=1 -timeout=10m ./internal/perf/
+	PERF_BENCH=$${PERF_BENCH:-.} && \
+	PERF_BENCHTIME=$${PERF_BENCHTIME:-1s} && \
+	PERF_COUNT=$${PERF_COUNT:-1} && \
+	echo "=== Beacon Perf Bench (size=$$PERF_SIZE, bench=$$PERF_BENCH, benchtime=$$PERF_BENCHTIME, count=$$PERF_COUNT, rev=$$(git rev-parse --short HEAD)) ===" && \
+	PERF_SIZE=$$PERF_SIZE go test -bench=$$PERF_BENCH -benchtime=$$PERF_BENCHTIME -benchmem -count=$$PERF_COUNT -timeout=10m ./internal/perf/
+
+perf-explain: ## Print ClickHouse plans for representative perf queries
+	@PERF_SIZE=$${PERF_SIZE:-medium} && \
+	echo "=== Beacon Perf Explain (size=$$PERF_SIZE, rev=$$(git rev-parse --short HEAD)) ===" && \
+	BEACON_PERF_EXPLAIN=1 PERF_SIZE=$$PERF_SIZE go test -run TestExplainQueryPlans -count=1 -timeout=10m -v ./internal/perf/
 
 fmt: ## Format tracked Go files
 	git ls-files '*.go' | xargs gofmt -w

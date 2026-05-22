@@ -208,7 +208,7 @@ func TestToolListSessionsSuccessAndErrors(t *testing.T) {
 	since := started.Add(-time.Hour)
 	db, stub := newMCPStubDB(t, []mcpStubQuery{
 		func(query string, args []driver.NamedValue) (driver.Rows, error) {
-			assertMCPQueryContains(t, query, "FROM (SELECT", "WHERE started_at >= ?", "ORDER BY started_at DESC LIMIT ?")
+			assertMCPQueryContains(t, query, "FROM (SELECT", "WHERE sp.started_at >= ?", "ORDER BY started_at DESC LIMIT ?")
 			assertMCPNamedValues(t, args, []any{since, 5})
 			return mcpRows(
 				[]string{"session_id", "source_name", "started_at", "ended_at", "event_count", "turn_count", "total_tokens", "tool_call_count", "mcp_call_count", "error_count", "last_model"},
