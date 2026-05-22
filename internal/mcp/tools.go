@@ -37,7 +37,10 @@ func toolDefinitions() []map[string]any {
 					"before":    map[string]any{"type": "integer", "description": "Number of events before target (default 3)"},
 					"after":     map[string]any{"type": "integer", "description": "Number of events after target (default 3)"},
 				},
-				"required": []string{"event_uid"},
+				"anyOf": []map[string]any{
+					{"required": []string{"id"}},
+					{"required": []string{"event_uid"}},
+				},
 			},
 		},
 		{
