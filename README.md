@@ -6,7 +6,7 @@ Beacon is a local dashboard for long-running AI coding agents. It watches the se
 
 ## What It Looks Like
 
-**Dashboard overview.** Token volume, model health, active sessions, completed runs, and a live activity timeline in one view.
+**Dashboard overview.** Token volume, model health, active sessions, completed runs, integrated search, and a live activity timeline in one view.
 
 <p>
   <img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing token charts, model health, activity timeline, and completed sessions" />
@@ -17,8 +17,6 @@ Beacon is a local dashboard for long-running AI coding agents. It watches the se
 <p>
   <img src="assets/session-screenshot.png" alt="Beacon transcript replay showing session metrics, token charts, tool usage, and conversation detail" />
 </p>
-
-**Search across history.** The dashboard table can switch from completed runs to event-level search results for prompts, responses, tool calls, paths, and errors.
 
 ## Why Use Beacon
 
@@ -57,7 +55,7 @@ Common variants:
 
 ```bash
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_DIR=/usr/local/bin sh
-curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=0.1.0 sh
+curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=0.3.0 sh
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_CLICKHOUSE=0 sh
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERIFY_CHECKSUMS=0 sh
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
@@ -145,6 +143,7 @@ If `[database].addrs` points to a remote ClickHouse host, Beacon will not start 
 - [Privacy, retention, and local data boundaries](docs/privacy.md)
 - [Pricing estimate data and fallback behavior](docs/pricing.md)
 - [Performance baselines and query-plan review](docs/performance.md)
+- [ClickHouse schema, migration, and reset policy](docs/clickhouse.md)
 - [Errors and observability](docs/errors.md)
 - [Toolchain and dependency updates](docs/toolchain.md)
 - [Installer and release process](docs/release.md)
@@ -254,7 +253,8 @@ make clean-deps     # remove node_modules
 npm install         # install Playwright and asset-vendoring dependencies
 npm run vendor       # refresh vendored frontend assets
 npm run vendor:check # verify vendored frontend assets and notices are current
-npm run test:e2e    # dashboard and search Playwright tests
+npm run test:frontend # JS lint and unit tests
+npm run test:e2e    # dashboard and integrated search Playwright tests
 npm run test:a11y   # accessibility tests
 npm run test:visual # visual regression tests
 ```
