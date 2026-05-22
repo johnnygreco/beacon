@@ -36,7 +36,7 @@ Beacon currently understands session data from Claude Code, OpenAI Codex, Hermes
 
 ## Install
 
-The installer supports macOS and Linux on `amd64` and `arm64`.
+Beacon is distributed through GitHub Releases and the install script below. The installer supports macOS and Linux on `amd64` and `arm64`.
 
 ```bash
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | sh
@@ -60,6 +60,8 @@ curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
 ```
 
 Use `INSTALL_CLICKHOUSE=0` only when you already run ClickHouse yourself. `UNINSTALL=1` removes the installed `beacon` binary and `~/.beacon`, including Beacon-managed ClickHouse data.
+
+Homebrew packaging is not currently a supported distribution channel.
 
 ## Start
 
@@ -229,6 +231,14 @@ npm run test:e2e    # dashboard and search Playwright tests
 npm run test:a11y   # accessibility tests
 npm run test:visual # visual regression tests
 ```
+
+Release commands:
+
+```bash
+make publish VERSION=x.y.z
+```
+
+`make publish` expects a clean, up-to-date `main` branch, a working `gh` authentication or `GITHUB_TOKEN`, `zig` for Linux CGO cross-builds, and `goreleaser` on `PATH`. It creates and pushes tag `vx.y.z`, runs a local GoReleaser build before publishing, and uploads the release artifacts to GitHub Releases.
 
 Most Go tests do not need a live ClickHouse server. Live ClickHouse integration and perf tests are opt-in:
 
