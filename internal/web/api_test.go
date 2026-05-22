@@ -357,6 +357,42 @@ func TestGetSessionsBackendErrorIsSanitized(t *testing.T) {
 	}
 }
 
+func TestContractedArrayEndpointsEncodeEmptyArrays(t *testing.T) {
+	db := newEmptyAPIDB(t)
+	handlers := &APIHandlers{db: db, logger: testLogger()}
+	tests := []struct {
+		name        string
+		handler     http.HandlerFunc
+		target      string
+		routeParams []string
+	}{
+		{
+			name:    "sessions",
+			handler: handlers.GetSessions,
+			target:  "/api/sessions",
+		},
+		{
+			name:        "session events",
+			handler:     handlers.GetSessionEvents,
+			target:      "/api/sessions/session-empty/events",
+			routeParams: []string{"id", "session-empty"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			tt.handler(w, newAPIRequest(t, tt.target, tt.routeParams...))
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d: %s", w.Code, http.StatusOK, w.Body.String())
+			}
+			if got := strings.TrimSpace(w.Body.String()); got != "[]" {
+				t.Fatalf("body = %s, want []", got)
+			}
+		})
+	}
+}
+
 func TestPointLookupBackendErrorsAreSanitized(t *testing.T) {
 	db := newFailingAPIDB(t)
 	handlers := &APIHandlers{db: db, logger: testLogger()}
@@ -566,6 +602,59 @@ func newFailingAPIDB(t *testing.T) *sql.DB {
 	db, err := sql.Open("beacon_api_failing", "")
 	if err != nil {
 		t.Fatalf("open failing db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+var registerEmptyAPIDriver sync.Once
+
+type emptyAPIDriver struct{}
+
+func (emptyAPIDriver) Open(string) (driver.Conn, error) {
+	return emptyAPIConn{}, nil
+}
+
+type emptyAPIConn struct{}
+
+func (emptyAPIConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("empty api driver does not prepare statements")
+}
+
+func (emptyAPIConn) Close() error {
+	return nil
+}
+
+func (emptyAPIConn) Begin() (driver.Tx, error) {
+	return nil, errors.New("empty api driver does not support transactions")
+}
+
+func (emptyAPIConn) QueryContext(context.Context, string, []driver.NamedValue) (driver.Rows, error) {
+	return emptyAPIRows{}, nil
+}
+
+type emptyAPIRows struct{}
+
+func (emptyAPIRows) Columns() []string {
+	return []string{}
+}
+
+func (emptyAPIRows) Close() error {
+	return nil
+}
+
+func (emptyAPIRows) Next([]driver.Value) error {
+	return io.EOF
+}
+
+func newEmptyAPIDB(t *testing.T) *sql.DB {
+	t.Helper()
+	registerEmptyAPIDriver.Do(func() {
+		sql.Register("beacon_api_empty", emptyAPIDriver{})
+	})
+	db, err := sql.Open("beacon_api_empty", "")
+	if err != nil {
+		t.Fatalf("open empty db: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db

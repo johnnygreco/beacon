@@ -121,6 +121,10 @@ type APIDashboardCharts struct {
 	ModelActivity   views.ModelMetricChart `json:"model_activity"`
 }
 
+type APISessionDetail struct {
+	Session APISessionSummary `json:"session"`
+}
+
 type APISessionEvent struct {
 	EventUID      string    `json:"event_uid"`
 	SessionID     string    `json:"session_id"`

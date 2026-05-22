@@ -129,7 +129,7 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var sessions []APISessionSummary
+	sessions := make([]APISessionSummary, 0)
 	for rows.Next() {
 		s, err := scanSessionSummary(rows, time.Now())
 		if err != nil {
@@ -512,7 +512,7 @@ func (a *APIHandlers) GetSessionDetail(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, "session not found", http.StatusNotFound)
 		return
 	}
-	a.jsonResponse(w, data)
+	a.jsonResponse(w, apiSessionDetailFromView(data))
 }
 
 // GetSessionEvents returns bounded event detail for a session.
@@ -570,7 +570,7 @@ func (a *APIHandlers) GetSessionEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	var events []APISessionEvent
+	events := make([]APISessionEvent, 0)
 	for rows.Next() {
 		var e APISessionEvent
 		if err := rows.Scan(&e.EventUID, &e.SessionID, &e.EventKind, &e.PayloadType, &e.ActorRole,
@@ -824,4 +824,8 @@ func apiSessionSummaryFromView(s views.SessionSummary) APISessionSummary {
 		SubagentCount:     s.SubagentCount,
 		ChildSessions:     children,
 	}
+}
+
+func apiSessionDetailFromView(data views.SessionDetailData) APISessionDetail {
+	return APISessionDetail{Session: apiSessionSummaryFromView(data.Session)}
 }

@@ -50,7 +50,7 @@ function loadMultiSeriesFromJSON(chartName, dataId) {
       chart.data.labels = d.labels;
       d.datasets.forEach(function(ds, i) {
         if (chart.data.datasets[i]) {
-          chart.data.datasets[i].data = ds.Values || ds.values || ds.data || [];
+          chart.data.datasets[i].data = ds.values || [];
         }
       });
       chart.update('none');
@@ -94,7 +94,7 @@ function modelDatasetFromPayload(ds, index, metricKind) {
   var c = modelDatasetColor(index);
   return {
     label: ds.label,
-    data: ds.values || ds.Values || [],
+    data: ds.values || [],
     borderColor: c.border,
     backgroundColor: c.bg,
     borderWidth: metricKind === 'tokens' ? 2.5 : 2,

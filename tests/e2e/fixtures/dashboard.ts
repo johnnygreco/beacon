@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page, type Request, type Response, type Route } from '@playwright/test';
+import { validateContract } from '../../contracts/api-contracts.cjs';
 
 export const TEST_SESSION_ID = 'session-older-001';
 export const ACTIVE_SESSION_ID = 'active-parent-001';
@@ -219,10 +220,11 @@ function chartPayload(scenario: Scenario) {
       call_count: 6,
     },
   ];
-  const summary = empty ? { total_tokens: 0, model_count: 0, tool_call_count: 0, error_rate: 0, error_count: 0 } : {
+  const summary = empty ? { total_tokens: 0, model_count: 0, tool_call_count: 0, call_count: 0, error_rate: 0, error_count: 0 } : {
     total_tokens: errorHeavy ? 201500 : 201500,
     model_count: 3,
     tool_call_count: 45,
+    call_count: 31,
     error_rate: errorHeavy ? 13.8 : 1.9,
     error_count: errorHeavy ? 18 : 2,
   };
@@ -560,7 +562,8 @@ function activeForScenario(scenario: Scenario) {
   return activeSessions;
 }
 
-async function fulfillJSON(route: Route, data: unknown, status = 200) {
+async function fulfillJSON(route: Route, data: unknown, status = 200, contractName = '') {
+  if (contractName) validateContract(contractName, data);
   await route.fulfill({
     status,
     contentType: 'application/json',
@@ -666,7 +669,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
     const failureKey = state === 'active' ? 'active' : 'completed';
     if (failures.delete(failureKey)) return fulfillJSON(route, { error: 'fixture failure' }, 500);
     if (state === 'active') {
-      return fulfillJSON(route, { state: 'active', range: '', offset: 0, limit: 30, has_more: false, items: activeForScenario(scenario) });
+      return fulfillJSON(route, { state: 'active', range: '', offset: 0, limit: 30, has_more: false, items: activeForScenario(scenario) }, 200, 'APIDashboardSessionsResponse');
     }
     const completed = completedForRequest(url, scenario);
     return fulfillJSON(route, {
@@ -677,7 +680,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
       limit: Number(url.searchParams.get('limit') || 30),
       has_more: completed.hasMore,
       items: completed.items,
-    });
+    }, 200, 'APIDashboardSessionsResponse');
   });
 
   await page.route('**/api/dashboard/search**', async (route) => {
@@ -697,14 +700,14 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
         limit: Number(url.searchParams.get('limit') || 30),
         has_more: false,
         items: [],
-      });
+      }, 200, 'APIDashboardSearchResponse');
     }
-    return fulfillJSON(route, dashboardSearchForRequest(url, scenario));
+    return fulfillJSON(route, dashboardSearchForRequest(url, scenario), 200, 'APIDashboardSearchResponse');
   });
 
   await page.route('**/api/dashboard/charts**', async (route) => {
     if (failures.delete('charts')) return fulfillJSON(route, { error: 'fixture failure' }, 500);
-    return fulfillJSON(route, chartPayload(scenario));
+    return fulfillJSON(route, chartPayload(scenario), 200, 'APIDashboardCharts');
   });
 
   await page.route('**/api/dashboard/activity**', async (route) => {
@@ -712,26 +715,26 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
     const url = new URL(route.request().url());
     const kinds = (url.searchParams.get('event_kind') || '').split(',').filter(Boolean);
     const items = activityItems(scenario).filter((item) => kinds.length === 0 || kinds.includes(item.type));
-    return fulfillJSON(route, items);
+    return fulfillJSON(route, items, 200, 'APIActivityItem[]');
   });
 
   await page.route('**/api/sessions?**', async (route) => {
-    return fulfillJSON(route, [...baseCompletedSessions, ...activeSessions]);
+    return fulfillJSON(route, [...baseCompletedSessions, ...activeSessions], 200, 'APISessionSummary[]');
   });
 
   await page.route('**/api/sessions/*/subagents', async (route) => {
-    return fulfillJSON(route, childSessions);
+    return fulfillJSON(route, childSessions, 200, 'APISessionSummary[]');
   });
 
   await page.route('**/api/sessions/*/events**', async (route) => {
-    return fulfillJSON(route, eventsForSession());
+    return fulfillJSON(route, eventsForSession(), 200, 'APISessionEvent[]');
   });
 
   await page.route('**/api/sessions/*', async (route) => {
     const url = new URL(route.request().url());
     const id = decodeURIComponent(url.pathname.split('/').pop() || '');
     const session = [...baseCompletedSessions, ...activeSessions, ...childSessions].find((s) => s.id === id) || baseCompletedSessions[0];
-    return fulfillJSON(route, { session });
+    return fulfillJSON(route, { session }, 200, 'APISessionDetail');
   });
 
   await page.route('**/api/tool-payloads/*', async (route) => {
@@ -743,7 +746,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
       output_json: '{"lines":42,"status":"ok"}',
       input_preview: 'dashboard.templ',
       output_preview: '42 lines',
-    });
+    }, 200, 'APIToolPayload');
   });
 
   await page.route('**/sessions/**', async (route) => {
