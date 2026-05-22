@@ -44,6 +44,8 @@ func TestSessionDetailRendersThemedTranscriptShell(t *testing.T) {
 		`aria-pressed="true"`,
 		`/sessions/session-render-test/conversation`,
 		`hx-trigger="load, sse:conversation-update"`,
+		`/static/js/charts/core.js`,
+		`/static/js/charts/bootstrap.js`,
 		`/static/js/transcript.js`,
 	} {
 		if !strings.Contains(html, expected) {

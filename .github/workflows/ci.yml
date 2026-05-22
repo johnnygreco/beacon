@@ -68,6 +68,19 @@ jobs:
       - name: Run npm audit
         run: npm audit --audit-level=moderate
 
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install npm dependencies
+        run: npm ci
+      - name: Run frontend lint and unit tests
+        run: npm run test:frontend
+
   dependency-review:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'

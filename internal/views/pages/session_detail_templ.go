@@ -536,7 +536,7 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<script src=\"/static/js/vendor/chart.umd.min.js\"></script><script src=\"/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js\"></script><script src=\"/static/js/charts.js\"></script><script src=\"/static/js/transcript.js\"></script></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<script src=\"/static/js/vendor/chart.umd.min.js\"></script><script src=\"/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js\"></script><script src=\"/static/js/charts/utils.js\"></script><script src=\"/static/js/charts/core.js\"></script><script src=\"/static/js/charts/dashboard-models.js\"></script><script src=\"/static/js/charts/series-dropdowns.js\"></script><script src=\"/static/js/charts/plugins.js\"></script><script src=\"/static/js/charts/session-models.js\"></script><script src=\"/static/js/charts/bootstrap.js\"></script><script src=\"/static/js/transcript.js\"></script></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

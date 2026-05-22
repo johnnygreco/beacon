@@ -4,6 +4,9 @@
   "description": "Live dashboard for AI coding agent sessions.",
   "scripts": {
     "vendor": "node scripts/vendor-assets.mjs",
+    "lint:js": "eslint static/js tests/js --max-warnings=0",
+    "test:unit": "node --test tests/js/*.test.cjs",
+    "test:frontend": "npm run lint:js && npm run test:unit",
     "test:e2e": "playwright test tests/e2e/dashboard.spec.ts tests/e2e/dashboard-search.spec.ts",
     "test:e2e:search": "playwright test tests/e2e/dashboard-search.spec.ts",
     "test:search": "npm run test:e2e:search",
@@ -29,6 +32,7 @@
     "chart.js": "^4.5.1",
     "chartjs-adapter-date-fns": "^3.0.0",
     "date-fns": "^4.1.0",
+    "eslint": "^10.4.0",
     "htmx-ext-sse": "^2.2.4",
     "htmx.org": "^2.0.10"
   }

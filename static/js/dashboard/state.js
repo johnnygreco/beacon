@@ -1,0 +1,20 @@
+// --- JSON dashboard stores ---
+var currentActivityFilter = 'all';
+var currentRange = '24h';
+var currentDashboardMetric = 'error_rate';
+var currentCompletedOffset = 0;
+var currentSearchQuery = '';
+var currentSearchRange = '';
+var currentSearchEventKind = '';
+var currentSearchSessionID = '';
+var currentSearchSort = 'relevance';
+var currentSearchLimit = 30;
+var dashboardSearchTimer = 0;
+var completedPageSize = 30;
+var sortColumn = 'ended';
+var sortAsc = false;
+var dashboardRequestSeq = {};
+var dashboardControllers = {};
+var sessionTableHeadHTML = '';
+var searchLimitSteps = [30, 60, 120, 240];
+window.dashboardSessionIndex = window.dashboardSessionIndex || {};
