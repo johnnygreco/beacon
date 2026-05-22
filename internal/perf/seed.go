@@ -302,14 +302,14 @@ func SessionIDForBench(idx int) string {
 // --- Content arrays for deterministic data generation ---
 
 var anthropicModels = []string{
-	"claude-sonnet-4-20250514",
-	"claude-opus-4-20250514",
-	"claude-haiku-4-20250514",
+	"claude-sonnet-4-6",
+	"claude-opus-4-7",
+	"claude-haiku-4-5-20251001",
 }
 
 var openaiModels = []string{
-	"gpt-4o",
-	"gpt-4o-mini",
+	"gpt-5.4",
+	"gpt-5.4-mini",
 	"o4-mini",
 }
 
