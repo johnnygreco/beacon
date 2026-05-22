@@ -225,6 +225,7 @@ make fmt            # gofmt tracked Go files
 make fmt-check      # verify tracked Go files are gofmt formatted
 make test           # generate templates and run Go tests
 make test-race      # run Go tests with the race detector
+make test-cover     # run Go tests with race, coverage, and coverage floors
 make perf-bench     # run perf benchmarks; set PERF_SIZE=small|medium|large
 make clean          # remove build/test outputs such as bin, dist, coverage, and reports
 make clean-local    # also remove ignored repo-local scratch/agent dirs and local DB files
@@ -258,6 +259,18 @@ BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/perf -bench . -run '^$'
 ```
 
 Playwright tests require Node dependencies from `npm install` and a Chromium browser installed by Playwright. They start their own e2e server by default. To test against an already running Beacon-compatible server, set `BEACON_E2E_BASE_URL`. Visual regression snapshots currently have Darwin baselines only, so `npm run test:visual` skips on other platforms.
+
+### Coverage Gates
+
+CI enforces conservative Go coverage regression floors from `coverage.thresholds`.
+The current gates are a total statement floor plus selected runtime packages
+that should not regress without an intentional threshold update. Generated templ
+packages, benchmark/perf helpers, simulator/perfseed binaries, and browser test
+coverage are intentionally excluded from package floors.
+
+Update `coverage.thresholds` in the same PR as any deliberate coverage target
+change. `make test-cover` and CI both run `scripts/check-coverage.sh` against
+the generated coverage profile.
 
 ## Troubleshooting
 
