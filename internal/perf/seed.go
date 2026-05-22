@@ -299,6 +299,11 @@ func SessionIDForBench(idx int) string {
 	return fmt.Sprintf("perf-sess-%05d", idx)
 }
 
+// EventUIDForBench returns the deterministic event UID for a seeded event.
+func EventUIDForBench(sessionIndex, eventIndex int) string {
+	return seedUID(sessionIndex, eventIndex)
+}
+
 // --- Content arrays for deterministic data generation ---
 
 var anthropicModels = []string{

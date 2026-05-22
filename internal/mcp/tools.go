@@ -218,7 +218,7 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 		rows, err = s.db.QueryContext(ctx,
 			`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
 			        event_count, turn_count, total_tokens, tool_call_count, mcp_call_count, error_count, COALESCE(last_model, '')
-			 FROM `+mcpSessionProjectionSubquery("started_at >= ?")+`
+			 FROM `+mcpSessionProjectionSubquery("sp.started_at >= ?")+`
 			 ORDER BY started_at DESC LIMIT ?`, since, params.Limit)
 	} else {
 		rows, err = s.db.QueryContext(ctx,
@@ -255,19 +255,19 @@ func mcpSessionProjectionSubquery(where string) string {
 		where = "WHERE " + where
 	}
 	return `(SELECT
-		session_id,
-		argMax(source_name, updated_at) AS source_name,
-		argMax(started_at, updated_at) AS started_at,
-		argMax(ended_at, updated_at) AS ended_at,
-		argMax(event_count, updated_at) AS event_count,
-		argMax(turn_count, updated_at) AS turn_count,
-		argMax(total_tokens, updated_at) AS total_tokens,
-		argMax(tool_call_count, updated_at) AS tool_call_count,
-		argMax(mcp_call_count, updated_at) AS mcp_call_count,
-		argMax(error_count, updated_at) AS error_count,
-		argMax(last_model, updated_at) AS last_model
-	FROM session_projection ` + where + `
-	GROUP BY session_id)`
+		sp.session_id AS session_id,
+		argMax(sp.source_name, sp.updated_at) AS source_name,
+		argMax(sp.started_at, sp.updated_at) AS started_at,
+		argMax(sp.ended_at, sp.updated_at) AS ended_at,
+		argMax(sp.event_count, sp.updated_at) AS event_count,
+		argMax(sp.turn_count, sp.updated_at) AS turn_count,
+		argMax(sp.total_tokens, sp.updated_at) AS total_tokens,
+		argMax(sp.tool_call_count, sp.updated_at) AS tool_call_count,
+		argMax(sp.mcp_call_count, sp.updated_at) AS mcp_call_count,
+		argMax(sp.error_count, sp.updated_at) AS error_count,
+		argMax(sp.last_model, sp.updated_at) AS last_model
+	FROM session_projection AS sp ` + where + `
+	GROUP BY sp.session_id)`
 }
 
 func stripBeaconPrefix(id, prefix string) string {
