@@ -71,6 +71,13 @@ func sqlWhereClause(where string) string {
 	return "WHERE " + where
 }
 
+func sqlPlaceholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.TrimRight(strings.Repeat("?,", n), ",")
+}
+
 var sessionProjectionSQL = sessionProjectionSubquery("")
 
 func sessionProjectionSubquery(where string) string {

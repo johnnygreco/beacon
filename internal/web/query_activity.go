@@ -32,23 +32,31 @@ func QueryRecentActivityFiltered(ctx context.Context, db *sql.DB, since *time.Ti
 	return QueryRecentActivityFilteredByKind(ctx, db, since, nil)
 }
 
+var defaultActivityEventKinds = []string{"message", "tool_call", "error", "tool_error", "session_meta"}
+
+func recentActivityKindFilter(eventKinds []string) (string, []any) {
+	kinds := make([]string, 0, len(eventKinds))
+	for _, kind := range eventKinds {
+		if kind = strings.TrimSpace(kind); kind != "" {
+			kinds = append(kinds, kind)
+		}
+	}
+	if len(kinds) == 0 {
+		kinds = defaultActivityEventKinds
+	}
+
+	args := make([]any, len(kinds))
+	for i, kind := range kinds {
+		args[i] = kind
+	}
+	return "ae.event_kind IN (" + sqlPlaceholders(len(kinds)) + ")", args
+}
+
 // QueryRecentActivityFilteredByKind returns activity items with optional time and event kind filters.
 // When eventKinds is non-empty, only those event types are returned (enables server-side filtering
 // so that low-volume event types like errors aren't crowded out by high-volume types).
 func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *time.Time, eventKinds []string) []views.ActivityItem {
-	var kindFilter string
-	if len(eventKinds) > 0 {
-		quoted := make([]string, len(eventKinds))
-		for i, k := range eventKinds {
-			quoted[i] = "'" + strings.ReplaceAll(k, "'", "''") + "'"
-		}
-		kindFilter = "(" + strings.Join(quoted, ",") + ")"
-	} else {
-		kindFilter = "('message', 'tool_call', 'error', 'tool_error', 'session_meta')"
-	}
-
-	where := "ae.event_kind IN " + kindFilter
-	var args []any
+	where, args := recentActivityKindFilter(eventKinds)
 	if since != nil {
 		where += " AND ae.timestamp >= ?"
 		args = append(args, *since)

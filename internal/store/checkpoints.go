@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/models"
@@ -34,7 +35,7 @@ func (s *Store) LoadCheckpoints(ctx context.Context, sourceName string) (map[str
 		var generation, lineNo uint32
 		var stateJSON string
 		if err := rows.Scan(&sourceFile, &inode, &generation, &offset, &lineNo, &stateJSON); err != nil {
-			continue
+			return nil, fmt.Errorf("scan checkpoint: %w", err)
 		}
 		result[sourceFile] = &models.Checkpoint{
 			SourceName:       sourceName,

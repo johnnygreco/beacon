@@ -200,6 +200,22 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "open query failed") {
 		t.Fatalf("toolOpen query error = %v", err)
 	}
+
+	db, stub = newMCPStubDB(t, []mcpStubQuery{
+		func(string, []driver.NamedValue) (driver.Rows, error) {
+			return mcpRows(
+				[]string{"event_uid", "event_kind", "actor_role", "text_preview", "tool_name", "model", "tokens", "timestamp"},
+				[]driver.Value{"evt-target", "message", "assistant", "bad timestamp", "", "gpt-5.4", int64(1), "not-a-time"},
+			), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+	srv.db = db
+	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"event_uid":"evt-target"}`))
+	if err == nil || !strings.Contains(err.Error(), "scan context event") {
+		t.Fatalf("toolOpen scan error = %v", err)
+	}
 }
 
 func TestToolListSessionsSuccessAndErrors(t *testing.T) {
@@ -245,6 +261,22 @@ func TestToolListSessionsSuccessAndErrors(t *testing.T) {
 	_, err = srv.toolListSessions(context.Background(), json.RawMessage(`{"limit":1}`))
 	if err == nil || !strings.Contains(err.Error(), "list query failed") {
 		t.Fatalf("list query error = %v", err)
+	}
+
+	db, stub = newMCPStubDB(t, []mcpStubQuery{
+		func(string, []driver.NamedValue) (driver.Rows, error) {
+			return mcpRows(
+				[]string{"session_id", "source_name", "started_at", "ended_at", "event_count", "turn_count", "total_tokens", "tool_call_count", "mcp_call_count", "error_count", "last_model"},
+				[]driver.Value{"session-1", "codex", "not-a-time", ended, int64(4), int64(2), int64(30), int64(1), int64(1), int64(0), "gpt-5.4"},
+			), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+	srv.db = db
+	_, err = srv.toolListSessions(context.Background(), json.RawMessage(`{"limit":1}`))
+	if err == nil || !strings.Contains(err.Error(), "scan session") {
+		t.Fatalf("list scan error = %v", err)
 	}
 }
 
