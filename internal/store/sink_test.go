@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -105,5 +106,118 @@ func TestBuildSearchRowsKeepsNonToolSnippet(t *testing.T) {
 	}
 	if docs[0].TextPreview != "message preview" {
 		t.Fatalf("text preview = %q, want non-tool preview unchanged", docs[0].TextPreview)
+	}
+}
+
+func TestBuildSearchRowsIndexesFrequenciesAndMetadata(t *testing.T) {
+	timestamp := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	event := models.Event{
+		EventUID:    "evt-frequency",
+		SessionID:   "session-frequency",
+		EventKind:   "message",
+		ActorRole:   "assistant",
+		Timestamp:   timestamp,
+		TextContent: "Alpha alpha beta",
+		ToolName:    "Bash",
+		Model:       "gpt-5.4",
+		Provider:    "openai",
+	}
+
+	docs, postings := buildSearchRows([]models.Event{event}, nil)
+	if len(docs) != 1 {
+		t.Fatalf("docs = %d, want 1", len(docs))
+	}
+	if docs[0].EventUID != event.EventUID || docs[0].Model != event.Model || docs[0].Provider != event.Provider {
+		t.Fatalf("doc metadata = %#v, want event metadata", docs[0])
+	}
+
+	frequencies := make(map[string]int)
+	totalFrequency := 0
+	for _, posting := range postings {
+		if posting.EventUID != event.EventUID || posting.DocumentLength != docs[0].DocumentLength {
+			t.Fatalf("posting metadata = %#v, want event uid/document length", posting)
+		}
+		frequencies[posting.Token] = posting.TermFrequency
+		totalFrequency += posting.TermFrequency
+	}
+	if docs[0].DocumentLength != totalFrequency {
+		t.Fatalf("document length = %d, want sum of frequencies %d", docs[0].DocumentLength, totalFrequency)
+	}
+	for token, want := range map[string]int{"alpha": 2, "beta": 1, "message": 1, "assistant": 1} {
+		if got := frequencies[token]; got != want {
+			t.Fatalf("frequency[%q] = %d, want %d; postings=%v", token, got, want, frequencies)
+		}
+	}
+}
+
+func TestBuildSearchRowsSkipsEmptyDocuments(t *testing.T) {
+	docs, postings := buildSearchRows([]models.Event{{EventUID: "empty-event"}}, nil)
+	if len(docs) != 0 || len(postings) != 0 {
+		t.Fatalf("empty event produced docs/postings = %d/%d", len(docs), len(postings))
+	}
+}
+
+func TestRecordUIDChangesWithSourceGenerationAndPayload(t *testing.T) {
+	base := recordUID("session.jsonl", 10, 20, 1, `{"message":"one"}`)
+	tests := []struct {
+		name string
+		uid  string
+	}{
+		{name: "same inputs", uid: recordUID("session.jsonl", 10, 20, 1, `{"message":"one"}`)},
+		{name: "different generation", uid: recordUID("session.jsonl", 10, 20, 2, `{"message":"one"}`)},
+		{name: "different payload", uid: recordUID("session.jsonl", 10, 20, 1, `{"message":"two"}`)},
+	}
+
+	if len(base) != 32 {
+		t.Fatalf("uid length = %d, want 32", len(base))
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			switch tt.name {
+			case "same inputs":
+				if tt.uid != base {
+					t.Fatalf("uid = %q, want stable %q", tt.uid, base)
+				}
+			default:
+				if tt.uid == base {
+					t.Fatalf("%s uid should differ from base %q", tt.name, base)
+				}
+			}
+		})
+	}
+}
+
+func TestStorePureHelpers(t *testing.T) {
+	now := time.Date(2026, 5, 22, 12, 0, 0, 123, time.FixedZone("offset", -5*60*60))
+
+	if got := runtimeForSource("claude"); got != "claude-code" {
+		t.Fatalf("runtimeForSource(claude) = %q", got)
+	}
+	if got := runtimeForSource("custom"); got != "custom" {
+		t.Fatalf("runtimeForSource(custom) = %q", got)
+	}
+	if got := firstNonEmpty("", "fallback"); got != "fallback" {
+		t.Fatalf("firstNonEmpty blank = %q", got)
+	}
+	if got := fmt.Sprint(sessionIDs([]models.Event{{SessionID: "s1"}, {}, {SessionID: "s2"}})); got != "[s1 s2]" {
+		t.Fatalf("sessionIDs = %s", got)
+	}
+	if got := fmt.Sprint(uniqStrings([]string{"s1", "", "s2", "s1"})); got != "[s1 s2]" {
+		t.Fatalf("uniqStrings = %s", got)
+	}
+	if got := placeholders(3); got != "?,?,?" {
+		t.Fatalf("placeholders = %q", got)
+	}
+	if got := nonZeroTime(time.Time{}, now); !got.Equal(now.UTC()) {
+		t.Fatalf("nonZeroTime zero = %s, want %s", got, now.UTC())
+	}
+	if got := nonNegativeInt(-7); got != 0 {
+		t.Fatalf("nonNegativeInt = %d, want 0", got)
+	}
+	if got := nonNegativeInt64(-9); got != 0 {
+		t.Fatalf("nonNegativeInt64 = %d, want 0", got)
+	}
+	if got := truncateString("abcdef", 3); got != "abc" {
+		t.Fatalf("truncateString = %q, want abc", got)
 	}
 }
