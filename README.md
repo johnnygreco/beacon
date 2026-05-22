@@ -240,6 +240,7 @@ Development commands:
 
 ```bash
 make generate       # regenerate templ output
+make generate-check # verify generated templ output is current
 make fmt            # gofmt tracked Go files
 make fmt-check      # verify tracked Go files are gofmt formatted
 make test           # generate templates and run Go tests
@@ -260,6 +261,20 @@ Cleanup targets only remove files inside the repository checkout. They do not
 delete Beacon user data under `~/.beacon`; use `beacon db reset --force` or the
 installer's `UNINSTALL=1` path when you intentionally want destructive Beacon
 data cleanup.
+
+### Generated Templates
+
+Beacon tracks both `.templ` source files and generated `_templ.go` files. After
+editing any template source under `internal/views`, run `make generate` and
+commit the generated Go diff with the source change. `make test`, `make build`,
+and related local targets run generation first, but they do not replace the
+explicit generated-file review before a PR.
+
+Run `make generate-check` when you want the same stale-generated-output gate CI
+uses. It reruns templ generation and fails if generation changes the worktree.
+Template tests should render public components, pages, and partials and assert
+the resulting HTML behavior, escaping, and helper output instead of targeting
+generated `_templ.go` implementation lines.
 
 Release commands:
 
