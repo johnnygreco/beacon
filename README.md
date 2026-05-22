@@ -55,7 +55,7 @@ Common variants:
 
 ```bash
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_DIR=/usr/local/bin sh
-curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=0.3.0 sh
+curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=x.y.z sh
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_CLICKHOUSE=0 sh
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERIFY_CHECKSUMS=0 sh
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
