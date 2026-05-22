@@ -33,9 +33,10 @@ test: generate ## Run all tests
 test-race: generate ## Run tests with race detector
 	go test -race ./...
 
-test-cover: generate ## Run tests with coverage report
+test-cover: generate ## Run tests with coverage report and threshold checks
 	go test -race -coverprofile=coverage.txt ./...
 	go tool cover -func=coverage.txt | tail -1
+	./scripts/check-coverage.sh coverage.txt
 
 perf-bench: ## Run perf benchmarks (PERF_SIZE=small|medium|large)
 	@PERF_SIZE=$${PERF_SIZE:-medium} && \

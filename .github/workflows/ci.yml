@@ -92,6 +92,9 @@ jobs:
       - name: Run tests
         run: go test -race -coverprofile=coverage.txt -covermode=atomic ./...
 
+      - name: Check coverage thresholds
+        run: ./scripts/check-coverage.sh coverage.txt
+
       - name: Print coverage summary
         run: go tool cover -func=coverage.txt | tail -1
 
