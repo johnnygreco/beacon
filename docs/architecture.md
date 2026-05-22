@@ -144,8 +144,8 @@ helpers, and live update orchestration.
 
 - `router.go` maps page routes, JSON API routes, static assets, and SSE
   endpoints.
-- `handlers.go` renders templ pages and HTMX partials for dashboard, session,
-  conversation, and search views.
+- `handlers.go` renders templ pages for dashboard, session, and conversation
+  views. Legacy `/search` links redirect back to the dashboard search table.
 - `api.go` serves JSON endpoints used by dashboard JavaScript.
 - `queries.go` contains ClickHouse read models for dashboard metrics, active
   and completed sessions, recent activity, session detail, conversations,

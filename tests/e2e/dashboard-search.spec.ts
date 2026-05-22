@@ -8,6 +8,7 @@ import {
   installDashboardFixtures,
   triggerDashboardSearchAndWait,
   waitForCompletedRows,
+  waitForDashboardSearchResponse,
   waitForDashboardSearchRows,
 } from './fixtures/dashboard';
 
@@ -125,7 +126,48 @@ test.describe('dashboard search workflows', () => {
     await waitForDashboardSearchRows(page, 35);
     await expect(page.getByRole('button', { name: 'Show more' })).toHaveCount(0);
 
+    const metadataRequest = await triggerDashboardSearchAndWait(
+      page,
+      () => page.locator('#dashboard-session-search').fill('claude-sonnet-4-super-long-model-name'),
+      (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name',
+    );
+    expect(metadataRequest.searchParams.get('limit')).toBe('30');
+    await waitForDashboardSearchRows(page, 1);
+    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-event-kind', 'session');
+    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Session metadata');
+
     await guards.expectClean();
+  });
+
+  test('shows loading and error retry states in the table area', async ({ page }) => {
+    await installDashboardFixtures(page, { failOnce: ['search'], searchDelayMs: 500 });
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+
+    const failedResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === '/api/dashboard/search' && url.searchParams.get('q') === 'dashboard payload' && response.status() === 500;
+    });
+    await page.locator('#dashboard-session-search').fill('dashboard payload');
+    await page.locator('#dashboard-session-search').press('Enter');
+    await expect(page.locator('#completed-sessions')).toContainText('Searching sessions and events');
+    await failedResponse;
+    await expect(page.locator('#completed-sessions')).toContainText('Unable to search sessions and events');
+    await expect(page.locator('#completed-session-status')).toContainText('Search failed');
+
+    const retryResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'dashboard payload');
+    await page.getByRole('button', { name: 'Retry' }).click();
+    await retryResponse;
+    await waitForDashboardSearchRows(page, 1);
+  });
+
+  test('shows unavailable state in the table area', async ({ page }) => {
+    await installDashboardFixtures(page, { searchUnavailable: true });
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+    await fillDashboardSearchAndWait(page, 'dashboard payload');
+    await expect(page.locator('#completed-sessions')).toContainText('Search is not connected');
+    await expect(page.locator('#completed-session-status')).toContainText('Search unavailable');
   });
 
   test('keeps the dashboard search table contained on narrow screens', async ({ page }) => {

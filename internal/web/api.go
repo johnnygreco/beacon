@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -194,7 +195,7 @@ func searchResultSessionIDs(results []search.SearchResult) []string {
 	return ids
 }
 
-// GetDashboardSearch returns event-level search results for the dashboard table.
+// GetDashboardSearch returns event and session-metadata search results for the dashboard table.
 func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	rangeVal := strings.TrimSpace(r.URL.Query().Get("range"))
@@ -256,15 +257,16 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	hasMore := len(results) > limit
-	if hasMore {
-		results = results[:limit]
-	}
 	sessionMeta := a.dashboardSearchSessionMeta(r.Context(), searchResultSessionIDs(results))
 	items := make([]APIDashboardSearchResult, 0, len(results))
+	seenSessions := make(map[string]struct{}, len(results))
 	for _, result := range results {
+		if result.SessionID != "" {
+			seenSessions[result.SessionID] = struct{}{}
+		}
 		meta := sessionMeta[result.SessionID]
 		items = append(items, APIDashboardSearchResult{
+			ResultType:   "event",
 			EventUID:     result.EventUID,
 			SessionID:    result.SessionID,
 			EventKind:    result.EventKind,
@@ -278,6 +280,19 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 			SessionTitle: meta.title,
 			WorkingDir:   meta.workingDir,
 		})
+	}
+	hasMore := len(items) > limit
+	if query != "" && eventKind == "" {
+		sessionItems, sessionHasMore := a.dashboardSearchSessionMetadataResults(r.Context(), query, rangeVal, sessionID, sortBy, seenSessions, limit+1)
+		if sessionHasMore {
+			hasMore = true
+		}
+		items = append(items, sessionItems...)
+	}
+	dashboardSortSearchItems(items, sortBy)
+	if len(items) > limit {
+		hasMore = true
+		items = items[:limit]
 	}
 
 	a.jsonResponse(w, APIDashboardSearchResponse{
@@ -328,6 +343,75 @@ func dashboardSearchSnippet(result search.SearchResult) string {
 		}
 	}
 	return snippet
+}
+
+func (a *APIHandlers) dashboardSearchSessionMetadataResults(ctx context.Context, query, rangeVal, sessionIDPrefix, sortBy string, seenSessions map[string]struct{}, limit int) ([]APIDashboardSearchResult, bool) {
+	if a.db == nil || strings.TrimSpace(query) == "" || limit <= 0 {
+		return nil, false
+	}
+	fetchLimit := limit + len(seenSessions) + 1
+	sortKey, sortAsc := dashboardSearchMetadataSort(sortBy)
+	sessions, storeHasMore := queryCompletedSessionsFiltered(ctx, a.db, parseRange(rangeVal), 0, fetchLimit, query, nil, sortKey, sortAsc, sessionIDPrefix)
+	items := make([]APIDashboardSearchResult, 0, min(limit, len(sessions)))
+	for _, session := range sessions {
+		if _, ok := seenSessions[session.ID]; ok {
+			continue
+		}
+		items = append(items, dashboardSearchSessionResult(session))
+		if len(items) > limit {
+			return items[:limit], true
+		}
+	}
+	return items, storeHasMore
+}
+
+func dashboardSearchMetadataSort(sortBy string) (string, bool) {
+	switch sortBy {
+	case "oldest":
+		return "ended", true
+	default:
+		return "ended", false
+	}
+}
+
+func dashboardSortSearchItems(items []APIDashboardSearchResult, sortBy string) {
+	switch sortBy {
+	case "newest":
+		sort.SliceStable(items, func(i, j int) bool {
+			return items[i].Timestamp.After(items[j].Timestamp)
+		})
+	case "oldest":
+		sort.SliceStable(items, func(i, j int) bool {
+			return items[i].Timestamp.Before(items[j].Timestamp)
+		})
+	}
+}
+
+func dashboardSearchSessionResult(session views.SessionSummary) APIDashboardSearchResult {
+	fields := []string{views.SessionTitle(session, false), session.WorkingDir, session.Provider, session.ActiveModel}
+	parts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = strings.TrimSpace(field)
+		if field != "" {
+			parts = append(parts, field)
+		}
+	}
+	snippet := "Session metadata"
+	if len(parts) > 0 {
+		snippet += ": " + strings.Join(parts, " | ")
+	}
+	return APIDashboardSearchResult{
+		ResultType:   "session",
+		SessionID:    session.ID,
+		EventKind:    "session",
+		Snippet:      snippet,
+		Provider:     session.Provider,
+		Model:        session.ActiveModel,
+		Timestamp:    session.EndedAt,
+		RelativeTime: views.RelativeTime(session.EndedAt),
+		SessionTitle: views.SessionTitle(session, false),
+		WorkingDir:   session.WorkingDir,
+	}
 }
 
 type dashboardSearchSessionInfo struct {

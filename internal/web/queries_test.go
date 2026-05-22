@@ -63,6 +63,21 @@ func TestCompletedSessionSearchClause_MetadataOnly(t *testing.T) {
 	}
 }
 
+func TestCompletedSessionIDPrefixClause(t *testing.T) {
+	clause, args := completedSessionIDPrefixClause("  session-prefix  ")
+	if !strings.Contains(clause, "positionCaseInsensitive(session_id, ?) = 1") {
+		t.Fatalf("prefix clause = %q", clause)
+	}
+	if fmt.Sprint(args) != fmt.Sprint([]any{"session-prefix"}) {
+		t.Fatalf("prefix args = %#v", args)
+	}
+
+	clause, args = completedSessionIDPrefixClause("  ")
+	if clause != "" || args != nil {
+		t.Fatalf("blank prefix clause/args = %q/%#v, want empty/nil", clause, args)
+	}
+}
+
 func TestCompletedSessionsOrderByNameUsesRenderedProjectName(t *testing.T) {
 	orderBy := completedSessionsOrderBy("name", true)
 	if !strings.Contains(orderBy, "replaceRegexpOne") {

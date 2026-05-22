@@ -975,6 +975,7 @@ function renderCompleted(response) {
 }
 
 function searchEventLabel(kind) {
+	if (kind === 'session') return 'Session';
 	if (kind === 'tool_call') return 'Tool call';
 	if (kind === 'tool_result') return 'Tool result';
 	if (kind === 'tool_error') return 'Tool error';
@@ -985,6 +986,7 @@ function searchEventLabel(kind) {
 }
 
 function searchEventBadge(kind) {
+	if (kind === 'session') return 'bg-gray-600/40 text-gray-300';
 	if (kind === 'tool_call') return 'bg-yellow-500/15 text-yellow-400';
 	if (kind === 'tool_result') return 'bg-emerald-500/15 text-emerald-400';
 	if (kind === 'tool_error') return 'bg-orange-500/15 text-orange-400';
@@ -1025,12 +1027,12 @@ function renderDashboardSearch(response) {
 	response.items = response.items || [];
 	var rows = response.items.map(searchRow);
 	if (response.has_more) {
-		rows.push('<tr class="border-none" data-search-more-row><td colspan="6" class="py-3"><div class="flex items-center justify-center gap-4"><button type="button" class="dashboard-search-show-more px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Show more</button><span class="text-xs text-gray-500 tabular-nums">Showing ' + response.items.length + '+ events</span></div></td></tr>');
+		rows.push('<tr class="border-none" data-search-more-row><td colspan="6" class="py-3"><div class="flex items-center justify-center gap-4"><button type="button" class="dashboard-search-show-more px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Show more</button><span class="text-xs text-gray-500 tabular-nums">Showing ' + response.items.length + '+ results</span></div></td></tr>');
 	}
 	if (rows.length === 0) {
 		var message = response.state === 'unavailable'
 			? 'Search is not connected'
-			: (response.state === 'idle' ? 'Enter a query or filter to search events' : 'No matching events');
+			: (response.state === 'idle' ? 'Enter a query or filter to search sessions and events' : 'No matching sessions or events');
 		rows.push('<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-gray-500">' + escapeHTML(message) + '</span></td></tr>');
 	}
 	setHTMLIfChanged(tbody, rows.join(''));
@@ -1038,12 +1040,22 @@ function renderDashboardSearch(response) {
 		if (response.state === 'unavailable') {
 			status.textContent = 'Search unavailable';
 		} else if (response.state === 'idle') {
-			status.textContent = 'Search events from the dashboard table';
+			status.textContent = 'Search sessions and events from the dashboard table';
 		} else {
 			var count = response.items.length;
-			status.textContent = count + (response.has_more ? '+' : '') + ' event result' + (count === 1 && !response.has_more ? '' : 's');
+			status.textContent = count + (response.has_more ? '+' : '') + ' search result' + (count === 1 && !response.has_more ? '' : 's');
 		}
 	}
+}
+
+function renderDashboardSearchLoading() {
+	var tbody = document.getElementById('completed-sessions');
+	var status = document.getElementById('completed-session-status');
+	var title = document.getElementById('completed-table-title');
+	if (title) title.textContent = 'Search Results';
+	setCompletedTableMode('search');
+	setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-gray-500">Searching sessions and events...</span></td></tr>');
+	if (status) status.textContent = 'Searching sessions and events...';
 }
 
 function renderActive(response) {
@@ -1215,8 +1227,7 @@ async function loadActiveSessions() {
 
 async function loadDashboardSearch() {
 	currentCompletedOffset = 0;
-	var status = document.getElementById('completed-session-status');
-	if (status) status.textContent = 'Searching events...';
+	renderDashboardSearchLoading();
 	var result = await fetchDashboardJSON('completed', requestURL('/api/dashboard/search', {
 		q: currentSearchQuery,
 		range: currentSearchRange,
@@ -1228,10 +1239,11 @@ async function loadDashboardSearch() {
 	if (!result || result.stale) return;
 	if (result.error) {
 		var tbody = document.getElementById('completed-sessions');
+		var status = document.getElementById('completed-session-status');
 		var title = document.getElementById('completed-table-title');
 		if (title) title.textContent = 'Search Results';
 		setCompletedTableMode('search');
-		setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-red-400">Unable to search events. <button type="button" class="underline" onclick="loadDashboardSearch()">Retry</button></span></td></tr>');
+		setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-red-400">Unable to search sessions and events. <button type="button" class="underline" onclick="loadDashboardSearch()">Retry</button></span></td></tr>');
 		if (status) status.textContent = 'Search failed';
 		return;
 	}
@@ -1437,6 +1449,7 @@ document.addEventListener('click', function(evt) {
 		searchInput.addEventListener('input', function() {
 			currentSearchQuery = searchInput.value.trim();
 			currentCompletedOffset = 0;
+			currentSearchLimit = 30;
 			syncSearchControls();
 			scheduleDashboardSearch();
 		});
@@ -1445,10 +1458,12 @@ document.addEventListener('click', function(evt) {
 				evt.preventDefault();
 				clearTimeout(dashboardSearchTimer);
 				currentSearchQuery = searchInput.value.trim();
+				currentSearchLimit = 30;
 				loadCompletedSessions(0);
 			} else if (evt.key === 'Escape' && currentSearchQuery !== '') {
 				evt.preventDefault();
 				currentSearchQuery = '';
+				currentSearchLimit = 30;
 				searchInput.value = '';
 				syncSearchControls();
 				loadCompletedSessions(0);
@@ -1460,6 +1475,7 @@ document.addEventListener('click', function(evt) {
 			if (searchInput) searchInput.value = '';
 			currentSearchQuery = '';
 			currentCompletedOffset = 0;
+			currentSearchLimit = 30;
 			syncSearchControls();
 			loadCompletedSessions(0);
 			if (searchInput) searchInput.focus();

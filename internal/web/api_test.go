@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/search"
+	"github.com/johnnygreco/beacon/internal/views"
 )
 
 type fakeAPISearcher struct {
@@ -114,6 +116,75 @@ func TestDashboardSearch_FilterOnlyUsesBrowseAndExpandsErrors(t *testing.T) {
 	}
 	if got.State != "ready" || len(got.Items) != 1 {
 		t.Fatalf("response state/items = %q/%d, want ready/1", got.State, len(got.Items))
+	}
+}
+
+func TestDashboardSearchSessionResultFormatsMetadataMatch(t *testing.T) {
+	session := views.SessionSummary{
+		ID:          "session-meta-001",
+		Provider:    "openai",
+		ActiveModel: "gpt-5.4-codex",
+		WorkingDir:  "/Users/example/projects/beacon",
+		EndedAt:     time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC),
+	}
+
+	got := dashboardSearchSessionResult(session)
+	if got.ResultType != "session" || got.EventKind != "session" || got.EventUID != "" {
+		t.Fatalf("result type/kind/event = %q/%q/%q, want session/session/empty", got.ResultType, got.EventKind, got.EventUID)
+	}
+	if got.SessionID != session.ID || got.Provider != session.Provider || got.Model != session.ActiveModel {
+		t.Fatalf("metadata = %#v, want session metadata", got)
+	}
+	for _, want := range []string{"beacon", "gpt-5.4-codex", "openai"} {
+		if !strings.Contains(got.Snippet, want) {
+			t.Fatalf("snippet = %q, want to contain %q", got.Snippet, want)
+		}
+	}
+}
+
+func TestDashboardSearchMetadataSort(t *testing.T) {
+	tests := []struct {
+		sortBy  string
+		wantKey string
+		wantAsc bool
+	}{
+		{sortBy: "oldest", wantKey: "ended", wantAsc: true},
+		{sortBy: "newest", wantKey: "ended", wantAsc: false},
+		{sortBy: "relevance", wantKey: "ended", wantAsc: false},
+		{sortBy: "", wantKey: "ended", wantAsc: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.sortBy, func(t *testing.T) {
+			key, asc := dashboardSearchMetadataSort(tt.sortBy)
+			if key != tt.wantKey || asc != tt.wantAsc {
+				t.Fatalf("dashboardSearchMetadataSort(%q) = %q/%v, want %q/%v", tt.sortBy, key, asc, tt.wantKey, tt.wantAsc)
+			}
+		})
+	}
+}
+
+func TestDashboardSortSearchItemsOrdersMixedResultsByTime(t *testing.T) {
+	older := time.Date(2026, 5, 20, 10, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 5, 21, 10, 0, 0, 0, time.UTC)
+	items := []APIDashboardSearchResult{
+		{ResultType: "event", SessionID: "event-session", Timestamp: older},
+		{ResultType: "session", SessionID: "metadata-session", Timestamp: newer},
+	}
+
+	dashboardSortSearchItems(items, "newest")
+	if items[0].SessionID != "metadata-session" {
+		t.Fatalf("newest sort first = %q, want metadata-session", items[0].SessionID)
+	}
+
+	dashboardSortSearchItems(items, "oldest")
+	if items[0].SessionID != "event-session" {
+		t.Fatalf("oldest sort first = %q, want event-session", items[0].SessionID)
+	}
+
+	dashboardSortSearchItems(items, "relevance")
+	if items[0].SessionID != "event-session" {
+		t.Fatalf("relevance sort should preserve existing order, first = %q", items[0].SessionID)
 	}
 }
 

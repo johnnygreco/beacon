@@ -1,14 +1,20 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/johnnygreco/beacon/internal/store"
 )
 
 func TestPIDFilePathUsesUserHome(t *testing.T) {
@@ -130,6 +136,40 @@ func TestRunStopReturnsNilWhenServerIsNotRunning(t *testing.T) {
 	}
 }
 
+func TestRunStatusReportsClickHouseUnavailable(t *testing.T) {
+	resetConfigState(t)
+	cfgPath := filepath.Join(t.TempDir(), "beacon.toml")
+	config := "[server]\nhost = \"127.0.0.1\"\nport = 0\n\n[database]\naddrs = [\"127.0.0.1:19000\"]\n"
+	if err := os.WriteFile(cfgPath, []byte(config), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfgFile = cfgPath
+
+	oldOpen := statusOpenStore
+	statusOpenStore = func(_ context.Context, opts store.Options) (*store.Store, error) {
+		if len(opts.Addrs) != 1 || opts.Addrs[0] != "127.0.0.1:19000" {
+			t.Fatalf("status store addrs = %v, want configured addr", opts.Addrs)
+		}
+		return nil, errors.New("offline")
+	}
+	t.Cleanup(func() { statusOpenStore = oldOpen })
+
+	output := captureStdout(t, func() {
+		if err := runStatus(newStatusCmd(), nil); err != nil {
+			t.Fatalf("runStatus() returned error: %v", err)
+		}
+	})
+	for _, want := range []string{
+		"Beacon Status",
+		"Server:  not running",
+		"ClickHouse: unavailable at 127.0.0.1:19000 (offline)",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("status output missing %q:\n%s", want, output)
+		}
+	}
+}
+
 func serverPort(t *testing.T, server *httptest.Server) int {
 	t.Helper()
 	_, portText, err := net.SplitHostPort(server.Listener.Addr().String())
@@ -141,4 +181,30 @@ func serverPort(t *testing.T, server *httptest.Server) int {
 		t.Fatalf("parse test server port: %v", err)
 	}
 	return port
+}
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdout pipe: %v", err)
+	}
+	os.Stdout = w
+	t.Cleanup(func() {
+		os.Stdout = oldStdout
+		_ = r.Close()
+	})
+
+	fn()
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("close stdout writer: %v", err)
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read stdout: %v", err)
+	}
+	os.Stdout = oldStdout
+	return string(data)
 }

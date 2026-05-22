@@ -9,7 +9,9 @@ type Scenario = 'default' | 'empty' | 'error-heavy' | 'many-active';
 
 type DashboardFixtureOptions = {
   scenario?: Scenario;
-  failOnce?: Array<'active' | 'completed' | 'activity' | 'charts'>;
+  failOnce?: Array<'active' | 'completed' | 'activity' | 'charts' | 'search'>;
+  searchUnavailable?: boolean;
+  searchDelayMs?: number;
   disableEventSource?: boolean;
 };
 
@@ -324,6 +326,7 @@ function activityItems(scenario: Scenario) {
 function dashboardSearchBaseResults() {
   return [
     {
+      result_type: 'event',
       event_uid: 'event-search-001',
       session_id: SEARCH_SESSION_ID,
       event_kind: 'message',
@@ -337,6 +340,7 @@ function dashboardSearchBaseResults() {
       working_dir: '/Users/example/projects/beacon/search',
     },
     {
+      result_type: 'event',
       event_uid: 'event-search-002',
       session_id: SEARCH_SESSION_ID,
       event_kind: 'tool_call',
@@ -351,6 +355,7 @@ function dashboardSearchBaseResults() {
       working_dir: '/Users/example/projects/beacon/search',
     },
     {
+      result_type: 'event',
       event_uid: 'event-search-003',
       session_id: 'session-search-002',
       event_kind: 'error',
@@ -391,6 +396,7 @@ function dashboardSearchMatchesText(result: ReturnType<typeof dashboardSearchBas
     result.session_title || '',
     result.model || '',
     result.provider || '',
+    result.working_dir || '',
   ].join(' ').toLowerCase();
   return normalized.split(/\s+/).filter(Boolean).every((token) => haystack.includes(token));
 }
@@ -411,17 +417,51 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
   }
   const source = query.toLowerCase() === 'many' ? dashboardSearchManyResults() : dashboardSearchBaseResults();
   const acceptedKinds = eventKind === 'error' ? new Set(['error', 'tool_error']) : new Set(eventKind ? [eventKind] : []);
-  const filtered = source.filter((result) => {
+  const eventResults = source.filter((result) => {
     if (!dashboardSearchMatchesText(result, query)) return false;
     if (acceptedKinds.size > 0 && !acceptedKinds.has(result.event_kind)) return false;
     if (sessionID && !result.session_id.toLowerCase().startsWith(sessionID)) return false;
     return true;
   });
-  const sorted = [...filtered].sort((a, b) => {
+  const sortedEvents = [...eventResults].sort((a, b) => {
     if (sort === 'newest') return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
     if (sort === 'oldest') return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
     return b.score - a.score;
   });
+  const seenSessions = new Set(sortedEvents.map((result) => result.session_id));
+  const sessionResults = query && !eventKind
+    ? baseCompletedSessions
+      .filter((session) => {
+        if (seenSessions.has(session.id)) return false;
+        if (sessionID && !session.id.toLowerCase().startsWith(sessionID)) return false;
+        const haystack = [session.id, session.title, session.last_model, session.working_dir, session.provider].join(' ').toLowerCase();
+        return query.toLowerCase().split(/\s+/).filter(Boolean).every((token) => haystack.includes(token));
+      })
+      .map((session) => ({
+        result_type: 'session',
+        event_uid: '',
+        session_id: session.id,
+        event_kind: 'session',
+        snippet: `Session metadata: ${session.title} | ${session.working_dir} | ${session.provider} | ${session.last_model}`,
+        provider: session.provider,
+        model: session.last_model,
+        score: 0,
+        timestamp: session.ended_at,
+        relative_time: 'completed',
+        session_title: session.title,
+        working_dir: session.working_dir,
+      }))
+    : [];
+  const sortedSessionResults = [...sessionResults].sort((a, b) => {
+    if (sort === 'oldest') return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+  });
+  const sorted = [...sortedEvents, ...sortedSessionResults];
+  if (sort === 'newest') {
+    sorted.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  } else if (sort === 'oldest') {
+    sorted.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }
   return {
     state: 'ready',
     query,
@@ -642,6 +682,23 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
 
   await page.route('**/api/dashboard/search**', async (route) => {
     const url = new URL(route.request().url());
+    if (options.searchDelayMs) {
+      await new Promise((resolve) => setTimeout(resolve, options.searchDelayMs));
+    }
+    if (failures.delete('search')) return fulfillJSON(route, { error: 'fixture failure' }, 500);
+    if (options.searchUnavailable) {
+      return fulfillJSON(route, {
+        state: 'unavailable',
+        query: url.searchParams.get('q') || '',
+        range: url.searchParams.get('range') || '',
+        event_kind: url.searchParams.get('event_kind') || '',
+        session_id: url.searchParams.get('session_id') || '',
+        sort: url.searchParams.get('sort') || 'relevance',
+        limit: Number(url.searchParams.get('limit') || 30),
+        has_more: false,
+        items: [],
+      });
+    }
     return fulfillJSON(route, dashboardSearchForRequest(url, scenario));
   });
 

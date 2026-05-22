@@ -668,6 +668,10 @@ func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, o
 // time and text filters. Search matches session metadata plus session IDs
 // discovered by the tokenized event search path.
 func QueryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int, searchText string, eventSessionIDs []string, sortKey string, sortAsc bool) ([]views.SessionSummary, bool) {
+	return queryCompletedSessionsFiltered(ctx, db, since, offset, limit, searchText, eventSessionIDs, sortKey, sortAsc, "")
+}
+
+func queryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int, searchText string, eventSessionIDs []string, sortKey string, sortAsc bool, sessionIDPrefix string) ([]views.SessionSummary, bool) {
 	cutoff := time.Now().Add(-idleThreshold)
 	query := `SELECT ` + sessionSummaryColumns + `
 		 FROM ` + sessionProjectionSQL + `
@@ -678,6 +682,10 @@ func QueryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time
 	if since != nil {
 		query += " AND ended_at >= ?"
 		args = append(args, *since)
+	}
+	if clause, prefixArgs := completedSessionIDPrefixClause(sessionIDPrefix); clause != "" {
+		query += clause
+		args = append(args, prefixArgs...)
 	}
 	if searchText = strings.TrimSpace(searchText); searchText != "" {
 		clause, searchArgs := completedSessionSearchClause(searchText, eventSessionIDs)
@@ -711,6 +719,14 @@ func QueryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time
 	}
 	attachSubagentCounts(ctx, db, sessions)
 	return sessions, hasMore
+}
+
+func completedSessionIDPrefixClause(prefix string) (string, []any) {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		return "", nil
+	}
+	return " AND positionCaseInsensitive(session_id, ?) = 1", []any{prefix}
 }
 
 func completedSessionsOrderBy(sortKey string, asc bool) string {

@@ -56,6 +56,12 @@ CI runs these hygiene gates on pull requests:
 - `format`: `make fmt-check` fails on tracked Go files with gofmt drift.
 - `generated`: `go tool templ generate` fails if generated templ files are
   stale or missing from the commit.
+- `test`: `go test -race -coverprofile=coverage.txt -covermode=atomic ./...`
+  runs Go tests and `scripts/check-coverage.sh` enforces package coverage
+  floors.
+- `lint`: `golangci-lint run ./...` fails on configured Go lint issues.
+- `build`: `go build ./cmd/beacon` verifies the CLI binary builds after
+  template generation.
 - `govulncheck`: `govulncheck ./...` fails on reachable Go vulnerabilities.
 - `npm-audit`: `npm audit --audit-level=moderate` fails on moderate or higher
   npm advisories.
