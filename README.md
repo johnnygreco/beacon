@@ -228,12 +228,20 @@ make fmt-check      # verify tracked Go files are gofmt formatted
 make test           # generate templates and run Go tests
 make test-race      # run Go tests with the race detector
 make perf-bench     # run perf benchmarks; set PERF_SIZE=small|medium|large
+make clean          # remove build/test outputs such as bin, dist, coverage, and reports
+make clean-local    # also remove ignored repo-local scratch/agent dirs and local DB files
+make clean-deps     # remove node_modules
 npm install         # install Playwright and asset-vendoring dependencies
 npm run vendor      # refresh vendored frontend assets
 npm run test:e2e    # dashboard and search Playwright tests
 npm run test:a11y   # accessibility tests
 npm run test:visual # visual regression tests
 ```
+
+Cleanup targets only remove files inside the repository checkout. They do not
+delete Beacon user data under `~/.beacon`; use `beacon db reset --force` or the
+installer's `UNINSTALL=1` path when you intentionally want destructive Beacon
+data cleanup.
 
 Release commands:
 
