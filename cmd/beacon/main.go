@@ -11,9 +11,20 @@ import (
 var cfgFile string
 
 func main() {
+	if err := newRootCmd().Execute(); err != nil {
+		os.Exit(1)
+	}
+}
+
+func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
-		Use:   "beacon",
-		Short: "Real-time AI coding agent monitoring dashboard",
+		Use:          "beacon",
+		Short:        "Real-time AI coding agent monitoring dashboard",
+		Args:         cobra.NoArgs,
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
 	}
 
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: beacon.toml)")
@@ -21,21 +32,13 @@ func main() {
 	rootCmd.AddCommand(
 		newUpCmd(),
 		newDownCmd(),
-		newRunCmd(),
-		newServeCmd(),
 		newWatchCmd(),
 		newMCPCmd(),
 		newStatusCmd(),
-		newStopCmd(),
 		newDBCmd(),
 	)
 
-	// Default to serve if no subcommand
-	rootCmd.RunE = runServe
-
-	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
-	}
+	return rootCmd
 }
 
 func newUpCmd() *cobra.Command {
@@ -52,31 +55,6 @@ func newDownCmd() *cobra.Command {
 		Short: "Stop the running Beacon server",
 		RunE:  runStop,
 	}
-}
-
-func newRunCmd() *cobra.Command {
-	runCmd := &cobra.Command{
-		Use:   "run",
-		Short: "Run one Beacon service",
-	}
-	runCmd.AddCommand(
-		&cobra.Command{
-			Use:   "capture",
-			Short: "Run capture only",
-			RunE:  runWatch,
-		},
-		&cobra.Command{
-			Use:   "web",
-			Short: "Run web and capture services",
-			RunE:  runServe,
-		},
-		&cobra.Command{
-			Use:   "mcp",
-			Short: "Run the MCP server",
-			RunE:  runMCP,
-		},
-	)
-	return runCmd
 }
 
 func storeOptionsFromConfig(cfg *config.Config) store.Options {

@@ -23,14 +23,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newServeCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "serve",
-		Short: "Start the web dashboard and capture service",
-		RunE:  runServe,
-	}
-}
-
 func runServe(cmd *cobra.Command, args []string) error {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 

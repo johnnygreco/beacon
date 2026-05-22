@@ -8,7 +8,7 @@ build: generate ## Build the beacon binary
 	go build -o bin/beacon ./cmd/beacon
 
 run: generate ## Run the beacon server
-	go run ./cmd/beacon serve
+	go run ./cmd/beacon up
 
 generate: ## Generate templ templates
 	go tool templ generate

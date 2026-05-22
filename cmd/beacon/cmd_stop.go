@@ -13,14 +13,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newStopCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "stop",
-		Short: "Stop the running beacon server",
-		RunE:  runStop,
-	}
-}
-
 func runStop(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
