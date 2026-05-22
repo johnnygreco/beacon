@@ -32,13 +32,20 @@ Beacon currently understands session data from Claude Code, OpenAI Codex, Hermes
 
 ## Install
 
-Beacon is distributed through GitHub Releases and the install script below. The installer supports macOS and Linux on `amd64` and `arm64`.
+Beacon is distributed through GitHub Releases and the install script below. The installer supports macOS and Linux on `amd64` and `arm64` when the selected release includes the matching archive.
 
 ```bash
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | sh
 ```
 
 It installs `beacon` to `~/.local/bin`. If ClickHouse is not already available on `PATH`, it also installs a managed ClickHouse binary to `~/.beacon/bin`.
+Beacon release archives are verified against the release `checksums.txt` before
+they are installed. Managed Linux ClickHouse downloads are verified with
+ClickHouse's upstream `.sha512` sidecars; managed macOS ClickHouse downloads rely
+on the pinned ClickHouse release URL and HTTPS because upstream does not publish
+sidecar checksums for those macOS assets. The selected Beacon release must
+include the current platform archive and `checksums.txt`; older partial releases
+may only install on platforms they published.
 
 If your shell cannot find `beacon`, add the install directory to `PATH`:
 
@@ -52,10 +59,14 @@ Common variants:
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_DIR=/usr/local/bin sh
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=0.1.0 sh
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_CLICKHOUSE=0 sh
+curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERIFY_CHECKSUMS=0 sh
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
 ```
 
-Use `INSTALL_CLICKHOUSE=0` only when you already run ClickHouse yourself. `UNINSTALL=1` removes the installed `beacon` binary and `~/.beacon`, including Beacon-managed ClickHouse data.
+Use `INSTALL_CLICKHOUSE=0` only when you already run ClickHouse yourself.
+Use `VERIFY_CHECKSUMS=0` only for local installer debugging or emergency
+workarounds. `UNINSTALL=1` removes the installed `beacon` binary and `~/.beacon`,
+including Beacon-managed ClickHouse data.
 
 Homebrew packaging is not currently a supported distribution channel.
 
@@ -129,6 +140,7 @@ If `[database].addrs` points to a remote ClickHouse host, Beacon will not start 
 - [Pricing estimate data and fallback behavior](docs/pricing.md)
 - [Performance baselines and query-plan review](docs/performance.md)
 - [Toolchain and dependency updates](docs/toolchain.md)
+- [Installer and release process](docs/release.md)
 
 ## ClickHouse
 
@@ -249,7 +261,7 @@ Release commands:
 make publish VERSION=x.y.z
 ```
 
-`make publish` expects a clean, up-to-date `main` branch, a working `gh` authentication or `GITHUB_TOKEN`, `zig` for Linux CGO cross-builds, and `goreleaser` on `PATH`. It creates and pushes tag `vx.y.z`, runs a local GoReleaser build before publishing, and uploads the release artifacts to GitHub Releases.
+`make publish` expects a clean, up-to-date `main` branch, a working `gh` authentication or `GITHUB_TOKEN`, `zig` for Linux CGO cross-builds, and `goreleaser` on `PATH`. It creates tag `vx.y.z`, runs a local GoReleaser build before pushing the tag, uploads the release artifacts to GitHub Releases, and attempts to roll back the release/tag if publishing fails after the tag push. See [Installer and release process](docs/release.md) for artifact names, verification behavior, and rollback commands.
 
 Most Go tests do not need a live ClickHouse server. Live ClickHouse integration and perf tests are opt-in and require a reachable ClickHouse TCP endpoint:
 
