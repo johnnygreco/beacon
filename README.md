@@ -82,6 +82,7 @@ Useful commands:
 beacon status   # server, ClickHouse, session, and search-index health
 beacon down     # stop the running Beacon web server
 beacon db down  # stop Beacon-managed local ClickHouse
+beacon --version # show the Beacon CLI version
 ```
 
 ## Capture Sources
@@ -218,6 +219,7 @@ Available tools:
 | `beacon watch` | Capture sessions without the web dashboard |
 | `beacon mcp` | Start the MCP server over stdin/stdout JSON-RPC |
 | `beacon status` | Show server, database, session, and search-index status |
+| `beacon --version` | Show the Beacon CLI version |
 | `beacon db up` | Start local ClickHouse and migrate tables |
 | `beacon db down` | Stop Beacon-managed local ClickHouse |
 | `beacon db migrate` | Create or update ClickHouse tables |

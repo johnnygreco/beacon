@@ -135,6 +135,11 @@ jobs:
         run: go tool templ generate
       - name: Build
         run: go build ./cmd/beacon
+      - name: Check version linker injection
+        run: |
+          go build -ldflags "-X main.version=ci-test" -o /tmp/beacon-version ./cmd/beacon
+          output="$(/tmp/beacon-version --version)"
+          test "$output" = "beacon version ci-test"
 
   playwright:
     runs-on: ubuntu-latest
