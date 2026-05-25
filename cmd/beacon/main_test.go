@@ -28,6 +28,28 @@ func TestRootCommandShowsHelpWithoutSubcommand(t *testing.T) {
 	}
 }
 
+func TestRootCommandShowsVersion(t *testing.T) {
+	oldVersion := version
+	version = "1.2.3-test"
+	t.Cleanup(func() {
+		version = oldVersion
+	})
+
+	cmd := newRootCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&out)
+	cmd.SetArgs([]string{"--version"})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() returned error: %v", err)
+	}
+	want := "beacon version 1.2.3-test\n"
+	if out.String() != want {
+		t.Fatalf("version output = %q, want %q", out.String(), want)
+	}
+}
+
 func TestRootCommandExposesCanonicalSubcommands(t *testing.T) {
 	cmd := newRootCmd()
 	want := []string{"up", "down", "watch", "mcp", "status", "db"}

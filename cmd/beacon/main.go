@@ -9,6 +9,7 @@ import (
 )
 
 var cfgFile string
+var version = "dev"
 
 func main() {
 	if err := newRootCmd().Execute(); err != nil {
@@ -20,6 +21,7 @@ func newRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:          "beacon",
 		Short:        "Real-time AI coding agent monitoring dashboard",
+		Version:      version,
 		Args:         cobra.NoArgs,
 		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
