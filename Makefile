@@ -1,14 +1,19 @@
 .DEFAULT_GOAL := help
-.PHONY: help build run generate generate-check clean clean-local clean-deps simulator publish test test-race test-cover perf-bench perf-explain fmt fmt-check lint
+.PHONY: help build install-local run generate generate-check clean clean-local clean-deps simulator publish test test-race test-cover perf-bench perf-explain fmt fmt-check lint
 
 GO_PACKAGE_DIRS = $(shell go list -f '{{.Dir}}' ./... | grep -v '/node_modules/')
 GO_PACKAGES = $(patsubst $(CURDIR)%,.%,$(GO_PACKAGE_DIRS))
+INSTALL_DIR ?= $(HOME)/.local/bin
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 build: generate ## Build the beacon binary
 	go build -o bin/beacon ./cmd/beacon
+
+install-local: generate ## Install local dev beacon globally (INSTALL_DIR=~/.local/bin)
+	mkdir -p "$(INSTALL_DIR)"
+	go build -o "$(INSTALL_DIR)/beacon" ./cmd/beacon
 
 run: generate ## Run the beacon server
 	go run ./cmd/beacon up
