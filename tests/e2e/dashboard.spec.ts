@@ -762,9 +762,38 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(after.windowY).toBe(0);
     expect(after.mainContentTop).toBe(0);
 
+    const tokensSortButton = page.locator('#completed-table th[data-sort-key="tokens"]').getByRole('button', { name: 'Tokens' });
+    const tokensDescResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() &&
+        url.pathname === '/api/dashboard/sessions' &&
+        url.searchParams.get('sort') === 'tokens' &&
+        url.searchParams.get('direction') === 'desc' &&
+        url.searchParams.get('offset') === '0';
+    });
+    await tokensSortButton.click();
+    await tokensDescResponse;
+    await waitForCompletedRows(page, 30);
+    const tokensAscResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() &&
+        url.pathname === '/api/dashboard/sessions' &&
+        url.searchParams.get('sort') === 'tokens' &&
+        url.searchParams.get('direction') === 'asc' &&
+        url.searchParams.get('offset') === '0';
+    });
+    await tokensSortButton.click();
+    await tokensAscResponse;
+    await waitForCompletedRows(page, 30);
+    await expect(page.locator('#completed-table th[data-sort-key="tokens"]')).toHaveAttribute('aria-sort', 'ascending');
+
     const nextResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
-      return response.ok() && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('offset') === '30';
+      return response.ok() &&
+        url.pathname === '/api/dashboard/sessions' &&
+        url.searchParams.get('sort') === 'tokens' &&
+        url.searchParams.get('direction') === 'asc' &&
+        url.searchParams.get('offset') === '30';
     });
     await page.locator('.json-page-btn', { hasText: 'Next' }).click();
     await nextResponse;
@@ -776,12 +805,17 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page).toHaveURL(new RegExp(`/sessions/${TEST_SESSION_ID}$`));
     await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', /range=7d/);
     await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', /offset=30/);
+    await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', /sort=tokens/);
+    await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', /dir=asc/);
 
     await page.locator('.transcript-back-link').click();
     await expect(page.getByRole('heading', { name: 'Beacon Realtime Dashboard' })).toBeVisible();
     await waitForCompletedRows(page, 1);
     await expect(page.locator(`tr[data-sort-id="${TEST_SESSION_ID}"]`)).toBeVisible();
+    await expect(page.locator('#completed-table th[data-sort-key="tokens"]')).toHaveAttribute('aria-sort', 'ascending');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('offset') === '30');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('sort') === 'tokens');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('dir') === 'asc');
 
     await guards.expectClean();
   });
@@ -872,6 +906,12 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 24 hours');
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
     await waitForCompletedRows(page, 30);
+
+    await page.evaluate(() => {
+      sessionStorage.removeItem('beacon-dashboard-return-state-v1');
+    });
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', '/');
 
     await page.evaluate(() => {
       sessionStorage.setItem('beacon-dashboard-return-state-v1', JSON.stringify({

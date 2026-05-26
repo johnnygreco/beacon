@@ -222,6 +222,35 @@ test.describe('dashboard search workflows', () => {
     await guards.expectClean();
   });
 
+  test('clears search through the input clear path without moving desktop scroll', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installDashboardFixtures(page);
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+    await scrollDashboardMainToSearch(page);
+
+    await fillDashboardSearchAndWait(page, 'dashboard payload');
+    await waitForDashboardSearchRows(page, 1);
+    await expect(page.locator('#dashboard-search-clear')).toHaveCount(0);
+    await expect(page.locator('#dashboard-session-search')).toHaveValue('dashboard payload');
+
+    const beforeClear = await readDashboardScroll(page);
+    await expectDashboardScrollStableDuring(page, async () => {
+      const completedResponse = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.ok() && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'completed';
+      });
+      await page.locator('#dashboard-session-search').clear();
+      await completedResponse;
+      await waitForCompletedRows(page, 30);
+    });
+    await expect(page.locator('#dashboard-session-search')).toHaveValue('');
+    await expectDashboardScrollNear(page, beforeClear);
+
+    await guards.expectClean();
+  });
+
   test('ignores stale delayed search responses without moving desktop scroll when requests cannot abort', async ({ page }) => {
     const guards = attachPageGuards(page);
     await page.setViewportSize({ width: 1440, height: 900 });

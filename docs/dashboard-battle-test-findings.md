@@ -1,34 +1,51 @@
 # Dashboard Battle Test Findings
 
-Final isolated install run: 2026-05-11, local temporary install.
+Final dashboard epic run: 2026-05-26, deterministic local fixtures plus CI.
 
 ## Environment
 
-- Installed current branch binary into `/tmp/beacon-battle-64973/install/bin`.
-- Used isolated HOME/config/trace data under `/tmp/beacon-battle-64973`.
-- Used fresh ClickHouse database `beacon_battle_fix2_65143`.
-- Served the installed binary on `http://127.0.0.1:4612` with capture enabled, backfill enabled, 2s reconcile, and 2s search rebuild.
+- Branch: final dashboard stability, UX, naming, transcript-return, and visual QA work for epic #131.
+- Browser matrix: Playwright Chromium desktop, narrow desktop, mobile-sized viewports, accessibility scans, and Darwin visual snapshots.
+- Data source: deterministic Playwright route fixtures in `tests/e2e/fixtures/dashboard.ts`, with active, many-active, empty, error-heavy, delayed search, stale search, failed API, and transcript scenarios.
+- Prior isolated install run from 2026-05-11 remains the real-capture regression reference for JSONL ingestion, ClickHouse projections, transcript SSE refresh, and nonblank token charts.
 
-## Coverage
+## QA Matrix
 
-- Real JSONL capture for 30 completed Claude-style sessions, one active session, one sidechain subagent, tool calls, an MCP-style tool call, a tool error, multi-model token usage, and an unattributed model token row.
-- Dashboard API projections for active/completed sessions, charts, activity feed, pagination, token totals, and subagent counts.
-- Desktop dashboard controls: completed search, search clear, theme select, dark/light switch, fixed dark theme lockout, timeline collapse/restore, chart canvas rendering, completed row keyboard open, inspector close.
-- Transcript controls: chat/timeline switch, session Tokens by Model chart, real SSE-driven partial refresh after appending to the watched JSONL file, and preservation of the active timeline view after refresh.
-- Mobile dashboard viewport check for horizontal overflow.
+- Scroll stability: search typing, delayed responses, stale unabortable responses, Escape clear, input clear, filter changes, range changes, sort, pagination, SSE updates, timeline toggle, and active-session height changes.
+- Search table: query, filters, reset, no custom clear button, show-more pagination, unavailable/error states, narrow-screen containment, and no row/header overlap.
+- Active sessions: default, no-active, many-active, high/over/unknown context states, accessible progress bars, active section prominence, and context-bar visual baseline.
+- Analytics: single tokens-by-model time chart, range reloads, model dropdown, log toggle, tooltip anchoring, theme retinting, and nonblank chart geometry.
+- Timeline: activity filters, collapse/expand, persisted collapse before paint, resize drag, keyboard resize, inert/aria states, and transcript event deep links.
+- Dashboard identity: editable dashboard name, tab title persistence, configured fallback, local clear behavior, and unsafe text escaping.
+- Transcript return: inspector, search result, and activity transcript paths restore dashboard URL state, including sort/page state; direct transcript loads fall back to `/`; unsafe saved state is rejected.
+- Responsive and visual QA: desktop `1440x900`, narrow desktop, `390x844`, `320x568`, light theme, fixed-dark theme, dashboard mobile, transcript mobile, and themed transcript snapshots.
 
-## Findings And Fixes
+## Added In Final Pass
 
-- Found a token attribution bug: multiple Claude content blocks parsed from one JSONL line shared the same deterministic event UID, so ClickHouse replacement could collapse the token-bearing event against a later tool event.
-- Found the paired parser/dedup bug: the Claude parser assigned usage only to the first block, but token dedup keeps the last block for a shared message UUID. Multi-block assistant messages with tools could therefore lose token totals and leave session/model charts empty.
-- Fixed event UIDs to include a deterministic per-line ordinal for secondary events while preserving ordinal-0 IDs.
-- Fixed Claude parsing so every block carries usage before dedup, leaving exactly one token-bearing event after dedup.
-- Added unit coverage for per-line event UID ordinals and multi-block Claude usage surviving dedup.
+- Added an input clear-path test to verify clearing the `type="search"` field does not move `window.scrollY`, `#main-content.scrollTop`, or `#dashboard-main.scrollTop`.
+- Extended transcript-return coverage so sort direction is preserved alongside range, pagination, and scroll state.
+- Added a direct transcript fallback assertion before the unsafe saved-state check, so the breadcrumb stays `/` when no dashboard return state exists.
+- Updated this findings document to describe the final battle-test matrix and validation commands used for the dashboard epic.
+
+## Commands
+
+```bash
+npm run lint:js
+npm run test:unit
+npx playwright test tests/e2e/dashboard.spec.ts -g "initializes dashboard"
+npx playwright test tests/e2e/dashboard-search.spec.ts -g "input clear path"
+make test
+make generate-check
+npm run test:e2e
+npm run test:a11y
+npm run test:visual
+git diff --check
+```
 
 ## Final Result
 
-- Real captured completed sessions show nonzero token totals.
-- Session detail Tokens by Model chart renders nonblank with `sonnet-4` and `opus-4`.
-- Dashboard tokens-by-model chart renders nonblank.
-- Live append to the watched JSONL updates the open transcript through session SSE and preserves the Timeline view.
-- Completed search, theme controls, fixed dark lockout, timeline collapse/restore, keyboard session open, inspector close, and mobile overflow checks pass.
+- The dashboard search area stays anchored during typing, clearing, delayed searches, stale responses, filters, range changes, sorting, pagination, and live updates.
+- Active sessions are the first dashboard content when present, with prominent stats and accessible context progress indicators.
+- The chart surface is reduced to one tokens-by-model time chart with stable controls and visual baselines.
+- Dashboard names update the visible heading and browser tab safely, persist locally, and fall back cleanly.
+- Transcript breadcrumbs restore dashboard range, search, activity, sort, pagination, and scroll state for dashboard-originated navigation while preserving safe fallback behavior for direct transcript loads.
