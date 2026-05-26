@@ -159,6 +159,55 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('configured dashboard name remains the fallback when clearing a local override', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+    await gotoDashboard(page);
+    await page.evaluate(() => localStorage.clear());
+    await page.setContent(`
+      <!doctype html>
+      <html>
+        <head><title>Configured Station | Beacon</title></head>
+        <body>
+          <div
+            class="dashboard-name-control"
+            data-dashboard-name-control
+            data-dashboard-default-name="Configured Station"
+            data-dashboard-fallback-heading="Configured Station"
+          >
+            <h1 id="dashboard-title" data-dashboard-title>Configured Station</h1>
+            <button type="button" id="dashboard-name-edit" aria-label="Edit dashboard name" aria-controls="dashboard-name-input">Edit</button>
+            <label for="dashboard-name-input">Dashboard name</label>
+            <input id="dashboard-name-input" data-dashboard-name-input type="text" maxlength="80" class="hidden" />
+            <button type="button" id="dashboard-name-clear" class="hidden" aria-label="Clear custom dashboard name">Clear</button>
+          </div>
+        </body>
+      </html>
+    `);
+    await page.addScriptTag({ path: 'static/js/dashboard/name.js' });
+
+    await expect(page).toHaveTitle('Configured Station | Beacon');
+    await expect(page.locator('#dashboard-title')).toHaveText('Configured Station');
+    await expect(page.locator('#dashboard-name-clear')).toHaveClass(/hidden/);
+
+    await page.locator('#dashboard-name-edit').click();
+    await expect(page.locator('#dashboard-name-input')).toHaveValue('Configured Station');
+    await expect(page.locator('#dashboard-name-clear')).toHaveClass(/hidden/);
+
+    await page.locator('#dashboard-name-input').fill('Custom\u0085Name');
+    await expect(page).toHaveTitle('Custom Name | Beacon');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-name'))).toBe('Custom Name');
+    await expect(page.locator('#dashboard-name-clear')).not.toHaveClass(/hidden/);
+
+    await page.locator('#dashboard-name-clear').click();
+    await expect(page).toHaveTitle('Configured Station | Beacon');
+    await expect(page.locator('#dashboard-title')).toHaveText('Configured Station');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-name'))).toBeNull();
+    await expect(page.locator('#dashboard-name-clear')).toHaveClass(/hidden/);
+
+    await guards.expectClean();
+  });
+
   test('loads cleanly and keeps chart geometry across supported viewports', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);

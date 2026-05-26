@@ -7,7 +7,9 @@
 
 	function normalizeDashboardName(value) {
 		var text = String(value == null ? '' : value)
-			.replace(/[\u0000-\u001f\u007f]/g, ' ')
+			.replace(/[\u0000-\u001f\u007f-\u009f]/g, function(ch) {
+				return /[\t\n\v\f\r\u001c-\u001f\u0085]/.test(ch) ? ' ' : '';
+			})
 			.replace(/\s+/g, ' ')
 			.trim();
 		var chars = Array.from(text);
@@ -67,7 +69,7 @@
 
 		function updateClearButton() {
 			if (!clearButton || !input) return;
-			clearButton.classList.toggle('hidden', input.value.length === 0);
+			clearButton.classList.toggle('hidden', storedOverride.length === 0);
 		}
 
 		function renderName(syncInput) {
