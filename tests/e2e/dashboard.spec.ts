@@ -11,6 +11,9 @@ import {
   fillDashboardSearchAndWait,
   gotoDashboard,
   installDashboardFixtures,
+  readDashboardScroll,
+  scrollDashboardMainToSearch,
+  waitForDashboardSearchResponse,
   waitForCompletedRows,
   waitForDashboardSearchRows,
 } from './fixtures/dashboard';
@@ -714,6 +717,171 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator('#inspector-full-link').click();
     await expect(page).toHaveURL(new RegExp(`/sessions/${TEST_SESSION_ID}$`));
     await expect(page.locator('#btn-collapse-all')).toBeVisible();
+
+    await guards.expectClean();
+  });
+
+  test('restores dashboard range, pagination, and scroll from transcript breadcrumb', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+
+    const rangeResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('range') === '7d';
+    });
+    await page.locator('#dashboard-range-control').getByRole('button', { name: '7d' }).click();
+    await rangeResponse;
+    await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 7 days');
+
+    await scrollDashboardMainToSearch(page);
+    const completedRow = page.locator('#completed-sessions tr[data-session-link]').first();
+    const firstPageSessionID = await completedRow.getAttribute('data-sort-id');
+    expect(firstPageSessionID).toBeTruthy();
+    await completedRow.locator('.session-row-open').click();
+    await expect(page.locator('#session-inspector')).toBeVisible();
+    const before = await readDashboardScroll(page);
+    await page.locator('#inspector-full-link').click();
+    await expect(page).toHaveURL(new RegExp(`/sessions/${firstPageSessionID}$`));
+    await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', /range=7d/);
+
+    await page.locator('.transcript-back-link').click();
+    await expect(page.getByRole('heading', { name: 'Beacon Realtime Dashboard' })).toBeVisible();
+    await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 7 days');
+    await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
+    await waitForCompletedRows(page, 30);
+    await expect(page.locator(`tr[data-sort-id="${firstPageSessionID}"]`)).toBeVisible();
+    await page.waitForFunction((expected) => {
+      const owner = document.getElementById('dashboard-main');
+      return owner ? Math.abs(owner.scrollTop - expected) <= 4 : false;
+    }, before.dashboardTop);
+    const after = await readDashboardScroll(page);
+    expect(Math.abs(after.dashboardTop - before.dashboardTop)).toBeLessThanOrEqual(4);
+    expect(after.windowY).toBe(0);
+    expect(after.mainContentTop).toBe(0);
+
+    const nextResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('offset') === '30';
+    });
+    await page.locator('.json-page-btn', { hasText: 'Next' }).click();
+    await nextResponse;
+    await waitForCompletedRows(page, 1);
+    await expect(page.locator(`tr[data-sort-id="${TEST_SESSION_ID}"]`)).toBeVisible();
+    await page.locator(`tr[data-sort-id="${TEST_SESSION_ID}"] .session-row-open`).click();
+    await expect(page.locator('#session-inspector')).toBeVisible();
+    await page.locator('#inspector-full-link').click();
+    await expect(page).toHaveURL(new RegExp(`/sessions/${TEST_SESSION_ID}$`));
+    await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', /range=7d/);
+    await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', /offset=30/);
+
+    await page.locator('.transcript-back-link').click();
+    await expect(page.getByRole('heading', { name: 'Beacon Realtime Dashboard' })).toBeVisible();
+    await waitForCompletedRows(page, 1);
+    await expect(page.locator(`tr[data-sort-id="${TEST_SESSION_ID}"]`)).toBeVisible();
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('offset') === '30');
+
+    await guards.expectClean();
+  });
+
+  test('restores search state and activity filters through transcript breadcrumbs', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+
+    await fillDashboardSearchAndWait(page, 'many');
+    await waitForDashboardSearchRows(page, 30);
+    const moreResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('limit') === '60');
+    await page.getByRole('button', { name: 'Show more' }).click();
+    await moreResponse;
+    await waitForDashboardSearchRows(page, 35);
+    await page.locator('#completed-sessions a[data-transcript-link]').first().click();
+    await expect(page).toHaveURL(/\/sessions\/session-search-/);
+    await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', /q=many/);
+    await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', /search_limit=60/);
+
+    await page.locator('.transcript-back-link').click();
+    await expect(page.getByRole('heading', { name: 'Beacon Realtime Dashboard' })).toBeVisible();
+    await expect(page.locator('#dashboard-session-search')).toHaveValue('many');
+    await waitForDashboardSearchRows(page, 35);
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('search_limit') === '60');
+
+    await page.locator('#dashboard-search-reset').click();
+    await waitForCompletedRows(page, 30);
+    const rangeResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/activity' && url.searchParams.get('range') === '7d';
+    });
+    await page.locator('#dashboard-range-control').getByRole('button', { name: '7d' }).click();
+    await rangeResponse;
+    await page.locator('#timeline-sidebar').getByRole('button', { name: 'Errors' }).click();
+    await expect(page.locator('#activity-feed a[data-type="error"], #activity-feed a[data-type="tool_error"]')).toHaveCount(2);
+    await page.locator('#activity-feed a[data-transcript-link]').first().click();
+    await expect(page).toHaveURL(/\/sessions\/session-completed-/);
+    await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', /range=7d/);
+    await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', /activity=error/);
+
+    await page.locator('.transcript-back-link').click();
+    await expect(page.getByRole('heading', { name: 'Beacon Realtime Dashboard' })).toBeVisible();
+    await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 7 days');
+    await expect(page.locator('#timeline-sidebar').getByRole('button', { name: 'Errors' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#activity-feed a[data-type="error"], #activity-feed a[data-type="tool_error"]')).toHaveCount(2);
+
+    await guards.expectClean();
+  });
+
+  test('initializes dashboard from URL state and rejects unsafe return state', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+
+    const completedResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() &&
+        url.pathname === '/api/dashboard/sessions' &&
+        url.searchParams.get('range') === '7d' &&
+        url.searchParams.get('offset') === '30' &&
+        url.searchParams.get('sort') === 'tokens' &&
+        url.searchParams.get('direction') === 'asc';
+    });
+    await page.goto('/?range=7d&offset=30&sort=tokens&dir=asc', { waitUntil: 'domcontentloaded' });
+    await completedResponse;
+    await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 7 days');
+    await expect(page.locator('#completed-table th[data-sort-key="tokens"]')).toHaveAttribute('aria-sort', 'ascending');
+    await waitForCompletedRows(page, 1);
+
+    const searchResponse = waitForDashboardSearchResponse(page, (url) =>
+      url.searchParams.get('q') === 'internal' &&
+      url.searchParams.get('event_kind') === 'tool_call' &&
+      url.searchParams.get('session_id') === SEARCH_SESSION_ID &&
+      url.searchParams.get('sort') === 'oldest' &&
+      url.searchParams.get('limit') === '60'
+    );
+    await page.goto(`/?range=7d&q=internal&event_kind=tool_call&session_id=${SEARCH_SESSION_ID}&search_sort=oldest&search_limit=60&activity=error`, { waitUntil: 'domcontentloaded' });
+    await searchResponse;
+    await expect(page.locator('#dashboard-session-search')).toHaveValue('internal');
+    await expect(page.locator('[data-search-event-kind="tool_call"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-search-session')).toHaveValue(SEARCH_SESSION_ID);
+    await expect(page.locator('#dashboard-search-sort')).toHaveValue('oldest');
+    await waitForDashboardSearchRows(page, 1);
+    await expect(page.locator('#timeline-sidebar').getByRole('button', { name: 'Errors' })).toHaveAttribute('aria-pressed', 'true');
+
+    await page.goto('/?range=bogus&search_limit=999&offset=-1&sort=%3Cscript%3E&dir=sideways&activity=bogus', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 24 hours');
+    await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
+    await waitForCompletedRows(page, 30);
+
+    await page.evaluate(() => {
+      sessionStorage.setItem('beacon-dashboard-return-state-v1', JSON.stringify({
+        url: 'https://evil.example/?range=7d',
+        transcriptPath: '/sessions/session-older-001',
+        savedAt: Date.now(),
+      }));
+    });
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', '/');
 
     await guards.expectClean();
   });

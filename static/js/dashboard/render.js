@@ -610,6 +610,7 @@ async function loadActiveSessions() {
 
 async function loadDashboardSearch() {
 	currentCompletedOffset = 0;
+	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 	renderDashboardSearchLoading();
 	var result = await fetchDashboardJSON('completed', requestURL('/api/dashboard/search', {
 		q: currentSearchQuery,
@@ -640,6 +641,7 @@ async function loadCompletedSessions(offset) {
 		return loadDashboardSearch();
 	}
 	currentCompletedOffset = Math.max(0, offset || 0);
+	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 	var status = document.getElementById('completed-session-status');
 	if (status) status.textContent = currentSearchQuery ? 'Searching sessions...' : 'Loading sessions...';
 	var result = await fetchDashboardJSON('completed', requestURL('/api/dashboard/sessions', {

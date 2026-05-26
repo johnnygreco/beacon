@@ -6,6 +6,39 @@
 
   var currentTranscriptView = 'chat';
   var detailOpenState = null;
+  var dashboardReturnStateKey = 'beacon-dashboard-return-state-v1';
+
+  function storageGet(key) {
+    try { return window.sessionStorage.getItem(key); } catch (err) { return null; }
+  }
+
+  function dashboardReturnHref() {
+    var raw = storageGet(dashboardReturnStateKey);
+    if (!raw) return '';
+    try {
+      var state = JSON.parse(raw);
+      var age = Date.now() - Number(state.savedAt || 0);
+      if (age < 0 || age > 24 * 60 * 60 * 1000) return '';
+      var dashboardURL = new URL(String(state.url || '/'), window.location.origin);
+      if (dashboardURL.origin !== window.location.origin || dashboardURL.pathname !== '/') return '';
+      var transcriptPath = String(state.transcriptPath || '');
+      if (transcriptPath) {
+        var transcriptURL = new URL(transcriptPath, window.location.origin);
+        if (transcriptURL.origin !== window.location.origin || transcriptURL.pathname !== window.location.pathname) return '';
+      }
+      return dashboardURL.pathname + dashboardURL.search;
+    } catch (err) {
+      return '';
+    }
+  }
+
+  function initDashboardReturnLinks() {
+    var href = dashboardReturnHref();
+    if (!href) return;
+    document.querySelectorAll('.transcript-back-link').forEach(function(link) {
+      link.setAttribute('href', href);
+    });
+  }
 
   // --- Truncation toggle (initial state set server-side via class) ---
   window.toggleTruncation = function(el) {
@@ -182,6 +215,7 @@
   });
 
   // --- Init highlighting ---
+  initDashboardReturnLinks();
   initConversationObserver();
   initHighlighting();
 
