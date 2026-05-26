@@ -86,6 +86,44 @@ func TestDashboardGoToSessionUsesParsedPathname(t *testing.T) {
 	}
 }
 
+func TestDashboardDefaultNameUsesGenericTitleAndHeader(t *testing.T) {
+	var buf bytes.Buffer
+	if err := Dashboard(views.DashboardData{}).Render(context.Background(), &buf); err != nil {
+		t.Fatalf("render dashboard: %v", err)
+	}
+	html := buf.String()
+	for _, expected := range []string{
+		"<title>Dashboard | Beacon</title>",
+		`data-dashboard-default-name=""`,
+		">Beacon Realtime Dashboard</h1>",
+	} {
+		if !strings.Contains(html, expected) {
+			t.Fatalf("dashboard default naming missing %q", expected)
+		}
+	}
+}
+
+func TestDashboardConfiguredNameRendersSafely(t *testing.T) {
+	var buf bytes.Buffer
+	name := `Workstation <script>alert("x")</script>`
+	if err := Dashboard(views.DashboardData{DashboardName: name}).Render(context.Background(), &buf); err != nil {
+		t.Fatalf("render dashboard: %v", err)
+	}
+	html := buf.String()
+	for _, expected := range []string{
+		"<title>Workstation &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt; | Beacon</title>",
+		`data-dashboard-default-name="Workstation &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;"`,
+		">Workstation &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;</h1>",
+	} {
+		if !strings.Contains(html, expected) {
+			t.Fatalf("dashboard configured naming missing %q in:\n%s", expected, html)
+		}
+	}
+	if strings.Contains(html, name+"</h1>") || strings.Contains(html, "<script>alert") {
+		t.Fatal("dashboard configured name was rendered without escaping")
+	}
+}
+
 func TestDashboardLiveAnalyticsChartsUseSharedRange(t *testing.T) {
 	var buf bytes.Buffer
 	if err := Dashboard(views.DashboardData{}).Render(context.Background(), &buf); err != nil {
@@ -125,6 +163,7 @@ func dashboardClientScript(t *testing.T) string {
 		"../../../static/js/dashboard/inspector.js",
 		"../../../static/js/dashboard/timeline.js",
 		"../../../static/js/dashboard/state.js",
+		"../../../static/js/dashboard/name.js",
 		"../../../static/js/dashboard/table.js",
 		"../../../static/js/dashboard/render.js",
 		"../../../static/js/dashboard/controls.js",

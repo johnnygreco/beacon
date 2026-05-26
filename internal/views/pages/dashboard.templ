@@ -6,7 +6,7 @@ import (
 )
 
 templ Dashboard(data views.DashboardData) {
-	@views.Layout("Dashboard") {
+	@views.Layout(data.PageTitle()) {
 		<script>
 		document.body.setAttribute('data-page', 'dashboard');
 		(function() {
@@ -23,8 +23,27 @@ templ Dashboard(data views.DashboardData) {
 				<div class="space-y-6">
 					<section class="space-y-4">
 						<div class="flex flex-wrap items-center justify-between gap-3">
-							<div>
-								<h1 class="text-xl font-semibold text-gray-100">Beacon Realtime Dashboard</h1>
+							<div class="min-w-0">
+								<div
+									class="dashboard-name-control"
+									data-dashboard-name-control
+									data-dashboard-default-name={ data.DashboardName }
+									data-dashboard-fallback-heading={ data.HeaderTitle() }
+								>
+									<h1 id="dashboard-title" data-dashboard-title class="dashboard-title text-xl font-semibold text-gray-100">{ data.HeaderTitle() }</h1>
+									<button type="button" id="dashboard-name-edit" class="dashboard-name-btn" aria-label="Edit dashboard name" aria-controls="dashboard-name-input" title="Edit dashboard name">
+										<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16.9 4.6a2.1 2.1 0 013 3L8.7 18.8l-4 .8.8-4L16.9 4.6z"></path>
+										</svg>
+									</button>
+									<label for="dashboard-name-input" class="sr-only">Dashboard name</label>
+									<input id="dashboard-name-input" data-dashboard-name-input type="text" autocomplete="off" maxlength="80" value={ data.DashboardName } placeholder={ data.HeaderTitle() } class="dashboard-name-input hidden"/>
+									<button type="button" id="dashboard-name-clear" class="dashboard-name-btn hidden" aria-label="Clear custom dashboard name" title="Clear custom dashboard name">
+										<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 6l12 12M18 6 6 18"></path>
+										</svg>
+									</button>
+								</div>
 								<p class="text-xs text-gray-500 mt-0.5">
 									<span id="dashboard-range-caption">Last 24 hours</span>
 									<span class="mx-1 text-gray-700" aria-hidden="true">/</span>
@@ -328,6 +347,7 @@ templ Dashboard(data views.DashboardData) {
 		<script src="/static/js/dashboard/inspector.js"></script>
 		<script src="/static/js/dashboard/timeline.js"></script>
 		<script src="/static/js/dashboard/state.js"></script>
+		<script src="/static/js/dashboard/name.js"></script>
 		<script src="/static/js/dashboard/table.js"></script>
 		<script src="/static/js/dashboard/render.js"></script>
 		<script src="/static/js/dashboard/controls.js"></script>

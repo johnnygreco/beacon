@@ -9,7 +9,7 @@ import (
 )
 
 func TestSearchRedirectsToDashboardSearch(t *testing.T) {
-	h := NewHandlers(nil, nil, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})))
+	h := NewHandlers(nil, nil, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})), "")
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/search", nil)
 

@@ -2311,6 +2311,75 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
   text-align: right;
 }
 
+.dashboard-name-control {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.dashboard-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-name-input {
+  height: 2rem;
+  min-width: min(100%, 12rem);
+  max-width: min(72vw, 28rem);
+  border: 1px solid var(--dash-border);
+  border-radius: 4px;
+  background: var(--dash-surface-soft);
+  color: var(--dash-text);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 0 0.55rem;
+  outline: none;
+}
+
+.dashboard-name-input::placeholder {
+  color: var(--dash-text-faint);
+}
+
+.dashboard-name-input:focus {
+  border-color: var(--dash-accent);
+  box-shadow: 0 0 0 2px var(--dash-accent-soft);
+}
+
+.dashboard-name-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: 1px solid var(--dash-border);
+  border-radius: 4px;
+  background: var(--dash-surface-soft);
+  color: var(--dash-text-muted);
+  flex: 0 0 auto;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.dashboard-name-btn svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.dashboard-name-btn:hover {
+  border-color: var(--dash-border-strong);
+  color: var(--dash-text);
+  background: var(--dash-hover);
+}
+
+.dashboard-name-btn:focus {
+  outline: none;
+  border-color: var(--dash-accent);
+  box-shadow: 0 0 0 2px var(--dash-accent-soft);
+}
+
 .dashboard-theme-control {
   display: inline-flex;
   align-items: center;

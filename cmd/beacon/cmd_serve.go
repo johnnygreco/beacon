@@ -111,7 +111,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	})
 
 	// Web server
-	handlers := web.NewHandlers(ch.DB, searcher, logger)
+	handlers := web.NewHandlers(ch.DB, searcher, logger, cfg.Dashboard.Name)
 	apiHandlers := web.NewAPIHandlers(ch.DB, searcher, logger)
 	staticFS, err := fs.Sub(beacon.StaticFS, "static")
 	if err != nil {
