@@ -129,8 +129,6 @@ document.addEventListener('click', function(evt) {
 	// Trusted server-rendered header reused when toggling back from search mode.
 	if (tableHead) sessionTableHeadHTML = tableHead.innerHTML;
 	var searchInput = document.getElementById('dashboard-session-search');
-	var searchClear = document.getElementById('dashboard-search-clear');
-	var searchFocus = document.getElementById('dashboard-search-focus');
 	var searchSession = document.getElementById('dashboard-search-session');
 	var searchSort = document.getElementById('dashboard-search-sort');
 	var searchReset = document.getElementById('dashboard-search-reset');
@@ -180,7 +178,6 @@ document.addEventListener('click', function(evt) {
 		});
 	}
 	function syncSearchControls() {
-		if (searchClear) searchClear.classList.toggle('hidden', currentSearchQuery === '');
 		if (searchInput && searchInput.value.trim() !== currentSearchQuery) searchInput.value = currentSearchQuery;
 		if (searchSession && searchSession.value.trim() !== currentSearchSessionID) searchSession.value = currentSearchSessionID;
 		if (searchSort) searchSort.value = currentSearchSort;
@@ -204,28 +201,13 @@ document.addEventListener('click', function(evt) {
 				loadCompletedSessions(0);
 			} else if (evt.key === 'Escape' && currentSearchQuery !== '') {
 				evt.preventDefault();
+				clearTimeout(dashboardSearchTimer);
 				currentSearchQuery = '';
 				currentSearchLimit = 30;
 				searchInput.value = '';
 				syncSearchControls();
 				loadCompletedSessions(0);
 			}
-		});
-	}
-	if (searchClear) {
-		searchClear.addEventListener('click', function() {
-			if (searchInput) searchInput.value = '';
-			currentSearchQuery = '';
-			currentCompletedOffset = 0;
-			currentSearchLimit = 30;
-			syncSearchControls();
-			loadCompletedSessions(0);
-			focusWithoutScroll(searchInput);
-		});
-	}
-	if (searchFocus) {
-		searchFocus.addEventListener('click', function() {
-			revealSearchAndFocus();
 		});
 	}
 	document.querySelectorAll('[data-search-range]').forEach(function(button) {
@@ -268,14 +250,20 @@ document.addEventListener('click', function(evt) {
 			currentSearchLimit = 30;
 			if (searchInput) searchInput.value = '';
 			if (searchSession) searchSession.value = '';
+			clearTimeout(dashboardSearchTimer);
 			syncSearchControls();
 			loadCompletedSessions(0);
 			focusWithoutScroll(searchInput);
 		});
 	}
 	document.addEventListener('keydown', function(evt) {
-		var tagName = document.activeElement ? document.activeElement.tagName : '';
-		if (evt.key === '/' && !evt.ctrlKey && !evt.metaKey && ['INPUT', 'TEXTAREA', 'SELECT'].indexOf(tagName) === -1) {
+		var active = document.activeElement;
+		var tagName = active ? active.tagName : '';
+		var isEditing = active && (
+			active.isContentEditable ||
+			(active.closest && active.closest('[contenteditable=""], [contenteditable="true"]'))
+		);
+		if (evt.key === '/' && !evt.ctrlKey && !evt.metaKey && !isEditing && ['INPUT', 'TEXTAREA', 'SELECT'].indexOf(tagName) === -1) {
 			evt.preventDefault();
 			revealSearchAndFocus();
 		}

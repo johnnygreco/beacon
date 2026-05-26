@@ -238,12 +238,8 @@ test.describe('dashboard battle-tested workflows', () => {
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoDashboard(page);
-    await page.locator('#dashboard-main').evaluate((main) => {
-      main.scrollTop = 0;
-    });
-    await page.locator('#dashboard-search-focus').click();
-    await expect(page.locator('#dashboard-session-search')).toBeFocused();
-    await expectDashboardSearchInputInView(page);
+    await expect(page.locator('#dashboard-search-focus')).toHaveCount(0);
+    await expect(page.locator('#dashboard-search-clear')).toHaveCount(0);
     await page.locator('#dashboard-main').evaluate((main) => {
       main.scrollTop = 0;
     });
@@ -253,6 +249,18 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.keyboard.press('/');
     await expect(page.locator('#dashboard-session-search')).toBeFocused();
     await expectDashboardSearchInputInView(page);
+    await page.evaluate(() => {
+      const editable = document.createElement('div');
+      editable.id = 'dashboard-contenteditable-probe';
+      editable.setAttribute('contenteditable', 'true');
+      editable.textContent = 'probe';
+      document.body.appendChild(editable);
+      editable.focus();
+    });
+    await expect(page.locator('#dashboard-contenteditable-probe')).toBeFocused();
+    await page.keyboard.press('/');
+    await expect(page.locator('#dashboard-contenteditable-probe')).toBeFocused();
+    await expect(page.locator('#dashboard-contenteditable-probe')).toContainText('/');
 
     for (const viewport of [
       { width: 390, height: 844 },
@@ -261,33 +269,26 @@ test.describe('dashboard battle-tested workflows', () => {
       await page.setViewportSize(viewport);
       await gotoDashboard(page);
 
-      const searchButton = page.locator('#dashboard-search-focus');
-      await expect(searchButton).toBeVisible();
-      await expect(searchButton).toHaveAttribute('aria-label', 'Focus search');
+      await expect(page.locator('#dashboard-search-focus')).toHaveCount(0);
+      await expect(page.locator('#dashboard-search-clear')).toHaveCount(0);
       await expectNoHorizontalOverflow(page);
 
-      const metrics = await searchButton.evaluate((el) => {
-        const rect = el.getBoundingClientRect();
+      const metrics = await page.locator('#dashboard-refresh-btn').evaluate((el) => {
+        const refreshRect = el.getBoundingClientRect();
+        const timelineRect = document.getElementById('timeline-toggle-btn')?.getBoundingClientRect();
         return {
-          left: Math.floor(rect.left),
-          right: Math.ceil(rect.right),
-          width: Math.round(rect.width),
+          refreshLeft: Math.floor(refreshRect.left),
+          refreshRight: Math.ceil(refreshRect.right),
+          timelineLeft: Math.floor(timelineRect?.left || 0),
+          timelineRight: Math.ceil(timelineRect?.right || 0),
           viewportWidth: window.innerWidth,
         };
       });
-      expect(metrics.left).toBeGreaterThanOrEqual(0);
-      expect(metrics.right).toBeLessThanOrEqual(metrics.viewportWidth);
-      expect(metrics.width).toBeGreaterThanOrEqual(32);
+      expect(metrics.refreshLeft).toBeGreaterThanOrEqual(0);
+      expect(metrics.refreshRight).toBeLessThanOrEqual(metrics.viewportWidth);
+      expect(metrics.timelineLeft).toBeGreaterThanOrEqual(0);
+      expect(metrics.timelineRight).toBeLessThanOrEqual(metrics.viewportWidth);
     }
-
-    await page.keyboard.press('Tab');
-    for (let i = 0; i < 20 && !(await page.locator('#dashboard-search-focus').evaluate((el) => el === document.activeElement)); i++) {
-      await page.keyboard.press('Tab');
-    }
-    await expect(page.locator('#dashboard-search-focus')).toBeFocused();
-    await page.keyboard.press('Enter');
-    await expect(page.locator('#dashboard-session-search')).toBeFocused();
-    await expect(page).toHaveURL(/\/$/);
 
     await guards.expectClean();
   });
@@ -480,15 +481,15 @@ test.describe('dashboard battle-tested workflows', () => {
     await fillDashboardSearchAndWait(page, 'migration');
     await expect(page.locator('#completed-session-status')).toHaveText(/2 search results/);
     await waitForDashboardSearchRows(page, 2);
-    await expect(page.locator('#dashboard-search-clear')).toBeVisible();
-    await page.locator('#dashboard-search-clear').click();
+    await expect(page.locator('#dashboard-search-clear')).toHaveCount(0);
+    await page.keyboard.press('Escape');
     await waitForCompletedRows(page, 30);
 
     await fillDashboardSearchAndWait(page, 'dashboard payload');
     await expect(page.locator('#completed-session-status')).toHaveText(/1 search result/);
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-session-id', SEARCH_SESSION_ID);
-    await page.locator('#dashboard-search-clear').click();
+    await page.keyboard.press('Escape');
     await waitForCompletedRows(page, 30);
 
     const tokensHeader = page.locator('#completed-table th[data-sort-key="tokens"]');
@@ -534,7 +535,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#dashboard-theme-control')).not.toContainText('Theme');
     await expect(page.locator('#dashboard-refresh-btn')).toHaveText('');
     await expect(page.locator('#timeline-toggle-btn')).toHaveText('');
-    await expect(page.locator('#dashboard-search-clear')).toHaveText('');
+    await expect(page.locator('#dashboard-search-reset')).toHaveText('');
     await expect(appearanceToggle).toHaveAttribute('role', 'switch');
     await expect(appearanceToggle).toHaveAttribute('aria-label', 'Dark mode');
     expect(await themeSelect.locator('option').count()).toBeGreaterThanOrEqual(28);

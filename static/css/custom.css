@@ -2416,7 +2416,6 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
 
 .dashboard-appearance-toggle,
 .dashboard-icon-btn,
-.dashboard-search-clear,
 .dashboard-search-reset {
   display: inline-flex;
   align-items: center;
@@ -2433,7 +2432,6 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
 
 .dashboard-appearance-toggle svg,
 .dashboard-icon-btn svg,
-.dashboard-search-clear svg,
 .dashboard-search-reset svg,
 .dashboard-search-icon svg {
   width: 1rem;
@@ -2442,7 +2440,6 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
 
 .dashboard-appearance-toggle:hover,
 .dashboard-icon-btn:hover,
-.dashboard-search-clear:hover,
 .dashboard-search-reset:hover {
   border-color: var(--dash-border-strong);
   color: var(--dash-text);
@@ -2451,7 +2448,6 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
 
 .dashboard-appearance-toggle:focus,
 .dashboard-icon-btn:focus,
-.dashboard-search-clear:focus,
 .dashboard-search-reset:focus {
   outline: none;
   border-color: var(--dash-accent);
