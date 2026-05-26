@@ -218,13 +218,13 @@ func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T)
 		t.Fatalf("dashboard chart default range = %q", charts.Range)
 	}
 	if len(charts.TokenCumulative.Datasets) == 0 {
-		t.Fatalf("dashboard cumulative token chart missing datasets: %#v", charts.TokenCumulative)
+		t.Fatalf("dashboard token chart missing datasets: %#v", charts.TokenCumulative)
 	}
 	if charts.TokenCumulative.Summary.TotalTokens != 51 {
-		t.Fatalf("dashboard cumulative token summary = %#v", charts.TokenCumulative.Summary)
+		t.Fatalf("dashboard token summary = %#v", charts.TokenCumulative.Summary)
 	}
-	if got := modelSeriesTotal(charts.TokenCumulative.Datasets, "gpt-4.1"); got != 51 {
-		t.Fatalf("gpt-4.1 cumulative total = %v in %#v", got, charts.TokenCumulative.Datasets)
+	if got := modelSeriesSum(charts.TokenCumulative.Datasets, "gpt-4.1"); got != 51 {
+		t.Fatalf("gpt-4.1 token volume = %v in %#v", got, charts.TokenCumulative.Datasets)
 	}
 	if got := metricSeriesTotal(charts.ModelActivity.Metrics["tool_calls"].Datasets); got != 1 {
 		t.Fatalf("dashboard tool call metric total = %v in %#v", got, charts.ModelActivity.Metrics["tool_calls"].Datasets)
@@ -341,20 +341,20 @@ func TestDashboardChartsAttributeBlankModelsFromSessionTimeline(t *testing.T) {
 	}
 
 	tokens, activity := QueryDashboardModelAnalytics(context.Background(), ch.DB, nil, "")
-	if got := modelSeriesTotal(tokens.Datasets, "gpt-5.5"); got != 17 {
-		t.Fatalf("gpt-5.5 cumulative total = %v in %#v", got, tokens.Datasets)
+	if got := modelSeriesSum(tokens.Datasets, "gpt-5.5"); got != 17 {
+		t.Fatalf("gpt-5.5 token volume = %v in %#v", got, tokens.Datasets)
 	}
-	if got := modelSeriesTotal(tokens.Datasets, "gpt-4.1"); got != 5 {
-		t.Fatalf("gpt-4.1 cumulative total = %v in %#v", got, tokens.Datasets)
+	if got := modelSeriesSum(tokens.Datasets, "gpt-4.1"); got != 5 {
+		t.Fatalf("gpt-4.1 token volume = %v in %#v", got, tokens.Datasets)
 	}
-	if got := modelSeriesTotal(tokens.Datasets, "gpt-5"); got != 17 {
-		t.Fatalf("gpt-5 cumulative total = %v in %#v", got, tokens.Datasets)
+	if got := modelSeriesSum(tokens.Datasets, "gpt-5"); got != 17 {
+		t.Fatalf("gpt-5 token volume = %v in %#v", got, tokens.Datasets)
 	}
-	if got := modelSeriesTotal(tokens.Datasets, "unknown"); got != 0 {
-		t.Fatalf("unknown cumulative total = %v in %#v", got, tokens.Datasets)
+	if got := modelSeriesSum(tokens.Datasets, "unknown"); got != 0 {
+		t.Fatalf("unknown token volume = %v in %#v", got, tokens.Datasets)
 	}
 	if hasModelSeries(tokens.Datasets, "unknown") {
-		t.Fatalf("dashboard cumulative chart contains unknown model from empty session: %#v", tokens.Datasets)
+		t.Fatalf("dashboard token chart contains unknown model from empty session: %#v", tokens.Datasets)
 	}
 	for metricName, metric := range activity.Metrics {
 		if hasModelSeries(metric.Datasets, "unknown") {
@@ -432,13 +432,10 @@ func sumFloat64(values []float64) float64 {
 	return total
 }
 
-func modelSeriesTotal(datasets []views.ModelSeriesDataset, model string) float64 {
+func modelSeriesSum(datasets []views.ModelSeriesDataset, model string) float64 {
 	for _, dataset := range datasets {
 		if dataset.Model == model {
-			if len(dataset.Values) == 0 {
-				return 0
-			}
-			return dataset.Values[len(dataset.Values)-1]
+			return sumFloat64(dataset.Values)
 		}
 	}
 	return 0

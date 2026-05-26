@@ -5,7 +5,7 @@ import {
   TEST_EVENT_ID,
   TEST_SESSION_ID,
   attachPageGuards,
-  expectEqualDashboardChartHeights,
+  expectDashboardTokenChartReady,
   expectLogAndModelControlsAligned,
   expectNoHorizontalOverflow,
   fillDashboardSearchAndWait,
@@ -223,7 +223,7 @@ test.describe('dashboard battle-tested workflows', () => {
       await page.setViewportSize(viewport);
       await gotoDashboard(page);
       await expectNoHorizontalOverflow(page);
-      await expectEqualDashboardChartHeights(page);
+      await expectDashboardTokenChartReady(page);
       await expect(page.locator('#sidebar')).toHaveCount(0);
       await expect(page.locator('nav a[href="/search"]')).toHaveCount(0);
       await expect(page.locator('#dashboard-session-search')).toBeVisible();
@@ -417,9 +417,6 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(modelDropdownPanel).toHaveClass(/hidden/);
     await expect(modelDropdownTrigger).toHaveAttribute('aria-expanded', 'false');
 
-    await page.locator('#dashboard-model-metric-control').getByRole('button', { name: 'Tools' }).click();
-    await expect(page.locator('#dashboard-model-metric-control').getByRole('button', { name: 'Tools' })).toHaveAttribute('aria-pressed', 'true');
-
     await page.locator('#dashboardTokenCumulativeChart-log-toggle').click();
     await expect(page.locator('#dashboardTokenCumulativeChart-log-toggle')).toHaveAttribute('aria-pressed', 'true');
     await expectLogAndModelControlsAligned(page);
@@ -430,7 +427,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#timeline-sidebar')).toHaveAttribute('inert', '');
     await expect(page.locator('#timeline-sidebar')).toHaveAttribute('aria-hidden', 'true');
     await expect(page.locator('html')).toHaveAttribute('data-beacon-timeline-collapsed', 'true');
-    await expectEqualDashboardChartHeights(page);
+    await expectDashboardTokenChartReady(page);
     expect(await page.evaluate(() => localStorage.getItem('beacon-timeline-width'))).toBe('0');
 
     await page.locator('#timeline-toggle-btn').click();
@@ -455,14 +452,14 @@ test.describe('dashboard battle-tested workflows', () => {
       await page.mouse.up();
     }
     await page.waitForFunction(() => Number(localStorage.getItem('beacon-timeline-width') || 0) > 390);
-    await expectEqualDashboardChartHeights(page);
+    await expectDashboardTokenChartReady(page);
     const savedWidth = await page.evaluate(() => Number(localStorage.getItem('beacon-timeline-width') || 0));
     expect(savedWidth).toBeGreaterThan(390);
     expect(savedWidth).toBeLessThanOrEqual(700);
 
     await divider.dblclick();
     expect(await page.evaluate(() => localStorage.getItem('beacon-timeline-width'))).toBe('380');
-    await expectEqualDashboardChartHeights(page);
+    await expectDashboardTokenChartReady(page);
 
     await divider.focus();
     await expect(divider).toBeFocused();
@@ -476,7 +473,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.keyboard.press('End');
     await expect(page.locator('#timeline-sidebar')).not.toHaveClass(/collapsed/);
     await expect(divider).toHaveAttribute('aria-valuenow', '380');
-    await expectEqualDashboardChartHeights(page);
+    await expectDashboardTokenChartReady(page);
 
     await fillDashboardSearchAndWait(page, 'migration');
     await expect(page.locator('#completed-session-status')).toHaveText(/2 search results/);
@@ -789,7 +786,7 @@ test.describe('dashboard battle-tested workflows', () => {
 
     const resizeStart = Date.now();
     await page.locator('#timeline-toggle-btn').click();
-    await expectEqualDashboardChartHeights(page);
+    await expectDashboardTokenChartReady(page);
     expect(Date.now() - resizeStart).toBeLessThan(800);
   });
 });

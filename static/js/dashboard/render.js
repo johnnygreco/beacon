@@ -477,7 +477,7 @@ function renderAnalyticsSummary(summary) {
 		if (!wrap) return;
 		summary = summary || {};
 		setHTMLIfChanged(wrap, [
-			summaryTile('Tokens', formatTokens(summary.total_tokens), 'Cumulative across shown models'),
+			summaryTile('Tokens', formatTokens(summary.total_tokens), 'Across shown models'),
 			summaryTile('Models', nonNegativeInt(summary.model_count), 'Selectable series'),
 			summaryTile('Tool Calls', formatTokens(summary.tool_call_count), rangeLabel(currentRange)),
 			summaryTile('Error Rate', formatPercent(summary.error_rate), nonNegativeInt(summary.error_count) + ' errors')
@@ -488,19 +488,12 @@ function renderAnalyticsSummary(summary) {
 function updateDashboardCharts(payload) {
 	if (!payload) return;
 	payload.token_cumulative = payload.token_cumulative || {labels: [], datasets: [], summary: {}};
-	payload.model_activity = payload.model_activity || {labels: [], summary: {}, metrics: {}};
 	var tokenDataEl = document.getElementById('dashboard-token-cumulative-data');
-	var activityDataEl = document.getElementById('dashboard-model-activity-data');
 	if (tokenDataEl && payload.token_cumulative) tokenDataEl.textContent = JSON.stringify(payload.token_cumulative);
-	if (activityDataEl && payload.model_activity) activityDataEl.textContent = JSON.stringify(payload.model_activity);
 	if (typeof updateDashboardModelChart === 'function') {
 		updateDashboardModelChart('dashboardTokenCumulativeChart', payload.token_cumulative, 'tokens');
 	}
-	if (typeof updateDashboardModelActivityChart === 'function') {
-		updateDashboardModelActivityChart(payload.model_activity, currentDashboardMetric);
-	}
 	var summary = payload.token_cumulative && payload.token_cumulative.summary ? payload.token_cumulative.summary : null;
-	if (!summary && payload.model_activity) summary = payload.model_activity.summary;
 	renderAnalyticsSummary(summary);
 }
 
@@ -508,7 +501,7 @@ async function loadDashboardCharts() {
 	var result = await fetchDashboardJSON('charts', requestURL('/api/dashboard/charts', {range: currentRange}));
 	if (!result || result.stale) return;
 	if (result.error) {
-		updateDashboardCharts({token_cumulative: {labels: [], datasets: [], summary: {}}, model_activity: {labels: [], summary: {}, metrics: {}}});
+		updateDashboardCharts({token_cumulative: {labels: [], datasets: [], summary: {}}});
 		return;
 	}
 	updateDashboardCharts(result.data);

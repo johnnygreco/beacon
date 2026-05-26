@@ -6,10 +6,10 @@ Beacon is a local dashboard for long-running AI coding agents. It watches the se
 
 ## What It Looks Like
 
-**Dashboard overview.** Token volume, model health, active sessions, completed runs, integrated search, and a live activity timeline in one view.
+**Dashboard overview.** Token volume by model, active sessions, completed runs, integrated search, and a live activity timeline in one view.
 
 <p>
-  <img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing token charts, model health, activity timeline, and completed sessions" />
+  <img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing token volume by model, active sessions, activity timeline, and completed sessions" />
 </p>
 
 **Session transcript.** A single run with session metrics, token charts, tool usage, and the replayable conversation below.
@@ -21,7 +21,7 @@ Beacon is a local dashboard for long-running AI coding agents. It watches the se
 ## Why Use Beacon
 
 - See active and completed agent runs in one place, including project paths, models, duration, turns, tool calls, and subagents.
-- Catch expensive or noisy work quickly with token charts, cache-token counts, model health, and error activity.
+- Catch expensive or noisy work quickly with token charts, cache-token counts, active-session status, and error activity.
 - Search prompts, responses, tool calls, paths, and errors across captured sessions without rebuilding an external search service.
 - Replay a session as a readable transcript with expandable tool payloads and timeline context.
 - Let agents query prior work through MCP tools instead of asking you to remember which session contained the answer.

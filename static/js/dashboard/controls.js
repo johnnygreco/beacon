@@ -35,27 +35,6 @@ function refreshDashboard() {
 	loadActivity();
 }
 
-function setDashboardMetric(btn, metric) {
-	currentDashboardMetric = metric || 'error_rate';
-	document.querySelectorAll('.dashboard-metric-btn').forEach(function(b) {
-		b.className = 'dashboard-metric-btn px-2 py-1 text-xs text-gray-400 hover:text-gray-200';
-		if (b.nextElementSibling) b.classList.add('border-r', 'border-gray-700');
-		b.setAttribute('aria-pressed', 'false');
-	});
-	btn.className = 'dashboard-metric-btn px-2 py-1 text-xs bg-blue-500/20 text-blue-400';
-	if (btn.nextElementSibling) btn.classList.add('border-r', 'border-gray-700');
-	btn.setAttribute('aria-pressed', 'true');
-	if (typeof updateDashboardModelActivityChart === 'function') {
-		var dataEl = document.getElementById('dashboard-model-activity-data');
-		if (dataEl) {
-			try {
-				updateDashboardModelActivityChart(JSON.parse(dataEl.textContent), currentDashboardMetric);
-			} catch (err) {
-			}
-		}
-	}
-}
-
 async function toggleJSONSubagents(button) {
 	var sessionID = button.getAttribute('data-session-id');
 	var parentRow = document.getElementById('session-row-' + sessionID);

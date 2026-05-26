@@ -1,7 +1,6 @@
 // --- JSON dashboard stores ---
 var currentActivityFilter = 'all';
 var currentRange = '24h';
-var currentDashboardMetric = 'error_rate';
 var currentCompletedOffset = 0;
 var currentSearchQuery = '';
 var currentSearchRange = '';

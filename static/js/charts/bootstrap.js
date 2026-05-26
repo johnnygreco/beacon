@@ -7,13 +7,6 @@ if (dashboardCumulativeEl) {
   setupSeriesModelFilters('dashboardTokenCumulativeChart', cumulativePayload);
 }
 
-// Dashboard: selectable model activity/health metric.
-var dashboardActivityEl = document.getElementById('dashboardModelActivityChart');
-if (dashboardActivityEl) {
-  var activityPayload = readJSONScript('dashboard-model-activity-data') || {};
-  updateDashboardModelActivityChart(activityPayload, 'error_rate');
-}
-
 // Session detail: Total Tokens Over Time (single-curve, matching dashboard)
 var sessionTokensEl = document.getElementById('sessionTokensChart');
 if (sessionTokensEl) {

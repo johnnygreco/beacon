@@ -207,7 +207,7 @@ function chartPayload(scenario: Scenario) {
       provider: 'anthropic',
       provider_label: 'Claude Code',
       model: 'claude-sonnet-4',
-      values: [1000, 4800, 12000, 26000, 56000, 92000, 124000],
+      values: [1000, 3800, 7200, 14000, 30000, 36000, 32000],
       total_tokens: 124000,
       tool_call_count: 24,
       error_count: errorHeavy ? 9 : 1,
@@ -218,7 +218,7 @@ function chartPayload(scenario: Scenario) {
       provider: 'openai',
       provider_label: 'Codex',
       model: 'gpt-5.4-codex',
-      values: [800, 3200, 9000, 18000, 30000, 43000, 61000],
+      values: [800, 2400, 5800, 9000, 12000, 13000, 18000],
       total_tokens: 61000,
       tool_call_count: 13,
       error_count: errorHeavy ? 5 : 0,
@@ -229,7 +229,7 @@ function chartPayload(scenario: Scenario) {
       provider: 'anthropic',
       provider_label: 'Claude Code',
       model: 'claude-haiku-4',
-      values: [400, 1100, 2300, 5100, 9000, 13000, 16500],
+      values: [400, 700, 1200, 2800, 3900, 4000, 3500],
       total_tokens: 16500,
       tool_call_count: 8,
       error_count: errorHeavy ? 4 : 0,
@@ -1068,19 +1068,28 @@ export async function expectNoHorizontalOverflow(page: Page) {
   expect(overflow).toBe(false);
 }
 
-export async function expectEqualDashboardChartHeights(page: Page) {
-  const heights = await page.evaluate(() => {
-    const cardFor = (id: string) => {
-      const canvas = document.getElementById(id);
-      const card = canvas?.closest('.bg-gray-800');
-      return card ? Math.round(card.getBoundingClientRect().height) : 0;
-    };
+export async function expectDashboardTokenChartReady(page: Page) {
+  const metrics = await page.locator('#dashboardTokenCumulativeChart').evaluate((canvas) => {
+    const card = canvas.closest('.bg-gray-800');
+    const grid = canvas.closest('.dashboard-analytics-grid');
+    const canvasRect = canvas.getBoundingClientRect();
+    const cardRect = card?.getBoundingClientRect();
+    const gridRect = grid?.getBoundingClientRect();
     return {
-      token: cardFor('dashboardTokenCumulativeChart'),
-      health: cardFor('dashboardModelActivityChart'),
+      canvasHeight: Math.round(canvasRect.height),
+      canvasWidth: Math.round(canvasRect.width),
+      cardHeight: Math.round(cardRect?.height || 0),
+      cardWidth: Math.round(cardRect?.width || 0),
+      gridWidth: Math.round(gridRect?.width || 0),
     };
   });
-  expect(Math.abs(heights.token - heights.health)).toBeLessThanOrEqual(6);
+  expect(metrics.canvasHeight).toBeGreaterThan(280);
+  expect(metrics.canvasWidth).toBeGreaterThan(0);
+  expect(metrics.cardHeight).toBeGreaterThan(metrics.canvasHeight);
+  expect(metrics.cardWidth).toBeGreaterThanOrEqual(metrics.gridWidth - 2);
+  await expect(page.locator('#dashboardModelActivityChart')).toHaveCount(0);
+  await expect(page.locator('#dashboard-model-metric-control')).toHaveCount(0);
+  await expect(page.locator('#dashboard-model-activity-data')).toHaveCount(0);
 }
 
 export async function expectLogAndModelControlsAligned(page: Page) {

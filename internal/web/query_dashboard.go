@@ -91,8 +91,8 @@ type dashboardModelKey struct {
 }
 
 // QueryDashboardModelAnalytics returns range-aware model series used by the live
-// dashboard charts. Tokens are cumulative within the selected range; activity
-// metrics remain per bucket so rates and spikes stay visible.
+// dashboard charts. Tokens and activity metrics remain per bucket so volume,
+// rates, and spikes stay visible inside the selected range.
 func QueryDashboardModelAnalytics(ctx context.Context, db *sql.DB, since *time.Time, rangeVal string) (views.ModelSeriesChart, views.ModelMetricChart) {
 	bucketMinutes := dashboardBucketMinutes(rangeVal)
 	timeUnit := dashboardTimeUnit(bucketMinutes)
@@ -376,11 +376,9 @@ func buildDashboardModelCharts(points []dashboardModelPoint, bucketMinutes int, 
 		errorDataset := base
 		toolDataset := base
 
-		var cumulative int64
 		for _, bucket := range buckets {
 			point := valuesByBucket[bucket][key]
-			cumulative += point.Tokens
-			tokenDataset.Values = append(tokenDataset.Values, float64(cumulative))
+			tokenDataset.Values = append(tokenDataset.Values, float64(point.Tokens))
 			errorDataset.Values = append(errorDataset.Values, float64(point.Errors))
 			toolDataset.Values = append(toolDataset.Values, float64(point.ToolCalls))
 			attempts := point.Calls + point.Errors
