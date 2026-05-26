@@ -201,6 +201,7 @@ document.addEventListener('click', function(evt) {
 				loadCompletedSessions(0);
 			} else if (evt.key === 'Escape' && currentSearchQuery !== '') {
 				evt.preventDefault();
+				clearTimeout(dashboardSearchTimer);
 				currentSearchQuery = '';
 				currentSearchLimit = 30;
 				searchInput.value = '';
@@ -249,14 +250,20 @@ document.addEventListener('click', function(evt) {
 			currentSearchLimit = 30;
 			if (searchInput) searchInput.value = '';
 			if (searchSession) searchSession.value = '';
+			clearTimeout(dashboardSearchTimer);
 			syncSearchControls();
 			loadCompletedSessions(0);
 			focusWithoutScroll(searchInput);
 		});
 	}
 	document.addEventListener('keydown', function(evt) {
-		var tagName = document.activeElement ? document.activeElement.tagName : '';
-		if (evt.key === '/' && !evt.ctrlKey && !evt.metaKey && ['INPUT', 'TEXTAREA', 'SELECT'].indexOf(tagName) === -1) {
+		var active = document.activeElement;
+		var tagName = active ? active.tagName : '';
+		var isEditing = active && (
+			active.isContentEditable ||
+			(active.closest && active.closest('[contenteditable=""], [contenteditable="true"]'))
+		);
+		if (evt.key === '/' && !evt.ctrlKey && !evt.metaKey && !isEditing && ['INPUT', 'TEXTAREA', 'SELECT'].indexOf(tagName) === -1) {
 			evt.preventDefault();
 			revealSearchAndFocus();
 		}

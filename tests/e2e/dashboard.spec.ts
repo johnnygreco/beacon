@@ -249,6 +249,18 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.keyboard.press('/');
     await expect(page.locator('#dashboard-session-search')).toBeFocused();
     await expectDashboardSearchInputInView(page);
+    await page.evaluate(() => {
+      const editable = document.createElement('div');
+      editable.id = 'dashboard-contenteditable-probe';
+      editable.setAttribute('contenteditable', 'true');
+      editable.textContent = 'probe';
+      document.body.appendChild(editable);
+      editable.focus();
+    });
+    await expect(page.locator('#dashboard-contenteditable-probe')).toBeFocused();
+    await page.keyboard.press('/');
+    await expect(page.locator('#dashboard-contenteditable-probe')).toBeFocused();
+    await expect(page.locator('#dashboard-contenteditable-probe')).toContainText('/');
 
     for (const viewport of [
       { width: 390, height: 844 },
