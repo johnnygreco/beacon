@@ -59,6 +59,8 @@ test("completed session rows escape malicious payload fields", () => {
     provider: payload,
     last_model: payload,
     total_tokens: payload,
+    context_tokens: payload,
+    context_window_tokens: payload,
     turn_count: payload,
     tool_call_count: payload,
     duration: payload,
@@ -115,10 +117,14 @@ test("active cards and activity feed escape JSON-rendered payloads", () => {
       last_model: payload,
       duration: payload,
       total_tokens: payload,
+      context_tokens: payload,
+      context_window_tokens: payload,
       tool_call_count: payload,
     }],
   });
   assertNoRawPayloadHTML(card);
+  assert.match(card, /data-context-state="unknown"/);
+  assert.equal(card.includes('role="progressbar"'), false);
 
   const feed = {};
   sandbox.document.getElementById = (id) => (id === "activity-feed" ? feed : null);
@@ -133,4 +139,31 @@ test("active cards and activity feed escape JSON-rendered payloads", () => {
 
   assertNoRawPayloadHTML(feed.innerHTML);
   assert.match(feed.innerHTML, /activity &quot;&gt;&lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
+});
+
+test("active cards render bounded accessible context progress", () => {
+  const sandbox = loadRenderSandbox();
+  const html = sandbox.activeCard({
+    id: "active-context",
+    title: "Context run",
+    status: "active",
+    provider: "openai",
+    last_model: "gpt-5.4-codex",
+    total_tokens: 1200000,
+    context_tokens: 1200000,
+    context_window_tokens: 1050000,
+    context_estimate: true,
+    turn_count: 9,
+    tool_call_count: 3,
+    duration: "12m",
+    working_dir: "/tmp/beacon",
+  });
+
+  assertNoRawPayloadHTML(html);
+  assert.match(html, /data-context-state="over"/);
+  assert.match(html, /role="progressbar"/);
+  assert.match(html, /aria-valuemax="1050000"/);
+  assert.match(html, /aria-valuenow="1050000"/);
+  assert.match(html, /Over window/);
+  assert.match(html, /over context window/);
 });

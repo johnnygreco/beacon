@@ -10,6 +10,7 @@ type Scenario = 'default' | 'empty' | 'error-heavy' | 'many-active';
 
 type DashboardFixtureOptions = {
   scenario?: Scenario;
+  activeScenarioSequence?: Array<Scenario | 'error'>;
   failOnce?: Array<'active' | 'completed' | 'activity' | 'charts' | 'search'>;
   searchUnavailable?: boolean;
   searchDelayMs?: number;
@@ -127,6 +128,9 @@ const activeSessions = [
     duration: '4m 22s',
     turn_count: 7,
     total_tokens: 42000,
+    context_tokens: 42000,
+    context_window_tokens: 200000,
+    context_estimate: true,
     input_tokens: 21000,
     output_tokens: 16000,
     cache_read_tokens: 5000,
@@ -150,6 +154,9 @@ const activeSessions = [
         duration: '2m',
         turn_count: 2,
         total_tokens: 7400,
+        context_tokens: 7400,
+        context_window_tokens: 200000,
+        context_estimate: true,
         input_tokens: 3600,
         output_tokens: 2600,
         cache_read_tokens: 1200,
@@ -176,16 +183,30 @@ function durationToSeconds(duration: string) {
 }
 
 function manyActiveSessions() {
-  return Array.from({ length: 8 }, (_, i) => ({
-    ...activeSessions[0],
-    id: `active-parent-${String(i + 1).padStart(3, '0')}`,
-    title: `Live queue item ${i + 1}`,
-    provider: i % 2 === 0 ? 'anthropic' : 'openai',
-    last_model: i % 2 === 0 ? 'claude-sonnet-4' : 'gpt-5.4-codex',
-    total_tokens: 15000 + i * 4300,
-    tool_call_count: 3 + i,
-    child_sessions: [],
-  }));
+  const contextCases = [
+    { context_tokens: 42_000, context_window_tokens: 200_000, context_estimate: true, last_model: 'claude-sonnet-4', provider: 'anthropic' },
+    { context_tokens: 165_000, context_window_tokens: 200_000, context_estimate: true, last_model: 'claude-sonnet-4', provider: 'anthropic' },
+    { context_tokens: 221_000, context_window_tokens: 200_000, context_estimate: true, last_model: 'claude-sonnet-4', provider: 'anthropic' },
+    { context_tokens: 58_000, context_window_tokens: 0, context_estimate: true, last_model: 'local-experimental-32k', provider: 'openai' },
+  ];
+  return Array.from({ length: 8 }, (_, i) => {
+    const contextCase = contextCases[i] || {
+      context_tokens: 95_000 + i * 11_000,
+      context_window_tokens: i % 2 === 0 ? 200_000 : 1_050_000,
+      context_estimate: true,
+      last_model: i % 2 === 0 ? 'claude-sonnet-4' : 'gpt-5.4-codex',
+      provider: i % 2 === 0 ? 'anthropic' : 'openai',
+    };
+    return {
+      ...activeSessions[0],
+      ...contextCase,
+      id: `active-parent-${String(i + 1).padStart(3, '0')}`,
+      title: `Live queue item ${i + 1}`,
+      total_tokens: 15000 + i * 4300,
+      tool_call_count: 3 + i,
+      child_sessions: [],
+    };
+  });
 }
 
 const labels = [
@@ -672,6 +693,7 @@ function transcriptFixtureHTML() {
 export async function installDashboardFixtures(page: Page, options: DashboardFixtureOptions = {}) {
   const scenario = options.scenario || 'default';
   const failures = new Set(options.failOnce || []);
+  let activeRequestCount = 0;
 
   if (options.mockEventSource) {
     await page.addInitScript(() => {
@@ -719,7 +741,11 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
     const failureKey = state === 'active' ? 'active' : 'completed';
     if (failures.delete(failureKey)) return fulfillJSON(route, { error: 'fixture failure' }, 500);
     if (state === 'active') {
-      return fulfillJSON(route, { state: 'active', range: '', offset: 0, limit: 30, has_more: false, items: activeForScenario(scenario) }, 200, 'APIDashboardSessionsResponse');
+      const activeSequence = options.activeScenarioSequence || [scenario];
+      const activeScenario = activeSequence[Math.min(activeRequestCount, activeSequence.length - 1)];
+      activeRequestCount += 1;
+      if (activeScenario === 'error') return fulfillJSON(route, { error: 'fixture failure' }, 500);
+      return fulfillJSON(route, { state: 'active', range: '', offset: 0, limit: 30, has_more: false, items: activeForScenario(activeScenario) }, 200, 'APIDashboardSessionsResponse');
     }
     const completed = completedForRequest(url, scenario);
     return fulfillJSON(route, {
@@ -771,7 +797,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
   });
 
   await page.route('**/api/sessions?**', async (route) => {
-    return fulfillJSON(route, [...baseCompletedSessions, ...activeSessions], 200, 'APISessionSummary[]');
+    return fulfillJSON(route, [...baseCompletedSessions, ...activeForScenario(scenario)], 200, 'APISessionSummary[]');
   });
 
   await page.route('**/api/sessions/*/subagents', async (route) => {
@@ -785,7 +811,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
   await page.route('**/api/sessions/*', async (route) => {
     const url = new URL(route.request().url());
     const id = decodeURIComponent(url.pathname.split('/').pop() || '');
-    const session = [...baseCompletedSessions, ...activeSessions, ...childSessions].find((s) => s.id === id) || baseCompletedSessions[0];
+    const session = [...baseCompletedSessions, ...activeForScenario(scenario), ...childSessions].find((s) => s.id === id) || baseCompletedSessions[0];
     return fulfillJSON(route, { session }, 200, 'APISessionDetail');
   });
 

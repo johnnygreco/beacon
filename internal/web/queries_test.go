@@ -636,11 +636,16 @@ func TestScanSessionSummaryIncludesErrorCount(t *testing.T) {
 
 func TestAPISessionSummaryFromViewIncludesErrorCount(t *testing.T) {
 	api := apiSessionSummaryFromView(views.SessionSummary{
-		ID:         "session-1",
-		ErrorCount: 2,
+		ID:          "session-1",
+		ErrorCount:  2,
+		TotalTokens: 42_000,
+		ActiveModel: "claude-sonnet-4",
 	})
 	if api.ErrorCount != 2 {
 		t.Fatalf("ErrorCount = %d, want 2", api.ErrorCount)
+	}
+	if api.ContextTokens != 42_000 || api.ContextWindowTokens != 200_000 || !api.ContextEstimate {
+		t.Fatalf("context fields = %#v", api)
 	}
 }
 
