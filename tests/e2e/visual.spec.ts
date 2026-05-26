@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   TEST_SESSION_ID,
-  expectEqualDashboardChartHeights,
+  expectDashboardTokenChartReady,
   fillDashboardSearchAndWait,
   gotoDashboard,
   installDashboardFixtures,
@@ -18,7 +18,7 @@ test.describe('dashboard visual regression baselines', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
-    await expectEqualDashboardChartHeights(page);
+    await expectDashboardTokenChartReady(page);
 
     await expect(page.locator('#dashboard-wrap')).toHaveScreenshot('dashboard-default-desktop.png', {
       mask: visualMasks(page),

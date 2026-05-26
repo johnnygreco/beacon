@@ -301,7 +301,6 @@ window.addEventListener('beacon:dashboard-theme-change', function() {
   applyChartDefaults();
   [
     'dashboardTokenCumulativeChart',
-    'dashboardModelActivityChart',
     'sessionTokensChart',
     'sessionTokensByModelChart'
   ].forEach(function(chartName) {

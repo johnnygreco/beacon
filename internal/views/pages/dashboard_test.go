@@ -124,7 +124,7 @@ func TestDashboardConfiguredNameRendersSafely(t *testing.T) {
 	}
 }
 
-func TestDashboardLiveAnalyticsChartsUseSharedRange(t *testing.T) {
+func TestDashboardLiveAnalyticsUsesSingleTokenChart(t *testing.T) {
 	var buf bytes.Buffer
 	if err := Dashboard(views.DashboardData{}).Render(context.Background(), &buf); err != nil {
 		t.Fatalf("render dashboard: %v", err)
@@ -133,9 +133,8 @@ func TestDashboardLiveAnalyticsChartsUseSharedRange(t *testing.T) {
 	script := dashboardClientScript(t)
 	for _, expected := range []string{
 		"dashboardTokenCumulativeChart",
-		"dashboardModelActivityChart",
 		"dashboard-token-cumulative-data",
-		"dashboard-model-activity-data",
+		"Tokens by Model Over Time",
 	} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("dashboard live analytics missing %q", expected)
@@ -144,14 +143,31 @@ func TestDashboardLiveAnalyticsChartsUseSharedRange(t *testing.T) {
 	for _, expected := range []string{
 		"requestURL('/api/dashboard/charts'",
 		"currentRange = '24h'",
-		"setDashboardMetric",
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("dashboard live analytics missing %q", expected)
 		}
 	}
-	if strings.Contains(html, "dashboardTotalTokensChart") || strings.Contains(html, "dashboardTokensByModelChart") {
-		t.Fatal("dashboard still renders the old redundant chart ids")
+	for _, unexpected := range []string{
+		"dashboardTotalTokensChart",
+		"dashboardTokensByModelChart",
+		"dashboardModelActivityChart",
+		"dashboard-model-activity-data",
+		"dashboard-model-metric-control",
+		"Model Health",
+	} {
+		if strings.Contains(html, unexpected) {
+			t.Fatalf("dashboard still renders redundant analytics UI %q", unexpected)
+		}
+	}
+	for _, unexpected := range []string{
+		"setDashboardMetric",
+		"currentDashboardMetric",
+		"updateDashboardModelActivityChart",
+	} {
+		if strings.Contains(script, unexpected) {
+			t.Fatalf("dashboard client script still references redundant analytics UI %q", unexpected)
+		}
 	}
 }
 

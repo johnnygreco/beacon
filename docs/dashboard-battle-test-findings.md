@@ -29,6 +29,6 @@ Final isolated install run: 2026-05-11, local temporary install.
 
 - Real captured completed sessions show nonzero token totals.
 - Session detail Tokens by Model chart renders nonblank with `sonnet-4` and `opus-4`.
-- Dashboard model/token charts render nonblank.
+- Dashboard tokens-by-model chart renders nonblank.
 - Live append to the watched JSONL updates the open transcript through session SSE and preserves the Timeline view.
 - Completed search, theme controls, fixed dark lockout, timeline collapse/restore, keyboard session open, inspector close, and mobile overflow checks pass.

@@ -192,7 +192,7 @@ func TestSearchResultSessionIDs_DedupesAndSkipsEmpty(t *testing.T) {
 	}
 }
 
-func TestBuildDashboardModelCharts_CumulativeTokensAndActivity(t *testing.T) {
+func TestBuildDashboardModelCharts_TokenBucketsAndActivity(t *testing.T) {
 	t0 := time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC)
 	points := []dashboardModelPoint{
 		{Bucket: t0, Provider: "openai", Model: "gpt-5.4", Tokens: 100, InputTokens: 60, OutputTokens: 40, ToolCalls: 2, Calls: 4},
@@ -209,11 +209,11 @@ func TestBuildDashboardModelCharts_CumulativeTokensAndActivity(t *testing.T) {
 	if tokens.Datasets[0].Label != "gpt-5.4" {
 		t.Fatalf("expected top model first, got %q", tokens.Datasets[0].Label)
 	}
-	if got := tokens.Datasets[0].Values; len(got) != 2 || got[0] != 100 || got[1] != 150 {
-		t.Fatalf("gpt cumulative values = %#v", got)
+	if got := tokens.Datasets[0].Values; len(got) != 2 || got[0] != 100 || got[1] != 50 {
+		t.Fatalf("gpt bucket token values = %#v", got)
 	}
-	if got := tokens.Datasets[1].Values; len(got) != 2 || got[0] != 25 || got[1] != 100 {
-		t.Fatalf("claude cumulative values = %#v", got)
+	if got := tokens.Datasets[1].Values; len(got) != 2 || got[0] != 25 || got[1] != 75 {
+		t.Fatalf("claude bucket token values = %#v", got)
 	}
 	if tokens.Summary.TotalTokens != 250 || tokens.Summary.ToolCallCount != 6 || tokens.Summary.ErrorCount != 1 || tokens.Summary.ModelCount != 2 {
 		t.Fatalf("summary = %#v", tokens.Summary)

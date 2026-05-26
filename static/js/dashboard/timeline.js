@@ -21,7 +21,6 @@
 
 	function resizeCharts() {
 		if (window.dashboardTokenCumulativeChart) window.dashboardTokenCumulativeChart.resize();
-		if (window.dashboardModelActivityChart) window.dashboardModelActivityChart.resize();
 	}
 
 	function resizeChartsSoon() {

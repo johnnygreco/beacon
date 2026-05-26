@@ -152,7 +152,7 @@ function createDashboardModelChart(el, payload, metricKind) {
         x: dashboardTimeScale(payload),
         y: {
           ...yAxisOptions,
-          title: { display: true, text: metricKind === 'tokens' ? 'Cumulative Tokens' : '', color: chartTheme().title }
+          title: { display: true, text: metricKind === 'tokens' ? 'Tokens' : '', color: chartTheme().title }
         }
       },
       plugins: {
@@ -186,49 +186,11 @@ function updateDashboardModelChart(chartName, payload, metricKind) {
     });
     chart.options.scales.x = dashboardTimeScale(payload);
     chart.options.scales.y.ticks.callback = metricKind === 'error_rate' ? formatRateTick : formatTokenTick;
-    chart.options.scales.y.title.text = metricKind === 'tokens' ? 'Cumulative Tokens' : '';
+    chart.options.scales.y.title.text = metricKind === 'tokens' ? 'Tokens' : '';
     chart.$dashboardMetricUnit = metricKind === 'tokens' ? 'tokens' : '';
     chart.$dashboardMetricKind = metricKind || 'tokens';
     applyStoredSeriesVisibility(chartName);
     chart.update('none');
   }
   setupSeriesModelFilters(chartName, payload);
-}
-
-function dashboardActivityMetricPayload(payload, metricKey) {
-  payload = payload || {};
-  var metrics = payload.metrics || {};
-  var metric = metrics[metricKey] || metrics.error_rate || { label: '', unit: '', datasets: [] };
-  return {
-    labels: payload.labels || [],
-    datasets: metric.datasets || [],
-    metric: metric,
-    summary: payload.summary || {},
-    time_unit: payload.time_unit,
-    bucket_minutes: payload.bucket_minutes
-  };
-}
-
-function updateDashboardModelActivityChart(payload, metricKey) {
-  var selected = dashboardActivityMetricPayload(payload, metricKey || 'error_rate');
-  var canvas = document.getElementById('dashboardModelActivityChart');
-  if (!canvas) return;
-  if (!window.dashboardModelActivityChart || !window.dashboardModelActivityChart.data) {
-    window.dashboardModelActivityChart = createDashboardModelChart(canvas, selected, metricKey || 'error_rate');
-  }
-  var chart = window.dashboardModelActivityChart;
-  chart.data.labels = selected.labels || [];
-  chart.data.datasets = (selected.datasets || []).map(function(ds, i) {
-    return modelDatasetFromPayload(ds, i, metricKey || 'error_rate');
-  });
-  chart.options.scales.x = dashboardTimeScale(selected);
-  chart.options.scales.y.type = 'linear';
-  delete chart.options.scales.y.min;
-  chart.options.scales.y.title.text = selected.metric.label || '';
-  chart.options.scales.y.ticks.callback = selected.metric.unit === '%' ? formatRateTick : formatTokenTick;
-  chart.$dashboardMetricUnit = selected.metric.unit || '';
-  chart.$dashboardMetricKind = metricKey || 'error_rate';
-  applyStoredSeriesVisibility('dashboardModelActivityChart');
-  chart.update('none');
-  setupSeriesModelFilters('dashboardModelActivityChart', selected);
 }

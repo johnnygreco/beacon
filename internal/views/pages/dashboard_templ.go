@@ -115,19 +115,15 @@ func Dashboard(data views.DashboardData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = components.ChartContainerWithOptions("dashboardTokenCumulativeChart", "320px", "Cumulative Tokens by Model", true, false).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = components.ChartContainerWithOptions("dashboardTokenCumulativeChart", "320px", "Tokens by Model Over Time", true, false).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div><div class=\"min-w-0 bg-gray-800 rounded-lg p-4 border border-gray-700\"><div class=\"chart-card-header flex flex-wrap items-start justify-between gap-2 mb-2\"><h3 class=\"text-sm font-medium text-gray-400\">Model Health</h3><div id=\"dashboard-model-metric-control\" class=\"inline-flex overflow-hidden rounded border border-gray-700\"><button type=\"button\" data-dashboard-metric=\"error_rate\" onclick=\"setDashboardMetric(this, 'error_rate')\" aria-pressed=\"true\" class=\"dashboard-metric-btn px-2 py-1 text-xs bg-blue-500/20 text-blue-400 border-r border-gray-700\">Error Rate</button> <button type=\"button\" data-dashboard-metric=\"errors\" onclick=\"setDashboardMetric(this, 'errors')\" aria-pressed=\"false\" class=\"dashboard-metric-btn px-2 py-1 text-xs text-gray-400 hover:text-gray-200 border-r border-gray-700\">Errors</button> <button type=\"button\" data-dashboard-metric=\"tool_calls\" onclick=\"setDashboardMetric(this, 'tool_calls')\" aria-pressed=\"false\" class=\"dashboard-metric-btn px-2 py-1 text-xs text-gray-400 hover:text-gray-200\">Tools</button></div></div><div style=\"position:relative;height:320px\"><canvas id=\"dashboardModelActivityChart\" data-default-log=\"false\"></canvas></div></div></div></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div></div></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			templ_7745c5c3_Err = templ.JSONScript("dashboard-token-cumulative-data", data.TokenCumulative).Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templ.JSONScript("dashboard-model-activity-data", data.ModelActivity).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
