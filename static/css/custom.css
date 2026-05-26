@@ -1635,6 +1635,43 @@ body[data-page="search"] #main-content {
   background: transparent;
 }
 
+@media (min-width: 1101px) {
+  body[data-page="dashboard"] {
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  body[data-page="dashboard"] #main-content {
+    height: 100vh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  body[data-page="dashboard"] #dashboard-wrap {
+    height: calc(100vh - 3rem) !important;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  body[data-page="dashboard"] #dashboard-main {
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    overflow-anchor: none;
+    scrollbar-gutter: stable;
+  }
+
+  body[data-page="dashboard"] #active-sessions,
+  body[data-page="dashboard"] #dashboard-analytics-summary,
+  body[data-page="dashboard"] #dashboard-search,
+  body[data-page="dashboard"] #completed-table,
+  body[data-page="dashboard"] #completed-sessions,
+  body[data-page="dashboard"] [data-dashboard-stable-region="completed"] {
+    overflow-anchor: none;
+  }
+}
+
 body[data-page="dashboard"] ::-webkit-scrollbar-track,
 body[data-page="transcript"] ::-webkit-scrollbar-track,
 body[data-page="search"] ::-webkit-scrollbar-track {
@@ -2524,6 +2561,21 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
 }
 
 @media (max-width: 1100px) {
+  body[data-page="dashboard"] {
+    height: auto;
+    overflow-y: auto;
+  }
+
+  body[data-page="dashboard"] #main-content {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
+  body[data-page="dashboard"] [data-dashboard-stable-region="completed"] {
+    min-height: 0 !important;
+  }
+
   #main-content {
     padding: 1rem;
   }

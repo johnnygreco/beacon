@@ -53,6 +53,66 @@ function setHTMLIfChanged(el, html) {
 	return true;
 }
 
+function isDesktopDashboardLayout() {
+	if (!document.getElementById('dashboard-wrap')) return false;
+	if (window.matchMedia) return window.matchMedia('(min-width: 1101px)').matches;
+	return (window.innerWidth || 0) > 1100;
+}
+
+function dashboardScrollOwner() {
+	return document.getElementById('dashboard-main');
+}
+
+function completedTableRegion() {
+	var search = document.getElementById('dashboard-search');
+	var region = search && search.parentElement ? search.parentElement : null;
+	if (region) region.setAttribute('data-dashboard-stable-region', 'completed');
+	return region;
+}
+
+function stabilizeCompletedTableRegion() {
+	var region = completedTableRegion();
+	if (!region) return;
+	if (!isDesktopDashboardLayout()) {
+		region.style.minHeight = '';
+		region.removeAttribute('data-dashboard-min-height');
+		return;
+	}
+	var height = Math.ceil(region.getBoundingClientRect().height);
+	var remembered = parseFloat(region.getAttribute('data-dashboard-min-height') || '0') || 0;
+	var next = Math.max(remembered, height);
+	if (next > 0) {
+		region.setAttribute('data-dashboard-min-height', String(next));
+		region.style.minHeight = next + 'px';
+	}
+}
+
+function restoreDashboardScroll(owner, scrollTop, windowX, windowY) {
+	if (owner) owner.scrollTop = scrollTop;
+	if (typeof window.scrollTo === 'function') window.scrollTo(windowX, windowY);
+	if (typeof window.requestAnimationFrame === 'function') {
+		window.requestAnimationFrame(function() {
+			if (owner) owner.scrollTop = scrollTop;
+			if (typeof window.scrollTo === 'function') window.scrollTo(windowX, windowY);
+		});
+	}
+}
+
+function withDashboardScrollStability(mutator, options) {
+	var desktop = isDesktopDashboardLayout();
+	var owner = desktop ? dashboardScrollOwner() : null;
+	var scrollTop = owner ? owner.scrollTop : 0;
+	var windowX = window.scrollX || window.pageXOffset || 0;
+	var windowY = window.scrollY || window.pageYOffset || 0;
+	try {
+		if (desktop && options && options.completedRegion) stabilizeCompletedTableRegion();
+		return mutator();
+	} finally {
+		if (desktop && options && options.completedRegion) stabilizeCompletedTableRegion();
+		if (desktop && owner) restoreDashboardScroll(owner, scrollTop, windowX, windowY);
+	}
+}
+
 function markDashboardUpdated() {
 	var el = document.getElementById('dashboard-last-updated');
 	if (el) el.textContent = 'Updated ' + new Date().toLocaleTimeString([], {hour: 'numeric', minute: '2-digit', second: '2-digit'});
@@ -165,10 +225,6 @@ function completedRow(session, isSubagent, parentID) {
 }
 
 function renderCompleted(response) {
-	var tbody = document.getElementById('completed-sessions');
-	var title = document.getElementById('completed-table-title');
-	if (title) title.textContent = 'Completed Sessions';
-	setCompletedTableMode('sessions');
 	var offset = nonNegativeInt(response.offset);
 	var limit = Math.max(1, nonNegativeInt(response.limit, completedPageSize));
 	var hasMore = !!response.has_more;
@@ -177,25 +233,31 @@ function renderCompleted(response) {
 		loadCompletedSessions(Math.max(0, offset - limit));
 		return;
 	}
-	var rows = (response.items || []).map(function(session) { return completedRow(session, false, ''); });
-	var status = document.getElementById('completed-session-status');
-	if ((response.items || []).length > 0 || offset > 0) {
-		var prev = offset > 0 ? '<button type="button" class="json-page-btn px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors" data-offset="' + Math.max(0, offset - limit) + '">Previous</button>' : '';
-		var next = hasMore ? '<button type="button" class="json-page-btn px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors" data-offset="' + (offset + limit) + '">Next</button>' : '';
-		var start = offset + 1;
-		var end = offset + (response.items || []).length;
-		rows.push('<tr class="border-none" data-pagination-row><td colspan="10" class="py-3"><div class="flex items-center justify-center gap-4">' + prev + '<span class="text-xs text-gray-500 tabular-nums">Showing ' + start + '-' + end + (hasMore ? '+' : '') + '<\/span>' + next + '<\/div><\/td><\/tr>');
-	}
-	if (rows.length === 0) {
-		rows.push('<tr><td colspan="10" class="text-center py-4"><span class="text-sm text-gray-500">' + (currentSearchQuery ? 'No sessions match your search' : 'No completed sessions') + '<\/span><\/td><\/tr>');
-	}
-	if (status) {
-		var count = (response.items || []).length;
-		var countLabel = count + (hasMore ? '+' : '');
-		status.textContent = currentSearchQuery ? (countLabel + ' search result' + (count === 1 && !hasMore ? '' : 's') + ' in ' + rangeLabel(currentRange)) : (countLabel + ' shown for ' + rangeLabel(currentRange));
-	}
-	var changed = setHTMLIfChanged(tbody, rows.join(''));
-	if (changed) updateCompletedSortIndicators();
+	withDashboardScrollStability(function() {
+		var tbody = document.getElementById('completed-sessions');
+		var title = document.getElementById('completed-table-title');
+		if (title) title.textContent = 'Completed Sessions';
+		setCompletedTableMode('sessions');
+		var rows = (response.items || []).map(function(session) { return completedRow(session, false, ''); });
+		var status = document.getElementById('completed-session-status');
+		if ((response.items || []).length > 0 || offset > 0) {
+			var prev = offset > 0 ? '<button type="button" class="json-page-btn px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors" data-offset="' + Math.max(0, offset - limit) + '">Previous</button>' : '';
+			var next = hasMore ? '<button type="button" class="json-page-btn px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors" data-offset="' + (offset + limit) + '">Next</button>' : '';
+			var start = offset + 1;
+			var end = offset + (response.items || []).length;
+			rows.push('<tr class="border-none" data-pagination-row><td colspan="10" class="py-3"><div class="flex items-center justify-center gap-4">' + prev + '<span class="text-xs text-gray-500 tabular-nums">Showing ' + start + '-' + end + (hasMore ? '+' : '') + '<\/span>' + next + '<\/div><\/td><\/tr>');
+		}
+		if (rows.length === 0) {
+			rows.push('<tr><td colspan="10" class="text-center py-4"><span class="text-sm text-gray-500">' + (currentSearchQuery ? 'No sessions match your search' : 'No completed sessions') + '<\/span><\/td><\/tr>');
+		}
+		if (status) {
+			var count = (response.items || []).length;
+			var countLabel = count + (hasMore ? '+' : '');
+			status.textContent = currentSearchQuery ? (countLabel + ' search result' + (count === 1 && !hasMore ? '' : 's') + ' in ' + rangeLabel(currentRange)) : (countLabel + ' shown for ' + rangeLabel(currentRange));
+		}
+		var changed = setHTMLIfChanged(tbody, rows.join(''));
+		if (changed) updateCompletedSortIndicators();
+	}, {completedRegion: true});
 }
 
 function searchEventLabel(kind) {
@@ -244,56 +306,62 @@ function searchRow(item) {
 }
 
 function renderDashboardSearch(response) {
-	var tbody = document.getElementById('completed-sessions');
-	var status = document.getElementById('completed-session-status');
-	var title = document.getElementById('completed-table-title');
-	if (title) title.textContent = 'Search Results';
-	setCompletedTableMode('search');
 	response.items = response.items || [];
-	var hasMore = !!response.has_more;
-	var rows = response.items.map(searchRow);
-	if (hasMore) {
-		rows.push('<tr class="border-none" data-search-more-row><td colspan="6" class="py-3"><div class="flex items-center justify-center gap-4"><button type="button" class="dashboard-search-show-more px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Show more</button><span class="text-xs text-gray-500 tabular-nums">Showing ' + response.items.length + '+ results</span></div></td></tr>');
-	}
-	if (rows.length === 0) {
-		var message = response.state === 'unavailable'
-			? 'Search is not connected'
-			: (response.state === 'idle' ? 'Enter a query or filter to search sessions and events' : 'No matching sessions or events');
-		rows.push('<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-gray-500">' + escapeHTML(message) + '</span></td></tr>');
-	}
-	setHTMLIfChanged(tbody, rows.join(''));
-	if (status) {
-		if (response.state === 'unavailable') {
-			status.textContent = 'Search unavailable';
-		} else if (response.state === 'idle') {
-			status.textContent = 'Search sessions and events from the dashboard table';
-		} else {
-			var count = response.items.length;
-			status.textContent = count + (hasMore ? '+' : '') + ' search result' + (count === 1 && !hasMore ? '' : 's');
+	withDashboardScrollStability(function() {
+		var tbody = document.getElementById('completed-sessions');
+		var status = document.getElementById('completed-session-status');
+		var title = document.getElementById('completed-table-title');
+		if (title) title.textContent = 'Search Results';
+		setCompletedTableMode('search');
+		var hasMore = !!response.has_more;
+		var rows = response.items.map(searchRow);
+		if (hasMore) {
+			rows.push('<tr class="border-none" data-search-more-row><td colspan="6" class="py-3"><div class="flex items-center justify-center gap-4"><button type="button" class="dashboard-search-show-more px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Show more</button><span class="text-xs text-gray-500 tabular-nums">Showing ' + response.items.length + '+ results</span></div></td></tr>');
 		}
-	}
+		if (rows.length === 0) {
+			var message = response.state === 'unavailable'
+				? 'Search is not connected'
+				: (response.state === 'idle' ? 'Enter a query or filter to search sessions and events' : 'No matching sessions or events');
+			rows.push('<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-gray-500">' + escapeHTML(message) + '</span></td></tr>');
+		}
+		setHTMLIfChanged(tbody, rows.join(''));
+		if (status) {
+			if (response.state === 'unavailable') {
+				status.textContent = 'Search unavailable';
+			} else if (response.state === 'idle') {
+				status.textContent = 'Search sessions and events from the dashboard table';
+			} else {
+				var count = response.items.length;
+				status.textContent = count + (hasMore ? '+' : '') + ' search result' + (count === 1 && !hasMore ? '' : 's');
+			}
+		}
+	}, {completedRegion: true});
 }
 
 function renderDashboardSearchLoading() {
-	var tbody = document.getElementById('completed-sessions');
-	var status = document.getElementById('completed-session-status');
-	var title = document.getElementById('completed-table-title');
-	if (title) title.textContent = 'Search Results';
-	setCompletedTableMode('search');
-	setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-gray-500">Searching sessions and events...</span></td></tr>');
-	if (status) status.textContent = 'Searching sessions and events...';
+	withDashboardScrollStability(function() {
+		var tbody = document.getElementById('completed-sessions');
+		var status = document.getElementById('completed-session-status');
+		var title = document.getElementById('completed-table-title');
+		if (title) title.textContent = 'Search Results';
+		setCompletedTableMode('search');
+		setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-gray-500">Searching sessions and events...</span></td></tr>');
+		if (status) status.textContent = 'Searching sessions and events...';
+	}, {completedRegion: true});
 }
 
 function renderActive(response) {
-	var wrap = document.getElementById('active-sessions');
-	var items = (response.items || []).filter(validSession);
-	var dot = items.length ? '<span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span></span>' : '<span class="relative flex h-2 w-2"><span class="relative inline-flex rounded-full h-2 w-2 bg-gray-600"></span></span>';
-	var count = items.length ? '<span class="text-xs font-normal text-gray-500">(' + items.length + ')</span>' : '';
-	var cards = items.map(activeCard).join('');
-	if (!cards) {
-		cards = '<div class="text-center py-6 col-span-full"><p class="text-sm text-gray-500">No active sessions</p><p class="text-xs text-gray-600 mt-1">Sessions appear here when agents are running</p></div>';
-	}
-	setHTMLIfChanged(wrap, '<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">' + dot + 'Active Sessions ' + count + '</h2><div class="grid grid-cols-1 lg:grid-cols-2 gap-3">' + cards + '</div>');
+	withDashboardScrollStability(function() {
+		var wrap = document.getElementById('active-sessions');
+		var items = (response.items || []).filter(validSession);
+		var dot = items.length ? '<span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span></span>' : '<span class="relative flex h-2 w-2"><span class="relative inline-flex rounded-full h-2 w-2 bg-gray-600"></span></span>';
+		var count = items.length ? '<span class="text-xs font-normal text-gray-500">(' + items.length + ')</span>' : '';
+		var cards = items.map(activeCard).join('');
+		if (!cards) {
+			cards = '<div class="text-center py-6 col-span-full"><p class="text-sm text-gray-500">No active sessions</p><p class="text-xs text-gray-600 mt-1">Sessions appear here when agents are running</p></div>';
+		}
+		setHTMLIfChanged(wrap, '<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">' + dot + 'Active Sessions ' + count + '</h2><div class="grid grid-cols-1 lg:grid-cols-2 gap-3">' + cards + '</div>');
+	});
 }
 
 function activeCard(session) {
@@ -402,15 +470,17 @@ function formatPercent(n) {
 }
 
 function renderAnalyticsSummary(summary) {
-	var wrap = document.getElementById('dashboard-analytics-summary');
-	if (!wrap) return;
-	summary = summary || {};
-	setHTMLIfChanged(wrap, [
-		summaryTile('Tokens', formatTokens(summary.total_tokens), 'Cumulative across shown models'),
-		summaryTile('Models', nonNegativeInt(summary.model_count), 'Selectable series'),
-		summaryTile('Tool Calls', formatTokens(summary.tool_call_count), rangeLabel(currentRange)),
-		summaryTile('Error Rate', formatPercent(summary.error_rate), nonNegativeInt(summary.error_count) + ' errors')
-	].join(''));
+	withDashboardScrollStability(function() {
+		var wrap = document.getElementById('dashboard-analytics-summary');
+		if (!wrap) return;
+		summary = summary || {};
+		setHTMLIfChanged(wrap, [
+			summaryTile('Tokens', formatTokens(summary.total_tokens), 'Cumulative across shown models'),
+			summaryTile('Models', nonNegativeInt(summary.model_count), 'Selectable series'),
+			summaryTile('Tool Calls', formatTokens(summary.tool_call_count), rangeLabel(currentRange)),
+			summaryTile('Error Rate', formatPercent(summary.error_rate), nonNegativeInt(summary.error_count) + ' errors')
+		].join(''));
+	});
 }
 
 function updateDashboardCharts(payload) {
@@ -468,13 +538,15 @@ async function loadDashboardSearch() {
 	}));
 	if (!result || result.stale) return;
 	if (result.error) {
-		var tbody = document.getElementById('completed-sessions');
-		var status = document.getElementById('completed-session-status');
-		var title = document.getElementById('completed-table-title');
-		if (title) title.textContent = 'Search Results';
-		setCompletedTableMode('search');
-		setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-red-400">Unable to search sessions and events. <button type="button" class="underline" onclick="loadDashboardSearch()">Retry</button></span></td></tr>');
-		if (status) status.textContent = 'Search failed';
+		withDashboardScrollStability(function() {
+			var tbody = document.getElementById('completed-sessions');
+			var status = document.getElementById('completed-session-status');
+			var title = document.getElementById('completed-table-title');
+			if (title) title.textContent = 'Search Results';
+			setCompletedTableMode('search');
+			setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-red-400">Unable to search sessions and events. <button type="button" class="underline" onclick="loadDashboardSearch()">Retry</button></span></td></tr>');
+			if (status) status.textContent = 'Search failed';
+		}, {completedRegion: true});
 		return;
 	}
 	renderDashboardSearch(result.data);
@@ -497,9 +569,11 @@ async function loadCompletedSessions(offset) {
 	}));
 	if (!result || result.stale) return;
 	if (result.error) {
-		var tbody = document.getElementById('completed-sessions');
-		setHTMLIfChanged(tbody, '<tr><td colspan="10" class="text-center py-4"><span class="text-sm text-red-400">Unable to load completed sessions. <button type="button" class="underline" onclick="loadCompletedSessions(currentCompletedOffset)">Retry</button></span></td></tr>');
-		if (status) status.textContent = 'Unable to load sessions';
+		withDashboardScrollStability(function() {
+			var tbody = document.getElementById('completed-sessions');
+			setHTMLIfChanged(tbody, '<tr><td colspan="10" class="text-center py-4"><span class="text-sm text-red-400">Unable to load completed sessions. <button type="button" class="underline" onclick="loadCompletedSessions(currentCompletedOffset)">Retry</button></span></td></tr>');
+			if (status) status.textContent = 'Unable to load sessions';
+		}, {completedRegion: true});
 		return;
 	}
 	var data = result.data;

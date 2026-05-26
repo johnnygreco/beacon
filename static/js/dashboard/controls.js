@@ -134,6 +134,14 @@ document.addEventListener('click', function(evt) {
 	var searchSession = document.getElementById('dashboard-search-session');
 	var searchSort = document.getElementById('dashboard-search-sort');
 	var searchReset = document.getElementById('dashboard-search-reset');
+	function focusWithoutScroll(el) {
+		if (!el) return;
+		try {
+			el.focus({preventScroll: true});
+		} catch (err) {
+			el.focus();
+		}
+	}
 	function scheduleDashboardSearch() {
 		clearTimeout(dashboardSearchTimer);
 		dashboardSearchTimer = setTimeout(function() {
@@ -188,12 +196,12 @@ document.addEventListener('click', function(evt) {
 			currentSearchLimit = 30;
 			syncSearchControls();
 			loadCompletedSessions(0);
-			if (searchInput) searchInput.focus();
+			focusWithoutScroll(searchInput);
 		});
 	}
 	if (searchFocus) {
 		searchFocus.addEventListener('click', function() {
-			if (searchInput) searchInput.focus();
+			focusWithoutScroll(searchInput);
 		});
 	}
 	document.querySelectorAll('[data-search-range]').forEach(function(button) {
@@ -238,14 +246,14 @@ document.addEventListener('click', function(evt) {
 			if (searchSession) searchSession.value = '';
 			syncSearchControls();
 			loadCompletedSessions(0);
-			if (searchInput) searchInput.focus();
+			focusWithoutScroll(searchInput);
 		});
 	}
 	document.addEventListener('keydown', function(evt) {
 		var tagName = document.activeElement ? document.activeElement.tagName : '';
 		if (evt.key === '/' && !evt.ctrlKey && !evt.metaKey && ['INPUT', 'TEXTAREA', 'SELECT'].indexOf(tagName) === -1) {
 			evt.preventDefault();
-			if (searchInput) searchInput.focus();
+			focusWithoutScroll(searchInput);
 		}
 	});
 	if (window.EventSource) {

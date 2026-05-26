@@ -13,10 +13,18 @@ type DashboardFixtureOptions = {
   failOnce?: Array<'active' | 'completed' | 'activity' | 'charts' | 'search'>;
   searchUnavailable?: boolean;
   searchDelayMs?: number;
+  searchDelayByQuery?: Record<string, number>;
   disableEventSource?: boolean;
+  mockEventSource?: boolean;
 };
 
 type DashboardSearchURLPredicate = (url: URL) => boolean;
+type DashboardScrollSnapshot = {
+  windowY: number;
+  dashboardTop: number;
+  dashboardClientHeight: number;
+  dashboardScrollHeight: number;
+};
 
 const fixedNow = '2026-05-09T18:00:00.000Z';
 
@@ -657,7 +665,41 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
   const scenario = options.scenario || 'default';
   const failures = new Set(options.failOnce || []);
 
-  if (options.disableEventSource !== false) {
+  if (options.mockEventSource) {
+    await page.addInitScript(() => {
+      class FakeEventSource {
+        url: string;
+        readyState = 1;
+        listeners: Record<string, Array<(event: MessageEvent) => void>> = {};
+        onopen: ((event: Event) => void) | null = null;
+        onerror: ((event: Event) => void) | null = null;
+
+        constructor(url: string) {
+          this.url = url;
+          ((window as unknown as { __beaconEventSources?: FakeEventSource[] }).__beaconEventSources ||= []).push(this);
+          setTimeout(() => this.onopen?.(new Event('open')), 0);
+        }
+
+        addEventListener(type: string, listener: (event: MessageEvent) => void) {
+          (this.listeners[type] ||= []).push(listener);
+        }
+
+        removeEventListener(type: string, listener: (event: MessageEvent) => void) {
+          this.listeners[type] = (this.listeners[type] || []).filter((candidate) => candidate !== listener);
+        }
+
+        close() {
+          this.readyState = 2;
+        }
+
+        emit(type: string, data = '{"dirty":true}') {
+          const event = new MessageEvent(type, { data });
+          for (const listener of this.listeners[type] || []) listener(event);
+        }
+      }
+      Object.defineProperty(window, 'EventSource', { value: FakeEventSource, configurable: true });
+    });
+  } else if (options.disableEventSource !== false) {
     await page.addInitScript(() => {
       Object.defineProperty(window, 'EventSource', { value: undefined, configurable: true });
     });
@@ -685,8 +727,10 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
 
   await page.route('**/api/dashboard/search**', async (route) => {
     const url = new URL(route.request().url());
-    if (options.searchDelayMs) {
-      await new Promise((resolve) => setTimeout(resolve, options.searchDelayMs));
+    const query = (url.searchParams.get('q') || '').trim();
+    const delay = options.searchDelayByQuery?.[query] ?? options.searchDelayMs ?? 0;
+    if (delay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
     if (failures.delete('search')) return fulfillJSON(route, { error: 'fixture failure' }, 500);
     if (options.searchUnavailable) {
@@ -837,6 +881,67 @@ export async function triggerDashboardSearchAndWait(
 
 export async function waitForDashboardSearchRows(page: Page, count: number) {
   await expect(page.locator('#completed-sessions tr[data-search-row]')).toHaveCount(count);
+}
+
+export async function readDashboardScroll(page: Page): Promise<DashboardScrollSnapshot> {
+  return page.evaluate(() => {
+    const owner = document.getElementById('dashboard-main');
+    return {
+      windowY: Math.round(window.scrollY || window.pageYOffset || 0),
+      dashboardTop: Math.round(owner?.scrollTop || 0),
+      dashboardClientHeight: Math.round(owner?.clientHeight || 0),
+      dashboardScrollHeight: Math.round(owner?.scrollHeight || 0),
+    };
+  });
+}
+
+export async function expectDashboardScrollNear(page: Page, expected: DashboardScrollSnapshot, tolerance = 2) {
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+  const current = await readDashboardScroll(page);
+  expect(current.windowY).toBe(0);
+  expect(Math.abs(current.dashboardTop - expected.dashboardTop)).toBeLessThanOrEqual(tolerance);
+  return current;
+}
+
+export async function expectDashboardScrollStableDuring(page: Page, action: () => Promise<unknown>, tolerance = 2) {
+  const before = await readDashboardScroll(page);
+  expect(before.windowY).toBe(0);
+  await action();
+  const after = await expectDashboardScrollNear(page, before, tolerance);
+  return { before, after };
+}
+
+export async function scrollDashboardMainToSearch(page: Page) {
+  await page.locator('#dashboard-main').evaluate((main) => {
+    const target = document.getElementById('dashboard-search');
+    if (!target) return;
+    const mainRect = main.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    main.scrollTop += targetRect.top - mainRect.top - 24;
+  });
+  await page.waitForFunction(() => {
+    const owner = document.getElementById('dashboard-main');
+    const search = document.getElementById('dashboard-search');
+    if (!owner || !search) return false;
+    const ownerRect = owner.getBoundingClientRect();
+    const searchRect = search.getBoundingClientRect();
+    return searchRect.top >= ownerRect.top && searchRect.top < ownerRect.bottom;
+  });
+  const scroll = await readDashboardScroll(page);
+  expect(scroll.windowY).toBe(0);
+  expect(scroll.dashboardTop).toBeGreaterThan(0);
+  return scroll;
+}
+
+export async function emitDashboardEvent(page: Page, type: string) {
+  await page.evaluate((eventType) => {
+    const sources = (window as unknown as {
+      __beaconEventSources?: Array<{ url: string; emit: (type: string) => void }>;
+    }).__beaconEventSources || [];
+    const source = sources.find((candidate) => candidate.url.includes('/sse/dashboard'));
+    if (!source) throw new Error('Dashboard EventSource fixture was not installed');
+    source.emit(eventType);
+  }, type);
 }
 
 export async function expectNoHorizontalOverflow(page: Page) {
