@@ -10,6 +10,7 @@ type Scenario = 'default' | 'empty' | 'error-heavy' | 'many-active';
 
 type DashboardFixtureOptions = {
   scenario?: Scenario;
+  activeScenarioSequence?: Array<Scenario | 'error'>;
   failOnce?: Array<'active' | 'completed' | 'activity' | 'charts' | 'search'>;
   searchUnavailable?: boolean;
   searchDelayMs?: number;
@@ -692,6 +693,7 @@ function transcriptFixtureHTML() {
 export async function installDashboardFixtures(page: Page, options: DashboardFixtureOptions = {}) {
   const scenario = options.scenario || 'default';
   const failures = new Set(options.failOnce || []);
+  let activeRequestCount = 0;
 
   if (options.mockEventSource) {
     await page.addInitScript(() => {
@@ -739,7 +741,11 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
     const failureKey = state === 'active' ? 'active' : 'completed';
     if (failures.delete(failureKey)) return fulfillJSON(route, { error: 'fixture failure' }, 500);
     if (state === 'active') {
-      return fulfillJSON(route, { state: 'active', range: '', offset: 0, limit: 30, has_more: false, items: activeForScenario(scenario) }, 200, 'APIDashboardSessionsResponse');
+      const activeSequence = options.activeScenarioSequence || [scenario];
+      const activeScenario = activeSequence[Math.min(activeRequestCount, activeSequence.length - 1)];
+      activeRequestCount += 1;
+      if (activeScenario === 'error') return fulfillJSON(route, { error: 'fixture failure' }, 500);
+      return fulfillJSON(route, { state: 'active', range: '', offset: 0, limit: 30, has_more: false, items: activeForScenario(activeScenario) }, 200, 'APIDashboardSessionsResponse');
     }
     const completed = completedForRequest(url, scenario);
     return fulfillJSON(route, {

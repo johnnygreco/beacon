@@ -25,6 +25,22 @@ async function gotoDashboardSearch(page: Page) {
   await waitForCompletedRows(page, 30);
 }
 
+async function readSearchOffsetInDashboard(page: Page) {
+  return page.evaluate(() => {
+    const owner = document.getElementById('dashboard-main');
+    const search = document.getElementById('dashboard-search');
+    if (!owner || !search) return { offset: 0, dashboardTop: 0, windowY: 0, mainContentTop: 0 };
+    const ownerRect = owner.getBoundingClientRect();
+    const searchRect = search.getBoundingClientRect();
+    return {
+      offset: Math.round(searchRect.top - ownerRect.top),
+      dashboardTop: Math.round(owner.scrollTop),
+      windowY: Math.round(window.scrollY || window.pageYOffset || 0),
+      mainContentTop: Math.round(document.getElementById('main-content')?.scrollTop || 0),
+    };
+  });
+}
+
 async function expectSearchVerticalFlow(page: Page) {
   const overlaps = await page.evaluate(() => {
     const selectors = [
@@ -428,6 +444,53 @@ test.describe('dashboard search workflows', () => {
     expect(oneRowRegion.height).toBeLessThan(expandedRegion.height);
 
     await guards.expectClean();
+  });
+
+  test('keeps the table anchored when active sessions expand or error above it', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installDashboardFixtures(page, {
+      mockEventSource: true,
+      activeScenarioSequence: ['default', 'many-active', 'error'],
+    });
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+    await scrollDashboardMainToSearch(page);
+
+    const before = await readSearchOffsetInDashboard(page);
+    expect(before.offset).toBeGreaterThanOrEqual(0);
+    expect(before.windowY).toBe(0);
+    expect(before.mainContentTop).toBe(0);
+
+    const activeGrowthResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'active';
+    });
+    await emitDashboardEvent(page, 'active-sessions-update');
+    await activeGrowthResponse;
+    await expect(page.locator('#active-sessions')).toContainText('Live queue item 8');
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
+    const afterGrowth = await readSearchOffsetInDashboard(page);
+    expect(Math.abs(afterGrowth.offset - before.offset)).toBeLessThanOrEqual(2);
+    expect(afterGrowth.dashboardTop).toBeGreaterThan(before.dashboardTop);
+    expect(afterGrowth.windowY).toBe(0);
+    expect(afterGrowth.mainContentTop).toBe(0);
+
+    const beforeError = await readSearchOffsetInDashboard(page);
+    const activeErrorResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.status() === 500 && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'active';
+    });
+    await emitDashboardEvent(page, 'active-sessions-update');
+    await activeErrorResponse;
+    await expect(page.locator('#active-sessions')).toContainText('Unable to load active sessions');
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
+    const afterError = await readSearchOffsetInDashboard(page);
+    expect(Math.abs(afterError.offset - beforeError.offset)).toBeLessThanOrEqual(2);
+    expect(afterError.dashboardTop).toBeLessThan(beforeError.dashboardTop);
+    expect(afterError.windowY).toBe(0);
+    expect(afterError.mainContentTop).toBe(0);
   });
 
   test('shows loading and error retry states in the table area', async ({ page }) => {

@@ -63,6 +63,26 @@ function dashboardScrollOwner() {
 	return document.getElementById('dashboard-main');
 }
 
+var activeSessionScrollAnchorSelector = '#dashboard-search, #completed-table, #dashboard-analytics-summary, .dashboard-analytics-grid';
+
+function dashboardScrollAnchor(owner, selectorList) {
+	if (!owner || !selectorList) return null;
+	var ownerRect = owner.getBoundingClientRect();
+	var selectors = selectorList.split(',');
+	for (var i = 0; i < selectors.length; i++) {
+		var selector = selectors[i].trim();
+		if (!selector) continue;
+		var elements = document.querySelectorAll(selector);
+		for (var j = 0; j < elements.length; j++) {
+			var rect = elements[j].getBoundingClientRect();
+			if (rect.width <= 0 || rect.height <= 0) continue;
+			if (rect.bottom <= ownerRect.top || rect.top >= ownerRect.bottom) continue;
+			return {element: elements[j], top: rect.top};
+		}
+	}
+	return null;
+}
+
 function completedTableRegion() {
 	var search = document.getElementById('dashboard-search');
 	var region = search && search.parentElement ? search.parentElement : null;
@@ -89,14 +109,21 @@ function stabilizeCompletedTableRegion(establishFloor) {
 	if (next > 0) region.style.minHeight = next + 'px';
 }
 
-function restoreDashboardScroll(owner, scrollTop, windowX, windowY) {
-	if (owner) owner.scrollTop = scrollTop;
-	if (typeof window.scrollTo === 'function') window.scrollTo(windowX, windowY);
+function restoreDashboardScroll(owner, scrollTop, windowX, windowY, anchor) {
+	function apply() {
+		if (owner) {
+			if (anchor && anchor.element && anchor.element.isConnected) {
+				var delta = anchor.element.getBoundingClientRect().top - anchor.top;
+				if (Math.abs(delta) > 0.5) owner.scrollTop += delta;
+			} else {
+				owner.scrollTop = scrollTop;
+			}
+		}
+		if (typeof window.scrollTo === 'function') window.scrollTo(windowX, windowY);
+	}
+	apply();
 	if (typeof window.requestAnimationFrame === 'function') {
-		window.requestAnimationFrame(function() {
-			if (owner) owner.scrollTop = scrollTop;
-			if (typeof window.scrollTo === 'function') window.scrollTo(windowX, windowY);
-		});
+		window.requestAnimationFrame(apply);
 	}
 }
 
@@ -104,6 +131,7 @@ function withDashboardScrollStability(mutator, options) {
 	var desktop = isDesktopDashboardLayout();
 	var owner = desktop ? dashboardScrollOwner() : null;
 	var scrollTop = owner ? owner.scrollTop : 0;
+	var anchor = owner && scrollTop > 0 && options && options.anchorSelector ? dashboardScrollAnchor(owner, options.anchorSelector) : null;
 	var windowX = window.scrollX || window.pageXOffset || 0;
 	var windowY = window.scrollY || window.pageYOffset || 0;
 	try {
@@ -111,7 +139,7 @@ function withDashboardScrollStability(mutator, options) {
 		return mutator();
 	} finally {
 		if (desktop && options && options.completedRegion) stabilizeCompletedTableRegion(!!options.establishCompletedHeightFloor);
-		if (desktop && owner) restoreDashboardScroll(owner, scrollTop, windowX, windowY);
+		if (desktop && owner) restoreDashboardScroll(owner, scrollTop, windowX, windowY, anchor);
 	}
 }
 
@@ -363,7 +391,7 @@ function renderActive(response) {
 			cards = '<div class="active-session-empty"><p class="text-sm text-gray-500">No active sessions</p><p class="text-xs text-gray-600 mt-1">Sessions appear here when agents are running</p></div>';
 		}
 		setHTMLIfChanged(wrap, '<div class="active-session-heading"><h2 class="text-lg font-semibold text-gray-200 flex items-center gap-2">' + dot + 'Active Sessions ' + count + '</h2></div><div class="active-session-grid">' + cards + '</div>');
-	});
+	}, {anchorSelector: activeSessionScrollAnchorSelector});
 }
 
 function activeStatusDot(live, sub) {
@@ -569,8 +597,10 @@ async function loadActiveSessions() {
 	var result = await fetchDashboardJSON('active', requestURL('/api/dashboard/sessions', {state: 'active'}));
 	if (!result || result.stale) return;
 	if (result.error) {
-		var wrap = document.getElementById('active-sessions');
-		setHTMLIfChanged(wrap, '<h2 class="text-lg font-semibold text-gray-200 mb-3">Active Sessions</h2><div class="rounded border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">Unable to load active sessions. <button type="button" class="underline" onclick="loadActiveSessions()">Retry</button></div>');
+		withDashboardScrollStability(function() {
+			var wrap = document.getElementById('active-sessions');
+			setHTMLIfChanged(wrap, '<h2 class="text-lg font-semibold text-gray-200 mb-3">Active Sessions</h2><div class="rounded border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">Unable to load active sessions. <button type="button" class="underline" onclick="loadActiveSessions()">Retry</button></div>');
+		}, {anchorSelector: activeSessionScrollAnchorSelector});
 		return;
 	}
 	var data = result.data;
