@@ -21,9 +21,17 @@ type DashboardFixtureOptions = {
 type DashboardSearchURLPredicate = (url: URL) => boolean;
 type DashboardScrollSnapshot = {
   windowY: number;
+  mainContentTop: number;
   dashboardTop: number;
   dashboardClientHeight: number;
   dashboardScrollHeight: number;
+};
+type DashboardScrollRecorderReport = {
+  initial: DashboardScrollSnapshot;
+  current: DashboardScrollSnapshot;
+  maxWindowDelta: number;
+  maxMainContentDelta: number;
+  maxDashboardDelta: number;
 };
 
 const fixedNow = '2026-05-09T18:00:00.000Z';
@@ -886,11 +894,94 @@ export async function waitForDashboardSearchRows(page: Page, count: number) {
 export async function readDashboardScroll(page: Page): Promise<DashboardScrollSnapshot> {
   return page.evaluate(() => {
     const owner = document.getElementById('dashboard-main');
+    const mainContent = document.getElementById('main-content');
     return {
       windowY: Math.round(window.scrollY || window.pageYOffset || 0),
+      mainContentTop: Math.round(mainContent?.scrollTop || 0),
       dashboardTop: Math.round(owner?.scrollTop || 0),
       dashboardClientHeight: Math.round(owner?.clientHeight || 0),
       dashboardScrollHeight: Math.round(owner?.scrollHeight || 0),
+    };
+  });
+}
+
+async function startDashboardScrollRecorder(page: Page) {
+  await page.evaluate(() => {
+    type Snapshot = {
+      windowY: number;
+      mainContentTop: number;
+      dashboardTop: number;
+      dashboardClientHeight: number;
+      dashboardScrollHeight: number;
+    };
+    type Recorder = {
+      initial: Snapshot;
+      current: Snapshot;
+      maxWindowDelta: number;
+      maxMainContentDelta: number;
+      maxDashboardDelta: number;
+      cleanup: () => void;
+      sample: () => void;
+    };
+    const read = (): Snapshot => {
+      const owner = document.getElementById('dashboard-main');
+      const mainContent = document.getElementById('main-content');
+      return {
+        windowY: Math.round(window.scrollY || window.pageYOffset || 0),
+        mainContentTop: Math.round(mainContent?.scrollTop || 0),
+        dashboardTop: Math.round(owner?.scrollTop || 0),
+        dashboardClientHeight: Math.round(owner?.clientHeight || 0),
+        dashboardScrollHeight: Math.round(owner?.scrollHeight || 0),
+      };
+    };
+    const initial = read();
+    const listeners: Array<() => void> = [];
+    const recorder: Recorder = {
+      initial,
+      current: initial,
+      maxWindowDelta: 0,
+      maxMainContentDelta: 0,
+      maxDashboardDelta: 0,
+      cleanup: () => {
+        for (const remove of listeners) remove();
+      },
+      sample: () => {
+        const current = read();
+        recorder.current = current;
+        recorder.maxWindowDelta = Math.max(recorder.maxWindowDelta, Math.abs(current.windowY - initial.windowY));
+        recorder.maxMainContentDelta = Math.max(recorder.maxMainContentDelta, Math.abs(current.mainContentTop - initial.mainContentTop));
+        recorder.maxDashboardDelta = Math.max(recorder.maxDashboardDelta, Math.abs(current.dashboardTop - initial.dashboardTop));
+      },
+    };
+    const addScrollListener = (target: Window | HTMLElement | null) => {
+      if (!target) return;
+      const handler = () => recorder.sample();
+      target.addEventListener('scroll', handler, { passive: true });
+      listeners.push(() => target.removeEventListener('scroll', handler));
+    };
+    addScrollListener(window);
+    addScrollListener(document.getElementById('main-content'));
+    addScrollListener(document.getElementById('dashboard-main'));
+    (window as Window & { __beaconDashboardScrollRecorder?: Recorder }).__beaconDashboardScrollRecorder = recorder;
+  });
+}
+
+async function stopDashboardScrollRecorder(page: Page): Promise<DashboardScrollRecorderReport> {
+  return page.evaluate(() => {
+    const key = '__beaconDashboardScrollRecorder';
+    const recorder = (window as Window & {
+      __beaconDashboardScrollRecorder?: DashboardScrollRecorderReport & { cleanup?: () => void; sample?: () => void };
+    })[key];
+    if (!recorder) throw new Error('Dashboard scroll recorder was not started');
+    recorder.sample?.();
+    recorder.cleanup?.();
+    delete (window as Window & { __beaconDashboardScrollRecorder?: unknown })[key];
+    return {
+      initial: recorder.initial,
+      current: recorder.current,
+      maxWindowDelta: recorder.maxWindowDelta,
+      maxMainContentDelta: recorder.maxMainContentDelta,
+      maxDashboardDelta: recorder.maxDashboardDelta,
     };
   });
 }
@@ -899,6 +990,7 @@ export async function expectDashboardScrollNear(page: Page, expected: DashboardS
   await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
   const current = await readDashboardScroll(page);
   expect(current.windowY).toBe(0);
+  expect(current.mainContentTop).toBe(0);
   expect(Math.abs(current.dashboardTop - expected.dashboardTop)).toBeLessThanOrEqual(tolerance);
   return current;
 }
@@ -906,7 +998,19 @@ export async function expectDashboardScrollNear(page: Page, expected: DashboardS
 export async function expectDashboardScrollStableDuring(page: Page, action: () => Promise<unknown>, tolerance = 2) {
   const before = await readDashboardScroll(page);
   expect(before.windowY).toBe(0);
-  await action();
+  expect(before.mainContentTop).toBe(0);
+  await startDashboardScrollRecorder(page);
+  try {
+    await action();
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    }));
+  } finally {
+    const recorder = await stopDashboardScrollRecorder(page);
+    expect(recorder.maxWindowDelta).toBeLessThanOrEqual(tolerance);
+    expect(recorder.maxMainContentDelta).toBeLessThanOrEqual(tolerance);
+    expect(recorder.maxDashboardDelta).toBeLessThanOrEqual(tolerance);
+  }
   const after = await expectDashboardScrollNear(page, before, tolerance);
   return { before, after };
 }
@@ -942,6 +1046,21 @@ export async function emitDashboardEvent(page: Page, type: string) {
     if (!source) throw new Error('Dashboard EventSource fixture was not installed');
     source.emit(eventType);
   }, type);
+}
+
+export async function readCompletedRegionMetrics(page: Page) {
+  return page.evaluate(() => {
+    const search = document.getElementById('dashboard-search');
+    const region = search?.parentElement;
+    const tableScroller = document.getElementById('completed-table')?.parentElement;
+    if (!region || !tableScroller) return { height: 0, tableGap: 0 };
+    const regionRect = region.getBoundingClientRect();
+    const tableRect = tableScroller.getBoundingClientRect();
+    return {
+      height: Math.round(regionRect.height),
+      tableGap: Math.round(regionRect.bottom - tableRect.bottom),
+    };
+  });
 }
 
 export async function expectNoHorizontalOverflow(page: Page) {

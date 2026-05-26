@@ -142,6 +142,30 @@ document.addEventListener('click', function(evt) {
 			el.focus();
 		}
 	}
+	function isElementVisibleInOwner(el) {
+		if (!el) return false;
+		var rect = el.getBoundingClientRect();
+		var owner = typeof dashboardScrollOwner === 'function' ? dashboardScrollOwner() : null;
+		var viewport = owner && typeof isDesktopDashboardLayout === 'function' && isDesktopDashboardLayout()
+			? owner.getBoundingClientRect()
+			: {top: 0, bottom: window.innerHeight || document.documentElement.clientHeight};
+		return rect.top >= viewport.top && rect.bottom <= viewport.bottom;
+	}
+	function revealSearchAndFocus() {
+		if (!searchInput) return;
+		if (!isElementVisibleInOwner(searchInput)) {
+			var target = document.getElementById('dashboard-search') || searchInput;
+			var owner = typeof dashboardScrollOwner === 'function' ? dashboardScrollOwner() : null;
+			if (owner && typeof isDesktopDashboardLayout === 'function' && isDesktopDashboardLayout()) {
+				var ownerRect = owner.getBoundingClientRect();
+				var targetRect = target.getBoundingClientRect();
+				owner.scrollTop += targetRect.top - ownerRect.top - 24;
+			} else if (target.scrollIntoView) {
+				target.scrollIntoView({block: 'nearest'});
+			}
+		}
+		focusWithoutScroll(searchInput);
+	}
 	function scheduleDashboardSearch() {
 		clearTimeout(dashboardSearchTimer);
 		dashboardSearchTimer = setTimeout(function() {
@@ -201,7 +225,7 @@ document.addEventListener('click', function(evt) {
 	}
 	if (searchFocus) {
 		searchFocus.addEventListener('click', function() {
-			focusWithoutScroll(searchInput);
+			revealSearchAndFocus();
 		});
 	}
 	document.querySelectorAll('[data-search-range]').forEach(function(button) {
@@ -253,7 +277,7 @@ document.addEventListener('click', function(evt) {
 		var tagName = document.activeElement ? document.activeElement.tagName : '';
 		if (evt.key === '/' && !evt.ctrlKey && !evt.metaKey && ['INPUT', 'TEXTAREA', 'SELECT'].indexOf(tagName) === -1) {
 			evt.preventDefault();
-			focusWithoutScroll(searchInput);
+			revealSearchAndFocus();
 		}
 	});
 	if (window.EventSource) {

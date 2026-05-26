@@ -70,21 +70,23 @@ function completedTableRegion() {
 	return region;
 }
 
-function stabilizeCompletedTableRegion() {
+function stabilizeCompletedTableRegion(establishFloor) {
 	var region = completedTableRegion();
 	if (!region) return;
 	if (!isDesktopDashboardLayout()) {
 		region.style.minHeight = '';
-		region.removeAttribute('data-dashboard-min-height');
+		region.removeAttribute('data-dashboard-height-floor');
 		return;
 	}
+	region.style.minHeight = '';
 	var height = Math.ceil(region.getBoundingClientRect().height);
-	var remembered = parseFloat(region.getAttribute('data-dashboard-min-height') || '0') || 0;
-	var next = Math.max(remembered, height);
-	if (next > 0) {
-		region.setAttribute('data-dashboard-min-height', String(next));
-		region.style.minHeight = next + 'px';
+	var floor = parseFloat(region.getAttribute('data-dashboard-height-floor') || '0') || 0;
+	if (establishFloor && height > floor) {
+		region.setAttribute('data-dashboard-height-floor', String(height));
+		floor = height;
 	}
+	var next = Math.max(height, floor);
+	if (next > 0) region.style.minHeight = next + 'px';
 }
 
 function restoreDashboardScroll(owner, scrollTop, windowX, windowY) {
@@ -105,10 +107,10 @@ function withDashboardScrollStability(mutator, options) {
 	var windowX = window.scrollX || window.pageXOffset || 0;
 	var windowY = window.scrollY || window.pageYOffset || 0;
 	try {
-		if (desktop && options && options.completedRegion) stabilizeCompletedTableRegion();
+		if (desktop && options && options.completedRegion) stabilizeCompletedTableRegion(false);
 		return mutator();
 	} finally {
-		if (desktop && options && options.completedRegion) stabilizeCompletedTableRegion();
+		if (desktop && options && options.completedRegion) stabilizeCompletedTableRegion(!!options.establishCompletedHeightFloor);
 		if (desktop && owner) restoreDashboardScroll(owner, scrollTop, windowX, windowY);
 	}
 }
@@ -257,7 +259,7 @@ function renderCompleted(response) {
 		}
 		var changed = setHTMLIfChanged(tbody, rows.join(''));
 		if (changed) updateCompletedSortIndicators();
-	}, {completedRegion: true});
+	}, {completedRegion: true, establishCompletedHeightFloor: true});
 }
 
 function searchEventLabel(kind) {

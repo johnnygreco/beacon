@@ -9,6 +9,7 @@ import {
   fillDashboardSearchAndWait,
   gotoDashboard,
   installDashboardFixtures,
+  readCompletedRegionMetrics,
   readDashboardScroll,
   scrollDashboardMainToSearch,
   triggerDashboardSearchAndWait,
@@ -173,9 +174,12 @@ test.describe('dashboard search workflows', () => {
     await guards.expectClean();
   });
 
-  test('ignores stale delayed search responses without moving desktop scroll', async ({ page }) => {
+  test('ignores stale delayed search responses without moving desktop scroll when requests cannot abort', async ({ page }) => {
     const guards = attachPageGuards(page);
     await page.setViewportSize({ width: 1440, height: 900 });
+    await page.addInitScript(() => {
+      Object.defineProperty(window, 'AbortController', { value: undefined, configurable: true });
+    });
     await installDashboardFixtures(page, {
       searchDelayByQuery: {
         dash: 700,
@@ -309,6 +313,7 @@ test.describe('dashboard search workflows', () => {
       );
       await waitForDashboardSearchRows(page, 35);
     });
+    const expandedRegion = await readCompletedRegionMetrics(page);
 
     await expectDashboardScrollStableDuring(page, async () => {
       const activeResponse = page.waitForResponse((response) => {
@@ -387,6 +392,8 @@ test.describe('dashboard search workflows', () => {
       await nextResponse;
       await waitForCompletedRows(page, 1);
     });
+    const oneRowRegion = await readCompletedRegionMetrics(page);
+    expect(oneRowRegion.height).toBeLessThan(expandedRegion.height);
 
     await guards.expectClean();
   });
