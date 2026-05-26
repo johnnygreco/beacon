@@ -47,7 +47,7 @@ test.describe('dashboard visual regression baselines', () => {
 
   test('many active sessions state', async ({ page }) => {
     await installDashboardFixtures(page, { scenario: 'many-active' });
-    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.setViewportSize({ width: 1440, height: 1500 });
     await gotoDashboard(page);
     await expect(page.locator('#active-sessions')).toContainText('Live queue item 8');
     await expect(page.locator('#active-sessions')).toHaveScreenshot('dashboard-many-active.png');

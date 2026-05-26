@@ -122,6 +122,19 @@ templ Dashboard(data views.DashboardData) {
 								</button>
 							</div>
 						</div>
+						<div id="active-sessions">
+							<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
+								<span class="relative flex h-2 w-2">
+									<span class="relative inline-flex rounded-full h-2 w-2 bg-gray-600"></span>
+								</span>
+								Active Sessions
+							</h2>
+							<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+								<div class="text-center py-6 col-span-full">
+									<p class="text-sm text-gray-500">Loading active sessions...</p>
+								</div>
+							</div>
+						</div>
 						<div id="dashboard-analytics-summary" class="dashboard-summary-grid"></div>
 						<div class="dashboard-analytics-grid">
 							<div class="min-w-0">
@@ -130,21 +143,6 @@ templ Dashboard(data views.DashboardData) {
 						</div>
 					</section>
 					@templ.JSONScript("dashboard-token-cumulative-data", data.TokenCumulative)
-
-					<!-- Active Sessions -->
-					<div id="active-sessions">
-						<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
-							<span class="relative flex h-2 w-2">
-								<span class="relative inline-flex rounded-full h-2 w-2 bg-gray-600"></span>
-							</span>
-							Active Sessions
-						</h2>
-						<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-							<div class="text-center py-6 col-span-full">
-								<p class="text-sm text-gray-500">Loading active sessions...</p>
-							</div>
-						</div>
-					</div>
 
 					<!-- Completed Sessions Table -->
 					<div class="border-t border-gray-700/50 pt-4">

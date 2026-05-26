@@ -360,44 +360,102 @@ function renderActive(response) {
 		var count = items.length ? '<span class="text-xs font-normal text-gray-500">(' + items.length + ')</span>' : '';
 		var cards = items.map(activeCard).join('');
 		if (!cards) {
-			cards = '<div class="text-center py-6 col-span-full"><p class="text-sm text-gray-500">No active sessions</p><p class="text-xs text-gray-600 mt-1">Sessions appear here when agents are running</p></div>';
+			cards = '<div class="active-session-empty"><p class="text-sm text-gray-500">No active sessions</p><p class="text-xs text-gray-600 mt-1">Sessions appear here when agents are running</p></div>';
 		}
-		setHTMLIfChanged(wrap, '<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">' + dot + 'Active Sessions ' + count + '</h2><div class="grid grid-cols-1 lg:grid-cols-2 gap-3">' + cards + '</div>');
+		setHTMLIfChanged(wrap, '<div class="active-session-heading"><h2 class="text-lg font-semibold text-gray-200 flex items-center gap-2">' + dot + 'Active Sessions ' + count + '</h2></div><div class="active-session-grid">' + cards + '</div>');
 	});
+}
+
+function activeStatusDot(live, sub) {
+	if (!live) return '<span class="active-session-dot active-session-dot-idle" aria-hidden="true"></span>';
+	if (sub) return '<span class="relative flex h-2.5 w-2.5 flex-shrink-0" aria-hidden="true"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500"></span></span>';
+	return '<span class="relative flex h-2.5 w-2.5 flex-shrink-0" aria-hidden="true"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span></span>';
+}
+
+function contextUsage(session) {
+	var explicitContext = nonNegativeInt(session.context_tokens);
+	var used = explicitContext || nonNegativeInt(session.total_tokens);
+	var windowTokens = nonNegativeInt(session.context_window_tokens);
+	var estimate = !!session.context_estimate || (explicitContext === 0 && used > 0);
+	var percent = windowTokens > 0 ? (used / windowTokens) * 100 : 0;
+	var clamped = Math.max(0, Math.min(100, percent));
+	var state = 'unknown';
+	if (windowTokens > 0) {
+		state = used > windowTokens ? 'over' : (percent >= 80 ? 'high' : 'normal');
+	}
+	return {used: used, windowTokens: windowTokens, estimate: estimate, percent: percent, clamped: clamped, state: state};
+}
+
+function contextLabel(ctx) {
+	if (!ctx.windowTokens) return ctx.used > 0 ? ('Context ' + formatTokens(ctx.used) + (ctx.estimate ? ' est.' : '') + ' / unknown') : 'Context window unknown';
+	return 'Context ' + formatTokens(ctx.used) + ' / ' + formatTokens(ctx.windowTokens) + (ctx.estimate ? ' est.' : '');
+}
+
+function activeStat(label, value, sublabel) {
+	return '<div class="active-session-stat"><span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(value) + '</strong>' + (sublabel ? '<small>' + escapeHTML(sublabel) + '</small>' : '') + '</div>';
+}
+
+function contextProgress(session, compact) {
+	var ctx = contextUsage(session);
+	var label = contextLabel(ctx);
+	var id = escapeAttr(session.id || '');
+	if (!ctx.windowTokens) {
+		return '<div class="active-context active-context-unknown' + (compact ? ' active-context-compact' : '') + '" data-session-context="' + id + '" data-context-state="unknown">' +
+			'<div class="active-context-label"><span>Context</span><span>' + escapeHTML(ctx.used > 0 ? (formatTokens(ctx.used) + (ctx.estimate ? ' est.' : '')) : 'Unknown') + '</span></div>' +
+			'<div class="active-context-track active-context-track-unknown" aria-label="' + escapeAttr(label) + '"></div>' +
+			'<div class="active-context-value">' + escapeHTML(label) + '</div>' +
+			'</div>';
+	}
+	var aria = label;
+	if (ctx.state === 'over') aria += ', over context window';
+	var pctLabel = ctx.state === 'over' ? 'Over window' : Math.round(ctx.percent) + '%';
+	return '<div class="active-context' + (compact ? ' active-context-compact' : '') + '" data-session-context="' + id + '" data-context-state="' + escapeAttr(ctx.state) + '">' +
+		'<div class="active-context-label"><span>Context</span><span>' + escapeHTML(pctLabel) + '</span></div>' +
+		'<div class="active-context-track" role="progressbar" aria-valuemin="0" aria-valuemax="' + ctx.windowTokens + '" aria-valuenow="' + Math.min(ctx.used, ctx.windowTokens) + '" aria-valuetext="' + escapeAttr(aria) + '" aria-label="' + escapeAttr(aria) + '">' +
+		'<span class="active-context-fill active-context-' + escapeAttr(ctx.state) + '" style="width:' + ctx.clamped.toFixed(1) + '%"></span></div>' +
+		'<div class="active-context-value">' + escapeHTML(label) + '</div>' +
+		'</div>';
 }
 
 function activeCard(session) {
 	var live = session.status === 'active';
 	var sub = !!session.parent_session_id;
-	var border = sub ? (live ? 'border-blue-500/50' : 'border-red-500/40') : (live ? 'border-green-500/50' : 'border-red-500/30 border-dashed');
-	var liveColor = sub ? 'blue' : 'green';
-	var statusDot = live ? '<span class="relative flex h-2 w-2 flex-shrink-0"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-' + liveColor + '-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-' + liveColor + '-500"></span></span>' : '<span class="relative flex h-2 w-2 flex-shrink-0"><span class="relative inline-flex rounded-full h-2 w-2 bg-red-500/60"></span></span>';
+	var border = sub ? (live ? 'active-session-card-sub' : 'active-session-card-idle') : (live ? 'active-session-card-live' : 'active-session-card-idle');
+	var statusDot = activeStatusDot(live, sub);
 	var totalTokens = numericValue(session.total_tokens, 0);
 	var turnCount = nonNegativeInt(session.turn_count);
 	var toolCount = nonNegativeInt(session.tool_call_count);
+	var errorCount = nonNegativeInt(session.error_count);
+	var ctx = contextUsage(session);
+	var contextSub = ctx.windowTokens ? ('of ' + formatTokens(ctx.windowTokens) + (ctx.estimate ? ' est.' : '')) : 'window unknown';
+	var errorStat = errorCount > 0 ? activeStat('Errors', String(errorCount), 'needs review') : '';
 	if (sub) {
-		return '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(session.id)) + '" class="block rounded-lg overflow-hidden bg-gray-800/40 border-l-2 px-4 py-3 hover:bg-gray-700/20 transition-colors ' + border + '">' +
-			'<div class="flex items-center justify-between gap-3"><div class="flex items-center gap-2 min-w-0">' + statusDot + '<span class="font-medium text-gray-100 truncate">' + escapeHTML(sessionTitle(session)) + '</span><span class="text-xs text-gray-600 font-mono flex-shrink-0">' + escapeHTML(shortID(session.id)) + '</span></div>' +
-			'<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded flex-shrink-0 ' + (live ? 'bg-blue-500/15 text-blue-400' : 'bg-red-500/15 text-red-400') + '">' + (live ? 'Sub' : 'Idle') + '</span></div>' +
-			'<div class="flex items-center gap-2 text-xs text-gray-500 mt-1 ml-4 flex-wrap"><span class="text-blue-400/50">↑ ' + escapeHTML(shortID(session.parent_session_id)) + '</span>' + modelChip(session.last_model || '') + '<span>' + escapeHTML(session.duration || '') + '</span><span class="text-gray-700">·</span><span>' + turnCount + ' turns</span><span class="text-gray-700">·</span><span>' + formatTokens(totalTokens) + ' tok</span><span class="text-gray-700">·</span><span>' + toolCount + ' tools</span></div>' +
-			(session.working_dir ? '<p class="text-[11px] text-gray-600 truncate mt-0.5 ml-4" title="' + escapeAttr(session.working_dir) + '">' + escapeHTML(session.working_dir) + '</p>' : '') +
+		return '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(session.id)) + '" class="active-session-card ' + border + '">' +
+			'<div class="active-session-card-header"><div class="active-session-title-row">' + statusDot + '<div class="min-w-0"><div class="active-session-title">' + escapeHTML(sessionTitle(session)) + '</div><div class="active-session-kicker"><span>Subagent</span><span class="font-mono">' + escapeHTML(shortID(session.id)) + '</span><span>parent ' + escapeHTML(shortID(session.parent_session_id)) + '</span></div></div></div>' +
+			'<span class="active-session-status ' + (live ? 'active-session-status-sub' : 'active-session-status-idle') + '">' + (live ? 'Live' : 'Idle') + '</span></div>' +
+			'<div class="active-session-meta-row">' + modelChip(session.last_model || '') + providerBadge(session.provider) + '</div>' +
+			'<div class="active-session-stat-grid">' + activeStat('Duration', session.duration || '', 'running') + activeStat('Context', formatTokens(ctx.used || totalTokens), contextSub) + activeStat('Turns', String(turnCount), 'so far') + activeStat('Tools', String(toolCount), 'calls') + errorStat + '</div>' +
+			contextProgress(session, false) +
+			(session.working_dir ? '<p class="active-session-path" title="' + escapeAttr(session.working_dir) + '">' + escapeHTML(session.working_dir) + '</p>' : '') +
 			'</a>';
 	}
 	var childHTML = '';
 	var childSessions = (session.child_sessions || []).filter(validSession);
 	if (childSessions.length > 0) {
-		childHTML = '<div class="border-t border-gray-700/30 px-4 py-2"><div class="text-[10px] uppercase tracking-wider text-blue-400/50 mb-1">' + (childSessions.length === 1 ? '1 subagent' : childSessions.length + ' subagents') + '</div>' + childSessions.map(function(child) {
+		childHTML = '<div class="active-child-list"><div class="active-child-heading">' + (childSessions.length === 1 ? '1 subagent' : childSessions.length + ' subagents') + '</div>' + childSessions.map(function(child) {
 			var childLive = child.status === 'active';
-			var childDot = childLive ? '<span class="relative flex h-1.5 w-1.5 flex-shrink-0"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span><span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-blue-500"></span></span>' : '<span class="w-1.5 h-1.5 rounded-full bg-red-500/60 flex-shrink-0"></span>';
+			var childDot = activeStatusDot(childLive, true);
 			var childModel = child.last_model ? '<span class="text-gray-400 truncate min-w-0 flex-1" title="' + escapeAttr(child.last_model) + '">' + escapeHTML(shortModel(child.last_model)) + '</span>' : '';
-			return '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(child.id)) + '" class="flex items-center gap-2 text-xs py-1 px-2 -mx-1 rounded hover:bg-gray-700/30 transition-colors min-w-0">' + childDot + '<span class="text-gray-500 font-mono flex-shrink-0">' + escapeHTML(shortID(child.id)) + '</span>' + childModel + '<span class="ml-auto flex items-center text-gray-500 tabular-nums flex-shrink-0"><span class="w-14 text-right">' + escapeHTML(child.duration || '') + '</span><span class="w-12 text-right">' + formatTokens(child.total_tokens) + '</span><span class="w-8 text-right">' + nonNegativeInt(child.tool_call_count) + 't</span></span></a>';
+			return '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(child.id)) + '" class="active-child-row"><div class="active-child-main">' + childDot + '<span class="active-child-id">' + escapeHTML(shortID(child.id)) + '</span>' + childModel + '<span class="active-child-stat">' + escapeHTML(child.duration || '') + '</span><span class="active-child-stat">' + nonNegativeInt(child.tool_call_count) + 't</span></div>' + contextProgress(child, true) + '</a>';
 		}).join('') + '</div>';
 	}
-	return '<div class="rounded-lg overflow-hidden border-l-2 bg-gray-800/60 ' + border + '">' +
-		'<a href="' + escapeAttr('/sessions/' + encodeURIComponent(session.id)) + '" class="block px-4 py-3 hover:bg-gray-700/20 transition-colors">' +
-		'<div class="flex items-center justify-between"><div class="flex items-center gap-2 min-w-0">' + statusDot + '<span class="font-medium text-gray-100 truncate">' + escapeHTML(sessionTitle(session)) + '</span><span class="text-xs text-gray-600 font-mono flex-shrink-0">' + escapeHTML(shortID(session.id)) + '</span></div><div class="flex items-center gap-1.5 flex-shrink-0 ml-2">' + providerBadge(session.provider) + '<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded ' + (live ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400') + '">' + (live ? 'Live' : 'Idle') + '</span></div></div>' +
-		'<div class="flex items-center gap-2 text-xs text-gray-500 mt-1 ml-4 flex-wrap">' + modelChip(session.last_model || '') + '<span>' + escapeHTML(session.duration || '') + '</span><span class="text-gray-700">·</span><span>' + turnCount + ' turns</span><span class="text-gray-700">·</span><span>' + formatTokens(totalTokens) + ' tok</span><span class="text-gray-700">·</span><span>' + toolCount + ' tools</span></div>' +
-		(session.working_dir ? '<p class="text-[11px] text-gray-600 truncate mt-0.5 ml-4" title="' + escapeAttr(session.working_dir) + '">' + escapeHTML(session.working_dir) + '</p>' : '') +
+	return '<div class="active-session-card ' + border + '">' +
+		'<a href="' + escapeAttr('/sessions/' + encodeURIComponent(session.id)) + '" class="active-session-link">' +
+		'<div class="active-session-card-header"><div class="active-session-title-row">' + statusDot + '<div class="min-w-0"><div class="active-session-title">' + escapeHTML(sessionTitle(session)) + '</div><div class="active-session-kicker"><span class="font-mono">' + escapeHTML(shortID(session.id)) + '</span><span>' + escapeHTML(session.status || '') + '</span></div></div></div><div class="active-session-badges">' + providerBadge(session.provider) + '<span class="active-session-status ' + (live ? 'active-session-status-live' : 'active-session-status-idle') + '">' + (live ? 'Live' : 'Idle') + '</span></div></div>' +
+		'<div class="active-session-meta-row">' + modelChip(session.last_model || '') + '</div>' +
+		'<div class="active-session-stat-grid">' + activeStat('Duration', session.duration || '', 'running') + activeStat('Context', formatTokens(ctx.used || totalTokens), contextSub) + activeStat('Turns', String(turnCount), 'so far') + activeStat('Tools', String(toolCount), 'calls') + errorStat + '</div>' +
+		contextProgress(session, false) +
+		(session.working_dir ? '<p class="active-session-path" title="' + escapeAttr(session.working_dir) + '">' + escapeHTML(session.working_dir) + '</p>' : '') +
 		'</a>' + childHTML + '</div>';
 }
 

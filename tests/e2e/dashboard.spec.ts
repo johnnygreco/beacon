@@ -232,6 +232,63 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('promotes active sessions with accessible context usage bars', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoDashboard(page);
+
+    await expect(page.locator('#active-sessions')).toContainText('Realtime dashboard smoke run');
+    const sectionOrder = await page.evaluate(() => {
+      const active = document.getElementById('active-sessions')?.getBoundingClientRect();
+      const summary = document.getElementById('dashboard-analytics-summary')?.getBoundingClientRect();
+      const chart = document.getElementById('dashboardTokenCumulativeChart')?.getBoundingClientRect();
+      return {
+        activeTop: active?.top || 0,
+        summaryTop: summary?.top || 0,
+        chartTop: chart?.top || 0,
+      };
+    });
+    expect(sectionOrder.activeTop).toBeGreaterThan(0);
+    expect(sectionOrder.activeTop).toBeLessThan(sectionOrder.summaryTop);
+    expect(sectionOrder.summaryTop).toBeLessThan(sectionOrder.chartTop);
+
+    const parentProgress = page.locator(`[data-session-context="${ACTIVE_SESSION_ID}"] [role="progressbar"]`).first();
+    await expect(parentProgress).toHaveAttribute('aria-valuemin', '0');
+    await expect(parentProgress).toHaveAttribute('aria-valuemax', '200000');
+    await expect(parentProgress).toHaveAttribute('aria-valuenow', '42000');
+    await expect(parentProgress).toHaveAttribute('aria-valuetext', /Context 42\.0K \/ 200\.0K est\./);
+    await expect(page.locator(`[data-session-context="active-child-001"] [role="progressbar"]`)).toHaveAttribute('aria-valuenow', '7400');
+
+    await guards.expectClean();
+  });
+
+  test('handles high, over-window, and unknown active-session context states', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page, { scenario: 'many-active' });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoDashboard(page);
+    await expect(page.locator('#active-sessions')).toContainText('Live queue item 8');
+
+    const high = page.locator('[data-session-context="active-parent-002"]');
+    await expect(high).toHaveAttribute('data-context-state', 'high');
+    await expect(high.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '165000');
+
+    const over = page.locator('[data-session-context="active-parent-003"]');
+    await expect(over).toHaveAttribute('data-context-state', 'over');
+    await expect(over.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '200000');
+    await expect(over.locator('[role="progressbar"]')).toHaveAttribute('aria-valuetext', /over context window/);
+    await expect(over).toContainText('Over window');
+
+    const unknown = page.locator('[data-session-context="active-parent-004"]');
+    await expect(unknown).toHaveAttribute('data-context-state', 'unknown');
+    await expect(unknown.locator('[role="progressbar"]')).toHaveCount(0);
+    await expect(unknown).toContainText('unknown');
+    await expect(unknown).not.toContainText('%');
+
+    await guards.expectClean();
+  });
+
   test('keeps the dashboard search control visible, keyboard reachable, and contained', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);
@@ -330,6 +387,7 @@ test.describe('dashboard battle-tested workflows', () => {
 
     const canvas = page.locator('#dashboardTokenCumulativeChart');
     await expect(canvas).toBeVisible();
+    await canvas.scrollIntoViewIfNeeded();
     await page.waitForFunction(() => Boolean((window as Window & { dashboardTokenCumulativeChart?: any }).dashboardTokenCumulativeChart?.chartArea?.right));
     const points = await page.evaluate(() => {
       const chart = (window as Window & { dashboardTokenCumulativeChart?: any }).dashboardTokenCumulativeChart;

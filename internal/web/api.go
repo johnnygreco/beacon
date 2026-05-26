@@ -795,34 +795,38 @@ func (a *APIHandlers) GetTokensByModel(w http.ResponseWriter, r *http.Request) {
 }
 
 func apiSessionSummaryFromView(s views.SessionSummary) APISessionSummary {
+	s = views.SessionWithContextEstimate(s)
 	children := make([]APISessionSummary, 0, len(s.ChildSessions))
 	for _, child := range s.ChildSessions {
 		children = append(children, apiSessionSummaryFromView(child))
 	}
 	return APISessionSummary{
-		ID:                s.ID,
-		Title:             views.SessionTitle(s, false),
-		Source:            s.Actor,
-		Provider:          s.Provider,
-		Status:            s.Status,
-		StartedAt:         s.StartedAt,
-		EndedAt:           s.EndedAt,
-		Duration:          s.Duration,
-		TurnCount:         s.TurnCount,
-		TotalTokens:       s.TotalTokens,
-		InputTokens:       s.InputTokens,
-		OutputTokens:      s.OutputTokens,
-		CacheReadTokens:   s.CacheReadTokens,
-		CacheCreateTokens: s.CacheCreateTokens,
-		ToolCallCount:     s.ToolCallCount,
-		MCPCallCount:      s.MCPCallCount,
-		ErrorCount:        s.ErrorCount,
-		LastModel:         s.ActiveModel,
-		WorkingDir:        s.WorkingDir,
-		ParentSessionID:   s.ParentSessionID,
-		HasSessionEnd:     s.HasSessionEnd,
-		SubagentCount:     s.SubagentCount,
-		ChildSessions:     children,
+		ID:                  s.ID,
+		Title:               views.SessionTitle(s, false),
+		Source:              s.Actor,
+		Provider:            s.Provider,
+		Status:              s.Status,
+		StartedAt:           s.StartedAt,
+		EndedAt:             s.EndedAt,
+		Duration:            s.Duration,
+		TurnCount:           s.TurnCount,
+		TotalTokens:         s.TotalTokens,
+		InputTokens:         s.InputTokens,
+		OutputTokens:        s.OutputTokens,
+		CacheReadTokens:     s.CacheReadTokens,
+		CacheCreateTokens:   s.CacheCreateTokens,
+		ToolCallCount:       s.ToolCallCount,
+		MCPCallCount:        s.MCPCallCount,
+		ErrorCount:          s.ErrorCount,
+		LastModel:           s.ActiveModel,
+		ContextTokens:       s.ContextTokens,
+		ContextWindowTokens: s.ContextWindowTokens,
+		ContextEstimate:     s.ContextEstimate,
+		WorkingDir:          s.WorkingDir,
+		ParentSessionID:     s.ParentSessionID,
+		HasSessionEnd:       s.HasSessionEnd,
+		SubagentCount:       s.SubagentCount,
+		ChildSessions:       children,
 	}
 }
 
