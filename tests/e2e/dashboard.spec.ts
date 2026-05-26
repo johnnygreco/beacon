@@ -108,6 +108,16 @@ async function installTranscriptRealtimeFixture(page: Page) {
   });
 }
 
+async function expectDashboardSearchInputInView(page: Page) {
+  const visible = await page.locator('#dashboard-session-search').evaluate((input) => {
+    const owner = document.getElementById('dashboard-main');
+    const inputRect = input.getBoundingClientRect();
+    const ownerRect = owner?.getBoundingClientRect() || { top: 0, bottom: window.innerHeight };
+    return inputRect.top >= ownerRect.top && inputRect.bottom <= ownerRect.bottom;
+  });
+  expect(visible).toBe(true);
+}
+
 test.describe('dashboard battle-tested workflows', () => {
   test('loads cleanly and keeps chart geometry across supported viewports', async ({ page }) => {
     const guards = attachPageGuards(page);
@@ -136,6 +146,24 @@ test.describe('dashboard battle-tested workflows', () => {
   test('keeps the dashboard search control visible, keyboard reachable, and contained', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoDashboard(page);
+    await page.locator('#dashboard-main').evaluate((main) => {
+      main.scrollTop = 0;
+    });
+    await page.locator('#dashboard-search-focus').click();
+    await expect(page.locator('#dashboard-session-search')).toBeFocused();
+    await expectDashboardSearchInputInView(page);
+    await page.locator('#dashboard-main').evaluate((main) => {
+      main.scrollTop = 0;
+    });
+    await page.evaluate(() => {
+      (document.activeElement as HTMLElement | null)?.blur();
+    });
+    await page.keyboard.press('/');
+    await expect(page.locator('#dashboard-session-search')).toBeFocused();
+    await expectDashboardSearchInputInView(page);
 
     for (const viewport of [
       { width: 390, height: 844 },

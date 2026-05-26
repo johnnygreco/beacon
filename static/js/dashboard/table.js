@@ -2,16 +2,24 @@
 function sortCompletedTable(control, column, preserveDirection) {
 	var th = control && control.closest ? control.closest('th[data-sort-key]') : control;
 	if (!th) return;
-	if (sortColumn !== column) {
-		sortColumn = column;
-		// Default ascending for text, descending for numbers
-		sortAsc = ['name', 'provider', 'model', 'project', 'id'].indexOf(column) >= 0;
-	} else if (!preserveDirection) {
-		sortAsc = !sortAsc;
+	var shouldLoad = !preserveDirection;
+	var applySort = function() {
+		if (sortColumn !== column) {
+			sortColumn = column;
+			// Default ascending for text, descending for numbers
+			sortAsc = ['name', 'provider', 'model', 'project', 'id'].indexOf(column) >= 0;
+		} else if (!preserveDirection) {
+			sortAsc = !sortAsc;
+		}
+		updateCompletedSortIndicators();
+		if (shouldLoad) sortCurrentCompletedRows(column);
+	};
+	if (typeof withDashboardScrollStability === 'function') {
+		withDashboardScrollStability(applySort, {completedRegion: true});
+	} else {
+		applySort();
 	}
-	updateCompletedSortIndicators();
-	if (!preserveDirection) {
-		sortCurrentCompletedRows(column);
+	if (shouldLoad) {
 		loadCompletedSessions(0);
 	}
 }

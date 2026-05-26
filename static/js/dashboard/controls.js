@@ -134,6 +134,38 @@ document.addEventListener('click', function(evt) {
 	var searchSession = document.getElementById('dashboard-search-session');
 	var searchSort = document.getElementById('dashboard-search-sort');
 	var searchReset = document.getElementById('dashboard-search-reset');
+	function focusWithoutScroll(el) {
+		if (!el) return;
+		try {
+			el.focus({preventScroll: true});
+		} catch (err) {
+			el.focus();
+		}
+	}
+	function isElementVisibleInOwner(el) {
+		if (!el) return false;
+		var rect = el.getBoundingClientRect();
+		var owner = typeof dashboardScrollOwner === 'function' ? dashboardScrollOwner() : null;
+		var viewport = owner && typeof isDesktopDashboardLayout === 'function' && isDesktopDashboardLayout()
+			? owner.getBoundingClientRect()
+			: {top: 0, bottom: window.innerHeight || document.documentElement.clientHeight};
+		return rect.top >= viewport.top && rect.bottom <= viewport.bottom;
+	}
+	function revealSearchAndFocus() {
+		if (!searchInput) return;
+		if (!isElementVisibleInOwner(searchInput)) {
+			var target = document.getElementById('dashboard-search') || searchInput;
+			var owner = typeof dashboardScrollOwner === 'function' ? dashboardScrollOwner() : null;
+			if (owner && typeof isDesktopDashboardLayout === 'function' && isDesktopDashboardLayout()) {
+				var ownerRect = owner.getBoundingClientRect();
+				var targetRect = target.getBoundingClientRect();
+				owner.scrollTop += targetRect.top - ownerRect.top - 24;
+			} else if (target.scrollIntoView) {
+				target.scrollIntoView({block: 'nearest'});
+			}
+		}
+		focusWithoutScroll(searchInput);
+	}
 	function scheduleDashboardSearch() {
 		clearTimeout(dashboardSearchTimer);
 		dashboardSearchTimer = setTimeout(function() {
@@ -188,12 +220,12 @@ document.addEventListener('click', function(evt) {
 			currentSearchLimit = 30;
 			syncSearchControls();
 			loadCompletedSessions(0);
-			if (searchInput) searchInput.focus();
+			focusWithoutScroll(searchInput);
 		});
 	}
 	if (searchFocus) {
 		searchFocus.addEventListener('click', function() {
-			if (searchInput) searchInput.focus();
+			revealSearchAndFocus();
 		});
 	}
 	document.querySelectorAll('[data-search-range]').forEach(function(button) {
@@ -238,14 +270,14 @@ document.addEventListener('click', function(evt) {
 			if (searchSession) searchSession.value = '';
 			syncSearchControls();
 			loadCompletedSessions(0);
-			if (searchInput) searchInput.focus();
+			focusWithoutScroll(searchInput);
 		});
 	}
 	document.addEventListener('keydown', function(evt) {
 		var tagName = document.activeElement ? document.activeElement.tagName : '';
 		if (evt.key === '/' && !evt.ctrlKey && !evt.metaKey && ['INPUT', 'TEXTAREA', 'SELECT'].indexOf(tagName) === -1) {
 			evt.preventDefault();
-			if (searchInput) searchInput.focus();
+			revealSearchAndFocus();
 		}
 	});
 	if (window.EventSource) {
