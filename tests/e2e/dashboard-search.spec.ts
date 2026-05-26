@@ -71,10 +71,16 @@ test.describe('dashboard search workflows', () => {
     await fillDashboardSearchAndWait(page, 'dashboard payload');
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Dashboard payload search');
-    await expect(page.locator('#dashboard-search-clear')).toBeVisible();
+    await expect(page.locator('#dashboard-search-clear')).toHaveCount(0);
 
-    await page.locator('#dashboard-search-clear').click();
+    const escapeClearResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'completed';
+    });
+    await page.keyboard.press('Escape');
+    await escapeClearResponse;
     await expect(page.locator('#dashboard-session-search')).toHaveValue('');
+    await expect(page.locator('#dashboard-session-search')).toBeFocused();
     await waitForCompletedRows(page, 30);
 
     await fillDashboardSearchAndWait(page, 'search');
@@ -170,6 +176,32 @@ test.describe('dashboard search workflows', () => {
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Dashboard payload search');
     await expectDashboardScrollNear(page, baseline);
+
+    await guards.expectClean();
+  });
+
+  test('clears text-only search with Escape without moving desktop scroll', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installDashboardFixtures(page);
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+    await scrollDashboardMainToSearch(page);
+
+    await fillDashboardSearchAndWait(page, 'dashboard payload');
+    await waitForDashboardSearchRows(page, 1);
+    await expect(page.locator('#dashboard-session-search')).toBeFocused();
+    const beforeEscape = await readDashboardScroll(page);
+    const completedResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'completed';
+    });
+    await page.keyboard.press('Escape');
+    await completedResponse;
+    await waitForCompletedRows(page, 30);
+    await expect(page.locator('#dashboard-session-search')).toHaveValue('');
+    await expect(page.locator('#dashboard-session-search')).toBeFocused();
+    await expectDashboardScrollNear(page, beforeEscape);
 
     await guards.expectClean();
   });
