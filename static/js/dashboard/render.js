@@ -608,10 +608,13 @@ async function loadActiveSessions() {
 	renderActive(data);
 }
 
-async function loadDashboardSearch() {
+async function loadDashboardSearch(options) {
+	options = options || {};
+	var silent = !!options.silent;
+	if (silent && (dashboardControllers.completed || dashboardSearchTimer)) return;
 	currentCompletedOffset = 0;
 	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
-	renderDashboardSearchLoading();
+	if (!silent) renderDashboardSearchLoading();
 	var result = await fetchDashboardJSON('completed', requestURL('/api/dashboard/search', {
 		q: currentSearchQuery,
 		range: currentSearchRange,
@@ -622,6 +625,7 @@ async function loadDashboardSearch() {
 	}));
 	if (!result || result.stale) return;
 	if (result.error) {
+		if (silent) return;
 		withDashboardScrollStability(function() {
 			var tbody = document.getElementById('completed-sessions');
 			var status = document.getElementById('completed-session-status');
@@ -636,14 +640,16 @@ async function loadDashboardSearch() {
 	renderDashboardSearch(result.data);
 }
 
-async function loadCompletedSessions(offset) {
+async function loadCompletedSessions(offset, options) {
+	options = options || {};
 	if (isSearchMode()) {
-		return loadDashboardSearch();
+		return loadDashboardSearch(options);
 	}
+	if (options.silent && (dashboardControllers.completed || dashboardSearchTimer)) return;
 	currentCompletedOffset = Math.max(0, offset || 0);
 	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 	var status = document.getElementById('completed-session-status');
-	if (status) status.textContent = currentSearchQuery ? 'Searching sessions...' : 'Loading sessions...';
+	if (status && !options.silent) status.textContent = currentSearchQuery ? 'Searching sessions...' : 'Loading sessions...';
 	var result = await fetchDashboardJSON('completed', requestURL('/api/dashboard/sessions', {
 		state: 'completed',
 		limit: completedPageSize,
@@ -654,6 +660,7 @@ async function loadCompletedSessions(offset) {
 	}));
 	if (!result || result.stale) return;
 	if (result.error) {
+		if (options.silent) return;
 		withDashboardScrollStability(function() {
 			var tbody = document.getElementById('completed-sessions');
 			setHTMLIfChanged(tbody, '<tr><td colspan="10" class="text-center py-4"><span class="text-sm text-red-400">Unable to load completed sessions. <button type="button" class="underline" onclick="loadCompletedSessions(currentCompletedOffset)">Retry</button></span></td></tr>');
