@@ -482,6 +482,28 @@ type DashboardData struct {
 	TokenCumulative   ModelSeriesChart
 	ModelActivity     ModelMetricChart
 	HasMoreSessions   bool
+	DashboardName     string
+}
+
+const (
+	DefaultDashboardPageTitle = "Dashboard"
+	DefaultDashboardHeader    = "Beacon Realtime Dashboard"
+)
+
+func (d DashboardData) PageTitle() string {
+	name := strings.TrimSpace(d.DashboardName)
+	if name != "" {
+		return name
+	}
+	return DefaultDashboardPageTitle
+}
+
+func (d DashboardData) HeaderTitle() string {
+	name := strings.TrimSpace(d.DashboardName)
+	if name != "" {
+		return name
+	}
+	return DefaultDashboardHeader
 }
 
 type SessionDetailData struct {

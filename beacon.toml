@@ -71,3 +71,6 @@ default_output_cost = 15.00
 [mcp]
 max_results = 25
 context_window = 3
+
+[dashboard]
+name = ""

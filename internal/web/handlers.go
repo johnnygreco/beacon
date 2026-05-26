@@ -15,19 +15,20 @@ import (
 
 // Handlers serves HTML page routes rendered with templ.
 type Handlers struct {
-	db     *sql.DB
-	logger *slog.Logger
+	db            *sql.DB
+	logger        *slog.Logger
+	dashboardName string
 }
 
 // NewHandlers creates page handlers.
-func NewHandlers(db *sql.DB, _ *search.Searcher, logger *slog.Logger) *Handlers {
-	return &Handlers{db: db, logger: logger}
+func NewHandlers(db *sql.DB, _ *search.Searcher, logger *slog.Logger, dashboardName string) *Handlers {
+	return &Handlers{db: db, logger: logger, dashboardName: dashboardName}
 }
 
 // Dashboard renders the dashboard shell; data loads through JSON APIs.
 func (h *Handlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	if err := pages.Dashboard(views.DashboardData{}).Render(r.Context(), w); err != nil {
+	if err := pages.Dashboard(views.DashboardData{DashboardName: h.dashboardName}).Render(r.Context(), w); err != nil {
 		h.logger.Debug("render dashboard failed", "error", err)
 	}
 	h.logger.Debug("Dashboard handler complete", "duration", time.Since(start))

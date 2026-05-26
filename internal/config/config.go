@@ -10,19 +10,22 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/spf13/viper"
 )
 
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Capture  CaptureConfig
-	SSE      SSEConfig
-	Search   SearchConfig
-	Pricing  PricingConfig
-	MCP      MCPConfig
+	Server    ServerConfig
+	Database  DatabaseConfig
+	Capture   CaptureConfig
+	SSE       SSEConfig
+	Search    SearchConfig
+	Pricing   PricingConfig
+	MCP       MCPConfig
+	Dashboard DashboardConfig
 }
 
 type ServerConfig struct {
@@ -75,6 +78,12 @@ type PricingConfig struct {
 type MCPConfig struct {
 	MaxResults    int `mapstructure:"max_results"`
 	ContextWindow int `mapstructure:"context_window"`
+}
+
+const DashboardNameMaxLength = 80
+
+type DashboardConfig struct {
+	Name string
 }
 
 func Load(cfgFile string) (*Config, error) {
@@ -138,6 +147,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("pricing.default_output_cost", 15.0)
 	v.SetDefault("mcp.max_results", 25)
 	v.SetDefault("mcp.context_window", 3)
+	v.SetDefault("dashboard.name", "")
 }
 
 func DefaultCaptureSources() []SourceConfig {
@@ -274,7 +284,25 @@ func Validate(cfg *Config) error {
 	if cfg.MCP.ContextWindow > 1000 {
 		return fmt.Errorf("mcp.context_window must be <= 1000")
 	}
+
+	cfg.Dashboard.Name = normalizeDashboardName(cfg.Dashboard.Name)
+	if utf8.RuneCountInString(cfg.Dashboard.Name) > DashboardNameMaxLength {
+		return fmt.Errorf("dashboard.name must be <= %d characters", DashboardNameMaxLength)
+	}
 	return nil
+}
+
+func normalizeDashboardName(value string) string {
+	value = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			if unicode.IsSpace(r) {
+				return ' '
+			}
+			return -1
+		}
+		return r
+	}, value)
+	return strings.Join(strings.Fields(value), " ")
 }
 
 func validateSources(sources []SourceConfig) error {

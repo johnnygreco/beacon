@@ -119,6 +119,46 @@ async function expectDashboardSearchInputInView(page: Page) {
 }
 
 test.describe('dashboard battle-tested workflows', () => {
+  test('edits dashboard name, persists tab title, clears fallback, and renders unsafe text safely', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+    await gotoDashboard(page);
+
+    await expect(page).toHaveTitle('Dashboard | Beacon');
+    await expect(page.locator('#dashboard-title')).toHaveText('Beacon Realtime Dashboard');
+
+    await page.locator('#dashboard-name-edit').click();
+    await expect(page.locator('#dashboard-name-input')).toBeVisible();
+    await page.locator('#dashboard-name-input').fill('  Workstation A  ');
+    await expect(page).toHaveTitle('Workstation A | Beacon');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-name'))).toBe('Workstation A');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#dashboard-title')).toHaveText('Workstation A');
+
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#dashboard-analytics-summary > div')).toHaveCount(4);
+    await expect(page.locator('#dashboard-title')).toHaveText('Workstation A');
+    await expect(page).toHaveTitle('Workstation A | Beacon');
+
+    await page.locator('#dashboard-name-edit').click();
+    await page.locator('#dashboard-name-clear').click();
+    await expect(page).toHaveTitle('Dashboard | Beacon');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-name'))).toBeNull();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#dashboard-title')).toHaveText('Beacon Realtime Dashboard');
+
+    const unsafeName = '<script>window.__beaconNameExecuted = true</script>';
+    await page.locator('#dashboard-name-edit').click();
+    await page.locator('#dashboard-name-input').fill(unsafeName);
+    await expect(page).toHaveTitle(`${unsafeName} | Beacon`);
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#dashboard-title')).toHaveText(unsafeName);
+    expect(await page.evaluate(() => (window as Window & { __beaconNameExecuted?: boolean }).__beaconNameExecuted)).toBeUndefined();
+    await expect(page.locator('script', { hasText: 'window.__beaconNameExecuted' })).toHaveCount(0);
+
+    await guards.expectClean();
+  });
+
   test('loads cleanly and keeps chart geometry across supported viewports', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);

@@ -57,6 +57,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.MCP.ContextWindow != 3 {
 		t.Errorf("MCP.ContextWindow = %d, want %d", cfg.MCP.ContextWindow, 3)
 	}
+	if cfg.Dashboard.Name != "" {
+		t.Errorf("Dashboard.Name = %q, want empty default", cfg.Dashboard.Name)
+	}
 
 	if len(cfg.Capture.Sources) != 5 {
 		t.Fatalf("Capture.Sources has %d entries, want 5", len(cfg.Capture.Sources))
@@ -92,6 +95,9 @@ read_pool_size = 12
 
 [capture]
 reconcile_interval = "45s"
+
+[dashboard]
+name = " Workstation A "
 
 [[capture.sources]]
 name = "custom-codex"
@@ -135,6 +141,9 @@ format = "jsonl"
 	}
 	if cfg.MCP.MaxResults != 25 {
 		t.Errorf("MCP.MaxResults = %d, want %d (default)", cfg.MCP.MaxResults, 25)
+	}
+	if cfg.Dashboard.Name != "Workstation A" {
+		t.Errorf("Dashboard.Name = %q, want %q", cfg.Dashboard.Name, "Workstation A")
 	}
 }
 
@@ -278,6 +287,11 @@ func TestLoad_InvalidValues(t *testing.T) {
 			wantErr: "mcp.context_window must be non-negative",
 		},
 		{
+			name:    "dashboard name too long",
+			body:    "[dashboard]\nname = \"" + strings.Repeat("x", DashboardNameMaxLength+1) + "\"\n",
+			wantErr: "dashboard.name must be <= 80 characters",
+		},
+		{
 			name: "unsupported source pair",
 			body: `
 [[capture.sources]]
@@ -385,6 +399,7 @@ func TestValidate_InvalidFields(t *testing.T) {
 		{name: "output pricing", mutate: func(c *Config) { c.Pricing.DefaultOutputCost = -0.1 }, wantErr: "pricing.default_output_cost must be non-negative"},
 		{name: "mcp max high", mutate: func(c *Config) { c.MCP.MaxResults = 10001 }, wantErr: "mcp.max_results must be <= 10000"},
 		{name: "mcp context high", mutate: func(c *Config) { c.MCP.ContextWindow = 1001 }, wantErr: "mcp.context_window must be <= 1000"},
+		{name: "dashboard name high", mutate: func(c *Config) { c.Dashboard.Name = strings.Repeat("x", DashboardNameMaxLength+1) }, wantErr: "dashboard.name must be <= 80 characters"},
 	}
 
 	for _, tt := range tests {
@@ -422,6 +437,7 @@ func TestValidate_NormalizesTrimmedFields(t *testing.T) {
 			WatchRoot: " /tmp/codex ",
 		},
 	}
+	cfg.Dashboard.Name = "  Workstation\n\tA  "
 	if err := Validate(&cfg); err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
@@ -432,6 +448,9 @@ func TestValidate_NormalizesTrimmedFields(t *testing.T) {
 	if source.Name != "codex" || source.Runtime != "codex" || source.Provider != "openai" ||
 		source.Format != "jsonl" || source.Globs[0] != "/tmp/codex/**/*.jsonl" || source.WatchRoot != "/tmp/codex" {
 		t.Fatalf("source fields not normalized: %#v", source)
+	}
+	if cfg.Dashboard.Name != "Workstation A" {
+		t.Fatalf("dashboard name not normalized: %q", cfg.Dashboard.Name)
 	}
 }
 
