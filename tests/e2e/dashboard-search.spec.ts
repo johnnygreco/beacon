@@ -67,6 +67,23 @@ async function expectSearchVerticalFlow(page: Page) {
   expect(overlaps).toEqual([]);
 }
 
+async function scrollDashboardMainToBottom(page: Page) {
+  await page.locator('#dashboard-main').evaluate((main) => {
+    main.scrollTop = main.scrollHeight;
+  });
+  await page.waitForFunction(() => {
+    const owner = document.getElementById('dashboard-main');
+    if (!owner) return false;
+    const maxTop = Math.max(0, owner.scrollHeight - owner.clientHeight);
+    return maxTop > 0 && Math.abs(owner.scrollTop - maxTop) <= 4;
+  });
+  const scroll = await readDashboardScroll(page);
+  expect(scroll.windowY).toBe(0);
+  expect(scroll.mainContentTop).toBe(0);
+  expect(scroll.dashboardTop).toBeGreaterThan(0);
+  return scroll;
+}
+
 test.describe('dashboard search workflows', () => {
   test('redirects legacy search URL back to the dashboard search table', async ({ page }) => {
     await installDashboardFixtures(page);
@@ -295,6 +312,90 @@ test.describe('dashboard search workflows', () => {
     await expectDashboardScrollNear(page, afterLatest);
 
     await guards.expectClean();
+  });
+
+  test('keeps bottom search results visible during repeated live refreshes', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installDashboardFixtures(page, { mockEventSource: true, searchDelayMs: 500 });
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+
+    await fillDashboardSearchAndWait(page, 'many');
+    await waitForDashboardSearchRows(page, 30);
+    const moreResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('limit') === '60');
+    await page.getByRole('button', { name: 'Show more' }).click();
+    await moreResponse;
+    await waitForDashboardSearchRows(page, 35);
+    await expect(page.locator('#completed-session-status')).toHaveText('35 search results');
+    await page.evaluate(() => {
+      const status = document.getElementById('completed-session-status');
+      const rows = document.getElementById('completed-sessions');
+      const samples: string[] = [];
+      const rowCounts: number[] = [];
+      const recordStatus = () => samples.push(status?.textContent || '');
+      const recordRows = () => rowCounts.push(document.querySelectorAll('#completed-sessions tr[data-search-row]').length);
+      const statusObserver = new MutationObserver(recordStatus);
+      const rowObserver = new MutationObserver(recordRows);
+      if (status) statusObserver.observe(status, { childList: true, characterData: true, subtree: true });
+      if (rows) rowObserver.observe(rows, { childList: true, subtree: true });
+      recordStatus();
+      recordRows();
+      (window as Window & {
+        __beaconSearchStatusSamples?: string[];
+        __beaconSearchRowCounts?: number[];
+        __beaconSearchStatusObserver?: MutationObserver;
+        __beaconSearchRowObserver?: MutationObserver;
+      }).__beaconSearchStatusSamples = samples;
+      (window as Window & { __beaconSearchRowCounts?: number[] }).__beaconSearchRowCounts = rowCounts;
+      (window as Window & { __beaconSearchStatusObserver?: MutationObserver }).__beaconSearchStatusObserver = statusObserver;
+      (window as Window & { __beaconSearchRowObserver?: MutationObserver }).__beaconSearchRowObserver = rowObserver;
+    });
+
+    const bottom = await scrollDashboardMainToBottom(page);
+    for (let i = 0; i < 3; i += 1) {
+      const refreshResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('limit') === '60');
+      await emitDashboardEvent(page, 'completed-sessions-update');
+      await expect(page.locator('#completed-session-status')).toHaveText('35 search results');
+      await expect(page.locator('#completed-sessions tr[data-search-row]')).toHaveCount(35);
+      await refreshResponse;
+      await waitForDashboardSearchRows(page, 35);
+      await expectDashboardScrollNear(page, bottom, 4);
+    }
+    let failNextSearch = true;
+    await page.route('**/api/dashboard/search**', async (route) => {
+      if (!failNextSearch) return route.fallback();
+      failNextSearch = false;
+      return route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'fixture failure' }),
+      });
+    });
+    const failedRefresh = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.status() === 500 && url.pathname === '/api/dashboard/search' && url.searchParams.get('q') === 'many';
+    });
+    await emitDashboardEvent(page, 'completed-sessions-update');
+    await expect(page.locator('#completed-session-status')).toHaveText('35 search results');
+    await expect(page.locator('#completed-sessions tr[data-search-row]')).toHaveCount(35);
+    await failedRefresh;
+    await expect(page.locator('#completed-session-status')).toHaveText('35 search results');
+    await expect(page.locator('#completed-sessions tr[data-search-row]')).toHaveCount(35);
+    await expectDashboardScrollNear(page, bottom, 4);
+
+    const statusSamples = await page.evaluate(() => {
+      const store = window as Window & { __beaconSearchStatusSamples?: string[]; __beaconSearchStatusObserver?: MutationObserver };
+      store.__beaconSearchStatusObserver?.disconnect();
+      return store.__beaconSearchStatusSamples || [];
+    });
+    const rowCounts = await page.evaluate(() => {
+      const store = window as Window & { __beaconSearchRowCounts?: number[]; __beaconSearchRowObserver?: MutationObserver };
+      store.__beaconSearchRowObserver?.disconnect();
+      return store.__beaconSearchRowCounts || [];
+    });
+    expect(statusSamples.some((sample) => /searching/i.test(sample))).toBe(false);
+    expect(statusSamples.some((sample) => /failed/i.test(sample))).toBe(false);
+    expect(Math.min(...rowCounts)).toBe(35);
   });
 
   test('keeps desktop scroll fixed across search controls and live dashboard updates', async ({ page }) => {

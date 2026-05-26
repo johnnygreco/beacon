@@ -174,6 +174,7 @@ document.addEventListener('click', function(evt) {
 		clearTimeout(dashboardSearchTimer);
 		if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 		dashboardSearchTimer = setTimeout(function() {
+			dashboardSearchTimer = 0;
 			loadCompletedSessions(0);
 		}, 250);
 	}
@@ -203,6 +204,7 @@ document.addEventListener('click', function(evt) {
 			if (evt.key === 'Enter') {
 				evt.preventDefault();
 				clearTimeout(dashboardSearchTimer);
+				dashboardSearchTimer = 0;
 				currentSearchQuery = searchInput.value.trim();
 				currentCompletedOffset = 0;
 				currentSearchLimit = 30;
@@ -211,6 +213,7 @@ document.addEventListener('click', function(evt) {
 			} else if (evt.key === 'Escape' && currentSearchQuery !== '') {
 				evt.preventDefault();
 				clearTimeout(dashboardSearchTimer);
+				dashboardSearchTimer = 0;
 				currentSearchQuery = '';
 				currentCompletedOffset = 0;
 				currentSearchLimit = 30;
@@ -270,6 +273,7 @@ document.addEventListener('click', function(evt) {
 			if (searchInput) searchInput.value = '';
 			if (searchSession) searchSession.value = '';
 			clearTimeout(dashboardSearchTimer);
+			dashboardSearchTimer = 0;
 			syncSearchControls();
 			if (typeof writeDashboardStateToURL === 'function') writeDashboardStateToURL();
 			loadCompletedSessions(0);
@@ -300,7 +304,7 @@ document.addEventListener('click', function(evt) {
 			loadActiveSessions();
 		});
 		dashboardEvents.addEventListener('completed-sessions-update', function() {
-			loadCompletedSessions(currentCompletedOffset);
+			loadCompletedSessions(currentCompletedOffset, {silent: true});
 		});
 		dashboardEvents.addEventListener('activity-update', function() {
 			loadActivity();
