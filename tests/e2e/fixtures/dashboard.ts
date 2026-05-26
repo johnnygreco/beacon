@@ -608,13 +608,13 @@ async function fulfillJSON(route: Route, data: unknown, status = 200, contractNa
   });
 }
 
-function transcriptFixtureHTML() {
+function transcriptFixtureHTML(sessionID = TEST_SESSION_ID) {
   return `<!doctype html>
 <html lang="en" class="dark">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Session ${TEST_SESSION_ID} | Beacon</title>
+    <title>Session ${sessionID} | Beacon</title>
     <script>
       (function() {
         var fallbackTheme = 'codex-dark';
@@ -644,7 +644,7 @@ function transcriptFixtureHTML() {
                 <span>Transcript</span>
               </div>
               <h1 class="text-2xl font-semibold text-gray-100 mt-2">Legacy migration replay</h1>
-              <p class="font-mono text-sm text-gray-500 mt-1">${TEST_SESSION_ID}</p>
+              <p class="font-mono text-sm text-gray-500 mt-1">${sessionID}</p>
             </div>
             <span class="px-3 py-1 text-sm font-semibold uppercase rounded-full bg-gray-600/40 text-gray-400">Completed</span>
           </div>
@@ -829,8 +829,9 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
 
   await page.route('**/sessions/**', async (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname === `/sessions/${TEST_SESSION_ID}`) {
-      return route.fulfill({ status: 200, contentType: 'text/html', body: transcriptFixtureHTML() });
+    const match = url.pathname.match(/^\/sessions\/([^/]+)$/);
+    if (match) {
+      return route.fulfill({ status: 200, contentType: 'text/html', body: transcriptFixtureHTML(decodeURIComponent(match[1])) });
     }
     return route.fallback();
   });

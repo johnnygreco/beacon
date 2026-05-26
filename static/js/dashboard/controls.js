@@ -1,11 +1,7 @@
 function filterActivity(btn, type) {
-	currentActivityFilter = type;
-	document.querySelectorAll('.activity-filter-btn').forEach(function(b) {
-		b.className = 'activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
-		b.setAttribute('aria-pressed', 'false');
-	});
-	btn.className = 'activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';
-	btn.setAttribute('aria-pressed', 'true');
+	currentActivityFilter = ['all', 'message', 'tool_call', 'error'].indexOf(type) >= 0 ? type : 'all';
+	syncActivityControls();
+	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 	loadActivity();
 }
 
@@ -13,16 +9,44 @@ function activateSessionsPagination(offset) {
 	loadCompletedSessions(offset);
 }
 
+function activityButtonType(button) {
+	var action = button.getAttribute('onclick') || '';
+	var match = action.match(/filterActivity\(this,\s*'([^']+)'/);
+	return match ? match[1] : 'all';
+}
+
+function syncActivityControls() {
+	document.querySelectorAll('.activity-filter-btn').forEach(function(button) {
+		var active = activityButtonType(button) === currentActivityFilter;
+		button.className = active
+			? 'activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors'
+			: 'activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
+		button.setAttribute('aria-pressed', active ? 'true' : 'false');
+	});
+}
+
+function rangeButtonValue(button) {
+	var action = button.getAttribute('onclick') || '';
+	var match = action.match(/setDashboardRange\(this,\s*'([^']*)'/);
+	return match ? match[1] : '';
+}
+
+function syncDashboardRangeControls() {
+	document.querySelectorAll('#dashboard-range-control .dash-range-btn').forEach(function(button) {
+		var active = rangeButtonValue(button) === currentRange;
+		button.className = active
+			? 'dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors'
+			: 'dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
+		button.setAttribute('aria-pressed', active ? 'true' : 'false');
+	});
+}
+
 function setDashboardRange(btn, value) {
 	currentRange = value || '';
 	currentCompletedOffset = 0;
-	document.querySelectorAll('#dashboard-range-control .dash-range-btn').forEach(function(b) {
-		b.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
-		b.setAttribute('aria-pressed', 'false');
-	});
-	btn.className = 'dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors';
-	btn.setAttribute('aria-pressed', 'true');
+	syncDashboardRangeControls();
 	updateRangeCaption();
+	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 	loadDashboardCharts();
 	if (!isSearchMode()) loadCompletedSessions(0);
 	loadActivity();
@@ -67,13 +91,16 @@ document.addEventListener('click', function(evt) {
 		evt.preventDefault();
 		var idx = searchLimitSteps.indexOf(currentSearchLimit);
 		currentSearchLimit = searchLimitSteps[Math.min(searchLimitSteps.length - 1, idx < 0 ? 1 : idx + 1)];
+		if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 		loadDashboardSearch();
 		return;
 	}
 	var searchRowEl = evt.target.closest && evt.target.closest('tr[data-search-row]');
 	if (searchRowEl && !evt.target.closest('button') && !evt.target.closest('a')) {
 		evt.preventDefault();
-		window.location.href = searchRowEl.getAttribute('data-href');
+		var searchHref = searchRowEl.getAttribute('data-href');
+		if (typeof saveDashboardReturnState === 'function') saveDashboardReturnState(searchHref);
+		window.location.href = searchHref;
 		return;
 	}
 	var pageBtn = evt.target.closest && evt.target.closest('.json-page-btn');
@@ -145,6 +172,7 @@ document.addEventListener('click', function(evt) {
 	}
 	function scheduleDashboardSearch() {
 		clearTimeout(dashboardSearchTimer);
+		if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 		dashboardSearchTimer = setTimeout(function() {
 			loadCompletedSessions(0);
 		}, 250);
@@ -176,15 +204,19 @@ document.addEventListener('click', function(evt) {
 				evt.preventDefault();
 				clearTimeout(dashboardSearchTimer);
 				currentSearchQuery = searchInput.value.trim();
+				currentCompletedOffset = 0;
 				currentSearchLimit = 30;
+				if (typeof writeDashboardStateToURL === 'function') writeDashboardStateToURL();
 				loadCompletedSessions(0);
 			} else if (evt.key === 'Escape' && currentSearchQuery !== '') {
 				evt.preventDefault();
 				clearTimeout(dashboardSearchTimer);
 				currentSearchQuery = '';
+				currentCompletedOffset = 0;
 				currentSearchLimit = 30;
 				searchInput.value = '';
 				syncSearchControls();
+				if (typeof writeDashboardStateToURL === 'function') writeDashboardStateToURL();
 				loadCompletedSessions(0);
 			}
 		});
@@ -192,22 +224,27 @@ document.addEventListener('click', function(evt) {
 	document.querySelectorAll('[data-search-range]').forEach(function(button) {
 		button.addEventListener('click', function() {
 			currentSearchRange = button.getAttribute('data-search-range') || '';
+			currentCompletedOffset = 0;
 			currentSearchLimit = 30;
 			syncSearchControls();
+			if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 			loadCompletedSessions(0);
 		});
 	});
 	document.querySelectorAll('[data-search-event-kind]').forEach(function(button) {
 		button.addEventListener('click', function() {
 			currentSearchEventKind = button.getAttribute('data-search-event-kind') || '';
+			currentCompletedOffset = 0;
 			currentSearchLimit = 30;
 			syncSearchControls();
+			if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 			loadCompletedSessions(0);
 		});
 	});
 	if (searchSession) {
 		searchSession.addEventListener('input', function() {
 			currentSearchSessionID = searchSession.value.trim();
+			currentCompletedOffset = 0;
 			currentSearchLimit = 30;
 			scheduleDashboardSearch();
 		});
@@ -215,7 +252,9 @@ document.addEventListener('click', function(evt) {
 	if (searchSort) {
 		searchSort.addEventListener('change', function() {
 			currentSearchSort = searchSort.value || 'relevance';
+			currentCompletedOffset = 0;
 			currentSearchLimit = 30;
+			if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 			loadCompletedSessions(0);
 		});
 	}
@@ -227,10 +266,12 @@ document.addEventListener('click', function(evt) {
 			currentSearchSessionID = '';
 			currentSearchSort = 'relevance';
 			currentSearchLimit = 30;
+			currentCompletedOffset = 0;
 			if (searchInput) searchInput.value = '';
 			if (searchSession) searchSession.value = '';
 			clearTimeout(dashboardSearchTimer);
 			syncSearchControls();
+			if (typeof writeDashboardStateToURL === 'function') writeDashboardStateToURL();
 			loadCompletedSessions(0);
 			focusWithoutScroll(searchInput);
 		});
@@ -273,10 +314,17 @@ document.addEventListener('click', function(evt) {
 	} else {
 		setDashboardConnection('Static');
 	}
+	syncDashboardRangeControls();
+	syncActivityControls();
 	syncSearchControls();
 	updateRangeCaption();
-	loadActiveSessions();
-	loadCompletedSessions(0);
-	loadActivity();
-	loadDashboardCharts();
+	var initialLoads = [
+		loadActiveSessions(),
+		loadCompletedSessions(currentCompletedOffset),
+		loadActivity(),
+		loadDashboardCharts()
+	];
+	Promise.allSettled(initialLoads).then(function() {
+		if (typeof restoreDashboardReturnScrollIfNeeded === 'function') restoreDashboardReturnScrollIfNeeded();
+	});
 })();
