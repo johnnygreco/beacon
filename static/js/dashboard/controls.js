@@ -48,7 +48,7 @@ function setDashboardRange(btn, value) {
 	updateRangeCaption();
 	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 	loadDashboardCharts();
-	if (!isSearchMode()) loadCompletedSessions(0);
+	loadCompletedSessions(0);
 	loadActivity();
 }
 
@@ -189,7 +189,6 @@ document.addEventListener('click', function(evt) {
 		if (searchInput && searchInput.value.trim() !== currentSearchQuery) searchInput.value = currentSearchQuery;
 		if (searchSession && searchSession.value.trim() !== currentSearchSessionID) searchSession.value = currentSearchSessionID;
 		if (searchSort) searchSort.value = currentSearchSort;
-		setSearchButtonGroup('[data-search-range]', 'data-search-range', currentSearchRange);
 		setSearchButtonGroup('[data-search-event-kind]', 'data-search-event-kind', currentSearchEventKind);
 	}
 	if (searchInput) {
@@ -224,16 +223,6 @@ document.addEventListener('click', function(evt) {
 			}
 		});
 	}
-	document.querySelectorAll('[data-search-range]').forEach(function(button) {
-		button.addEventListener('click', function() {
-			currentSearchRange = button.getAttribute('data-search-range') || '';
-			currentCompletedOffset = 0;
-			currentSearchLimit = 30;
-			syncSearchControls();
-			if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
-			loadCompletedSessions(0);
-		});
-	});
 	document.querySelectorAll('[data-search-event-kind]').forEach(function(button) {
 		button.addEventListener('click', function() {
 			currentSearchEventKind = button.getAttribute('data-search-event-kind') || '';
@@ -264,7 +253,6 @@ document.addEventListener('click', function(evt) {
 	if (searchReset) {
 		searchReset.addEventListener('click', function() {
 			currentSearchQuery = '';
-			currentSearchRange = '';
 			currentSearchEventKind = '';
 			currentSearchSessionID = '';
 			currentSearchSort = 'relevance';

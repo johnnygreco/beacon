@@ -156,7 +156,11 @@ function setDashboardConnection(status) {
 }
 
 function isSearchMode() {
-	return currentSearchQuery !== '' || currentSearchRange !== '' || currentSearchEventKind !== '' || currentSearchSessionID !== '';
+	return currentSearchQuery !== '' ||
+		currentSearchEventKind !== '' ||
+		currentSearchSessionID !== '' ||
+		currentSearchSort !== 'relevance' ||
+		currentSearchLimit !== 30;
 }
 
 function setCompletedTableMode(mode) {
@@ -617,7 +621,7 @@ async function loadDashboardSearch(options) {
 	if (!silent) renderDashboardSearchLoading();
 	var result = await fetchDashboardJSON('completed', requestURL('/api/dashboard/search', {
 		q: currentSearchQuery,
-		range: currentSearchRange,
+		range: currentRange,
 		event_kind: currentSearchEventKind,
 		session_id: currentSearchSessionID,
 		sort: currentSearchSort,

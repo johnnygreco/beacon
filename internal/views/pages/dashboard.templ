@@ -48,13 +48,6 @@ templ Dashboard(data views.DashboardData) {
 								</p>
 							</div>
 							<div class="flex flex-wrap items-center gap-2">
-								<div id="dashboard-range-control" class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Dashboard time range">
-									<button type="button" onclick="setDashboardRange(this, '')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">All</button>
-									<button type="button" onclick="setDashboardRange(this, '1h')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">1h</button>
-									<button type="button" onclick="setDashboardRange(this, '24h')" aria-pressed="true" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">24h</button>
-									<button type="button" onclick="setDashboardRange(this, '7d')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">7d</button>
-									<button type="button" onclick="setDashboardRange(this, '30d')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">30d</button>
-								</div>
 								<div id="dashboard-theme-control" class="dashboard-theme-control">
 									<span id="dashboard-theme-swatch" class="dashboard-theme-swatch" aria-hidden="true"></span>
 									<select id="dashboard-theme-select" class="dashboard-theme-select" aria-label="Dashboard color theme">
@@ -150,12 +143,12 @@ templ Dashboard(data views.DashboardData) {
 										<input id="dashboard-session-search" data-dashboard-search type="search" autocomplete="off" placeholder="Search sessions, projects, models, events" class="dashboard-search-input"/>
 									</div>
 									<div class="dashboard-search-filters" aria-label="Dashboard search filters">
-										<div class="dashboard-search-filter-group" role="group" aria-label="Search time range">
-											<button type="button" data-search-range="" aria-pressed="true" class="dashboard-search-filter-btn is-active">All</button>
-											<button type="button" data-search-range="1h" aria-pressed="false" class="dashboard-search-filter-btn">1h</button>
-											<button type="button" data-search-range="24h" aria-pressed="false" class="dashboard-search-filter-btn">24h</button>
-											<button type="button" data-search-range="7d" aria-pressed="false" class="dashboard-search-filter-btn">7d</button>
-											<button type="button" data-search-range="30d" aria-pressed="false" class="dashboard-search-filter-btn">30d</button>
+										<div id="dashboard-range-control" class="dashboard-search-filter-group" role="group" aria-label="Dashboard time range">
+											<button type="button" onclick="setDashboardRange(this, '')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">All</button>
+											<button type="button" onclick="setDashboardRange(this, '1h')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">1h</button>
+											<button type="button" onclick="setDashboardRange(this, '24h')" aria-pressed="true" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">24h</button>
+											<button type="button" onclick="setDashboardRange(this, '7d')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">7d</button>
+											<button type="button" onclick="setDashboardRange(this, '30d')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">30d</button>
 										</div>
 										<div class="dashboard-search-filter-group" role="group" aria-label="Search event kind">
 											<button type="button" data-search-event-kind="" aria-pressed="true" class="dashboard-search-filter-btn is-active">All</button>

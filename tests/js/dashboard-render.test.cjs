@@ -23,9 +23,9 @@ function loadRenderSandbox() {
     },
     currentSearchSort: "relevance",
     currentSearchQuery: "",
-    currentSearchRange: "",
     currentSearchEventKind: "",
     currentSearchSessionID: "",
+    currentSearchLimit: 30,
     currentRange: "24h",
     completedPageSize: 50,
     sessionTableHeadHTML: "",
@@ -166,4 +166,22 @@ test("active cards render bounded accessible context progress", () => {
   assert.match(html, /aria-valuenow="1050000"/);
   assert.match(html, /Over window/);
   assert.match(html, /over context window/);
+});
+
+test("search mode ignores dashboard range alone but honors search state", () => {
+  const sandbox = loadRenderSandbox();
+
+  sandbox.currentRange = "7d";
+  assert.equal(sandbox.isSearchMode(), false);
+
+  sandbox.currentSearchSort = "newest";
+  assert.equal(sandbox.isSearchMode(), true);
+
+  sandbox.currentSearchSort = "relevance";
+  sandbox.currentSearchLimit = 60;
+  assert.equal(sandbox.isSearchMode(), true);
+
+  sandbox.currentSearchLimit = 30;
+  sandbox.currentSearchEventKind = "tool_call";
+  assert.equal(sandbox.isSearchMode(), true);
 });
