@@ -308,14 +308,31 @@ test.describe('dashboard battle-tested workflows', () => {
       const tableHeaderLayout = await page.evaluate(() => {
         const controls = document.querySelector('.dashboard-table-left')?.getBoundingClientRect();
         const chart = document.querySelector('.dashboard-table-chart')?.getBoundingClientRect();
+        const summary = document.getElementById('dashboard-analytics-summary')?.getBoundingClientRect();
+        const filterOverflow = Array.from(document.querySelectorAll('.dashboard-search-filters, .dashboard-search-filter-group')).some((el) => {
+          return el.scrollWidth > el.clientWidth + 1;
+        });
+        const summaryTextOverflow = Array.from(document.querySelectorAll('.dashboard-summary-label, .dashboard-summary-value, .dashboard-summary-subvalue')).some((el) => {
+          return el.scrollWidth > el.clientWidth + 1;
+        });
         return {
           controlsTop: Math.round(controls?.top || 0),
           controlsRight: Math.round(controls?.right || 0),
           controlsBottom: Math.round(controls?.bottom || 0),
+          summaryLeft: Math.round(summary?.left || 0),
+          summaryRight: Math.round(summary?.right || 0),
+          summaryBottom: Math.round(summary?.bottom || 0),
+          filterOverflow,
+          summaryTextOverflow,
           chartTop: Math.round(chart?.top || 0),
           chartLeft: Math.round(chart?.left || 0),
         };
       });
+      expect(tableHeaderLayout.summaryLeft).toBeGreaterThanOrEqual(0);
+      expect(tableHeaderLayout.summaryRight).toBeLessThanOrEqual(viewport.width);
+      expect(tableHeaderLayout.summaryBottom).toBeLessThanOrEqual(tableHeaderLayout.controlsBottom + 1);
+      expect(tableHeaderLayout.filterOverflow).toBe(false);
+      expect(tableHeaderLayout.summaryTextOverflow).toBe(false);
       if (viewport.width >= 1100) {
         expect(tableHeaderLayout.chartTop).toBeLessThanOrEqual(tableHeaderLayout.controlsTop + 2);
         expect(tableHeaderLayout.chartLeft).toBeGreaterThan(tableHeaderLayout.controlsRight);
@@ -342,16 +359,19 @@ test.describe('dashboard battle-tested workflows', () => {
     const sectionOrder = await page.evaluate(() => {
       const active = document.getElementById('active-sessions')?.getBoundingClientRect();
       const summary = document.getElementById('dashboard-analytics-summary')?.getBoundingClientRect();
-      const chart = document.getElementById('dashboardTokenCumulativeChart')?.getBoundingClientRect();
+      const surface = document.querySelector('.completed-table-surface')?.getBoundingClientRect();
       return {
         activeTop: active?.top || 0,
+        activeBottom: active?.bottom || 0,
         summaryTop: summary?.top || 0,
-        chartTop: chart?.top || 0,
+        surfaceTop: surface?.top || 0,
+        summaryInSearchHeader: Boolean(document.getElementById('dashboard-analytics-summary')?.closest('#dashboard-search')),
       };
     });
     expect(sectionOrder.activeTop).toBeGreaterThan(0);
-    expect(sectionOrder.activeTop).toBeLessThan(sectionOrder.summaryTop);
-    expect(sectionOrder.summaryTop).toBeLessThan(sectionOrder.chartTop);
+    expect(sectionOrder.activeBottom).toBeLessThanOrEqual(sectionOrder.surfaceTop);
+    expect(sectionOrder.summaryTop).toBeGreaterThan(sectionOrder.surfaceTop);
+    expect(sectionOrder.summaryInSearchHeader).toBe(true);
 
     const parentProgress = page.locator(`[data-session-context="${ACTIVE_SESSION_ID}"] [role="progressbar"]`).first();
     await expect(parentProgress).toHaveAttribute('aria-valuemin', '0');
