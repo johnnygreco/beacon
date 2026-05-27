@@ -82,7 +82,7 @@ test.describe('dashboard visual regression baselines', () => {
 
     await fillDashboardSearchAndWait(page, 'dashboard payload');
     await waitForDashboardSearchRows(page, 1);
-    await expect(page.locator('#completed-table')).toHaveScreenshot('dashboard-table-search.png');
+    await expect(page.locator('.completed-table-surface')).toHaveScreenshot('dashboard-table-search.png');
 
     await expect(page.locator('.dashboard-compact-chart')).toHaveScreenshot('dashboard-chart-controls.png');
 

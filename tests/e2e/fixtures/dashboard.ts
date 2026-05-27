@@ -6,7 +6,7 @@ export const ACTIVE_SESSION_ID = 'active-parent-001';
 export const TEST_EVENT_ID = 'event-older-001';
 export const SEARCH_SESSION_ID = 'session-search-001';
 
-type Scenario = 'default' | 'empty' | 'error-heavy' | 'many-active';
+type Scenario = 'default' | 'empty' | 'error-heavy' | 'many-active' | 'long-active';
 
 type DashboardFixtureOptions = {
   scenario?: Scenario;
@@ -182,6 +182,12 @@ function durationToSeconds(duration: string) {
   return hours * 3600 + minutes * 60 + seconds;
 }
 
+function rangeFixtureLabel(range: string) {
+  if (range === '7d') return '7d range fixture';
+  if (range === '30d') return '30d range fixture';
+  return '';
+}
+
 function manyActiveSessions() {
   const contextCases = [
     { context_tokens: 42_000, context_window_tokens: 200_000, context_estimate: true, last_model: 'claude-sonnet-4', provider: 'anthropic' },
@@ -209,6 +215,36 @@ function manyActiveSessions() {
   });
 }
 
+function longActiveSessions() {
+  const longTitle = 'Realtime dashboard overflow validation with a very long queued agent title that should truncate cleanly';
+  const longModel = 'claude-sonnet-4-super-long-model-name-with-overflow-sentinel-and-extra-routing-metadata';
+  const longPath = '/Users/example/projects/beacon/worktrees/layout-refresh/with/a/deeply/nested/dashboard/path/that/should/not/push/the/card/wider';
+  return manyActiveSessions().slice(0, 4).map((session, i) => ({
+    ...session,
+    id: `active-long-${String(i + 1).padStart(3, '0')}`,
+    title: `${longTitle} ${i + 1}`,
+    duration: i === 0 ? '123h 45m 59s' : `${48 + i}h ${17 + i}m`,
+    total_tokens: 9_876_543 + i * 123_456,
+    context_tokens: i === 2 ? 2_200_000 : 765_432 + i * 88_888,
+    context_window_tokens: i === 3 ? 0 : 1_000_000,
+    turn_count: 1234 + i * 111,
+    tool_call_count: 987 + i * 77,
+    error_count: i === 1 ? 42 : 0,
+    last_model: i % 2 === 0 ? longModel : 'gpt-5.4-codex-extremely-long-routing-label-for-active-card-overflow-check',
+    working_dir: `${longPath}/${i + 1}`,
+    child_sessions: i === 0 ? [{
+      ...activeSessions[0].child_sessions[0],
+      id: 'active-long-child-001',
+      parent_session_id: 'active-long-001',
+      title: 'Overflow validation child with an intentionally long title',
+      last_model: longModel,
+      working_dir: `${longPath}/child`,
+      duration: '99h 1m',
+      tool_call_count: 321,
+    }] : [],
+  }));
+}
+
 const labels = [
   '2026-05-09T12:00:00.000Z',
   '2026-05-09T13:00:00.000Z',
@@ -219,54 +255,63 @@ const labels = [
   '2026-05-09T18:00:00.000Z',
 ];
 
-function chartPayload(scenario: Scenario) {
+function chartRangeFactor(range: string) {
+  if (range === '1h') return 0.25;
+  if (range === '7d') return 3;
+  if (range === '30d') return 8;
+  if (range === '') return 13;
+  return 1;
+}
+
+function chartPayload(scenario: Scenario, range = '24h') {
   const errorHeavy = scenario === 'error-heavy';
   const empty = scenario === 'empty';
+  const factor = chartRangeFactor(range);
   const datasets = empty ? [] : [
     {
       label: 'claude-sonnet-4',
       provider: 'anthropic',
       provider_label: 'Claude Code',
       model: 'claude-sonnet-4',
-      values: [1000, 3800, 7200, 14000, 30000, 36000, 32000],
-      total_tokens: 124000,
-      tool_call_count: 24,
+      values: [1000, 3800, 7200, 14000, 30000, 36000, 32000].map((value) => Math.round(value * factor)),
+      total_tokens: Math.round(124000 * factor),
+      tool_call_count: Math.round(24 * factor),
       error_count: errorHeavy ? 9 : 1,
-      call_count: 16,
+      call_count: Math.round(16 * factor),
     },
     {
       label: 'gpt-5.4-codex',
       provider: 'openai',
       provider_label: 'Codex',
       model: 'gpt-5.4-codex',
-      values: [800, 2400, 5800, 9000, 12000, 13000, 18000],
-      total_tokens: 61000,
-      tool_call_count: 13,
+      values: [800, 2400, 5800, 9000, 12000, 13000, 18000].map((value) => Math.round(value * factor)),
+      total_tokens: Math.round(61000 * factor),
+      tool_call_count: Math.round(13 * factor),
       error_count: errorHeavy ? 5 : 0,
-      call_count: 9,
+      call_count: Math.round(9 * factor),
     },
     {
       label: 'claude-haiku-4',
       provider: 'anthropic',
       provider_label: 'Claude Code',
       model: 'claude-haiku-4',
-      values: [400, 700, 1200, 2800, 3900, 4000, 3500],
-      total_tokens: 16500,
-      tool_call_count: 8,
+      values: [400, 700, 1200, 2800, 3900, 4000, 3500].map((value) => Math.round(value * factor)),
+      total_tokens: Math.round(16500 * factor),
+      tool_call_count: Math.round(8 * factor),
       error_count: errorHeavy ? 4 : 0,
-      call_count: 6,
+      call_count: Math.round(6 * factor),
     },
   ];
   const summary = empty ? { total_tokens: 0, model_count: 0, tool_call_count: 0, call_count: 0, error_rate: 0, error_count: 0 } : {
-    total_tokens: errorHeavy ? 201500 : 201500,
+    total_tokens: Math.round(201500 * factor),
     model_count: 3,
-    tool_call_count: 45,
-    call_count: 31,
+    tool_call_count: Math.round(45 * factor),
+    call_count: Math.round(31 * factor),
     error_rate: errorHeavy ? 13.8 : 1.9,
     error_count: errorHeavy ? 18 : 2,
   };
   return {
-    range: '24h',
+    range,
     token_cumulative: {
       labels,
       datasets,
@@ -309,13 +354,14 @@ function chartPayload(scenario: Scenario) {
   };
 }
 
-function activityItems(scenario: Scenario) {
+function activityItems(scenario: Scenario, range = '24h') {
   if (scenario === 'empty') return [];
+  const rangeLabel = rangeFixtureLabel(range);
   const base = [
     {
       id: TEST_EVENT_ID,
       type: 'tool_call',
-      summary: 'Read dashboard fixture payload',
+      summary: rangeLabel ? `${rangeLabel}: Read dashboard fixture payload` : 'Read dashboard fixture payload',
       session_id: TEST_SESSION_ID,
       provider: 'anthropic',
       timestamp: iso(0, -1),
@@ -410,13 +456,14 @@ function dashboardSearchBaseResults() {
   ];
 }
 
-function dashboardSearchManyResults() {
+function dashboardSearchManyResults(range = '') {
   const base = dashboardSearchBaseResults();
+  const rangeLabel = rangeFixtureLabel(range);
   return Array.from({ length: 35 }, (_, i) => {
     const result = { ...base[i % base.length] };
     result.event_uid = `event-many-${String(i + 1).padStart(3, '0')}`;
     result.session_id = i % 2 === 0 ? SEARCH_SESSION_ID : 'session-search-many';
-    result.snippet = `Many-result fixture item ${i + 1} for pagination and visual density checks.`;
+    result.snippet = `${rangeLabel ? `${rangeLabel}: ` : ''}Many-result fixture item ${i + 1} for pagination and visual density checks.`;
     result.score = 3 - i * 0.03;
     result.timestamp = iso(2, Math.floor(i / 6));
     result.relative_time = '2d ago';
@@ -454,7 +501,7 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
   if (scenario === 'empty') {
     return { state: 'ready', query, range, event_kind: eventKind, session_id: sessionID, sort, limit, has_more: false, items: [] };
   }
-  const source = query.toLowerCase() === 'many' ? dashboardSearchManyResults() : dashboardSearchBaseResults();
+  const source = query.toLowerCase() === 'many' ? dashboardSearchManyResults(range) : dashboardSearchBaseResults();
   const acceptedKinds = eventKind === 'error' ? new Set(['error', 'tool_error']) : new Set(eventKind ? [eventKind] : []);
   const eventResults = source.filter((result) => {
     if (!dashboardSearchMatchesText(result, query)) return false;
@@ -517,9 +564,10 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
 function completedForRequest(url: URL, scenario: Scenario) {
   if (scenario === 'empty') return { items: [], hasMore: false };
   const query = (url.searchParams.get('q') || '').toLowerCase();
+  const range = url.searchParams.get('range') || '24h';
   const offset = Number(url.searchParams.get('offset') || 0);
   const limit = Number(url.searchParams.get('limit') || 30);
-  const source = query
+  let source = query
     ? baseCompletedSessions.filter((s) => {
       const metadata = [s.id, s.title, s.last_model, s.working_dir, s.provider].join(' ').toLowerCase();
       const indexedEventText = s.id === TEST_SESSION_ID ? 'read dashboard fixture payload' : '';
@@ -527,6 +575,19 @@ function completedForRequest(url: URL, scenario: Scenario) {
       return metadata.includes(query) || (queryTokens.length > 0 && queryTokens.every((token) => indexedEventText.includes(token)));
     })
     : baseCompletedSessions;
+  const rangeLabel = rangeFixtureLabel(range);
+  if (rangeLabel && !query && offset === 0) {
+    source = [
+      {
+        ...baseCompletedSessions[1],
+        id: `session-range-${range || 'all'}`,
+        title: `${rangeLabel} completed session`,
+        ended_at: iso(0, 2),
+        working_dir: `/Users/example/projects/beacon/${range || 'all'}-range`,
+      },
+      ...source,
+    ];
+  }
   const sort = url.searchParams.get('sort') || 'ended';
   const asc = (url.searchParams.get('direction') || 'desc') === 'asc';
   const sorted = [...source].sort((a, b) => {
@@ -596,6 +657,7 @@ function eventsForSession() {
 function activeForScenario(scenario: Scenario) {
   if (scenario === 'empty') return [];
   if (scenario === 'many-active') return manyActiveSessions();
+  if (scenario === 'long-active') return longActiveSessions();
   return activeSessions;
 }
 
@@ -784,15 +846,18 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
   });
 
   await page.route('**/api/dashboard/charts**', async (route) => {
+    const url = new URL(route.request().url());
     if (failures.delete('charts')) return fulfillJSON(route, { error: 'fixture failure' }, 500);
-    return fulfillJSON(route, chartPayload(scenario), 200, 'APIDashboardCharts');
+    const range = url.searchParams.has('range') ? (url.searchParams.get('range') || '') : '24h';
+    return fulfillJSON(route, chartPayload(scenario, range), 200, 'APIDashboardCharts');
   });
 
   await page.route('**/api/dashboard/activity**', async (route) => {
     if (failures.delete('activity')) return fulfillJSON(route, { error: 'fixture failure' }, 500);
     const url = new URL(route.request().url());
     const kinds = (url.searchParams.get('event_kind') || '').split(',').filter(Boolean);
-    const items = activityItems(scenario).filter((item) => kinds.length === 0 || kinds.includes(item.type));
+    const range = url.searchParams.has('range') ? (url.searchParams.get('range') || '') : '24h';
+    const items = activityItems(scenario, range).filter((item) => kinds.length === 0 || kinds.includes(item.type));
     return fulfillJSON(route, items, 200, 'APIActivityItem[]');
   });
 

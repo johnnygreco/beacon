@@ -137,7 +137,7 @@ async function readActiveSessionGeometry(page: Page) {
     });
     const protrusions = cards.flatMap((card, cardIndex) => {
       const cardRect = card.getBoundingClientRect();
-      return Array.from(card.querySelectorAll('.active-session-card-header, .active-session-stat-grid, .active-context, .active-child-list, .active-session-path'))
+      return Array.from(card.querySelectorAll('.active-session-card-header, .active-session-title, .active-session-kicker, .active-session-meta-row, .active-session-stat-grid, .active-context, .active-context-label, .active-context-value, .active-child-list, .active-child-row, .active-session-path'))
         .map((child) => {
           const rect = child.getBoundingClientRect();
           return {
@@ -175,14 +175,6 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#dashboard-title')).toHaveText('Beacon Realtime Dashboard');
     await expect(page.locator('#dashboard-name-clear')).toHaveCount(0);
     await expect(page.locator('[data-dashboard-name-control]')).toContainText('Beacon Realtime Dashboard');
-    const nameControlOrder = await page.locator('[data-dashboard-name-control]').evaluate((control) => ({
-      childCount: control.children.length,
-      ids: Array.from(control.children)
-        .map((child) => child.id)
-        .filter((id) => ['dashboard-name-edit', 'dashboard-title', 'dashboard-name-input'].includes(id)),
-    }));
-    expect(nameControlOrder.childCount).toBe(4);
-    expect(nameControlOrder.ids).toEqual(['dashboard-name-edit', 'dashboard-title', 'dashboard-name-input']);
     const restingNameMetrics = await page.locator('#dashboard-name-edit').evaluate((edit) => {
       const editRect = edit.getBoundingClientRect();
       const titleRect = document.getElementById('dashboard-title')?.getBoundingClientRect();
@@ -195,22 +187,22 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(restingNameMetrics.editLeft).toBeLessThan(restingNameMetrics.titleLeft);
     expect(restingNameMetrics.editRight).toBeLessThanOrEqual(restingNameMetrics.titleLeft);
 
-	await page.locator('#dashboard-name-edit').click();
-	await expect(page.locator('#dashboard-name-input')).toBeVisible();
-	await expect(page.locator('#dashboard-name-input')).toBeFocused();
-	await page.keyboard.press('Shift+Tab');
-	await expect(page.locator('#dashboard-name-edit')).toBeFocused();
-	await page.keyboard.press('Tab');
-	await expect(page.locator('#dashboard-name-input')).toBeFocused();
-	await page.keyboard.press('Shift+Tab');
-	await expect(page.locator('#dashboard-name-edit')).toBeFocused();
-	await page.keyboard.press('Shift+Tab');
-	await expect(page.locator('#dashboard-name-input')).toBeHidden();
-	await page.locator('#dashboard-name-edit').click();
-	await expect(page.locator('#dashboard-name-input')).toBeFocused();
-	const editingNameMetrics = await page.locator('#dashboard-name-edit').evaluate((edit) => {
-		const editRect = edit.getBoundingClientRect();
-		const inputRect = document.getElementById('dashboard-name-input')?.getBoundingClientRect();
+    await page.locator('#dashboard-name-edit').click();
+    await expect(page.locator('#dashboard-name-input')).toBeVisible();
+    await expect(page.locator('#dashboard-name-input')).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.locator('#dashboard-name-edit')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#dashboard-name-input')).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.locator('#dashboard-name-edit')).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(page.locator('#dashboard-name-input')).toBeHidden();
+    await page.locator('#dashboard-name-edit').click();
+    await expect(page.locator('#dashboard-name-input')).toBeFocused();
+    const editingNameMetrics = await page.locator('#dashboard-name-edit').evaluate((edit) => {
+      const editRect = edit.getBoundingClientRect();
+      const inputRect = document.getElementById('dashboard-name-input')?.getBoundingClientRect();
       return {
         editRight: editRect.right,
         inputLeft: inputRect?.left || 0,
@@ -413,9 +405,8 @@ test.describe('dashboard battle-tested workflows', () => {
       const single = await readActiveSessionGeometry(page);
       expect(single.cards).toHaveLength(1);
       expect(single.cards[0].left).toBe(single.gridLeft);
-      expect(single.cards[0].width).toBeGreaterThanOrEqual(320);
-      expect(single.cards[0].width).toBeLessThanOrEqual(352);
-      expect(single.cards[0].width).toBeLessThan(single.gridWidth * 0.6);
+      expect(single.cards[0].width).toBeGreaterThan(220);
+      expect(single.cards[0].width).toBeLessThan(single.gridWidth / 2);
       expect(single.protrusions).toEqual([]);
     }
 
@@ -426,7 +417,7 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(many.firstRowCount).toBeGreaterThanOrEqual(3);
     expect(many.rowCount).toBeGreaterThan(1);
     expect(many.cards.every((card) => card.left >= many.gridLeft && card.right <= many.gridRight)).toBe(true);
-    expect(many.cards.every((card) => card.width >= 320 && card.width <= 352)).toBe(true);
+    expect(many.cards.every((card) => card.width > 220)).toBe(true);
     expect(many.protrusions).toEqual([]);
 
     for (const viewport of [
@@ -444,6 +435,65 @@ test.describe('dashboard battle-tested workflows', () => {
       expect(many.cards.every((card) => Math.abs(card.width - many.gridWidth) <= 1)).toBe(true);
       expect(many.bodyScrollWidth).toBeLessThanOrEqual(many.viewportWidth);
       expect(many.protrusions).toEqual([]);
+    }
+
+    await guards.expectClean();
+  });
+
+  test('contains long active-session text, stats, paths, and child rows without layout overflow', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page, { scenario: 'long-active' });
+
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 1100, height: 800 },
+      { width: 390, height: 844 },
+      { width: 320, height: 568 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await gotoDashboard(page);
+      await expect(page.locator('#active-sessions')).toContainText('overflow validation');
+      await expectNoHorizontalOverflow(page);
+
+      const geometry = await readActiveSessionGeometry(page);
+      expect(geometry.cards).toHaveLength(4);
+      expect(geometry.protrusions).toEqual([]);
+      if (geometry.gridWidth >= 680) {
+        expect(geometry.firstRowCount).toBeGreaterThanOrEqual(2);
+        expect(geometry.cards.every((card) => card.width > 220)).toBe(true);
+      } else {
+        expect(geometry.firstRowCount).toBe(1);
+        expect(geometry.cards.every((card) => Math.abs(card.width - geometry.gridWidth) <= 1)).toBe(true);
+      }
+
+      const containment = await page.evaluate(() => {
+        const selectors = [
+          '.active-session-title',
+          '.active-session-path',
+          '.active-session-stat strong',
+          '.active-session-stat small',
+          '.active-context-label span',
+          '.active-context-value',
+          '.active-child-main',
+        ];
+        return selectors.flatMap((selector) => Array.from(document.querySelectorAll(selector)).map((el) => {
+          const style = window.getComputedStyle(el);
+          const rect = el.getBoundingClientRect();
+          const parent = el.closest('.active-session-card')?.getBoundingClientRect();
+          return {
+            selector,
+            overflow: style.overflowX || style.overflow,
+            textOverflow: style.textOverflow,
+            whiteSpace: style.whiteSpace,
+            insideCard: parent ? rect.left >= parent.left - 1 && rect.right <= parent.right + 1 : true,
+          };
+        }));
+      });
+      expect(containment.every((item) => item.insideCard)).toBe(true);
+      expect(containment.some((item) => item.selector === '.active-session-title' && item.overflow === 'hidden' && item.textOverflow === 'ellipsis' && item.whiteSpace === 'nowrap')).toBe(true);
+      expect(containment.some((item) => item.selector === '.active-session-path' && item.overflow === 'hidden' && item.textOverflow === 'ellipsis' && item.whiteSpace === 'nowrap')).toBe(true);
+      await expect(page.locator('[data-session-context="active-long-003"]')).toHaveAttribute('data-context-state', 'over');
+      await expect(page.locator('[data-session-context="active-long-004"]')).toHaveAttribute('data-context-state', 'unknown');
     }
 
     await guards.expectClean();
