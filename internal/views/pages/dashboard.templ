@@ -125,7 +125,6 @@ templ Dashboard(data views.DashboardData) {
 								</div>
 							</div>
 						</div>
-						<div id="dashboard-analytics-summary" class="dashboard-summary-grid"></div>
 					</section>
 					@templ.JSONScript("dashboard-token-cumulative-data", data.TokenCumulative)
 
@@ -180,13 +179,14 @@ templ Dashboard(data views.DashboardData) {
 										</button>
 									</div>
 								</div>
+								<div id="dashboard-analytics-summary" class="dashboard-summary-grid" aria-label="Dashboard totals"></div>
 								<div class="completed-table-title">
 									<h2 id="completed-table-title" class="text-sm font-medium text-gray-400 uppercase tracking-wide">Completed Sessions</h2>
 									<p id="completed-session-status" class="text-xs text-gray-600 mt-1" aria-live="polite">Loading sessions...</p>
 								</div>
 							</div>
 							<div class="dashboard-table-chart">
-								@components.CompactChartContainerWithOptions("dashboardTokenCumulativeChart", "220px", "Tokens by Model Over Time", true, false)
+								@components.CompactChartContainerWithOptions("dashboardTokenCumulativeChart", "204px", "Tokens by Model Over Time", true, false)
 							</div>
 						</div>
 						<div class="overflow-x-auto">

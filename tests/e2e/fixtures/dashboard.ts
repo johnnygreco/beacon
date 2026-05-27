@@ -1165,6 +1165,7 @@ export async function expectDashboardTokenChartReady(page: Page) {
     const shell = canvas.closest('.dashboard-compact-chart');
     const surface = canvas.closest('.completed-table-surface');
     const searchHeader = canvas.closest('#dashboard-search');
+    const summary = document.getElementById('dashboard-analytics-summary');
     const canvasRect = canvas.getBoundingClientRect();
     const shellRect = shell?.getBoundingClientRect();
     const surfaceRect = surface?.getBoundingClientRect();
@@ -1176,6 +1177,8 @@ export async function expectDashboardTokenChartReady(page: Page) {
       surfaceWidth: Math.round(surfaceRect?.width || 0),
       inCompletedSurface: Boolean(surface),
       inSearchHeader: Boolean(searchHeader),
+      summaryInCompletedSurface: Boolean(summary?.closest('.completed-table-surface')),
+      summaryInSearchHeader: Boolean(summary?.closest('#dashboard-search')),
     };
   });
   expect(metrics.canvasHeight).toBeGreaterThan(180);
@@ -1185,6 +1188,8 @@ export async function expectDashboardTokenChartReady(page: Page) {
   expect(metrics.shellWidth).toBeLessThanOrEqual(metrics.surfaceWidth);
   expect(metrics.inCompletedSurface).toBe(true);
   expect(metrics.inSearchHeader).toBe(true);
+  expect(metrics.summaryInCompletedSurface).toBe(true);
+  expect(metrics.summaryInSearchHeader).toBe(true);
   await expect(page.locator('.dashboard-analytics-grid')).toHaveCount(0);
   await expect(page.locator('#dashboardModelActivityChart')).toHaveCount(0);
   await expect(page.locator('#dashboard-model-metric-control')).toHaveCount(0);

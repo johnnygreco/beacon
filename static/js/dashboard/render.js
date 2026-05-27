@@ -547,10 +547,10 @@ function updateRangeCaption() {
 }
 
 function summaryTile(label, value, sublabel) {
-	return '<div class="rounded-lg border border-gray-700 bg-gray-800/70 px-3 py-2 min-w-0">' +
-		'<p class="text-[11px] uppercase tracking-wide text-gray-500">' + escapeHTML(label) + '</p>' +
-		'<p class="text-lg font-semibold text-gray-100 tabular-nums truncate">' + escapeHTML(value) + '</p>' +
-		'<p class="text-xs text-gray-500 truncate">' + escapeHTML(sublabel || rangeLabel(currentRange)) + '</p>' +
+	return '<div class="dashboard-summary-tile">' +
+		'<p class="dashboard-summary-label">' + escapeHTML(label) + '</p>' +
+		'<p class="dashboard-summary-value">' + escapeHTML(value) + '</p>' +
+		'<p class="dashboard-summary-subvalue">' + escapeHTML(sublabel || rangeLabel(currentRange)) + '</p>' +
 		'</div>';
 }
 
@@ -567,8 +567,8 @@ function renderAnalyticsSummary(summary) {
 		if (!wrap) return;
 		summary = summary || {};
 		setHTMLIfChanged(wrap, [
-			summaryTile('Tokens', formatTokens(summary.total_tokens), 'Across shown models'),
-			summaryTile('Models', nonNegativeInt(summary.model_count), 'Selectable series'),
+			summaryTile('Tokens', formatTokens(summary.total_tokens), 'Shown models'),
+			summaryTile('Models', nonNegativeInt(summary.model_count), 'Series'),
 			summaryTile('Tool Calls', formatTokens(summary.tool_call_count), rangeLabel(currentRange)),
 			summaryTile('Error Rate', formatPercent(summary.error_rate), nonNegativeInt(summary.error_count) + ' errors')
 		].join(''));
