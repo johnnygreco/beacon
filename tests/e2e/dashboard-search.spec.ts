@@ -3,6 +3,7 @@ import {
   SEARCH_SESSION_ID,
   attachPageGuards,
   emitDashboardEvent,
+  expectDashboardTokenChartReady,
   expectDashboardScrollNear,
   expectDashboardScrollStableDuring,
   expectNoHorizontalOverflow,
@@ -65,6 +66,15 @@ async function expectSearchVerticalFlow(page: Page) {
     return failures;
   });
   expect(overlaps).toEqual([]);
+}
+
+async function readDashboardChartTotal(page: Page) {
+  return page.evaluate(() => {
+    const chart = (window as Window & { dashboardTokenCumulativeChart?: { data: { datasets: Array<{ data: number[] }> } } }).dashboardTokenCumulativeChart;
+    return (chart?.data.datasets || []).reduce((sum, dataset) => {
+      return sum + (dataset.data || []).reduce((datasetSum, value) => datasetSum + Number(value || 0), 0);
+    }, 0);
+  });
 }
 
 async function scrollDashboardMainToBottom(page: Page) {
@@ -191,6 +201,87 @@ test.describe('dashboard search workflows', () => {
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-event-kind', 'session');
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Session metadata');
+
+    await guards.expectClean();
+  });
+
+  test('keeps the unified range wired through chart, table, search, activity, URL, and refresh', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoDashboardSearch(page);
+    await expectDashboardTokenChartReady(page);
+    await expectNoHorizontalOverflow(page);
+    await expect(page.locator('#dashboard-range-control')).toHaveCount(1);
+    await expect(page.locator('#dashboard-search #dashboard-range-control')).toHaveCount(1);
+    await expect(page.locator('[data-search-range]')).toHaveCount(0);
+
+    const initialChartTotal = await readDashboardChartTotal(page);
+    const chart7d = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/charts' && url.searchParams.get('range') === '7d';
+    });
+    const completed7d = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'completed' && url.searchParams.get('range') === '7d';
+    });
+    const activity7d = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/activity' && url.searchParams.get('range') === '7d';
+    });
+    await page.locator('#dashboard-range-control').getByRole('button', { name: '7d' }).click();
+    await Promise.all([chart7d, completed7d, activity7d]);
+    await waitForCompletedRows(page, 30);
+    await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 7 days');
+    await expect(page.locator('#completed-session-status')).toHaveText('30+ shown for Last 7 days');
+    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toContainText('7d range fixture completed session');
+    await expect(page.locator('#activity-feed')).toContainText('7d range fixture');
+    await expect(page.locator('#timeline-sidebar h2 span')).toHaveText('(7d)');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('range') === '7d');
+    expect(new URL(page.url()).searchParams.get('search_range')).toBeNull();
+    expect(await readDashboardChartTotal(page)).toBeGreaterThan(initialChartTotal);
+
+    await fillDashboardSearchAndWait(page, 'many');
+    await waitForDashboardSearchRows(page, 30);
+    const chart30d = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/charts' && url.searchParams.get('range') === '30d';
+    });
+    const search30d = waitForDashboardSearchResponse(page, (url) =>
+      url.searchParams.get('q') === 'many' &&
+      url.searchParams.get('range') === '30d' &&
+      url.searchParams.get('limit') === '30'
+    );
+    const activity30d = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/activity' && url.searchParams.get('range') === '30d';
+    });
+    await page.locator('#dashboard-range-control').getByRole('button', { name: '30d' }).click();
+    await Promise.all([chart30d, search30d, activity30d]);
+    await waitForDashboardSearchRows(page, 30);
+    await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 30 days');
+    await expect(page.locator('#timeline-sidebar h2 span')).toHaveText('(30d)');
+    await expect(page.locator('#completed-session-status')).toHaveText('30+ search results');
+    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('30d range fixture');
+    await expect(page.locator('#activity-feed')).toContainText('30d range fixture');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('range') === '30d');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('q') === 'many');
+
+    const refreshCharts = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/charts' && url.searchParams.get('range') === '30d';
+    });
+    await page.locator('#dashboard-refresh-btn').click();
+    await refreshCharts;
+    await expectDashboardTokenChartReady(page);
+
+    const legacySearch = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('range') === '7d');
+    await page.goto('/?search_range=7d&q=many', { waitUntil: 'domcontentloaded' });
+    await legacySearch;
+    await waitForDashboardSearchRows(page, 30);
+    await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('7d range fixture');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('range') === '7d');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('search_range') === null);
 
     await guards.expectClean();
   });
