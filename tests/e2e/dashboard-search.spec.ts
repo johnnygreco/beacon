@@ -131,11 +131,12 @@ test.describe('dashboard search workflows', () => {
 
     await triggerDashboardSearchAndWait(
       page,
-      () => page.locator('[data-search-event-kind="tool_call"]').click(),
+      () => page.locator('#dashboard-search-kind').selectOption('tool_call'),
       (url) => url.searchParams.get('q') === 'search' && url.searchParams.get('event_kind') === 'tool_call',
     );
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-event-kind', 'tool_call');
+    await expect(page.getByLabel('Message type')).toHaveValue('tool_call');
 
     await triggerDashboardSearchAndWait(
       page,
@@ -174,8 +175,8 @@ test.describe('dashboard search workflows', () => {
     await resetResponse;
     await expect(page.locator('#dashboard-session-search')).toHaveValue('');
     await expect(page.locator('#dashboard-search-session')).toHaveValue('');
+    await expect(page.locator('#dashboard-search-kind')).toHaveValue('');
     await expect(page.locator('#dashboard-search-sort')).toHaveValue('relevance');
-    await expect(page.locator('[data-search-event-kind=""]')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
     await waitForCompletedRows(page, 30);
 
@@ -519,7 +520,7 @@ test.describe('dashboard search workflows', () => {
     await expectDashboardScrollStableDuring(page, async () => {
       await triggerDashboardSearchAndWait(
         page,
-        () => page.locator('[data-search-event-kind="tool_call"]').click(),
+        () => page.locator('#dashboard-search-kind').selectOption('tool_call'),
         (url) => url.searchParams.get('q') === 'search' && url.searchParams.get('event_kind') === 'tool_call',
       );
       await waitForDashboardSearchRows(page, 1);

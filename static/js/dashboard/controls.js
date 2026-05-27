@@ -136,6 +136,7 @@ document.addEventListener('click', function(evt) {
 	if (tableHead) sessionTableHeadHTML = tableHead.innerHTML;
 	var searchInput = document.getElementById('dashboard-session-search');
 	var searchSession = document.getElementById('dashboard-search-session');
+	var searchKind = document.getElementById('dashboard-search-kind');
 	var searchSort = document.getElementById('dashboard-search-sort');
 	var searchReset = document.getElementById('dashboard-search-reset');
 	function focusWithoutScroll(el) {
@@ -178,18 +179,11 @@ document.addEventListener('click', function(evt) {
 			loadCompletedSessions(0);
 		}, 250);
 	}
-	function setSearchButtonGroup(selector, attr, value) {
-		document.querySelectorAll(selector).forEach(function(button) {
-			var active = (button.getAttribute(attr) || '') === value;
-			button.classList.toggle('is-active', active);
-			button.setAttribute('aria-pressed', active ? 'true' : 'false');
-		});
-	}
 	function syncSearchControls() {
 		if (searchInput && searchInput.value.trim() !== currentSearchQuery) searchInput.value = currentSearchQuery;
 		if (searchSession && searchSession.value.trim() !== currentSearchSessionID) searchSession.value = currentSearchSessionID;
+		if (searchKind) searchKind.value = currentSearchEventKind;
 		if (searchSort) searchSort.value = currentSearchSort;
-		setSearchButtonGroup('[data-search-event-kind]', 'data-search-event-kind', currentSearchEventKind);
 	}
 	if (searchInput) {
 		searchInput.addEventListener('input', function() {
@@ -223,16 +217,16 @@ document.addEventListener('click', function(evt) {
 			}
 		});
 	}
-	document.querySelectorAll('[data-search-event-kind]').forEach(function(button) {
-		button.addEventListener('click', function() {
-			currentSearchEventKind = button.getAttribute('data-search-event-kind') || '';
+	if (searchKind) {
+		searchKind.addEventListener('change', function() {
+			currentSearchEventKind = searchKind.value || '';
 			currentCompletedOffset = 0;
 			currentSearchLimit = 30;
 			syncSearchControls();
 			if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 			loadCompletedSessions(0);
 		});
-	});
+	}
 	if (searchSession) {
 		searchSession.addEventListener('input', function() {
 			currentSearchSessionID = searchSession.value.trim();
@@ -260,6 +254,7 @@ document.addEventListener('click', function(evt) {
 			currentCompletedOffset = 0;
 			if (searchInput) searchInput.value = '';
 			if (searchSession) searchSession.value = '';
+			if (searchKind) searchKind.value = '';
 			clearTimeout(dashboardSearchTimer);
 			dashboardSearchTimer = 0;
 			syncSearchControls();

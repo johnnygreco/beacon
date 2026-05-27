@@ -155,14 +155,17 @@ templ Dashboard(data views.DashboardData) {
 											<button type="button" onclick="setDashboardRange(this, '7d')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">7d</button>
 											<button type="button" onclick="setDashboardRange(this, '30d')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">30d</button>
 										</div>
-										<div class="dashboard-search-filter-group" role="group" aria-label="Search event kind">
-											<button type="button" data-search-event-kind="" aria-pressed="true" class="dashboard-search-filter-btn is-active">All</button>
-											<button type="button" data-search-event-kind="message" aria-pressed="false" class="dashboard-search-filter-btn">Messages</button>
-											<button type="button" data-search-event-kind="tool_call" aria-pressed="false" class="dashboard-search-filter-btn">Tool calls</button>
-											<button type="button" data-search-event-kind="tool_result" aria-pressed="false" class="dashboard-search-filter-btn">Tool results</button>
-											<button type="button" data-search-event-kind="reasoning" aria-pressed="false" class="dashboard-search-filter-btn">Reasoning</button>
-											<button type="button" data-search-event-kind="error" aria-pressed="false" class="dashboard-search-filter-btn">Errors</button>
-										</div>
+										<label class="dashboard-search-select-wrap dashboard-search-kind-wrap">
+											<span class="sr-only">Message type</span>
+											<select id="dashboard-search-kind" class="dashboard-search-select" aria-label="Message type">
+												<option value="">All types</option>
+												<option value="message">Messages</option>
+												<option value="tool_call">Tool calls</option>
+												<option value="tool_result">Tool results</option>
+												<option value="reasoning">Reasoning</option>
+												<option value="error">Errors</option>
+											</select>
+										</label>
 										<label class="dashboard-search-session-filter">
 											<span class="sr-only">Session ID prefix</span>
 											<input type="text" id="dashboard-search-session" autocomplete="off" placeholder="Session ID" class="dashboard-search-filter-input"/>

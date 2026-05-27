@@ -137,7 +137,7 @@ async function readActiveSessionGeometry(page: Page) {
     });
     const protrusions = cards.flatMap((card, cardIndex) => {
       const cardRect = card.getBoundingClientRect();
-      return Array.from(card.querySelectorAll('.active-session-card-header, .active-session-title, .active-session-kicker, .active-session-meta-row, .active-session-stat-grid, .active-context, .active-context-label, .active-context-value, .active-child-list, .active-child-row, .active-session-path'))
+      return Array.from(card.querySelectorAll('.active-session-card-header, .active-session-title, .active-session-kicker, .active-session-meta-row, .active-session-tracker, .active-context, .active-context-label, .active-context-value, .active-child-list, .active-child-row, .active-session-path'))
         .map((child) => {
           const rect = child.getBoundingClientRect();
           return {
@@ -307,6 +307,8 @@ test.describe('dashboard battle-tested workflows', () => {
       await expectDashboardTokenChartReady(page);
       await expect(page.getByRole('searchbox', { name: 'Search table sessions and events' })).toHaveAttribute('placeholder', 'Search table sessions and events');
       await expect(page.locator('.dashboard-search-filters')).toHaveAttribute('aria-label', 'Table filters');
+      await expect(page.getByLabel('Message type')).toHaveValue('');
+      await expect(page.locator('[data-search-event-kind]')).toHaveCount(0);
       const tableHeaderLayout = await page.evaluate(() => {
         const title = document.querySelector('.completed-table-title')?.getBoundingClientRect();
         const search = document.querySelector('.dashboard-table-search')?.getBoundingClientRect();
@@ -499,8 +501,8 @@ test.describe('dashboard battle-tested workflows', () => {
         const selectors = [
           '.active-session-title',
           '.active-session-path',
-          '.active-session-stat strong',
-          '.active-session-stat small',
+          '.active-tracker-value',
+          '.active-tracker-subvalue',
           '.active-context-label span',
           '.active-context-value',
           '.active-child-main',
@@ -814,7 +816,10 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator(`button.json-subagent-toggle[data-session-id="${TEST_SESSION_ID}"]`).click();
     await expect(page.locator(`tr[data-parent="${TEST_SESSION_ID}"]`)).toHaveCount(2);
     await expect(page.locator(`button.json-subagent-toggle[data-session-id="${TEST_SESSION_ID}"]`)).toHaveAttribute('aria-expanded', 'true');
-    await page.locator('#dashboard-wrap').click({ position: { x: 20, y: 20 } });
+    await page.evaluate(() => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+    });
 
     await page.keyboard.press('t');
     await expect(page.locator('#timeline-sidebar')).toHaveClass(/collapsed/);
@@ -1132,7 +1137,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.goto(`/?range=7d&q=internal&event_kind=tool_call&session_id=${SEARCH_SESSION_ID}&search_sort=oldest&search_limit=60&activity=error`, { waitUntil: 'domcontentloaded' });
     await searchResponse;
     await expect(page.locator('#dashboard-session-search')).toHaveValue('internal');
-    await expect(page.locator('[data-search-event-kind="tool_call"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-search-kind')).toHaveValue('tool_call');
     await expect(page.locator('#dashboard-search-session')).toHaveValue(SEARCH_SESSION_ID);
     await expect(page.locator('#dashboard-search-sort')).toHaveValue('oldest');
     await waitForDashboardSearchRows(page, 1);
