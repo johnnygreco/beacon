@@ -58,18 +58,12 @@
 		var titleEl = document.getElementById('dashboard-title');
 		var input = document.getElementById('dashboard-name-input');
 		var editButton = document.getElementById('dashboard-name-edit');
-		var clearButton = document.getElementById('dashboard-name-clear');
 		var defaultName = normalizeDashboardName(control.getAttribute('data-dashboard-default-name') || '');
 		var headingFallback = normalizeDashboardName(control.getAttribute('data-dashboard-fallback-heading') || fallbackHeading) || fallbackHeading;
 		var storedOverride = readStoredOverride();
 
 		function effectiveName() {
 			return storedOverride || defaultName;
-		}
-
-		function updateClearButton() {
-			if (!clearButton || !input) return;
-			clearButton.classList.toggle('hidden', storedOverride.length === 0);
 		}
 
 		function renderName(syncInput) {
@@ -81,7 +75,6 @@
 				input.placeholder = defaultName || headingFallback;
 				if (syncInput) input.value = name;
 			}
-			updateClearButton();
 		}
 
 		function startEditing() {
@@ -90,7 +83,6 @@
 			control.classList.add('is-editing');
 			if (titleEl) titleEl.classList.add('hidden');
 			input.classList.remove('hidden');
-			updateClearButton();
 			input.focus();
 			input.select();
 		}
@@ -98,7 +90,6 @@
 		function finishEditing() {
 			if (!input) return;
 			input.classList.add('hidden');
-			if (clearButton) clearButton.classList.add('hidden');
 			if (titleEl) titleEl.classList.remove('hidden');
 			control.classList.remove('is-editing');
 			renderName(true);
@@ -119,19 +110,12 @@
 					finishEditing();
 				}
 			});
-			input.addEventListener('blur', finishEditing);
 		}
-		if (clearButton && input) {
-			clearButton.addEventListener('mousedown', function(evt) {
-				evt.preventDefault();
-			});
-			clearButton.addEventListener('click', function() {
-				input.value = '';
-				storedOverride = writeStoredOverride('');
-				renderName(false);
-				input.focus();
-			});
-		}
+		control.addEventListener('focusout', function(evt) {
+			var next = evt.relatedTarget || null;
+			if (next && typeof control.contains === 'function' && control.contains(next)) return;
+			finishEditing();
+		});
 
 		renderName(true);
 	}

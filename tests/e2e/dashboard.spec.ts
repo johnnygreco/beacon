@@ -129,9 +129,50 @@ test.describe('dashboard battle-tested workflows', () => {
 
     await expect(page).toHaveTitle('Dashboard | Beacon');
     await expect(page.locator('#dashboard-title')).toHaveText('Beacon Realtime Dashboard');
+    await expect(page.locator('#dashboard-name-clear')).toHaveCount(0);
+    await expect(page.locator('[data-dashboard-name-control]')).toContainText('Beacon Realtime Dashboard');
+    const nameControlOrder = await page.locator('[data-dashboard-name-control]').evaluate((control) => ({
+      childCount: control.children.length,
+      ids: Array.from(control.children)
+        .map((child) => child.id)
+        .filter((id) => ['dashboard-name-edit', 'dashboard-title', 'dashboard-name-input'].includes(id)),
+    }));
+    expect(nameControlOrder.childCount).toBe(4);
+    expect(nameControlOrder.ids).toEqual(['dashboard-name-edit', 'dashboard-title', 'dashboard-name-input']);
+    const restingNameMetrics = await page.locator('#dashboard-name-edit').evaluate((edit) => {
+      const editRect = edit.getBoundingClientRect();
+      const titleRect = document.getElementById('dashboard-title')?.getBoundingClientRect();
+      return {
+        editLeft: editRect.left,
+        editRight: editRect.right,
+        titleLeft: titleRect?.left || 0,
+      };
+    });
+    expect(restingNameMetrics.editLeft).toBeLessThan(restingNameMetrics.titleLeft);
+    expect(restingNameMetrics.editRight).toBeLessThanOrEqual(restingNameMetrics.titleLeft);
 
-    await page.locator('#dashboard-name-edit').click();
-    await expect(page.locator('#dashboard-name-input')).toBeVisible();
+	await page.locator('#dashboard-name-edit').click();
+	await expect(page.locator('#dashboard-name-input')).toBeVisible();
+	await expect(page.locator('#dashboard-name-input')).toBeFocused();
+	await page.keyboard.press('Shift+Tab');
+	await expect(page.locator('#dashboard-name-edit')).toBeFocused();
+	await page.keyboard.press('Tab');
+	await expect(page.locator('#dashboard-name-input')).toBeFocused();
+	await page.keyboard.press('Shift+Tab');
+	await expect(page.locator('#dashboard-name-edit')).toBeFocused();
+	await page.keyboard.press('Shift+Tab');
+	await expect(page.locator('#dashboard-name-input')).toBeHidden();
+	await page.locator('#dashboard-name-edit').click();
+	await expect(page.locator('#dashboard-name-input')).toBeFocused();
+	const editingNameMetrics = await page.locator('#dashboard-name-edit').evaluate((edit) => {
+		const editRect = edit.getBoundingClientRect();
+		const inputRect = document.getElementById('dashboard-name-input')?.getBoundingClientRect();
+      return {
+        editRight: editRect.right,
+        inputLeft: inputRect?.left || 0,
+      };
+    });
+    expect(editingNameMetrics.editRight).toBeLessThanOrEqual(editingNameMetrics.inputLeft);
     await page.locator('#dashboard-name-input').fill('  Workstation A  ');
     await expect(page).toHaveTitle('Workstation A | Beacon');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-name'))).toBe('Workstation A');
@@ -144,7 +185,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page).toHaveTitle('Workstation A | Beacon');
 
     await page.locator('#dashboard-name-edit').click();
-    await page.locator('#dashboard-name-clear').click();
+    await page.locator('#dashboard-name-input').fill('');
     await expect(page).toHaveTitle('Dashboard | Beacon');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-name'))).toBeNull();
     await page.keyboard.press('Enter');
@@ -182,7 +223,6 @@ test.describe('dashboard battle-tested workflows', () => {
             <button type="button" id="dashboard-name-edit" aria-label="Edit dashboard name" aria-controls="dashboard-name-input">Edit</button>
             <label for="dashboard-name-input">Dashboard name</label>
             <input id="dashboard-name-input" data-dashboard-name-input type="text" maxlength="80" class="hidden" />
-            <button type="button" id="dashboard-name-clear" class="hidden" aria-label="Clear custom dashboard name">Clear</button>
           </div>
         </body>
       </html>
@@ -191,22 +231,23 @@ test.describe('dashboard battle-tested workflows', () => {
 
     await expect(page).toHaveTitle('Configured Station | Beacon');
     await expect(page.locator('#dashboard-title')).toHaveText('Configured Station');
-    await expect(page.locator('#dashboard-name-clear')).toHaveClass(/hidden/);
+    await expect(page.locator('#dashboard-name-clear')).toHaveCount(0);
 
     await page.locator('#dashboard-name-edit').click();
     await expect(page.locator('#dashboard-name-input')).toHaveValue('Configured Station');
-    await expect(page.locator('#dashboard-name-clear')).toHaveClass(/hidden/);
+    await expect(page.locator('#dashboard-name-clear')).toHaveCount(0);
 
     await page.locator('#dashboard-name-input').fill('Custom\u0085Name');
     await expect(page).toHaveTitle('Custom Name | Beacon');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-name'))).toBe('Custom Name');
-    await expect(page.locator('#dashboard-name-clear')).not.toHaveClass(/hidden/);
+    await expect(page.locator('#dashboard-name-clear')).toHaveCount(0);
 
-    await page.locator('#dashboard-name-clear').click();
+    await page.locator('#dashboard-name-input').fill('');
+    await page.keyboard.press('Enter');
     await expect(page).toHaveTitle('Configured Station | Beacon');
     await expect(page.locator('#dashboard-title')).toHaveText('Configured Station');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-name'))).toBeNull();
-    await expect(page.locator('#dashboard-name-clear')).toHaveClass(/hidden/);
+    await expect(page.locator('#dashboard-name-clear')).toHaveCount(0);
 
     await guards.expectClean();
   });
