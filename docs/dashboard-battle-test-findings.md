@@ -18,7 +18,8 @@ fixtures plus CI.
 - Search table: table-scoped query copy, filters, reset, no custom clear
   button, show-more pagination, unavailable/error states, narrow-screen
   containment, and no row/header overlap.
-- Active sessions: default, no-active, many-active, high/over/unknown context states, accessible progress bars, active section prominence, and context-bar visual baseline.
+- Active sessions: default, no-active, many-active, compact live stat trackers,
+  active section prominence, and active-card visual baselines.
 - Analytics: single tokens-by-model time chart, range reloads, model dropdown, log toggle, tooltip anchoring, theme retinting, and nonblank chart geometry.
 - Timeline: activity filters, collapse/expand, persisted collapse before paint, resize drag, keyboard resize, inert/aria states, and transcript event deep links.
 - Dashboard identity: editable dashboard name, tab title persistence, configured fallback, local clear behavior, and unsafe text escaping.
@@ -59,7 +60,8 @@ git diff --check
 ## Final Result
 
 - The dashboard search area stays anchored during typing, clearing, delayed searches, stale responses, filters, range changes, sorting, pagination, and live updates.
-- Active sessions are the first dashboard content when present, with prominent stats and accessible context progress indicators.
+- Active sessions are the first dashboard content when present, with prominent
+  compact live stats.
 - The completed-table surface now owns the scoped search/filter controls,
   compact totals, and the single tokens-by-model time chart with stable
   controls and visual baselines.
