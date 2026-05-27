@@ -216,10 +216,11 @@ test.describe('dashboard battle-tested workflows', () => {
     await installDashboardFixtures(page);
 
     for (const viewport of [
+      { width: 1600, height: 900 },
       { width: 1440, height: 900 },
       { width: 1280, height: 800 },
+      { width: 1100, height: 800 },
       { width: 1024, height: 768 },
-      { width: 900, height: 700 },
       { width: 390, height: 844 },
       { width: 320, height: 568 },
     ]) {
@@ -227,6 +228,23 @@ test.describe('dashboard battle-tested workflows', () => {
       await gotoDashboard(page);
       await expectNoHorizontalOverflow(page);
       await expectDashboardTokenChartReady(page);
+      const tableHeaderLayout = await page.evaluate(() => {
+        const controls = document.querySelector('.dashboard-table-left')?.getBoundingClientRect();
+        const chart = document.querySelector('.dashboard-table-chart')?.getBoundingClientRect();
+        return {
+          controlsTop: Math.round(controls?.top || 0),
+          controlsRight: Math.round(controls?.right || 0),
+          controlsBottom: Math.round(controls?.bottom || 0),
+          chartTop: Math.round(chart?.top || 0),
+          chartLeft: Math.round(chart?.left || 0),
+        };
+      });
+      if (viewport.width >= 1100) {
+        expect(tableHeaderLayout.chartTop).toBeLessThanOrEqual(tableHeaderLayout.controlsTop + 2);
+        expect(tableHeaderLayout.chartLeft).toBeGreaterThan(tableHeaderLayout.controlsRight);
+      } else {
+        expect(tableHeaderLayout.chartTop).toBeGreaterThanOrEqual(tableHeaderLayout.controlsBottom);
+      }
       await expect(page.locator('#sidebar')).toHaveCount(0);
       await expect(page.locator('nav a[href="/search"]')).toHaveCount(0);
       await expect(page.locator('#dashboard-session-search')).toBeVisible();

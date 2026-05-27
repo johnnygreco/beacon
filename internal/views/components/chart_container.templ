@@ -32,6 +32,32 @@ templ ChartContainerWithOptions(id string, height string, title string, logToggl
 	</div>
 }
 
+templ CompactChartContainerWithOptions(id string, height string, title string, logToggle bool, defaultLog bool) {
+	<div class="dashboard-compact-chart">
+		<div class="chart-card-header dashboard-compact-chart-header">
+			if title != "" {
+				<h3 class="dashboard-compact-chart-title">{ title }</h3>
+			}
+			if logToggle {
+				<button
+					type="button"
+					id={ id + "-log-toggle" }
+					onclick={ toggleLogScale(id) }
+					class={ logToggleClass(defaultLog) }
+					data-chart-id={ id }
+					data-log-active={ strconv.FormatBool(defaultLog) }
+					aria-pressed={ strconv.FormatBool(defaultLog) }
+				>
+					Log Scale
+				</button>
+			}
+		</div>
+		<div class="dashboard-compact-chart-canvas" style={ "position:relative;height:" + height }>
+			<canvas id={ id } data-default-log={ strconv.FormatBool(defaultLog) } role="img" aria-label={ chartAccessibleLabel(id, title) }></canvas>
+		</div>
+	</div>
+}
+
 func logToggleClass(active bool) string {
 	if active {
 		return "log-scale-toggle px-2 py-1 text-xs rounded border bg-blue-500/20 text-blue-400 border-blue-500/40 hover:text-blue-300 transition-colors whitespace-nowrap"

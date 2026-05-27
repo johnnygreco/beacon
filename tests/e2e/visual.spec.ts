@@ -84,7 +84,7 @@ test.describe('dashboard visual regression baselines', () => {
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#completed-table')).toHaveScreenshot('dashboard-table-search.png');
 
-    await expect(page.locator('xpath=//canvas[@id="dashboardTokenCumulativeChart"]/ancestor::div[contains(@class,"bg-gray-800")][1]')).toHaveScreenshot('dashboard-chart-controls.png');
+    await expect(page.locator('.dashboard-compact-chart')).toHaveScreenshot('dashboard-chart-controls.png');
 
     await page.locator('#timeline-toggle-btn').click();
     await expect(page.locator('#timeline-sidebar')).toHaveClass(/collapsed/);

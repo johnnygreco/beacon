@@ -1097,23 +1097,30 @@ export async function expectNoHorizontalOverflow(page: Page) {
 
 export async function expectDashboardTokenChartReady(page: Page) {
   const metrics = await page.locator('#dashboardTokenCumulativeChart').evaluate((canvas) => {
-    const card = canvas.closest('.bg-gray-800');
-    const grid = canvas.closest('.dashboard-analytics-grid');
+    const shell = canvas.closest('.dashboard-compact-chart');
+    const surface = canvas.closest('.completed-table-surface');
+    const searchHeader = canvas.closest('#dashboard-search');
     const canvasRect = canvas.getBoundingClientRect();
-    const cardRect = card?.getBoundingClientRect();
-    const gridRect = grid?.getBoundingClientRect();
+    const shellRect = shell?.getBoundingClientRect();
+    const surfaceRect = surface?.getBoundingClientRect();
     return {
       canvasHeight: Math.round(canvasRect.height),
       canvasWidth: Math.round(canvasRect.width),
-      cardHeight: Math.round(cardRect?.height || 0),
-      cardWidth: Math.round(cardRect?.width || 0),
-      gridWidth: Math.round(gridRect?.width || 0),
+      shellHeight: Math.round(shellRect?.height || 0),
+      shellWidth: Math.round(shellRect?.width || 0),
+      surfaceWidth: Math.round(surfaceRect?.width || 0),
+      inCompletedSurface: Boolean(surface),
+      inSearchHeader: Boolean(searchHeader),
     };
   });
-  expect(metrics.canvasHeight).toBeGreaterThan(280);
+  expect(metrics.canvasHeight).toBeGreaterThan(180);
   expect(metrics.canvasWidth).toBeGreaterThan(0);
-  expect(metrics.cardHeight).toBeGreaterThan(metrics.canvasHeight);
-  expect(metrics.cardWidth).toBeGreaterThanOrEqual(metrics.gridWidth - 2);
+  expect(metrics.shellHeight).toBeGreaterThan(metrics.canvasHeight);
+  expect(metrics.shellWidth).toBeGreaterThan(0);
+  expect(metrics.shellWidth).toBeLessThanOrEqual(metrics.surfaceWidth);
+  expect(metrics.inCompletedSurface).toBe(true);
+  expect(metrics.inSearchHeader).toBe(true);
+  await expect(page.locator('.dashboard-analytics-grid')).toHaveCount(0);
   await expect(page.locator('#dashboardModelActivityChart')).toHaveCount(0);
   await expect(page.locator('#dashboard-model-metric-control')).toHaveCount(0);
   await expect(page.locator('#dashboard-model-activity-data')).toHaveCount(0);

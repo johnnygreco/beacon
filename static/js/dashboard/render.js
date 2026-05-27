@@ -63,7 +63,7 @@ function dashboardScrollOwner() {
 	return document.getElementById('dashboard-main');
 }
 
-var activeSessionScrollAnchorSelector = '#dashboard-search, #completed-table, #dashboard-analytics-summary, .dashboard-analytics-grid';
+var activeSessionScrollAnchorSelector = '#dashboard-search, #completed-table, #dashboard-analytics-summary, #dashboardTokenCumulativeChart';
 
 function dashboardScrollAnchor(owner, selectorList) {
 	if (!owner || !selectorList) return null;
