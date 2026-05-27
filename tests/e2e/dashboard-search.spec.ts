@@ -393,7 +393,7 @@ test.describe('dashboard search workflows', () => {
       await input.fill('dash');
       await input.press('Enter');
       await staleRequest;
-      await expect(page.locator('#completed-sessions')).toContainText('Searching sessions and events');
+      await expect(page.locator('#completed-sessions')).toContainText('Searching table sessions and events');
     });
 
     const latestResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'dashboard payload');
@@ -735,9 +735,9 @@ test.describe('dashboard search workflows', () => {
     });
     await page.locator('#dashboard-session-search').fill('dashboard payload');
     await page.locator('#dashboard-session-search').press('Enter');
-    await expect(page.locator('#completed-sessions')).toContainText('Searching sessions and events');
+    await expect(page.locator('#completed-sessions')).toContainText('Searching table sessions and events');
     await failedResponse;
-    await expect(page.locator('#completed-sessions')).toContainText('Unable to search sessions and events');
+    await expect(page.locator('#completed-sessions')).toContainText('Unable to search table sessions and events');
     await expect(page.locator('#completed-session-status')).toContainText('Search failed');
 
     const retryResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'dashboard payload');
