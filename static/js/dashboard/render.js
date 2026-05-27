@@ -404,45 +404,14 @@ function activeStatusDot(live, sub) {
 	return '<span class="relative flex h-2.5 w-2.5 flex-shrink-0" aria-hidden="true"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span></span>';
 }
 
-function contextUsage(session) {
-	var explicitContext = nonNegativeInt(session.context_tokens);
-	var used = explicitContext;
-	var windowTokens = nonNegativeInt(session.context_window_tokens);
-	var estimate = !!session.context_estimate && used > 0;
-	var percent = windowTokens > 0 ? (used / windowTokens) * 100 : 0;
-	var clamped = Math.max(0, Math.min(100, percent));
-	var state = 'unknown';
-	if (used > 0 && windowTokens > 0) {
-		state = used > windowTokens ? 'over' : (percent >= 80 ? 'high' : 'normal');
-	}
-	return {used: used, windowTokens: windowTokens, estimate: estimate, percent: percent, clamped: clamped, state: state};
-}
-
-function contextLabel(ctx) {
-	if (ctx.used <= 0) return ctx.windowTokens ? ('Context usage unknown / ' + formatTokens(ctx.windowTokens)) : 'Context usage unknown';
-	if (!ctx.windowTokens) return 'Context ' + formatTokens(ctx.used) + (ctx.estimate ? ' est.' : '') + ' / unknown';
-	return 'Context ' + formatTokens(ctx.used) + ' / ' + formatTokens(ctx.windowTokens) + (ctx.estimate ? ' est.' : '');
-}
-
 function activeTrackerCell(label, value, sublabel, tone) {
 	var toneClass = tone ? ' active-tracker-cell-' + escapeAttr(tone) : '';
 	return '<div class="active-tracker-cell' + toneClass + '"><span class="active-tracker-label">' + escapeHTML(label) + '</span><strong class="active-tracker-value">' + escapeHTML(value) + '</strong>' + (sublabel ? '<small class="active-tracker-subvalue">' + escapeHTML(sublabel) + '</small>' : '') + '</div>';
 }
 
-function activeContextTrackerValue(ctx) {
-	if (ctx.used <= 0) return 'Unknown';
-	if (!ctx.windowTokens) return formatTokens(ctx.used);
-	if (ctx.state === 'over') return 'Over';
-	return Math.round(ctx.percent) + '%';
-}
-
-function activeSessionTracker(session, ctx, turnCount, toolCount, errorCount) {
-	var contextSub = ctx.used > 0 && ctx.windowTokens
-		? (formatTokens(ctx.used) + ' / ' + formatTokens(ctx.windowTokens))
-		: (ctx.used > 0 ? formatTokens(ctx.used) + ' used' : (ctx.windowTokens ? formatTokens(ctx.windowTokens) + ' window' : 'window unknown'));
+function activeSessionTracker(session, turnCount, toolCount, errorCount) {
 	var cells = [
 		activeTrackerCell('Run', session.duration || '', 'live', ''),
-		activeTrackerCell('CTX', activeContextTrackerValue(ctx), contextSub, ctx.state === 'unknown' ? '' : ctx.state),
 		activeTrackerCell('Turns', String(turnCount), 'so far', ''),
 		activeTrackerCell('Tools', String(toolCount), 'calls', '')
 	];
@@ -450,28 +419,6 @@ function activeSessionTracker(session, ctx, turnCount, toolCount, errorCount) {
 		cells.push(activeTrackerCell('Errors', String(errorCount), 'review', 'error'));
 	}
 	return '<div class="active-session-tracker" aria-label="Active session live stats">' + cells.join('') + '</div>';
-}
-
-function contextProgress(session, compact) {
-	var ctx = contextUsage(session);
-	var label = contextLabel(ctx);
-	var id = escapeAttr(session.id || '');
-	if (ctx.used <= 0 || !ctx.windowTokens) {
-		return '<div class="active-context active-context-unknown' + (compact ? ' active-context-compact' : '') + '" data-session-context="' + id + '" data-context-state="unknown">' +
-			'<div class="active-context-label"><span>Context</span><span>' + escapeHTML(ctx.used > 0 ? (formatTokens(ctx.used) + (ctx.estimate ? ' est.' : '')) : 'Unknown') + '</span></div>' +
-			'<div class="active-context-track active-context-track-unknown" aria-label="' + escapeAttr(label) + '"></div>' +
-			'<div class="active-context-value">' + escapeHTML(label) + '</div>' +
-			'</div>';
-	}
-	var aria = label;
-	if (ctx.state === 'over') aria += ', over context window';
-	var pctLabel = ctx.state === 'over' ? 'Over window' : Math.round(ctx.percent) + '%';
-	return '<div class="active-context' + (compact ? ' active-context-compact' : '') + '" data-session-context="' + id + '" data-context-state="' + escapeAttr(ctx.state) + '">' +
-		'<div class="active-context-label"><span>Context</span><span>' + escapeHTML(pctLabel) + '</span></div>' +
-		'<div class="active-context-track" role="progressbar" aria-valuemin="0" aria-valuemax="' + ctx.windowTokens + '" aria-valuenow="' + Math.min(ctx.used, ctx.windowTokens) + '" aria-valuetext="' + escapeAttr(aria) + '" aria-label="' + escapeAttr(aria) + '">' +
-		'<span class="active-context-fill active-context-' + escapeAttr(ctx.state) + '" style="width:' + ctx.clamped.toFixed(1) + '%"></span></div>' +
-		'<div class="active-context-value">' + escapeHTML(label) + '</div>' +
-		'</div>';
 }
 
 function activeCard(session) {
@@ -482,14 +429,12 @@ function activeCard(session) {
 	var turnCount = nonNegativeInt(session.turn_count);
 	var toolCount = nonNegativeInt(session.tool_call_count);
 	var errorCount = nonNegativeInt(session.error_count);
-	var ctx = contextUsage(session);
 	if (sub) {
 		return '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(session.id)) + '" class="active-session-card ' + border + '">' +
 			'<div class="active-session-card-header"><div class="active-session-title-row">' + statusDot + '<div class="min-w-0"><div class="active-session-title">' + escapeHTML(sessionTitle(session)) + '</div><div class="active-session-kicker"><span>Subagent</span><span class="font-mono">' + escapeHTML(shortID(session.id)) + '</span><span>parent ' + escapeHTML(shortID(session.parent_session_id)) + '</span></div></div></div>' +
 				'<span class="active-session-status ' + (live ? 'active-session-status-sub' : 'active-session-status-idle') + '">' + (live ? 'Live' : 'Idle') + '</span></div>' +
 				'<div class="active-session-meta-row">' + modelChip(session.last_model || '') + providerBadge(session.provider) + '</div>' +
-				activeSessionTracker(session, ctx, turnCount, toolCount, errorCount) +
-				contextProgress(session, false) +
+				activeSessionTracker(session, turnCount, toolCount, errorCount) +
 			(session.working_dir ? '<p class="active-session-path" title="' + escapeAttr(session.working_dir) + '">' + escapeHTML(session.working_dir) + '</p>' : '') +
 			'</a>';
 	}
@@ -500,15 +445,14 @@ function activeCard(session) {
 			var childLive = child.status === 'active';
 			var childDot = activeStatusDot(childLive, true);
 			var childModel = child.last_model ? '<span class="text-gray-400 truncate min-w-0 flex-1" title="' + escapeAttr(child.last_model) + '">' + escapeHTML(shortModel(child.last_model)) + '</span>' : '';
-			return '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(child.id)) + '" class="active-child-row"><div class="active-child-main">' + childDot + '<span class="active-child-id">' + escapeHTML(shortID(child.id)) + '</span>' + childModel + '<span class="active-child-stat">' + escapeHTML(child.duration || '') + '</span><span class="active-child-stat">' + nonNegativeInt(child.tool_call_count) + 't</span></div>' + contextProgress(child, true) + '</a>';
+			return '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(child.id)) + '" class="active-child-row"><div class="active-child-main">' + childDot + '<span class="active-child-id">' + escapeHTML(shortID(child.id)) + '</span>' + childModel + '<span class="active-child-stat">' + escapeHTML(child.duration || '') + '</span><span class="active-child-stat">' + nonNegativeInt(child.tool_call_count) + 't</span></div></a>';
 		}).join('') + '</div>';
 	}
 	return '<div class="active-session-card ' + border + '">' +
 		'<a href="' + escapeAttr('/sessions/' + encodeURIComponent(session.id)) + '" class="active-session-link">' +
 			'<div class="active-session-card-header"><div class="active-session-title-row">' + statusDot + '<div class="min-w-0"><div class="active-session-title">' + escapeHTML(sessionTitle(session)) + '</div><div class="active-session-kicker"><span class="font-mono">' + escapeHTML(shortID(session.id)) + '</span><span>' + escapeHTML(session.status || '') + '</span></div></div></div><div class="active-session-badges">' + providerBadge(session.provider) + '<span class="active-session-status ' + (live ? 'active-session-status-live' : 'active-session-status-idle') + '">' + (live ? 'Live' : 'Idle') + '</span></div></div>' +
 			'<div class="active-session-meta-row">' + modelChip(session.last_model || '') + '</div>' +
-			activeSessionTracker(session, ctx, turnCount, toolCount, errorCount) +
-		contextProgress(session, false) +
+			activeSessionTracker(session, turnCount, toolCount, errorCount) +
 		(session.working_dir ? '<p class="active-session-path" title="' + escapeAttr(session.working_dir) + '">' + escapeHTML(session.working_dir) + '</p>' : '') +
 		'</a>' + childHTML + '</div>';
 }

@@ -51,44 +51,6 @@ func TestSumTokens(t *testing.T) {
 	}
 }
 
-func TestContextWindowTokensForModel(t *testing.T) {
-	tests := []struct {
-		model string
-		want  int64
-	}{
-		{"claude-sonnet-4", 200_000},
-		{"claude-haiku-4", 200_000},
-		{"gpt-5.4-codex", 1_050_000},
-		{"gpt-4.1", 1_000_000},
-		{"gpt-4o", 128_000},
-		{"o3-pro", 200_000},
-		{"local-experimental", 0},
-	}
-	for _, tt := range tests {
-		if got := ContextWindowTokensForModel(tt.model); got != tt.want {
-			t.Fatalf("ContextWindowTokensForModel(%q) = %d, want %d", tt.model, got, tt.want)
-		}
-	}
-}
-
-func TestSessionWithContextEstimate(t *testing.T) {
-	session := SessionSummary{
-		TotalTokens: 42_000,
-		ActiveModel: "claude-sonnet-4",
-		ChildSessions: []SessionSummary{{
-			TotalTokens: 7_400,
-			ActiveModel: "unknown-local",
-		}},
-	}
-	got := SessionWithContextEstimate(session)
-	if got.ContextTokens != 0 || got.ContextWindowTokens != 200_000 || got.ContextEstimate {
-		t.Fatalf("parent context fields = %#v", got)
-	}
-	if got.ChildSessions[0].ContextTokens != 0 || got.ChildSessions[0].ContextWindowTokens != 0 || got.ChildSessions[0].ContextEstimate {
-		t.Fatalf("child context fields = %#v", got.ChildSessions[0])
-	}
-}
-
 func TestChartDatasetJSONTags(t *testing.T) {
 	ds := ChartDataset{Label: "Input", Values: []float64{1, 2, 3}}
 	b, err := json.Marshal(ds)

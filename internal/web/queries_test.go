@@ -644,55 +644,6 @@ func TestAPISessionSummaryFromViewIncludesErrorCount(t *testing.T) {
 	if api.ErrorCount != 2 {
 		t.Fatalf("ErrorCount = %d, want 2", api.ErrorCount)
 	}
-	if api.ContextTokens != 0 || api.ContextWindowTokens != 200_000 || api.ContextEstimate {
-		t.Fatalf("context fields = %#v", api)
-	}
-}
-
-func TestActiveContextUsageFromCodexTokenCountPayload(t *testing.T) {
-	raw := `{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":139290,"cached_input_tokens":137088,"output_tokens":72,"total_tokens":139362},"model_context_window":258400}}}`
-
-	got := activeContextUsageFromLatestEvent("gpt-5.5", raw, "", 2202, 72, 137088, 0)
-	if !got.HasTokens || got.Tokens != 139_362 {
-		t.Fatalf("context tokens = %d has=%v, want 139362 true", got.Tokens, got.HasTokens)
-	}
-	if !got.HasWindow || got.Window != 258_400 {
-		t.Fatalf("context window = %d has=%v, want 258400 true", got.Window, got.HasWindow)
-	}
-}
-
-func TestActiveContextUsageDoesNotDoubleCountCodexCachedInput(t *testing.T) {
-	raw := `{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":139290,"cached_input_tokens":137088,"output_tokens":72},"model_context_window":258400}}}`
-
-	got := activeContextUsageFromLatestEvent("gpt-5.5", raw, "", 2202, 72, 137088, 0)
-	if !got.HasTokens || got.Tokens != 139_362 {
-		t.Fatalf("context tokens = %d has=%v, want 139362 true", got.Tokens, got.HasTokens)
-	}
-	if !got.HasWindow || got.Window != 258_400 {
-		t.Fatalf("context window = %d has=%v, want 258400 true", got.Window, got.HasWindow)
-	}
-}
-
-func TestActiveContextUsageFallsBackToLatestHarnessTokenColumns(t *testing.T) {
-	got := activeContextUsageFromLatestEvent("claude-sonnet-4", "", "", 8_000, 300, 20_000, 700)
-	if !got.HasTokens || got.Tokens != 29_000 {
-		t.Fatalf("context tokens = %d has=%v, want 29000 true", got.Tokens, got.HasTokens)
-	}
-	if !got.HasWindow || got.Window != 200_000 {
-		t.Fatalf("context window = %d has=%v, want 200000 true", got.Window, got.HasWindow)
-	}
-}
-
-func TestActiveContextUsageFromGenericUsagePayload(t *testing.T) {
-	raw := `{"payload":{"usage":{"input_tokens":"3000","output_tokens":200,"cache_read_input_tokens":700,"cache_creation_input_tokens":100},"context":{"window_tokens":"8000"}}}`
-
-	got := activeContextUsageFromLatestEvent("", raw, "", 0, 0, 0, 0)
-	if !got.HasTokens || got.Tokens != 4_000 {
-		t.Fatalf("context tokens = %d has=%v, want 4000 true", got.Tokens, got.HasTokens)
-	}
-	if !got.HasWindow || got.Window != 8_000 {
-		t.Fatalf("context window = %d has=%v, want 8000 true", got.Window, got.HasWindow)
-	}
 }
 
 type stubScanner struct {
