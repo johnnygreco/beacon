@@ -141,22 +141,32 @@ test.describe('dashboard search workflows', () => {
     );
     const filteredRequest = await triggerDashboardSearchAndWait(
       page,
-      () => page.locator('[data-search-range="7d"]').click(),
+      () => page.locator('#dashboard-range-control').getByRole('button', { name: '7d' }).click(),
       (url) => url.searchParams.get('range') === '7d',
     );
-    await expect(page.locator('[data-search-range="7d"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
 
     expect(filteredRequest.searchParams.get('q')).toBe('search');
     expect(filteredRequest.searchParams.get('event_kind')).toBe('tool_call');
     expect(filteredRequest.searchParams.get('session_id')).toBe(SEARCH_SESSION_ID);
     expect(filteredRequest.searchParams.get('sort')).toBe('newest');
     expect(filteredRequest.searchParams.get('range')).toBe('7d');
+    expect(new URL(page.url()).searchParams.get('search_range')).toBeNull();
 
+    const resetResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() &&
+        url.pathname === '/api/dashboard/sessions' &&
+        url.searchParams.get('state') === 'completed' &&
+        url.searchParams.get('range') === '7d';
+    });
     await page.locator('#dashboard-search-reset').click();
+    await resetResponse;
     await expect(page.locator('#dashboard-session-search')).toHaveValue('');
     await expect(page.locator('#dashboard-search-session')).toHaveValue('');
     await expect(page.locator('#dashboard-search-sort')).toHaveValue('relevance');
     await expect(page.locator('[data-search-event-kind=""]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
     await waitForCompletedRows(page, 30);
 
     await fillDashboardSearchAndWait(page, 'many');

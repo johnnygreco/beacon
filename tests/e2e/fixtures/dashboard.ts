@@ -447,7 +447,7 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
   const sessionID = (url.searchParams.get('session_id') || '').toLowerCase();
   const sort = url.searchParams.get('sort') || 'relevance';
   const limit = Number(url.searchParams.get('limit') || 30);
-  const active = query !== '' || range !== '' || eventKind !== '' || sessionID !== '';
+  const active = query !== '' || eventKind !== '' || sessionID !== '' || sort !== 'relevance' || limit !== 30;
   if (!active) {
     return { state: 'idle', sort, limit, has_more: false, items: [] };
   }

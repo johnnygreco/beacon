@@ -3,7 +3,6 @@ var currentActivityFilter = 'all';
 var currentRange = '24h';
 var currentCompletedOffset = 0;
 var currentSearchQuery = '';
-var currentSearchRange = '';
 var currentSearchEventKind = '';
 var currentSearchSessionID = '';
 var currentSearchSort = 'relevance';
@@ -59,8 +58,10 @@ function dashboardEnumParam(params, name, fallback, allowedValues, aliases) {
 function readDashboardStateFromURL() {
 	var params = new URLSearchParams(window.location.search || '');
 	currentRange = dashboardEnumParam(params, 'range', currentRange, dashboardRanges, {all: ''});
+	if (!params.has('range') && params.has('search_range')) {
+		currentRange = dashboardEnumParam(params, 'search_range', currentRange, dashboardRanges, {all: ''});
+	}
 	currentSearchQuery = (params.get('q') || '').trim();
-	currentSearchRange = dashboardEnumParam(params, 'search_range', currentSearchRange, dashboardRanges, {all: ''});
 	currentSearchEventKind = dashboardEnumParam(params, 'event_kind', currentSearchEventKind, dashboardSearchEventKinds);
 	currentSearchSessionID = (params.get('session_id') || '').trim();
 	currentSearchSort = dashboardEnumParam(params, 'search_sort', currentSearchSort, dashboardSearchSorts);
@@ -77,7 +78,6 @@ function dashboardStatePath() {
 	var params = url.searchParams;
 	if (currentRange !== '24h') params.set('range', currentRange === '' ? 'all' : currentRange);
 	if (currentSearchQuery) params.set('q', currentSearchQuery);
-	if (currentSearchRange) params.set('search_range', currentSearchRange);
 	if (currentSearchEventKind) params.set('event_kind', currentSearchEventKind);
 	if (currentSearchSessionID) params.set('session_id', currentSearchSessionID);
 	if (currentSearchSort !== 'relevance') params.set('search_sort', currentSearchSort);

@@ -289,6 +289,8 @@ test.describe('dashboard battle-tested workflows', () => {
       await expect(page.locator('#sidebar')).toHaveCount(0);
       await expect(page.locator('nav a[href="/search"]')).toHaveCount(0);
       await expect(page.locator('#dashboard-session-search')).toBeVisible();
+      await expect(page.locator('#dashboard-search #dashboard-range-control')).toHaveCount(1);
+      await expect(page.locator('[data-search-range]')).toHaveCount(0);
     }
 
     await guards.expectClean();
@@ -965,6 +967,21 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 24 hours');
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
     await waitForCompletedRows(page, 30);
+
+    const legacyRangeResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() &&
+        url.pathname === '/api/dashboard/sessions' &&
+        url.searchParams.get('state') === 'completed' &&
+        url.searchParams.get('range') === '7d';
+    });
+    await page.goto('/?search_range=7d', { waitUntil: 'domcontentloaded' });
+    await legacyRangeResponse;
+    await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 7 days');
+    await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('range') === '7d');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('search_range') === null);
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
 
     await page.evaluate(() => {
       sessionStorage.removeItem('beacon-dashboard-return-state-v1');
