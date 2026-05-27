@@ -14,7 +14,7 @@ var requestURL = dashboardUtils.requestURL;
 
 function modelChip(model) {
 	if (!model) return '';
-	return '<span class="px-1.5 py-0.5 rounded bg-gray-700/80 text-gray-300 max-w-full truncate" title="' + escapeAttr(model) + '">' + escapeHTML(shortModel(model)) + '</span>';
+	return '<span class="px-1.5 py-0.5 rounded bg-gray-700/80 text-gray-300 min-w-0 max-w-full truncate" title="' + escapeAttr(model) + '">' + escapeHTML(shortModel(model)) + '</span>';
 }
 
 function providerBadgeClasses(provider) {

@@ -121,6 +121,50 @@ async function expectDashboardSearchInputInView(page: Page) {
   expect(visible).toBe(true);
 }
 
+async function readActiveSessionGeometry(page: Page) {
+  return page.evaluate(() => {
+    const grid = document.querySelector('#active-sessions .active-session-grid');
+    const cards = Array.from(document.querySelectorAll('#active-sessions .active-session-card'));
+    const gridRect = grid?.getBoundingClientRect();
+    const cardRects = cards.map((card) => {
+      const rect = card.getBoundingClientRect();
+      return {
+        left: Math.round(rect.left),
+        right: Math.round(rect.right),
+        top: Math.round(rect.top),
+        width: Math.round(rect.width),
+      };
+    });
+    const protrusions = cards.flatMap((card, cardIndex) => {
+      const cardRect = card.getBoundingClientRect();
+      return Array.from(card.querySelectorAll('.active-session-card-header, .active-session-stat-grid, .active-context, .active-child-list, .active-session-path'))
+        .map((child) => {
+          const rect = child.getBoundingClientRect();
+          return {
+            cardIndex,
+            className: child.className,
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+            cardLeft: Math.round(cardRect.left),
+            cardRight: Math.round(cardRect.right),
+          };
+        })
+        .filter((item) => item.left < item.cardLeft - 1 || item.right > item.cardRight + 1);
+    });
+    return {
+      viewportWidth: window.innerWidth,
+      bodyScrollWidth: document.documentElement.scrollWidth,
+      gridLeft: Math.round(gridRect?.left || 0),
+      gridRight: Math.round(gridRect?.right || 0),
+      gridWidth: Math.round(gridRect?.width || 0),
+      cards: cardRects,
+      firstRowCount: cardRects.filter((rect) => rect.top === cardRects[0]?.top).length,
+      rowCount: new Set(cardRects.map((rect) => rect.top)).size,
+      protrusions,
+    };
+  });
+}
+
 test.describe('dashboard battle-tested workflows', () => {
   test('edits dashboard name, persists tab title, clears fallback, and renders unsafe text safely', async ({ page }) => {
     const guards = attachPageGuards(page);
@@ -349,6 +393,58 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(unknown.locator('[role="progressbar"]')).toHaveCount(0);
     await expect(unknown).toContainText('unknown');
     await expect(unknown).not.toContainText('%');
+
+    await guards.expectClean();
+  });
+
+  test('lays out active sessions in a bounded responsive grid', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page, { activeScenarioSequence: ['default', 'default', 'many-active'] });
+
+    for (const viewport of [
+      { width: 1440, height: 900 },
+      { width: 1600, height: 900 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await gotoDashboard(page);
+      await expect(page.locator('#active-sessions')).toContainText('Realtime dashboard smoke run');
+      await expectNoHorizontalOverflow(page);
+
+      const single = await readActiveSessionGeometry(page);
+      expect(single.cards).toHaveLength(1);
+      expect(single.cards[0].left).toBe(single.gridLeft);
+      expect(single.cards[0].width).toBeGreaterThanOrEqual(320);
+      expect(single.cards[0].width).toBeLessThanOrEqual(352);
+      expect(single.cards[0].width).toBeLessThan(single.gridWidth * 0.6);
+      expect(single.protrusions).toEqual([]);
+    }
+
+    await page.evaluate(() => (window as Window & { loadActiveSessions: () => Promise<void> }).loadActiveSessions());
+    await expect(page.locator('#active-sessions')).toContainText('Live queue item 8');
+    let many = await readActiveSessionGeometry(page);
+    expect(many.cards).toHaveLength(8);
+    expect(many.firstRowCount).toBeGreaterThanOrEqual(3);
+    expect(many.rowCount).toBeGreaterThan(1);
+    expect(many.cards.every((card) => card.left >= many.gridLeft && card.right <= many.gridRight)).toBe(true);
+    expect(many.cards.every((card) => card.width >= 320 && card.width <= 352)).toBe(true);
+    expect(many.protrusions).toEqual([]);
+
+    for (const viewport of [
+      { width: 390, height: 844 },
+      { width: 320, height: 568 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await gotoDashboard(page);
+      await expect(page.locator('#active-sessions')).toContainText('Live queue item 8');
+      await expectNoHorizontalOverflow(page);
+      many = await readActiveSessionGeometry(page);
+      expect(many.cards).toHaveLength(8);
+      expect(many.firstRowCount).toBe(1);
+      expect(many.rowCount).toBe(8);
+      expect(many.cards.every((card) => Math.abs(card.width - many.gridWidth) <= 1)).toBe(true);
+      expect(many.bodyScrollWidth).toBeLessThanOrEqual(many.viewportWidth);
+      expect(many.protrusions).toEqual([]);
+    }
 
     await guards.expectClean();
   });

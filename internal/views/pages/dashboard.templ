@@ -111,14 +111,16 @@ templ Dashboard(data views.DashboardData) {
 							</div>
 						</div>
 						<div id="active-sessions">
-							<h2 class="text-lg font-semibold text-gray-200 mb-3 flex items-center gap-2">
-								<span class="relative flex h-2 w-2">
-									<span class="relative inline-flex rounded-full h-2 w-2 bg-gray-600"></span>
-								</span>
-								Active Sessions
-							</h2>
-							<div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-								<div class="text-center py-6 col-span-full">
+							<div class="active-session-heading">
+								<h2 class="text-lg font-semibold text-gray-200 flex items-center gap-2">
+									<span class="relative flex h-2 w-2">
+										<span class="relative inline-flex rounded-full h-2 w-2 bg-gray-600"></span>
+									</span>
+									Active Sessions
+								</h2>
+							</div>
+							<div class="active-session-grid">
+								<div class="active-session-empty">
 									<p class="text-sm text-gray-500">Loading active sessions...</p>
 								</div>
 							</div>
