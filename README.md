@@ -6,10 +6,10 @@ Beacon is a local dashboard for long-running AI coding agents. It watches the se
 
 ## What It Looks Like
 
-**Dashboard overview.** Token volume by model, active sessions, completed runs, integrated search, and a live activity timeline in one view.
+**Dashboard overview.** Active sessions, completed runs, table-scoped search and filters, token volume by model, and a live activity timeline in one view.
 
 <p>
-  <img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing token volume by model, active sessions, activity timeline, and completed sessions" />
+  <img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing active sessions, completed-session table controls, token volume by model, and activity timeline" />
 </p>
 
 **Session transcript.** A single run with session metrics, token charts, tool usage, and the replayable conversation below.
