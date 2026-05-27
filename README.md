@@ -20,8 +20,9 @@ Beacon is a local dashboard for long-running AI coding agents. It watches the se
 
 ## Why Use Beacon
 
-- See active and completed agent runs in one place, including project paths, models, duration, turns, tool calls, and subagents.
-- Catch expensive or noisy work quickly with token charts, cache-token counts, active-session status, and error activity.
+- See active and completed agent runs in one place, including project paths, models, duration, turns, tool calls, subagents, and active-session context usage.
+- Catch expensive or noisy work quickly with token-over-time charts, cache-token counts, active-session status, and error activity.
+- Name each dashboard window so multiple Beacon dashboards, such as different machines, are easy to distinguish in browser tabs.
 - Search prompts, responses, tool calls, paths, and errors across captured sessions without rebuilding an external search service.
 - Replay a session as a readable transcript with expandable tool payloads and timeline context.
 - Let agents query prior work through MCP tools instead of asking you to remember which session contained the answer.
@@ -121,6 +122,9 @@ username = "default"
 password = ""
 secure = false
 
+[dashboard]
+name = "Workstation A"
+
 [[capture.sources]]
 name = "codex"
 runtime = "codex"
@@ -135,6 +139,11 @@ and each capture source must set `name`, `runtime`, `provider`, `format`,
 `watch_root`, and either `glob` or `globs`. Supported runtime/format pairs are
 `claude-code/jsonl`, `codex/jsonl`, `hermes-agent/sqlite`, `opencode/sqlite`,
 and `pi-coding-agent/jsonl`.
+
+Set `[dashboard].name` when you run Beacon dashboards for multiple machines or
+workspaces. The configured name becomes the dashboard heading and browser tab
+title; the heading can also be renamed locally from the dashboard without
+editing the config file.
 
 If `[database].addrs` points to a remote ClickHouse host, Beacon will not start ClickHouse for you. Start the database yourself and run `beacon db migrate`.
 
