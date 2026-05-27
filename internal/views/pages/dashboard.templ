@@ -132,18 +132,22 @@ templ Dashboard(data views.DashboardData) {
 					<div class="completed-table-surface border-t border-gray-700/50 pt-4">
 						<div class="completed-table-heading dashboard-table-top" id="dashboard-search">
 							<div class="dashboard-table-left">
+								<div class="completed-table-title">
+									<h2 id="completed-table-title" class="text-sm font-medium text-gray-400 uppercase tracking-wide">Completed Sessions</h2>
+									<p id="completed-session-status" class="text-xs text-gray-600 mt-1" aria-live="polite">Loading sessions...</p>
+								</div>
 								<div class="dashboard-table-search">
 									<div class="dashboard-table-toolbar">
-										<label for="dashboard-session-search" class="sr-only">Search sessions and events</label>
+										<label for="dashboard-session-search" class="sr-only">Search table sessions and events</label>
 										<span class="dashboard-search-icon" aria-hidden="true">
 											<svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
 												<circle cx="11" cy="11" r="7" stroke-width="2"></circle>
 												<path stroke-linecap="round" stroke-width="2" d="M20 20l-3.5-3.5"></path>
 											</svg>
 										</span>
-										<input id="dashboard-session-search" data-dashboard-search type="search" autocomplete="off" placeholder="Search sessions, projects, models, events" class="dashboard-search-input"/>
+										<input id="dashboard-session-search" data-dashboard-search type="search" autocomplete="off" placeholder="Search table sessions and events" class="dashboard-search-input"/>
 									</div>
-									<div class="dashboard-search-filters" aria-label="Dashboard search filters">
+									<div class="dashboard-search-filters" aria-label="Table filters">
 										<div id="dashboard-range-control" class="dashboard-search-filter-group" role="group" aria-label="Dashboard time range">
 											<button type="button" onclick="setDashboardRange(this, '')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">All</button>
 											<button type="button" onclick="setDashboardRange(this, '1h')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">1h</button>
@@ -180,10 +184,6 @@ templ Dashboard(data views.DashboardData) {
 									</div>
 								</div>
 								<div id="dashboard-analytics-summary" class="dashboard-summary-grid" aria-label="Dashboard totals"></div>
-								<div class="completed-table-title">
-									<h2 id="completed-table-title" class="text-sm font-medium text-gray-400 uppercase tracking-wide">Completed Sessions</h2>
-									<p id="completed-session-status" class="text-xs text-gray-600 mt-1" aria-live="polite">Loading sessions...</p>
-								</div>
 							</div>
 							<div class="dashboard-table-chart">
 								@components.CompactChartContainerWithOptions("dashboardTokenCumulativeChart", "204px", "Tokens by Model Over Time", true, false)

@@ -305,7 +305,11 @@ test.describe('dashboard battle-tested workflows', () => {
       await gotoDashboard(page);
       await expectNoHorizontalOverflow(page);
       await expectDashboardTokenChartReady(page);
+      await expect(page.getByRole('searchbox', { name: 'Search table sessions and events' })).toHaveAttribute('placeholder', 'Search table sessions and events');
+      await expect(page.locator('.dashboard-search-filters')).toHaveAttribute('aria-label', 'Table filters');
       const tableHeaderLayout = await page.evaluate(() => {
+        const title = document.querySelector('.completed-table-title')?.getBoundingClientRect();
+        const search = document.querySelector('.dashboard-table-search')?.getBoundingClientRect();
         const controls = document.querySelector('.dashboard-table-left')?.getBoundingClientRect();
         const chart = document.querySelector('.dashboard-table-chart')?.getBoundingClientRect();
         const summary = document.getElementById('dashboard-analytics-summary')?.getBoundingClientRect();
@@ -316,6 +320,9 @@ test.describe('dashboard battle-tested workflows', () => {
           return el.scrollWidth > el.clientWidth + 1;
         });
         return {
+          titleTop: Math.round(title?.top || 0),
+          titleBottom: Math.round(title?.bottom || 0),
+          searchTop: Math.round(search?.top || 0),
           controlsTop: Math.round(controls?.top || 0),
           controlsRight: Math.round(controls?.right || 0),
           controlsBottom: Math.round(controls?.bottom || 0),
@@ -328,6 +335,8 @@ test.describe('dashboard battle-tested workflows', () => {
           chartLeft: Math.round(chart?.left || 0),
         };
       });
+      expect(tableHeaderLayout.titleTop).toBeLessThanOrEqual(tableHeaderLayout.searchTop);
+      expect(tableHeaderLayout.titleBottom).toBeLessThanOrEqual(tableHeaderLayout.searchTop + 1);
       expect(tableHeaderLayout.summaryLeft).toBeGreaterThanOrEqual(0);
       expect(tableHeaderLayout.summaryRight).toBeLessThanOrEqual(viewport.width);
       expect(tableHeaderLayout.summaryBottom).toBeLessThanOrEqual(tableHeaderLayout.controlsBottom + 1);

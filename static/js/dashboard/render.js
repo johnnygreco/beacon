@@ -355,7 +355,7 @@ function renderDashboardSearch(response) {
 		if (rows.length === 0) {
 			var message = response.state === 'unavailable'
 				? 'Search is not connected'
-				: (response.state === 'idle' ? 'Enter a query or filter to search sessions and events' : 'No matching sessions or events');
+				: (response.state === 'idle' ? 'Enter a query or filter to search table sessions and events' : 'No matching table sessions or events');
 			rows.push('<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-gray-500">' + escapeHTML(message) + '</span></td></tr>');
 		}
 		setHTMLIfChanged(tbody, rows.join(''));
@@ -363,7 +363,7 @@ function renderDashboardSearch(response) {
 			if (response.state === 'unavailable') {
 				status.textContent = 'Search unavailable';
 			} else if (response.state === 'idle') {
-				status.textContent = 'Search sessions and events from the dashboard table';
+				status.textContent = 'Search table sessions and events';
 			} else {
 				var count = response.items.length;
 				status.textContent = count + (hasMore ? '+' : '') + ' search result' + (count === 1 && !hasMore ? '' : 's');
@@ -379,8 +379,8 @@ function renderDashboardSearchLoading() {
 		var title = document.getElementById('completed-table-title');
 		if (title) title.textContent = 'Search Results';
 		setCompletedTableMode('search');
-		setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-gray-500">Searching sessions and events...</span></td></tr>');
-		if (status) status.textContent = 'Searching sessions and events...';
+		setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-gray-500">Searching table sessions and events...</span></td></tr>');
+		if (status) status.textContent = 'Searching table sessions and events...';
 	}, {completedRegion: true});
 }
 
@@ -636,7 +636,7 @@ async function loadDashboardSearch(options) {
 			var title = document.getElementById('completed-table-title');
 			if (title) title.textContent = 'Search Results';
 			setCompletedTableMode('search');
-			setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-red-400">Unable to search sessions and events. <button type="button" class="underline" onclick="loadDashboardSearch()">Retry</button></span></td></tr>');
+			setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-red-400">Unable to search table sessions and events. <button type="button" class="underline" onclick="loadDashboardSearch()">Retry</button></span></td></tr>');
 			if (status) status.textContent = 'Search failed';
 		}, {completedRegion: true});
 		return;
@@ -653,7 +653,7 @@ async function loadCompletedSessions(offset, options) {
 	currentCompletedOffset = Math.max(0, offset || 0);
 	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 	var status = document.getElementById('completed-session-status');
-	if (status && !options.silent) status.textContent = currentSearchQuery ? 'Searching sessions...' : 'Loading sessions...';
+	if (status && !options.silent) status.textContent = currentSearchQuery ? 'Searching completed sessions...' : 'Loading sessions...';
 	var result = await fetchDashboardJSON('completed', requestURL('/api/dashboard/sessions', {
 		state: 'completed',
 		limit: completedPageSize,
