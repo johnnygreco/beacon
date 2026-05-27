@@ -81,11 +81,11 @@ func TestSessionWithContextEstimate(t *testing.T) {
 		}},
 	}
 	got := SessionWithContextEstimate(session)
-	if got.ContextTokens != 42_000 || got.ContextWindowTokens != 200_000 || !got.ContextEstimate {
-		t.Fatalf("parent context estimate = %#v", got)
+	if got.ContextTokens != 0 || got.ContextWindowTokens != 200_000 || got.ContextEstimate {
+		t.Fatalf("parent context fields = %#v", got)
 	}
-	if got.ChildSessions[0].ContextTokens != 7_400 || got.ChildSessions[0].ContextWindowTokens != 0 || !got.ChildSessions[0].ContextEstimate {
-		t.Fatalf("child context estimate = %#v", got.ChildSessions[0])
+	if got.ChildSessions[0].ContextTokens != 0 || got.ChildSessions[0].ContextWindowTokens != 0 || got.ChildSessions[0].ContextEstimate {
+		t.Fatalf("child context fields = %#v", got.ChildSessions[0])
 	}
 }
 

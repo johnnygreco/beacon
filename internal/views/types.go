@@ -146,7 +146,7 @@ type SessionSummary struct {
 	ActiveModel         string
 	ContextTokens       int64            // best-effort current context length used by active cards
 	ContextWindowTokens int64            // known/inferred model context window, or zero when unknown
-	ContextEstimate     bool             // true when ContextTokens is inferred from session totals
+	ContextEstimate     bool             // true when ContextTokens is explicitly marked approximate
 	WorkingDir          string           // full working directory path from cwd field
 	ParentSessionID     string           // non-empty if this is a subagent session
 	ChildSessions       []SessionSummary // subagent sessions spawned from this session
@@ -174,13 +174,9 @@ func ContextWindowTokensForModel(model string) int64 {
 	}
 }
 
-// SessionWithContextEstimate fills active-dashboard context fields when exact
-// provider-reported context length is unavailable.
+// SessionWithContextEstimate fills the model window when it is known. Context
+// usage itself is only set from harness-reported snapshots.
 func SessionWithContextEstimate(s SessionSummary) SessionSummary {
-	if s.ContextTokens <= 0 && s.TotalTokens > 0 {
-		s.ContextTokens = s.TotalTokens
-		s.ContextEstimate = true
-	}
 	if s.ContextWindowTokens <= 0 {
 		s.ContextWindowTokens = ContextWindowTokensForModel(s.ActiveModel)
 	}
