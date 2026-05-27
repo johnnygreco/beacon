@@ -59,8 +59,6 @@ test("completed session rows escape malicious payload fields", () => {
     provider: payload,
     last_model: payload,
     total_tokens: payload,
-    context_tokens: payload,
-    context_window_tokens: payload,
     turn_count: payload,
     tool_call_count: payload,
     duration: payload,
@@ -117,15 +115,13 @@ test("active cards and activity feed escape JSON-rendered payloads", () => {
       last_model: payload,
       duration: payload,
       total_tokens: payload,
-      context_tokens: payload,
-      context_window_tokens: payload,
       tool_call_count: payload,
     }],
   });
   assertNoRawPayloadHTML(card);
-  assert.match(card, /data-context-state="unknown"/);
   assert.match(card, /active-session-tracker/);
-  assert.match(card, /active-tracker-label">CTX</);
+  assert.doesNotMatch(card, /active-tracker-label">CTX</);
+  assert.doesNotMatch(card, /active-context/);
   assert.equal(card.includes('role="progressbar"'), false);
 
   const feed = {};
@@ -143,18 +139,15 @@ test("active cards and activity feed escape JSON-rendered payloads", () => {
   assert.match(feed.innerHTML, /activity &quot;&gt;&lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
 });
 
-test("active cards render bounded accessible context progress", () => {
+test("active cards render compact live stats", () => {
   const sandbox = loadRenderSandbox();
   const html = sandbox.activeCard({
-    id: "active-context",
-    title: "Context run",
+    id: "active-run",
+    title: "Active run",
     status: "active",
     provider: "openai",
     last_model: "gpt-5.4-codex",
     total_tokens: 1200000,
-    context_tokens: 1200000,
-    context_window_tokens: 1050000,
-    context_estimate: true,
     turn_count: 9,
     tool_call_count: 3,
     duration: "12m",
@@ -163,37 +156,11 @@ test("active cards render bounded accessible context progress", () => {
 
   assertNoRawPayloadHTML(html);
   assert.match(html, /active-session-tracker/);
-  assert.match(html, /active-tracker-cell-over/);
-  assert.match(html, /data-context-state="over"/);
-  assert.match(html, /role="progressbar"/);
-  assert.match(html, /aria-valuemax="1050000"/);
-  assert.match(html, /aria-valuenow="1050000"/);
-  assert.match(html, /Over window/);
-  assert.match(html, /over context window/);
-});
-
-test("active cards do not infer context usage from total tokens", () => {
-  const sandbox = loadRenderSandbox();
-  const html = sandbox.activeCard({
-    id: "active-unknown-context",
-    title: "Unknown context run",
-    status: "active",
-    provider: "anthropic",
-    last_model: "claude-sonnet-4",
-    total_tokens: 120000,
-    context_window_tokens: 200000,
-    turn_count: 4,
-    tool_call_count: 1,
-    duration: "8m",
-  });
-
-  assertNoRawPayloadHTML(html);
-  assert.match(html, /active-session-tracker/);
-  assert.match(html, /Context usage unknown \/ 200\.0K/);
-  assert.match(html, /200\.0K window/);
-  assert.match(html, /data-context-state="unknown"/);
+  assert.doesNotMatch(html, /CTX/);
+  assert.doesNotMatch(html, /active-context/);
+  assert.doesNotMatch(html, /data-context-state/);
   assert.equal(html.includes('role="progressbar"'), false);
-  assert.doesNotMatch(html, /60%/);
+  assert.doesNotMatch(html, /Over window/);
 });
 
 test("search mode ignores dashboard range alone but honors search state", () => {

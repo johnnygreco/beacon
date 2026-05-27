@@ -25,9 +25,6 @@
     },
     "optional": {
       "parent_session_id": "string",
-      "context_tokens": "integer",
-      "context_window_tokens": "integer",
-      "context_estimate": "boolean",
       "child_sessions": "APISessionSummary[]"
     }
   },

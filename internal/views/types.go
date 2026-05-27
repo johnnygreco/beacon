@@ -127,63 +127,28 @@ type MetricData struct {
 }
 
 type SessionSummary struct {
-	ID                  string
-	Actor               string
-	Provider            string // "anthropic", "openai", etc.
-	Status              string // "active", "idle", "completed"
-	StartedAt           time.Time
-	EndedAt             time.Time
-	Duration            string
-	TotalTokens         int64
-	InputTokens         int64
-	OutputTokens        int64
-	CacheReadTokens     int64
-	CacheCreateTokens   int64
-	TurnCount           int64
-	ToolCallCount       int64
-	MCPCallCount        int64
-	ErrorCount          int64
-	ActiveModel         string
-	ContextTokens       int64            // best-effort current context length used by active cards
-	ContextWindowTokens int64            // known/inferred model context window, or zero when unknown
-	ContextEstimate     bool             // true when ContextTokens is explicitly marked approximate
-	WorkingDir          string           // full working directory path from cwd field
-	ParentSessionID     string           // non-empty if this is a subagent session
-	ChildSessions       []SessionSummary // subagent sessions spawned from this session
-	HasSessionEnd       bool             // true if session has a definitive end signal
-	SubagentCount       int              // number of subagent sessions for this parent (completed table)
-}
-
-// ContextWindowTokensForModel returns a conservative context-window estimate
-// for model families Beacon commonly sees in active sessions.
-func ContextWindowTokensForModel(model string) int64 {
-	m := strings.ToLower(strings.TrimSpace(model))
-	switch {
-	case strings.Contains(m, "gpt-5.4"):
-		return 1_050_000
-	case strings.Contains(m, "gpt-4.1"):
-		return 1_000_000
-	case strings.Contains(m, "claude"):
-		return 200_000
-	case strings.Contains(m, "gpt-4o") || strings.Contains(m, "gpt-4-turbo"):
-		return 128_000
-	case strings.HasPrefix(m, "o3") || strings.HasPrefix(m, "o4"):
-		return 200_000
-	default:
-		return 0
-	}
-}
-
-// SessionWithContextEstimate fills the model window when it is known. Context
-// usage itself is only set from harness-reported snapshots.
-func SessionWithContextEstimate(s SessionSummary) SessionSummary {
-	if s.ContextWindowTokens <= 0 {
-		s.ContextWindowTokens = ContextWindowTokensForModel(s.ActiveModel)
-	}
-	for i := range s.ChildSessions {
-		s.ChildSessions[i] = SessionWithContextEstimate(s.ChildSessions[i])
-	}
-	return s
+	ID                string
+	Actor             string
+	Provider          string // "anthropic", "openai", etc.
+	Status            string // "active", "idle", "completed"
+	StartedAt         time.Time
+	EndedAt           time.Time
+	Duration          string
+	TotalTokens       int64
+	InputTokens       int64
+	OutputTokens      int64
+	CacheReadTokens   int64
+	CacheCreateTokens int64
+	TurnCount         int64
+	ToolCallCount     int64
+	MCPCallCount      int64
+	ErrorCount        int64
+	ActiveModel       string
+	WorkingDir        string           // full working directory path from cwd field
+	ParentSessionID   string           // non-empty if this is a subagent session
+	ChildSessions     []SessionSummary // subagent sessions spawned from this session
+	HasSessionEnd     bool             // true if session has a definitive end signal
+	SubagentCount     int              // number of subagent sessions for this parent (completed table)
 }
 
 // IsSubagent returns true if this session is a subagent of another session.

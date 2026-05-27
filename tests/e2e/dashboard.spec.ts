@@ -137,7 +137,7 @@ async function readActiveSessionGeometry(page: Page) {
     });
     const protrusions = cards.flatMap((card, cardIndex) => {
       const cardRect = card.getBoundingClientRect();
-      return Array.from(card.querySelectorAll('.active-session-card-header, .active-session-title, .active-session-kicker, .active-session-meta-row, .active-session-tracker, .active-context, .active-context-label, .active-context-value, .active-child-list, .active-child-row, .active-session-path'))
+      return Array.from(card.querySelectorAll('.active-session-card-header, .active-session-title, .active-session-kicker, .active-session-meta-row, .active-session-tracker, .active-child-list, .active-child-row, .active-session-path'))
         .map((child) => {
           const rect = child.getBoundingClientRect();
           return {
@@ -360,7 +360,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
-  test('promotes active sessions with accessible context usage bars', async ({ page }) => {
+  test('promotes active sessions with compact live stat trackers', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -384,38 +384,15 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(sectionOrder.summaryTop).toBeGreaterThan(sectionOrder.surfaceTop);
     expect(sectionOrder.summaryInSearchHeader).toBe(true);
 
-    const parentProgress = page.locator(`[data-session-context="${ACTIVE_SESSION_ID}"] [role="progressbar"]`).first();
-    await expect(parentProgress).toHaveAttribute('aria-valuemin', '0');
-    await expect(parentProgress).toHaveAttribute('aria-valuemax', '200000');
-    await expect(parentProgress).toHaveAttribute('aria-valuenow', '42000');
-    await expect(parentProgress).toHaveAttribute('aria-valuetext', /Context 42\.0K \/ 200\.0K est\./);
-    await expect(page.locator(`[data-session-context="active-child-001"] [role="progressbar"]`)).toHaveAttribute('aria-valuenow', '7400');
-
-    await guards.expectClean();
-  });
-
-  test('handles high, over-window, and unknown active-session context states', async ({ page }) => {
-    const guards = attachPageGuards(page);
-    await installDashboardFixtures(page, { scenario: 'many-active' });
-    await page.setViewportSize({ width: 1440, height: 900 });
-    await gotoDashboard(page);
-    await expect(page.locator('#active-sessions')).toContainText('Live queue item 8');
-
-    const high = page.locator('[data-session-context="active-parent-002"]');
-    await expect(high).toHaveAttribute('data-context-state', 'high');
-    await expect(high.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '165000');
-
-    const over = page.locator('[data-session-context="active-parent-003"]');
-    await expect(over).toHaveAttribute('data-context-state', 'over');
-    await expect(over.locator('[role="progressbar"]')).toHaveAttribute('aria-valuenow', '200000');
-    await expect(over.locator('[role="progressbar"]')).toHaveAttribute('aria-valuetext', /over context window/);
-    await expect(over).toContainText('Over window');
-
-    const unknown = page.locator('[data-session-context="active-parent-004"]');
-    await expect(unknown).toHaveAttribute('data-context-state', 'unknown');
-    await expect(unknown.locator('[role="progressbar"]')).toHaveCount(0);
-    await expect(unknown).toContainText('unknown');
-    await expect(unknown).not.toContainText('%');
+    const tracker = page.locator(`#active-sessions [href="/sessions/${ACTIVE_SESSION_ID}"] .active-session-tracker`);
+    await expect(tracker).toHaveAttribute('aria-label', 'Active session live stats');
+    await expect(tracker).toContainText('Run');
+    await expect(tracker).toContainText('Turns');
+    await expect(tracker).toContainText('Tools');
+    await expect(tracker).not.toContainText('CTX');
+    await expect(page.locator('#active-sessions .active-context')).toHaveCount(0);
+    await expect(page.locator('#active-sessions [data-session-context]')).toHaveCount(0);
+    await expect(page.locator('#active-sessions [role="progressbar"]')).toHaveCount(0);
 
     await guards.expectClean();
   });
@@ -503,8 +480,6 @@ test.describe('dashboard battle-tested workflows', () => {
           '.active-session-path',
           '.active-tracker-value',
           '.active-tracker-subvalue',
-          '.active-context-label span',
-          '.active-context-value',
           '.active-child-main',
         ];
         return selectors.flatMap((selector) => Array.from(document.querySelectorAll(selector)).map((el) => {
@@ -523,8 +498,7 @@ test.describe('dashboard battle-tested workflows', () => {
       expect(containment.every((item) => item.insideCard)).toBe(true);
       expect(containment.some((item) => item.selector === '.active-session-title' && item.overflow === 'hidden' && item.textOverflow === 'ellipsis' && item.whiteSpace === 'nowrap')).toBe(true);
       expect(containment.some((item) => item.selector === '.active-session-path' && item.overflow === 'hidden' && item.textOverflow === 'ellipsis' && item.whiteSpace === 'nowrap')).toBe(true);
-      await expect(page.locator('[data-session-context="active-long-003"]')).toHaveAttribute('data-context-state', 'over');
-      await expect(page.locator('[data-session-context="active-long-004"]')).toHaveAttribute('data-context-state', 'unknown');
+      await expect(page.locator('#active-sessions [data-session-context]')).toHaveCount(0);
     }
 
     await guards.expectClean();

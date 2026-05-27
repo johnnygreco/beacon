@@ -128,9 +128,6 @@ const activeSessions = [
     duration: '4m 22s',
     turn_count: 7,
     total_tokens: 42000,
-    context_tokens: 42000,
-    context_window_tokens: 200000,
-    context_estimate: true,
     input_tokens: 21000,
     output_tokens: 16000,
     cache_read_tokens: 5000,
@@ -154,9 +151,6 @@ const activeSessions = [
         duration: '2m',
         turn_count: 2,
         total_tokens: 7400,
-        context_tokens: 7400,
-        context_window_tokens: 200000,
-        context_estimate: true,
         input_tokens: 3600,
         output_tokens: 2600,
         cache_read_tokens: 1200,
@@ -189,23 +183,20 @@ function rangeFixtureLabel(range: string) {
 }
 
 function manyActiveSessions() {
-  const contextCases = [
-    { context_tokens: 42_000, context_window_tokens: 200_000, context_estimate: true, last_model: 'claude-sonnet-4', provider: 'anthropic' },
-    { context_tokens: 165_000, context_window_tokens: 200_000, context_estimate: true, last_model: 'claude-sonnet-4', provider: 'anthropic' },
-    { context_tokens: 221_000, context_window_tokens: 200_000, context_estimate: true, last_model: 'claude-sonnet-4', provider: 'anthropic' },
-    { context_tokens: 58_000, context_window_tokens: 0, context_estimate: true, last_model: 'local-experimental-32k', provider: 'openai' },
+  const modelCases = [
+    { last_model: 'claude-sonnet-4', provider: 'anthropic' },
+    { last_model: 'claude-haiku-4', provider: 'anthropic' },
+    { last_model: 'gpt-5.4-codex', provider: 'openai' },
+    { last_model: 'local-experimental-32k', provider: 'openai' },
   ];
   return Array.from({ length: 8 }, (_, i) => {
-    const contextCase = contextCases[i] || {
-      context_tokens: 95_000 + i * 11_000,
-      context_window_tokens: i % 2 === 0 ? 200_000 : 1_050_000,
-      context_estimate: true,
+    const modelCase = modelCases[i] || {
       last_model: i % 2 === 0 ? 'claude-sonnet-4' : 'gpt-5.4-codex',
       provider: i % 2 === 0 ? 'anthropic' : 'openai',
     };
     return {
       ...activeSessions[0],
-      ...contextCase,
+      ...modelCase,
       id: `active-parent-${String(i + 1).padStart(3, '0')}`,
       title: `Live queue item ${i + 1}`,
       total_tokens: 15000 + i * 4300,
@@ -225,8 +216,6 @@ function longActiveSessions() {
     title: `${longTitle} ${i + 1}`,
     duration: i === 0 ? '123h 45m 59s' : `${48 + i}h ${17 + i}m`,
     total_tokens: 9_876_543 + i * 123_456,
-    context_tokens: i === 2 ? 2_200_000 : 765_432 + i * 88_888,
-    context_window_tokens: i === 3 ? 0 : 1_000_000,
     turn_count: 1234 + i * 111,
     tool_call_count: 987 + i * 77,
     error_count: i === 1 ? 42 : 0,

@@ -42,32 +42,29 @@ type APITokensByModel struct {
 }
 
 type APISessionSummary struct {
-	ID                  string              `json:"id"`
-	Title               string              `json:"title"`
-	Source              string              `json:"source"`
-	Provider            string              `json:"provider"`
-	Status              string              `json:"status"`
-	StartedAt           time.Time           `json:"started_at"`
-	EndedAt             time.Time           `json:"ended_at"`
-	Duration            string              `json:"duration"`
-	TurnCount           int64               `json:"turn_count"`
-	TotalTokens         int64               `json:"total_tokens"`
-	InputTokens         int64               `json:"input_tokens"`
-	OutputTokens        int64               `json:"output_tokens"`
-	CacheReadTokens     int64               `json:"cache_read_tokens"`
-	CacheCreateTokens   int64               `json:"cache_create_tokens"`
-	ToolCallCount       int64               `json:"tool_call_count"`
-	MCPCallCount        int64               `json:"mcp_call_count"`
-	ErrorCount          int64               `json:"error_count"`
-	LastModel           string              `json:"last_model"`
-	ContextTokens       int64               `json:"context_tokens,omitempty"`
-	ContextWindowTokens int64               `json:"context_window_tokens,omitempty"`
-	ContextEstimate     bool                `json:"context_estimate,omitempty"`
-	WorkingDir          string              `json:"working_dir"`
-	ParentSessionID     string              `json:"parent_session_id,omitempty"`
-	HasSessionEnd       bool                `json:"has_session_end"`
-	SubagentCount       int                 `json:"subagent_count"`
-	ChildSessions       []APISessionSummary `json:"child_sessions,omitempty"`
+	ID                string              `json:"id"`
+	Title             string              `json:"title"`
+	Source            string              `json:"source"`
+	Provider          string              `json:"provider"`
+	Status            string              `json:"status"`
+	StartedAt         time.Time           `json:"started_at"`
+	EndedAt           time.Time           `json:"ended_at"`
+	Duration          string              `json:"duration"`
+	TurnCount         int64               `json:"turn_count"`
+	TotalTokens       int64               `json:"total_tokens"`
+	InputTokens       int64               `json:"input_tokens"`
+	OutputTokens      int64               `json:"output_tokens"`
+	CacheReadTokens   int64               `json:"cache_read_tokens"`
+	CacheCreateTokens int64               `json:"cache_create_tokens"`
+	ToolCallCount     int64               `json:"tool_call_count"`
+	MCPCallCount      int64               `json:"mcp_call_count"`
+	ErrorCount        int64               `json:"error_count"`
+	LastModel         string              `json:"last_model"`
+	WorkingDir        string              `json:"working_dir"`
+	ParentSessionID   string              `json:"parent_session_id,omitempty"`
+	HasSessionEnd     bool                `json:"has_session_end"`
+	SubagentCount     int                 `json:"subagent_count"`
+	ChildSessions     []APISessionSummary `json:"child_sessions,omitempty"`
 }
 
 type APIDashboardSessionsResponse struct {
