@@ -3192,6 +3192,26 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
   box-shadow: 0 0 0 2px var(--dash-accent-soft);
 }
 
+#dashboard-wrap .dash-range-btn:focus-visible,
+#dashboard-wrap .activity-filter-btn:focus-visible,
+#dashboard-wrap .json-page-btn:focus-visible,
+#dashboard-wrap .json-subagent-toggle:focus-visible,
+#dashboard-wrap .active-session-link:focus-visible,
+#dashboard-wrap .active-session-card[href]:focus-visible,
+#dashboard-wrap .active-child-row:focus-visible,
+#dashboard-wrap .dashboard-search-result-link:focus-visible,
+#dashboard-wrap .dashboard-theme-select:focus-visible,
+#dashboard-wrap .dashboard-search-input:focus-visible,
+#dashboard-wrap .dashboard-search-select:focus-visible,
+#dashboard-wrap .dashboard-search-filter-input:focus-visible,
+#dashboard-wrap .active-session-sort-select:focus-visible,
+#dashboard-wrap .model-dropdown-trigger:focus-visible,
+#session-inspector button:focus-visible,
+#session-inspector a:focus-visible {
+  outline: 2px solid var(--dash-accent);
+  outline-offset: 2px;
+}
+
 .dashboard-appearance-toggle.is-fixed {
   opacity: 0.62;
   cursor: not-allowed;

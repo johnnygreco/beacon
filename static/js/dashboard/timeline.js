@@ -44,6 +44,7 @@
 		if (!divider) return;
 		var parsed = parseInt(sidebar.style.width, 10);
 		var width = isCollapsed() ? 0 : (Number.isFinite(parsed) ? parsed : DEFAULT_WIDTH);
+		divider.setAttribute('aria-valuemax', String(maxWidthForViewport()));
 		divider.setAttribute('aria-valuenow', String(width));
 		divider.setAttribute('aria-valuetext', width > 0 ? ('Activity bar width ' + width + ' pixels') : 'Activity bar collapsed');
 	}

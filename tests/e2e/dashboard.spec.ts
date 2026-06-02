@@ -363,6 +363,7 @@ test.describe('dashboard battle-tested workflows', () => {
       { width: 1120, height: 800 },
       { width: 1100, height: 800 },
       { width: 1024, height: 768 },
+      { width: 768, height: 1024 },
       { width: 390, height: 844 },
       { width: 320, height: 568 },
     ]) {
@@ -385,6 +386,7 @@ test.describe('dashboard battle-tested workflows', () => {
         const analytics = document.querySelector('.dashboard-analytics-panel')?.getBoundingClientRect();
         const completed = document.querySelector('.completed-table-surface')?.getBoundingClientRect();
         const sidebar = document.getElementById('timeline-sidebar')?.getBoundingClientRect();
+        const divider = document.getElementById('sidebar-divider');
         const title = document.querySelector('.completed-table-title')?.getBoundingClientRect();
         const search = document.querySelector('.dashboard-table-search')?.getBoundingClientRect();
         const controls = document.querySelector('.dashboard-table-left')?.getBoundingClientRect();
@@ -395,6 +397,8 @@ test.describe('dashboard battle-tested workflows', () => {
         const table = document.getElementById('completed-table');
         const chart = document.querySelector('.dashboard-table-chart')?.getBoundingClientRect();
         const summary = document.getElementById('dashboard-analytics-summary')?.getBoundingClientRect();
+        const activeBoard = document.querySelector('#active-sessions .active-session-board-scroll');
+        const activeBoardStyle = activeBoard ? window.getComputedStyle(activeBoard) : null;
         const filterOverflow = Array.from(document.querySelectorAll('.dashboard-search-filters, .dashboard-search-filter-group')).some((el) => {
           return el.scrollWidth > el.clientWidth + 1;
         });
@@ -402,6 +406,7 @@ test.describe('dashboard battle-tested workflows', () => {
           return el.scrollWidth > el.clientWidth + 1;
         });
         return {
+          wrapWidth: Math.round(wrap?.width || 0),
           wrapRight: Math.round(wrap?.right || 0),
           mainRight: Math.round(main?.right || 0),
           headerTop: Math.round(header?.top || 0),
@@ -420,6 +425,7 @@ test.describe('dashboard battle-tested workflows', () => {
           sidebarTop: Math.round(sidebar?.top || 0),
           sidebarLeft: Math.round(sidebar?.left || 0),
           sidebarRight: Math.round(sidebar?.right || 0),
+          dividerValueMax: Number(divider?.getAttribute('aria-valuemax') || 0),
           titleTop: Math.round(title?.top || 0),
           titleBottom: Math.round(title?.bottom || 0),
           searchTop: Math.round(search?.top || 0),
@@ -436,6 +442,8 @@ test.describe('dashboard battle-tested workflows', () => {
           summaryRight: Math.round(summary?.right || 0),
           filterOverflow,
           summaryTextOverflow,
+          activeBoardOverflowY: activeBoardStyle?.overflowY || '',
+          activeBoardMaxHeight: activeBoardStyle?.maxHeight || '',
           chartTop: Math.round(chart?.top || 0),
           chartLeft: Math.round(chart?.left || 0),
           chartInSearchHeader: Boolean(document.getElementById('dashboardTokenCumulativeChart')?.closest('#dashboard-search')),
@@ -471,6 +479,9 @@ test.describe('dashboard battle-tested workflows', () => {
       expect(shellLayout.activeRight).toBeLessThanOrEqual(shellLayout.mainRight + 1);
       expect(shellLayout.analyticsRight).toBeLessThanOrEqual(shellLayout.mainRight + 1);
       expect(shellLayout.completedRight).toBeLessThanOrEqual(shellLayout.mainRight + 1);
+      if (viewport.width > 1100) {
+        expect(shellLayout.dividerValueMax).toBe(Math.min(700, Math.max(200, Math.floor(shellLayout.wrapWidth * 0.5))));
+      }
       if (viewport.width > 1240) {
         expect(Math.abs(shellLayout.activeTop - shellLayout.analyticsTop)).toBeLessThanOrEqual(2);
         expect(shellLayout.activeRight).toBeLessThanOrEqual(shellLayout.analyticsLeft);
@@ -485,6 +496,8 @@ test.describe('dashboard battle-tested workflows', () => {
       } else {
         expect(shellLayout.analyticsTop).toBeGreaterThanOrEqual(shellLayout.activeBottom);
         expect(shellLayout.sidebarTop).toBeGreaterThanOrEqual(shellLayout.completedTop);
+        expect(shellLayout.activeBoardOverflowY).toBe('visible');
+        expect(shellLayout.activeBoardMaxHeight).toBe('none');
       }
       await expect(page.locator('#sidebar')).toHaveCount(0);
       await expect(page.locator('nav a[href="/search"]')).toHaveCount(0);
@@ -741,6 +754,57 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('keeps primary dashboard controls reachable in keyboard order', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page, { scenario: 'empty' });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoDashboard(page);
+    await expect(page.locator('#completed-sessions')).toContainText('No completed sessions');
+
+    await page.evaluate(() => {
+      (document.activeElement as HTMLElement | null)?.blur();
+    });
+    const seen: string[] = [];
+    for (let i = 0; i < 50; i += 1) {
+      await page.keyboard.press('Tab');
+      const key = await page.evaluate(() => {
+        const el = document.activeElement as HTMLElement | null;
+        if (!el || el === document.body) return '';
+        const id = el.id || '';
+        const parentId = el.closest('[id]')?.id || '';
+        const label = el.getAttribute('aria-label') || el.textContent?.trim().replace(/\s+/g, ' ') || '';
+        return id || `${parentId}:${label}`;
+      });
+      if (key && !seen.includes(key)) seen.push(key);
+    }
+
+    const expectedOrder = [
+      'dashboard-name-edit',
+      'dashboard-theme-select',
+      'dashboard-appearance-toggle',
+      'dashboard-refresh-btn',
+      'timeline-toggle-btn',
+      'active-session-sort',
+      'dashboard-chart-range-control:All',
+      'dashboard-chart-refresh-btn',
+      'dashboard-session-search',
+      'dashboard-range-control:All',
+      'dashboard-search-kind',
+      'dashboard-search-session',
+      'dashboard-search-sort',
+      'dashboard-search-reset',
+      'dashboard-table-refresh-btn',
+      'timeline-sidebar:All',
+    ];
+    const indexes = expectedOrder.map((key) => seen.indexOf(key));
+    expect(indexes.every((index) => index >= 0)).toBe(true);
+    for (let i = 1; i < indexes.length; i += 1) {
+      expect(indexes[i]).toBeGreaterThan(indexes[i - 1]);
+    }
+
+    await guards.expectClean();
+  });
+
   test('sorts completed sessions with keyboard-operable headers', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);
@@ -952,6 +1016,12 @@ test.describe('dashboard battle-tested workflows', () => {
     const divider = page.locator('#sidebar-divider');
     const box = await divider.boundingBox();
     expect(box).not.toBeNull();
+    const expectedDividerMax = await page.evaluate(() => {
+      const wrap = document.getElementById('dashboard-wrap');
+      const wrapWidth = wrap?.offsetWidth || 0;
+      return Math.min(700, Math.max(200, Math.floor(wrapWidth * 0.5)));
+    });
+    await expect(divider).toHaveAttribute('aria-valuemax', String(expectedDividerMax));
     await divider.focus();
     await page.keyboard.press('Shift+ArrowLeft');
     await page.waitForFunction(() => Number(localStorage.getItem('beacon-timeline-width') || 0) > 390);
@@ -975,6 +1045,18 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(divider).toHaveAttribute('aria-valuenow', '0');
     await page.keyboard.press('End');
     await expect(page.locator('#timeline-sidebar')).not.toHaveClass(/collapsed/);
+    await expect(divider).toHaveAttribute('aria-valuenow', '380');
+    await page.keyboard.press('ArrowRight');
+    await expect(divider).toHaveAttribute('aria-valuenow', '356');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-timeline-width'))).toBe('356');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#timeline-sidebar')).toHaveClass(/collapsed/);
+    await expect(divider).toHaveAttribute('aria-valuenow', '0');
+    await expect(divider).toHaveAttribute('aria-valuetext', 'Activity bar collapsed');
+    await page.keyboard.press('Space');
+    await expect(page.locator('#timeline-sidebar')).not.toHaveClass(/collapsed/);
+    await expect(divider).toHaveAttribute('aria-valuenow', '356');
+    await page.keyboard.press('End');
     await expect(divider).toHaveAttribute('aria-valuenow', '380');
     await expectDashboardTokenChartReady(page);
 
@@ -1017,9 +1099,11 @@ test.describe('dashboard battle-tested workflows', () => {
 
     await page.locator('.json-page-btn', { hasText: 'Next' }).click();
     await waitForCompletedRows(page, 1);
-    await page.locator(`button.json-subagent-toggle[data-session-id="${TEST_SESSION_ID}"]`).click();
+    const subagentToggle = page.locator(`button.json-subagent-toggle[data-session-id="${TEST_SESSION_ID}"]`);
+    await expect(subagentToggle).toHaveAttribute('aria-label', 'Toggle 2 subagents for Legacy migration replay');
+    await subagentToggle.click();
     await expect(page.locator(`tr[data-parent="${TEST_SESSION_ID}"]`)).toHaveCount(2);
-    await expect(page.locator(`button.json-subagent-toggle[data-session-id="${TEST_SESSION_ID}"]`)).toHaveAttribute('aria-expanded', 'true');
+    await expect(subagentToggle).toHaveAttribute('aria-expanded', 'true');
     await page.evaluate(() => {
       const active = document.activeElement;
       if (active instanceof HTMLElement) active.blur();
@@ -1157,7 +1241,9 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#inspector-summary')).not.toContainText('Loading');
     await expect(page.locator('#session-inspector [aria-label="Close"]')).toBeFocused();
 
+    await expect(page.locator('#session-inspector .payload-btn').first()).toHaveAttribute('aria-label', /Toggle payload for tool_call/);
     await page.locator('#session-inspector .payload-btn').first().click();
+    await expect(page.locator('#session-inspector .payload-btn').first()).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('#session-inspector .payload-target').first()).toContainText('internal/views/pages/dashboard.templ');
 
     await page.locator('#inspector-full-link').click();
@@ -1421,6 +1507,18 @@ test.describe('dashboard battle-tested workflows', () => {
     const dashboardLoad = page.goto('/', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('#timeline-sidebar', { state: 'attached' });
     await expect(page.locator('html')).toHaveAttribute('data-beacon-timeline-collapsed', 'true');
+    await expect(page.locator('#timeline-sidebar')).toHaveClass(/collapsed/);
+    await expect(page.locator('#timeline-sidebar')).toHaveAttribute('inert', '');
+    await expect(page.locator('#timeline-sidebar')).toHaveAttribute('aria-hidden', 'true');
+    await expect(page.locator('#timeline-toggle-btn')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#timeline-toggle-btn')).toHaveAttribute('aria-label', 'Expand activity bar');
+    await expect(page.locator('#sidebar-divider')).toHaveAttribute('aria-valuenow', '0');
+    await expect(page.locator('#sidebar-divider')).toHaveAttribute('aria-valuetext', 'Activity bar collapsed');
+    const sidebarCanReceiveFocus = await page.locator('#timeline-sidebar .activity-filter-btn').first().evaluate((el) => {
+      (el as HTMLElement).focus();
+      return document.activeElement === el;
+    });
+    expect(sidebarCanReceiveFocus).toBe(false);
     let width = await page.locator('#timeline-sidebar').evaluate((el) => Math.round(el.getBoundingClientRect().width));
     expect(width).toBe(0);
     releaseDashboardScript?.();

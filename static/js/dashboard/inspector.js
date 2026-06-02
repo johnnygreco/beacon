@@ -98,7 +98,8 @@
 		var meta = [event.event_kind, event.actor_role, event.tool_name, event.model].filter(Boolean).join(' · ');
 		var eventUID = String(event.event_uid || '');
 		var payloadID = payloadElementID(eventUID);
-		var payloadButton = event.tool_name ? '<button type="button" class="payload-btn text-xs text-blue-400 hover:text-blue-300" data-event-id="' + escapeAttr(event.event_uid) + '" aria-expanded="false" aria-controls="' + payloadID + '">Payload</button>' : '';
+		var payloadLabel = 'Toggle payload for ' + (meta || eventUID || 'event');
+		var payloadButton = event.tool_name ? '<button type="button" class="payload-btn text-xs text-blue-400 hover:text-blue-300" data-event-id="' + escapeAttr(event.event_uid) + '" aria-expanded="false" aria-controls="' + payloadID + '" aria-label="' + escapeAttr(payloadLabel) + '">Payload</button>' : '';
 		return '<div class="rounded border border-gray-800 bg-gray-900/60 p-3" data-event="' + escapeAttr(eventUID) + '">' +
 			'<div class="flex items-center justify-between gap-3 mb-1">' +
 			'<p class="text-xs text-gray-500 truncate">' + escapeHTML(meta) + '</p>' + payloadButton +

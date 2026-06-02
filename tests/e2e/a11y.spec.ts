@@ -38,6 +38,22 @@ test.describe('dashboard accessibility', () => {
     expect(await axeSeriousOrCritical(page)).toEqual([]);
   });
 
+  test('has no serious or critical axe violations on an empty dashboard', async ({ page }) => {
+    await installDashboardFixtures(page, { scenario: 'empty' });
+    await gotoDashboard(page);
+    await expect(page.locator('#completed-sessions')).toContainText('No completed sessions');
+
+    expect(await axeSeriousOrCritical(page)).toEqual([]);
+  });
+
+  test('has no serious or critical axe violations on an error-heavy dashboard', async ({ page }) => {
+    await installDashboardFixtures(page, { scenario: 'error-heavy' });
+    await gotoDashboard(page);
+    await expect(page.locator('#activity-feed')).toContainText('Repeated error burst');
+
+    expect(await axeSeriousOrCritical(page)).toEqual([]);
+  });
+
   test('has no serious or critical axe violations with inspector open', async ({ page }) => {
     await installDashboardFixtures(page);
     await gotoDashboard(page);
@@ -49,6 +65,16 @@ test.describe('dashboard accessibility', () => {
     }, TEST_SESSION_ID);
     await expect(page.locator('#session-inspector')).toBeVisible();
     await expect(page.locator('#inspector-summary')).not.toContainText('Loading');
+
+    expect(await axeSeriousOrCritical(page)).toEqual([]);
+  });
+
+  test('has no serious or critical axe violations with collapsed activity bar', async ({ page }) => {
+    await installDashboardFixtures(page);
+    await gotoDashboard(page);
+    await page.locator('#timeline-toggle-btn').click();
+    await expect(page.locator('#timeline-sidebar')).toHaveAttribute('inert', '');
+    await expect(page.locator('#timeline-sidebar')).toHaveAttribute('aria-hidden', 'true');
 
     expect(await axeSeriousOrCritical(page)).toEqual([]);
   });
