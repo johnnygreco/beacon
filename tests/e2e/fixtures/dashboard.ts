@@ -1156,6 +1156,8 @@ export async function expectDashboardTokenChartReady(page: Page) {
     const surface = canvas.closest('.completed-table-surface');
     const searchHeader = canvas.closest('#dashboard-search');
     const summary = document.getElementById('dashboard-analytics-summary');
+    const rangeControl = document.getElementById('dashboard-chart-range-control');
+    const refresh = document.getElementById('dashboard-chart-refresh-btn');
     const canvasRect = canvas.getBoundingClientRect();
     const shellRect = shell?.getBoundingClientRect();
     const analyticsRect = analytics?.getBoundingClientRect();
@@ -1171,6 +1173,8 @@ export async function expectDashboardTokenChartReady(page: Page) {
       summaryInAnalyticsPanel: Boolean(summary?.closest('.dashboard-analytics-panel')),
       summaryInCompletedSurface: Boolean(summary?.closest('.completed-table-surface')),
       summaryInSearchHeader: Boolean(summary?.closest('#dashboard-search')),
+      rangeControlInAnalyticsPanel: Boolean(rangeControl?.closest('.dashboard-analytics-panel')),
+      refreshInAnalyticsPanel: Boolean(refresh?.closest('.dashboard-analytics-panel')),
     };
   });
   expect(metrics.canvasHeight).toBeGreaterThan(180);
@@ -1184,6 +1188,8 @@ export async function expectDashboardTokenChartReady(page: Page) {
   expect(metrics.summaryInAnalyticsPanel).toBe(true);
   expect(metrics.summaryInCompletedSurface).toBe(false);
   expect(metrics.summaryInSearchHeader).toBe(false);
+  expect(metrics.rangeControlInAnalyticsPanel).toBe(true);
+  expect(metrics.refreshInAnalyticsPanel).toBe(true);
   await expect(page.locator('.dashboard-analytics-grid')).toHaveCount(0);
   await expect(page.locator('#dashboardModelActivityChart')).toHaveCount(0);
   await expect(page.locator('#dashboard-model-metric-control')).toHaveCount(0);

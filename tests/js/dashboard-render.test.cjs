@@ -27,6 +27,7 @@ function loadRenderSandbox() {
     currentSearchSessionID: "",
     currentSearchLimit: 30,
     currentRange: "24h",
+    currentChartRange: "24h",
     currentActiveSort: "recent",
     dashboardActiveSorts: ["recent", "longest", "tokens", "tools", "errors"],
     completedPageSize: 50,
@@ -233,4 +234,52 @@ test("search mode ignores dashboard range alone but honors search state", () => 
   sandbox.currentSearchLimit = 30;
   sandbox.currentSearchEventKind = "tool_call";
   assert.equal(sandbox.isSearchMode(), true);
+});
+
+test("analytics summaries describe the chart range independently", () => {
+  const sandbox = loadRenderSandbox();
+  const wrap = {};
+  sandbox.document.getElementById = (id) => (id === "dashboard-analytics-summary" ? wrap : null);
+
+  sandbox.currentRange = "7d";
+  sandbox.currentChartRange = "1h";
+  sandbox.renderAnalyticsSummary({
+    total_tokens: 201500,
+    model_count: 3,
+    tool_call_count: 11,
+    error_count: 1,
+    error_rate: 9.1,
+  });
+
+  assert.match(wrap.innerHTML, /Last hour/);
+  assert.doesNotMatch(wrap.innerHTML, /Last 7 days/);
+});
+
+test("chart point values support Chart.js object points", () => {
+  const sandbox = loadRenderSandbox();
+
+  assert.equal(sandbox.chartPointValue({ x: "2026-06-02T10:00:00Z", y: 42 }), 42);
+  assert.equal(sandbox.chartPointValue(17), 17);
+  assert.equal(sandbox.chartPointValue({ x: "bad" }), 0);
+
+  let captionState = "";
+  sandbox.document.querySelector = () => ({ setAttribute() {} });
+  sandbox.document.getElementById = (id) => {
+    if (id === "dashboard-analytics-summary") return {};
+    if (id === "dashboard-chart-range-caption") {
+      return {
+        set textContent(value) {
+          captionState = value;
+        },
+      };
+    }
+    return null;
+  };
+  sandbox.updateDashboardCharts({
+    token_cumulative: {
+      datasets: [{ values: [0, 9] }],
+      summary: { total_tokens: 9, model_count: 1 },
+    },
+  });
+  assert.equal(captionState, "Last 24 hours");
 });

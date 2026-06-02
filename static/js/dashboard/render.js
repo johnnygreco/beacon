@@ -593,11 +593,30 @@ function updateRangeCaption() {
 	if (title) title.textContent = '(' + (currentRange || 'all') + ')';
 }
 
+function chartRangeValue() {
+	return typeof currentChartRange !== 'undefined' ? currentChartRange : currentRange;
+}
+
+function updateChartRangeCaption(state) {
+	var caption = document.getElementById('dashboard-chart-range-caption');
+	if (!caption) return;
+	var label = rangeLabel(chartRangeValue());
+	if (state === 'loading') caption.textContent = 'Loading ' + label;
+	else if (state === 'error') caption.textContent = 'Unable to load ' + label;
+	else if (state === 'empty') caption.textContent = label + ' · no token data';
+	else caption.textContent = label;
+}
+
+function setAnalyticsBusy(busy) {
+	var panel = document.querySelector('.dashboard-analytics-panel');
+	if (panel) panel.setAttribute('aria-busy', busy ? 'true' : 'false');
+}
+
 function summaryTile(label, value, sublabel) {
 	return '<div class="dashboard-summary-tile">' +
 		'<p class="dashboard-summary-label">' + escapeHTML(label) + '</p>' +
 		'<p class="dashboard-summary-value">' + escapeHTML(value) + '</p>' +
-		'<p class="dashboard-summary-subvalue">' + escapeHTML(sublabel || rangeLabel(currentRange)) + '</p>' +
+		'<p class="dashboard-summary-subvalue">' + escapeHTML(sublabel || rangeLabel(chartRangeValue())) + '</p>' +
 		'</div>';
 }
 
@@ -608,15 +627,21 @@ function formatPercent(n) {
 	return '0%';
 }
 
+function chartPointValue(point) {
+	if (point && typeof point === 'object') return numericValue(point.y, 0);
+	return numericValue(point, 0);
+}
+
 function renderAnalyticsSummary(summary) {
 	withDashboardScrollStability(function() {
 		var wrap = document.getElementById('dashboard-analytics-summary');
 		if (!wrap) return;
 		summary = summary || {};
+		var chartRangeLabel = rangeLabel(chartRangeValue());
 		setHTMLIfChanged(wrap, [
-			summaryTile('Tokens', formatTokens(summary.total_tokens), 'Shown models'),
+			summaryTile('Tokens', formatTokens(summary.total_tokens), chartRangeLabel),
 			summaryTile('Models', nonNegativeInt(summary.model_count), 'Series'),
-			summaryTile('Tool Calls', formatTokens(summary.tool_call_count), rangeLabel(currentRange)),
+			summaryTile('Tool Calls', formatTokens(summary.tool_call_count), chartRangeLabel),
 			summaryTile('Error Rate', formatPercent(summary.error_rate), nonNegativeInt(summary.error_count) + ' errors')
 		].join(''));
 	});
@@ -625,6 +650,7 @@ function renderAnalyticsSummary(summary) {
 function updateDashboardCharts(payload) {
 	if (!payload) return;
 	payload.token_cumulative = payload.token_cumulative || {labels: [], datasets: [], summary: {}};
+	setAnalyticsBusy(false);
 	var tokenDataEl = document.getElementById('dashboard-token-cumulative-data');
 	if (tokenDataEl && payload.token_cumulative) tokenDataEl.textContent = JSON.stringify(payload.token_cumulative);
 	if (typeof updateDashboardModelChart === 'function') {
@@ -632,13 +658,22 @@ function updateDashboardCharts(payload) {
 	}
 	var summary = payload.token_cumulative && payload.token_cumulative.summary ? payload.token_cumulative.summary : null;
 	renderAnalyticsSummary(summary);
+	var datasets = payload.token_cumulative && payload.token_cumulative.datasets ? payload.token_cumulative.datasets : [];
+	var hasSeriesData = datasets.some(function(dataset) {
+		var points = dataset.data || dataset.values || [];
+		return points.some(function(value) { return chartPointValue(value) > 0; });
+	});
+	updateChartRangeCaption(hasSeriesData ? '' : 'empty');
 }
 
 async function loadDashboardCharts() {
-	var result = await fetchDashboardJSON('charts', requestURL('/api/dashboard/charts', {range: currentRange}));
+	setAnalyticsBusy(true);
+	updateChartRangeCaption('loading');
+	var result = await fetchDashboardJSON('charts', requestURL('/api/dashboard/charts', {range: chartRangeValue()}));
 	if (!result || result.stale) return;
 	if (result.error) {
 		updateDashboardCharts({token_cumulative: {labels: [], datasets: [], summary: {}}});
+		updateChartRangeCaption('error');
 		return;
 	}
 	updateDashboardCharts(result.data);

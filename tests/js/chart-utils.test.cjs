@@ -1,7 +1,24 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
 const test = require("node:test");
+const vm = require("node:vm");
 
 const utils = require("../../static/js/charts/utils.js");
+
+function loadDashboardModelsSandbox() {
+  const sandbox = {
+    dashboardSeriesColor() {
+      return { border: "#60a5fa", bg: "rgba(96, 165, 250, 0.14)" };
+    },
+    modelLineColors: ["#60a5fa"],
+    providerDisplayName: utils.providerDisplayName,
+  };
+  vm.createContext(sandbox);
+  const scriptPath = path.join(__dirname, "../../static/js/charts/dashboard-models.js");
+  vm.runInContext(fs.readFileSync(scriptPath, "utf8"), sandbox, { filename: scriptPath });
+  return sandbox;
+}
 
 test("chart color helper converts hex colors to rgba", () => {
   assert.equal(utils.colorWithAlpha("#60a5fa", 0.14), "rgba(96, 165, 250, 0.14)");
@@ -23,4 +40,17 @@ test("chart provider labels match dashboard terminology", () => {
   assert.equal(utils.providerDisplayName("openai"), "Codex");
   assert.equal(utils.providerDisplayName("unknown"), "Unknown");
   assert.equal(utils.providerDisplayName("local"), "local");
+});
+
+test("dashboard model datasets accept API values and Chart.js data points", () => {
+  const sandbox = loadDashboardModelsSandbox();
+
+  const apiDataset = sandbox.modelDatasetFromPayload({ label: "api", values: [1, 2, 3] }, 0, "tokens");
+  assert.deepEqual(apiDataset.data, [1, 2, 3]);
+
+  const chartDataset = sandbox.modelDatasetFromPayload({
+    label: "chart",
+    data: [{ x: "2026-06-02T10:00:00Z", y: 4 }],
+  }, 0, "tokens");
+  assert.deepEqual(chartDataset.data, [{ x: "2026-06-02T10:00:00Z", y: 4 }]);
 });

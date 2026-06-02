@@ -467,6 +467,7 @@ test.describe('dashboard battle-tested workflows', () => {
       await expect(page.locator('nav a[href="/search"]')).toHaveCount(0);
       await expect(page.locator('#dashboard-session-search')).toBeVisible();
       await expect(page.locator('#dashboard-search #dashboard-range-control')).toHaveCount(1);
+      await expect(page.locator('.dashboard-analytics-panel #dashboard-chart-range-control')).toHaveCount(1);
       await expect(page.locator('[data-search-range]')).toHaveCount(0);
     }
 
@@ -804,20 +805,31 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator('#dashboard-range-control').getByRole('button', { name: '7d' }).click();
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 7 days');
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('Last 24 hours');
 
     const allChartsRequest = page.waitForRequest((request) => {
       const url = new URL(request.url());
       return url.pathname === '/api/dashboard/charts' && url.searchParams.has('range') && url.searchParams.get('range') === '';
     });
+    await page.locator('#dashboard-chart-range-control').getByRole('button', { name: 'All' }).click();
+    await allChartsRequest;
+    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('All time');
+    await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 7 days');
+
     const allActivityRequest = page.waitForRequest((request) => {
       const url = new URL(request.url());
       return url.pathname === '/api/dashboard/activity' && url.searchParams.has('range') && url.searchParams.get('range') === '';
     });
+    const allCompletedRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'completed' && url.searchParams.has('range') && url.searchParams.get('range') === '';
+    });
     await page.locator('#dashboard-range-control').getByRole('button', { name: 'All' }).click();
-    await allChartsRequest;
-    await allActivityRequest;
+    await Promise.all([allActivityRequest, allCompletedRequest]);
     await expect(page.locator('#dashboard-range-caption')).toHaveText('All time');
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('All time');
 
     const modelDropdown = page.locator('#dashboardTokenCumulativeChart-model-dropdown');
     const modelDropdownTrigger = modelDropdown.locator('.model-dropdown-trigger');
@@ -1238,9 +1250,17 @@ test.describe('dashboard battle-tested workflows', () => {
         url.searchParams.get('sort') === 'tokens' &&
         url.searchParams.get('direction') === 'asc';
     });
-    await page.goto('/?range=7d&offset=30&sort=tokens&dir=asc', { waitUntil: 'domcontentloaded' });
-    await completedResponse;
+    const chartResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() &&
+        url.pathname === '/api/dashboard/charts' &&
+        url.searchParams.get('range') === '1h';
+    });
+    await page.goto('/?range=7d&chart_range=1h&offset=30&sort=tokens&dir=asc', { waitUntil: 'domcontentloaded' });
+    await Promise.all([completedResponse, chartResponse]);
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 7 days');
+    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('Last hour');
+    await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: '1h' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#completed-table th[data-sort-key="tokens"]')).toHaveAttribute('aria-sort', 'ascending');
     await waitForCompletedRows(page, 1);
 
@@ -1260,9 +1280,10 @@ test.describe('dashboard battle-tested workflows', () => {
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#timeline-sidebar').getByRole('button', { name: 'Errors' })).toHaveAttribute('aria-pressed', 'true');
 
-    await page.goto('/?range=bogus&search_limit=999&offset=-1&sort=%3Cscript%3E&dir=sideways&activity=bogus', { waitUntil: 'domcontentloaded' });
+    await page.goto('/?range=bogus&chart_range=bogus&search_limit=999&offset=-1&sort=%3Cscript%3E&dir=sideways&activity=bogus', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 24 hours');
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
     await waitForCompletedRows(page, 30);
 
     const legacyRangeResponse = page.waitForResponse((response) => {
