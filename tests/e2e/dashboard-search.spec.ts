@@ -704,7 +704,7 @@ test.describe('dashboard search workflows', () => {
 
     const afterGrowth = await readSearchOffsetInDashboard(page);
     expect(Math.abs(afterGrowth.offset - before.offset)).toBeLessThanOrEqual(2);
-    expect(afterGrowth.dashboardTop).toBeGreaterThan(before.dashboardTop);
+    expect(Math.abs(afterGrowth.dashboardTop - before.dashboardTop)).toBeLessThanOrEqual(2);
     expect(afterGrowth.windowY).toBe(0);
     expect(afterGrowth.mainContentTop).toBe(0);
 
@@ -720,7 +720,7 @@ test.describe('dashboard search workflows', () => {
 
     const afterError = await readSearchOffsetInDashboard(page);
     expect(Math.abs(afterError.offset - beforeError.offset)).toBeLessThanOrEqual(2);
-    expect(afterError.dashboardTop).toBeLessThan(beforeError.dashboardTop);
+    expect(Math.abs(afterError.dashboardTop - beforeError.dashboardTop)).toBeLessThanOrEqual(2);
     expect(afterError.windowY).toBe(0);
     expect(afterError.mainContentTop).toBe(0);
   });

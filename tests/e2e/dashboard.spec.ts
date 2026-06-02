@@ -296,6 +296,7 @@ test.describe('dashboard battle-tested workflows', () => {
       { width: 1600, height: 900 },
       { width: 1440, height: 900 },
       { width: 1280, height: 800 },
+      { width: 1120, height: 800 },
       { width: 1100, height: 800 },
       { width: 1024, height: 768 },
       { width: 390, height: 844 },
@@ -309,7 +310,15 @@ test.describe('dashboard battle-tested workflows', () => {
       await expect(page.locator('.dashboard-search-filters')).toHaveAttribute('aria-label', 'Table filters');
       await expect(page.getByLabel('Message type')).toHaveValue('');
       await expect(page.locator('[data-search-event-kind]')).toHaveCount(0);
-      const tableHeaderLayout = await page.evaluate(() => {
+      const shellLayout = await page.evaluate(() => {
+        const wrap = document.getElementById('dashboard-wrap')?.getBoundingClientRect();
+        const main = document.getElementById('dashboard-main')?.getBoundingClientRect();
+        const header = document.querySelector('.dashboard-header')?.getBoundingClientRect();
+        const overview = document.querySelector('.dashboard-overview-row')?.getBoundingClientRect();
+        const active = document.getElementById('active-sessions')?.getBoundingClientRect();
+        const analytics = document.querySelector('.dashboard-analytics-panel')?.getBoundingClientRect();
+        const completed = document.querySelector('.completed-table-surface')?.getBoundingClientRect();
+        const sidebar = document.getElementById('timeline-sidebar')?.getBoundingClientRect();
         const title = document.querySelector('.completed-table-title')?.getBoundingClientRect();
         const search = document.querySelector('.dashboard-table-search')?.getBoundingClientRect();
         const controls = document.querySelector('.dashboard-table-left')?.getBoundingClientRect();
@@ -322,33 +331,73 @@ test.describe('dashboard battle-tested workflows', () => {
           return el.scrollWidth > el.clientWidth + 1;
         });
         return {
+          wrapRight: Math.round(wrap?.right || 0),
+          mainRight: Math.round(main?.right || 0),
+          headerTop: Math.round(header?.top || 0),
+          headerBottom: Math.round(header?.bottom || 0),
+          overviewTop: Math.round(overview?.top || 0),
+          overviewBottom: Math.round(overview?.bottom || 0),
+          activeTop: Math.round(active?.top || 0),
+          activeRight: Math.round(active?.right || 0),
+          activeBottom: Math.round(active?.bottom || 0),
+          analyticsTop: Math.round(analytics?.top || 0),
+          analyticsLeft: Math.round(analytics?.left || 0),
+          analyticsRight: Math.round(analytics?.right || 0),
+          analyticsBottom: Math.round(analytics?.bottom || 0),
+          completedTop: Math.round(completed?.top || 0),
+          completedRight: Math.round(completed?.right || 0),
+          sidebarTop: Math.round(sidebar?.top || 0),
+          sidebarLeft: Math.round(sidebar?.left || 0),
+          sidebarRight: Math.round(sidebar?.right || 0),
           titleTop: Math.round(title?.top || 0),
           titleBottom: Math.round(title?.bottom || 0),
           searchTop: Math.round(search?.top || 0),
           controlsTop: Math.round(controls?.top || 0),
-          controlsRight: Math.round(controls?.right || 0),
           controlsBottom: Math.round(controls?.bottom || 0),
           summaryLeft: Math.round(summary?.left || 0),
           summaryRight: Math.round(summary?.right || 0),
-          summaryBottom: Math.round(summary?.bottom || 0),
           filterOverflow,
           summaryTextOverflow,
           chartTop: Math.round(chart?.top || 0),
           chartLeft: Math.round(chart?.left || 0),
+          chartInSearchHeader: Boolean(document.getElementById('dashboardTokenCumulativeChart')?.closest('#dashboard-search')),
+          chartInAnalyticsPanel: Boolean(document.getElementById('dashboardTokenCumulativeChart')?.closest('.dashboard-analytics-panel')),
+          summaryInSearchHeader: Boolean(document.getElementById('dashboard-analytics-summary')?.closest('#dashboard-search')),
+          summaryInAnalyticsPanel: Boolean(document.getElementById('dashboard-analytics-summary')?.closest('.dashboard-analytics-panel')),
+          bodyOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
         };
       });
-      expect(tableHeaderLayout.titleTop).toBeLessThanOrEqual(tableHeaderLayout.searchTop);
-      expect(tableHeaderLayout.titleBottom).toBeLessThanOrEqual(tableHeaderLayout.searchTop + 1);
-      expect(tableHeaderLayout.summaryLeft).toBeGreaterThanOrEqual(0);
-      expect(tableHeaderLayout.summaryRight).toBeLessThanOrEqual(viewport.width);
-      expect(tableHeaderLayout.summaryBottom).toBeLessThanOrEqual(tableHeaderLayout.controlsBottom + 1);
-      expect(tableHeaderLayout.filterOverflow).toBe(false);
-      expect(tableHeaderLayout.summaryTextOverflow).toBe(false);
-      if (viewport.width >= 1100) {
-        expect(tableHeaderLayout.chartTop).toBeLessThanOrEqual(tableHeaderLayout.controlsTop + 2);
-        expect(tableHeaderLayout.chartLeft).toBeGreaterThan(tableHeaderLayout.controlsRight);
+      expect(shellLayout.headerTop).toBeGreaterThanOrEqual(0);
+      expect(shellLayout.overviewTop).toBeGreaterThanOrEqual(shellLayout.headerBottom);
+      expect(shellLayout.completedTop).toBeGreaterThanOrEqual(shellLayout.overviewBottom);
+      expect(shellLayout.titleTop).toBeLessThanOrEqual(shellLayout.searchTop);
+      expect(shellLayout.titleBottom).toBeLessThanOrEqual(shellLayout.searchTop + 1);
+      expect(shellLayout.summaryLeft).toBeGreaterThanOrEqual(0);
+      expect(shellLayout.summaryRight).toBeLessThanOrEqual(viewport.width);
+      expect(shellLayout.filterOverflow).toBe(false);
+      expect(shellLayout.summaryTextOverflow).toBe(false);
+      expect(shellLayout.chartInSearchHeader).toBe(false);
+      expect(shellLayout.chartInAnalyticsPanel).toBe(true);
+      expect(shellLayout.summaryInSearchHeader).toBe(false);
+      expect(shellLayout.summaryInAnalyticsPanel).toBe(true);
+      expect(shellLayout.bodyOverflow).toBe(false);
+      expect(shellLayout.activeRight).toBeLessThanOrEqual(shellLayout.mainRight + 1);
+      expect(shellLayout.analyticsRight).toBeLessThanOrEqual(shellLayout.mainRight + 1);
+      expect(shellLayout.completedRight).toBeLessThanOrEqual(shellLayout.mainRight + 1);
+      if (viewport.width > 1240) {
+        expect(Math.abs(shellLayout.activeTop - shellLayout.analyticsTop)).toBeLessThanOrEqual(2);
+        expect(shellLayout.activeRight).toBeLessThanOrEqual(shellLayout.analyticsLeft);
+        expect(shellLayout.completedTop).toBeGreaterThanOrEqual(Math.max(shellLayout.activeBottom, shellLayout.analyticsBottom));
+        expect(shellLayout.sidebarLeft).toBeGreaterThanOrEqual(shellLayout.mainRight);
+        expect(Math.abs(shellLayout.sidebarRight - shellLayout.wrapRight)).toBeLessThanOrEqual(2);
+      } else if (viewport.width > 1100) {
+        expect(shellLayout.analyticsTop).toBeGreaterThanOrEqual(shellLayout.activeBottom);
+        expect(shellLayout.completedTop).toBeGreaterThanOrEqual(shellLayout.analyticsBottom);
+        expect(shellLayout.sidebarLeft).toBeGreaterThanOrEqual(shellLayout.mainRight);
+        expect(Math.abs(shellLayout.sidebarRight - shellLayout.wrapRight)).toBeLessThanOrEqual(2);
       } else {
-        expect(tableHeaderLayout.chartTop).toBeGreaterThanOrEqual(tableHeaderLayout.controlsBottom);
+        expect(shellLayout.analyticsTop).toBeGreaterThanOrEqual(shellLayout.activeBottom);
+        expect(shellLayout.sidebarTop).toBeGreaterThanOrEqual(shellLayout.completedTop);
       }
       await expect(page.locator('#sidebar')).toHaveCount(0);
       await expect(page.locator('nav a[href="/search"]')).toHaveCount(0);
@@ -370,19 +419,29 @@ test.describe('dashboard battle-tested workflows', () => {
     const sectionOrder = await page.evaluate(() => {
       const active = document.getElementById('active-sessions')?.getBoundingClientRect();
       const summary = document.getElementById('dashboard-analytics-summary')?.getBoundingClientRect();
+      const analytics = document.querySelector('.dashboard-analytics-panel')?.getBoundingClientRect();
       const surface = document.querySelector('.completed-table-surface')?.getBoundingClientRect();
       return {
         activeTop: active?.top || 0,
+        activeRight: active?.right || 0,
         activeBottom: active?.bottom || 0,
+        analyticsTop: analytics?.top || 0,
+        analyticsLeft: analytics?.left || 0,
+        analyticsBottom: analytics?.bottom || 0,
         summaryTop: summary?.top || 0,
         surfaceTop: surface?.top || 0,
+        summaryInAnalyticsPanel: Boolean(document.getElementById('dashboard-analytics-summary')?.closest('.dashboard-analytics-panel')),
         summaryInSearchHeader: Boolean(document.getElementById('dashboard-analytics-summary')?.closest('#dashboard-search')),
       };
     });
     expect(sectionOrder.activeTop).toBeGreaterThan(0);
+    expect(Math.abs(sectionOrder.activeTop - sectionOrder.analyticsTop)).toBeLessThanOrEqual(2);
+    expect(sectionOrder.activeRight).toBeLessThanOrEqual(sectionOrder.analyticsLeft);
+    expect(sectionOrder.summaryTop).toBeGreaterThanOrEqual(sectionOrder.analyticsTop);
     expect(sectionOrder.activeBottom).toBeLessThanOrEqual(sectionOrder.surfaceTop);
-    expect(sectionOrder.summaryTop).toBeGreaterThan(sectionOrder.surfaceTop);
-    expect(sectionOrder.summaryInSearchHeader).toBe(true);
+    expect(sectionOrder.analyticsBottom).toBeLessThanOrEqual(sectionOrder.surfaceTop);
+    expect(sectionOrder.summaryInAnalyticsPanel).toBe(true);
+    expect(sectionOrder.summaryInSearchHeader).toBe(false);
 
     const tracker = page.locator(`#active-sessions [href="/sessions/${ACTIVE_SESSION_ID}"] .active-session-tracker`);
     await expect(tracker).toHaveAttribute('aria-label', 'Active session live stats');
@@ -414,7 +473,8 @@ test.describe('dashboard battle-tested workflows', () => {
       expect(single.cards).toHaveLength(1);
       expect(single.cards[0].left).toBe(single.gridLeft);
       expect(single.cards[0].width).toBeGreaterThan(220);
-      expect(single.cards[0].width).toBeLessThan(single.gridWidth / 2);
+      expect(single.cards[0].right).toBeLessThanOrEqual(single.gridRight);
+      expect(single.cards[0].width).toBeLessThanOrEqual(single.gridWidth);
       expect(single.protrusions).toEqual([]);
     }
 
@@ -422,7 +482,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#active-sessions')).toContainText('Live queue item 8');
     let many = await readActiveSessionGeometry(page);
     expect(many.cards).toHaveLength(8);
-    expect(many.firstRowCount).toBeGreaterThanOrEqual(3);
+    expect(many.firstRowCount).toBeGreaterThanOrEqual(1);
     expect(many.rowCount).toBeGreaterThan(1);
     expect(many.cards.every((card) => card.left >= many.gridLeft && card.right <= many.gridRight)).toBe(true);
     expect(many.cards.every((card) => card.width > 220)).toBe(true);
@@ -466,8 +526,9 @@ test.describe('dashboard battle-tested workflows', () => {
       const geometry = await readActiveSessionGeometry(page);
       expect(geometry.cards).toHaveLength(4);
       expect(geometry.protrusions).toEqual([]);
-      if (geometry.gridWidth >= 680) {
-        expect(geometry.firstRowCount).toBeGreaterThanOrEqual(2);
+      if (geometry.viewportWidth > 680) {
+        expect(geometry.firstRowCount).toBeGreaterThanOrEqual(1);
+        expect(geometry.cards.every((card) => card.left >= geometry.gridLeft && card.right <= geometry.gridRight)).toBe(true);
         expect(geometry.cards.every((card) => card.width > 220)).toBe(true);
       } else {
         expect(geometry.firstRowCount).toBe(1);
