@@ -13,12 +13,14 @@ import (
 // The conversation trace is loaded separately via QuerySessionConversation.
 func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.SessionDetailData, error) {
 	var data views.SessionDetailData
+	now := time.Now()
+	activeCutoff := now.Add(-idleThreshold)
 
 	// Session info from view
 	row := db.QueryRowContext(ctx,
-		`SELECT `+sessionSummaryColumns+`
-		 FROM `+sessionProjectionSubquery("session_id = ?"), id)
-	session, err := scanSessionSummary(row, time.Now())
+		`SELECT `+sessionSummaryColumnsWithReopenedFlag()+`
+		 FROM `+sessionProjectionSubquery("session_id = ?"), activeCutoff, id)
+	session, err := scanSessionSummaryIncludingReopened(row, now)
 	if err != nil {
 		return data, err
 	}

@@ -109,6 +109,44 @@ func TestSQLHelperSubqueries(t *testing.T) {
 	}
 }
 
+func TestReopenedSessionPredicatesUseActivityAfterLatestEnd(t *testing.T) {
+	reopened := reopenedSessionIDsSubquery()
+	for _, fragment := range []string{
+		"FROM activity_events",
+		"PREWHERE timestamp >= ?",
+		"GROUP BY event_uid",
+		"GROUP BY session_id",
+		"maxIf(timestamp, event_kind != 'session_end') > maxIf(timestamp, event_kind = 'session_end')",
+	} {
+		if !strings.Contains(reopened, fragment) {
+			t.Fatalf("reopened session subquery missing %q: %s", fragment, reopened)
+		}
+	}
+
+	active := activeSessionPredicate()
+	if !strings.Contains(active, "ended_at >= ?") {
+		t.Fatalf("active predicate should keep the idle cutoff placeholder: %s", active)
+	}
+	if !strings.Contains(active, "COALESCE(has_session_end, 0) = 0 OR session_id IN") {
+		t.Fatalf("active predicate should admit reopened sessions: %s", active)
+	}
+
+	completed := completedSessionPredicate()
+	if !strings.Contains(completed, "ended_at < ?") {
+		t.Fatalf("completed predicate should keep the idle cutoff placeholder: %s", completed)
+	}
+	if !strings.Contains(completed, "COALESCE(has_session_end, 0) = 1 AND NOT (session_id IN") {
+		t.Fatalf("completed predicate should exclude reopened terminal sessions: %s", completed)
+	}
+
+	if got := strings.Count(active, "?"); got != 2 {
+		t.Fatalf("active predicate placeholders = %d, want idle cutoff plus reopened cutoff: %s", got, active)
+	}
+	if got := strings.Count(completed, "?"); got != 2 {
+		t.Fatalf("completed predicate placeholders = %d, want idle cutoff plus reopened cutoff: %s", got, completed)
+	}
+}
+
 func TestRecentActivityKindFilterUsesParameterizedArgs(t *testing.T) {
 	hostile := "message') OR 1=1 --"
 	clause, args := recentActivityKindFilter([]string{" tool_call ", hostile, ""})
@@ -631,6 +669,44 @@ func TestScanSessionSummaryIncludesErrorCount(t *testing.T) {
 	}
 	if s.ActiveModel != "gpt-5.4" || s.Provider != "openai" || !s.HasSessionEnd {
 		t.Fatalf("summary fields shifted during scan: %#v", s)
+	}
+}
+
+func TestScanSessionSummaryIncludingReopenedClearsTerminalEnd(t *testing.T) {
+	now := time.Now()
+	start := now.Add(-10 * time.Minute)
+	end := now.Add(-30 * time.Second)
+	scanner := stubScanner{values: []any{
+		"session-reopened",
+		"codex",
+		start,
+		end,
+		int64(3),
+		int64(120),
+		int64(70),
+		int64(50),
+		int64(10),
+		int64(5),
+		int64(4),
+		int64(1),
+		int64(0),
+		"gpt-5.4",
+		"/repo",
+		"",
+		1,
+		"openai",
+		1,
+	}}
+
+	s, err := scanSessionSummaryIncludingReopened(scanner, now)
+	if err != nil {
+		t.Fatalf("scanSessionSummaryIncludingReopened: %v", err)
+	}
+	if s.HasSessionEnd {
+		t.Fatalf("HasSessionEnd = true, want reopened sessions reclassified as non-terminal")
+	}
+	if s.Status != "active" {
+		t.Fatalf("Status = %q, want active", s.Status)
 	}
 }
 

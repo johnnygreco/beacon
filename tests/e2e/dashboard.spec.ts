@@ -142,7 +142,7 @@ async function readActiveSessionGeometry(page: Page) {
     });
     const protrusions = cards.flatMap((card, cardIndex) => {
       const cardRect = card.getBoundingClientRect();
-      return Array.from(card.querySelectorAll('.active-session-card-header, .active-session-title, .active-session-kicker, .active-session-meta-row, .active-session-tracker, .active-child-list, .active-child-row, .active-session-path'))
+      return Array.from(card.querySelectorAll('.active-session-card-header, .active-session-title, .active-session-kicker, .active-session-meta-row, .active-session-tracker, .active-session-actions, .active-child-list, .active-child-row, .active-session-path'))
         .map((child) => {
           const rect = child.getBoundingClientRect();
           return {
@@ -551,6 +551,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(tracker).toContainText('Run');
     await expect(tracker).toContainText('Turns');
     await expect(tracker).toContainText('Tools');
+    expect(await tracker.evaluate((node) => Boolean(node.closest('.active-session-card-header')))).toBe(true);
     await expect(tracker).not.toContainText('CTX');
     await expect(page.locator('#active-sessions .active-context')).toHaveCount(0);
     await expect(page.locator('#active-sessions [data-session-context]')).toHaveCount(0);
@@ -559,7 +560,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
-  test('lays out active sessions in a bounded responsive grid', async ({ page }) => {
+  test('lays out active sessions as compact full-width rows with pin controls', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page, { activeScenarioSequence: ['default', 'default', 'many-active'] });
 
@@ -577,10 +578,11 @@ test.describe('dashboard battle-tested workflows', () => {
       expect(single.cards[0].left).toBe(single.gridLeft);
       expect(single.cards[0].width).toBeGreaterThan(220);
       expect(single.cards[0].right).toBeLessThanOrEqual(single.gridRight);
-      expect(single.cards[0].width).toBeLessThanOrEqual(single.gridWidth);
+      expect(Math.abs(single.cards[0].width - single.gridWidth)).toBeLessThanOrEqual(1);
       expect(single.scrollClientHeight).toBeGreaterThan(0);
       expect(single.scrollHeight).toBeGreaterThan(0);
       expect(single.protrusions).toEqual([]);
+      await expect(page.locator('#active-sessions .active-session-action-btn')).toHaveCount(3);
     }
 
     const stableBeforeMany = await readActiveSessionGeometry(page);
@@ -589,12 +591,12 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#active-sessions')).toContainText('Live queue item 8');
     let many = await readActiveSessionGeometry(page);
     expect(many.cards).toHaveLength(8);
-    expect(many.firstRowCount).toBeGreaterThanOrEqual(1);
-    expect(many.rowCount).toBeGreaterThan(1);
+    expect(many.firstRowCount).toBe(1);
+    expect(many.rowCount).toBe(8);
     expect(many.panelHeight).toBe(stableBeforeMany.panelHeight);
     expect(many.scrollHeight).toBeGreaterThan(many.scrollClientHeight);
     expect(many.cards.every((card) => card.left >= many.gridLeft && card.right <= many.gridRight)).toBe(true);
-    expect(many.cards.every((card) => card.width > 220)).toBe(true);
+    expect(many.cards.every((card) => Math.abs(card.width - many.gridWidth) <= 1)).toBe(true);
     expect(many.protrusions).toEqual([]);
     const completedAfterMany = await page.locator('.completed-table-surface').boundingBox();
     expect(Math.round(completedAfterMany?.y || 0)).toBe(Math.round(completedBeforeMany?.y || 0));
@@ -612,6 +614,34 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(many.scrollHeight).toBeGreaterThan(many.scrollClientHeight);
     const completedAfterSort = await page.locator('.completed-table-surface').boundingBox();
     expect(Math.round(completedAfterSort?.y || 0)).toBe(Math.round(completedBeforeMany?.y || 0));
+
+    await page.locator('[data-active-session-id="active-parent-003"] [data-active-session-action="toggle-pin"]').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#active-sessions .active-session-card').first()).toHaveAttribute('data-active-session-id', 'active-parent-003');
+    await expect(page.locator('[data-active-session-id="active-parent-003"] [data-active-session-action="toggle-pin"]')).toBeFocused();
+    expect(await page.evaluate(() => localStorage.getItem('beacon-active-session-prefs-v1'))).toContain('active-parent-003');
+    await page.locator('[data-active-session-id="active-parent-005"] [data-active-session-action="toggle-pin"]').click();
+    await expect(page.locator('#active-sessions .active-session-card').nth(0)).toHaveAttribute('data-active-session-id', 'active-parent-005');
+    await expect(page.locator('#active-sessions .active-session-card').nth(1)).toHaveAttribute('data-active-session-id', 'active-parent-003');
+    await page.locator('[data-active-session-id="active-parent-003"] [data-active-session-action="move-up"]').click();
+    await expect(page.locator('#active-sessions .active-session-card').nth(0)).toHaveAttribute('data-active-session-id', 'active-parent-003');
+    await expect(page.locator('#active-sessions .active-session-card').nth(1)).toHaveAttribute('data-active-session-id', 'active-parent-005');
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#active-session-sort')).toHaveValue('tokens');
+    await expect(page.locator('#active-sessions .active-session-card').nth(0)).toHaveAttribute('data-active-session-id', 'active-parent-003');
+    await expect(page.locator('#active-sessions .active-session-card').nth(1)).toHaveAttribute('data-active-session-id', 'active-parent-005');
+    await page.evaluate(() => localStorage.setItem('beacon-active-session-prefs-v1', JSON.stringify({ pinned: ['active-parent-005', 'stale-ended', 'active-parent-003'] })));
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#active-sessions .active-session-card').nth(0)).toHaveAttribute('data-active-session-id', 'active-parent-005');
+    await expect(page.locator('#active-sessions .active-session-card').nth(1)).toHaveAttribute('data-active-session-id', 'active-parent-003');
+    await page.locator('[data-active-session-id="active-parent-003"] [data-active-session-action="move-up"]').click();
+    await expect(page.locator('#active-sessions .active-session-card').nth(0)).toHaveAttribute('data-active-session-id', 'active-parent-003');
+    await expect(page.locator('#active-sessions .active-session-card').nth(1)).toHaveAttribute('data-active-session-id', 'active-parent-005');
+    await expect(page.locator('[data-active-session-id="active-parent-003"] [data-active-session-action="toggle-pin"]')).toBeFocused();
+    expect(await page.evaluate(() => localStorage.getItem('beacon-active-session-prefs-v1'))).not.toContain('stale-ended');
+    await page.locator('[data-active-session-id="active-parent-003"] [data-active-session-action="toggle-pin"]').click();
+    await page.locator('[data-active-session-id="active-parent-005"] [data-active-session-action="toggle-pin"]').click();
+    await expect(page.locator('#active-sessions .active-session-card').first()).toHaveAttribute('data-active-session-id', 'active-parent-008');
 
     await page.goto('/?active_sort=tokens', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#active-session-sort')).toHaveValue('tokens');
@@ -652,8 +682,8 @@ test.describe('dashboard battle-tested workflows', () => {
         };
       });
       expect(trackerLayout.count).toBe(3);
-      expect(Math.abs(trackerLayout.lastLeft - trackerLayout.trackerLeft)).toBeLessThanOrEqual(1);
-      expect(Math.abs(trackerLayout.lastRight - trackerLayout.trackerRight)).toBeLessThanOrEqual(1);
+      expect(trackerLayout.lastLeft).toBeGreaterThanOrEqual(trackerLayout.trackerLeft);
+      expect(trackerLayout.lastRight).toBeLessThanOrEqual(trackerLayout.trackerRight);
     }
 
     await guards.expectClean();
@@ -734,11 +764,13 @@ test.describe('dashboard battle-tested workflows', () => {
       expect(geometry.cards).toHaveLength(4);
       expect(geometry.protrusions).toEqual([]);
       if (geometry.viewportWidth > 680) {
-        expect(geometry.firstRowCount).toBeGreaterThanOrEqual(1);
+        expect(geometry.firstRowCount).toBe(1);
+        expect(geometry.rowCount).toBe(4);
         expect(geometry.cards.every((card) => card.left >= geometry.gridLeft && card.right <= geometry.gridRight)).toBe(true);
-        expect(geometry.cards.every((card) => card.width > 220)).toBe(true);
+        expect(geometry.cards.every((card) => Math.abs(card.width - geometry.gridWidth) <= 1)).toBe(true);
       } else {
         expect(geometry.firstRowCount).toBe(1);
+        expect(geometry.rowCount).toBe(4);
         expect(geometry.cards.every((card) => Math.abs(card.width - geometry.gridWidth) <= 1)).toBe(true);
       }
 

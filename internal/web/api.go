@@ -87,12 +87,12 @@ func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 
 	if err := a.db.QueryRowContext(r.Context(),
 		`SELECT count(),
-		        countIf(ended_at >= ? AND COALESCE(has_session_end, 0) = 0),
+		        countIf(`+activeSessionPredicate()+`),
 		        COALESCE(SUM(total_input_tokens), 0),
 		        COALESCE(SUM(total_output_tokens), 0),
 		        COALESCE(SUM(tool_call_count), 0),
 		        COALESCE(SUM(mcp_call_count), 0)
-		 FROM `+sessionProjectionSQL, activeCutoff,
+		 FROM `+sessionProjectionSQL, activeCutoff, activeCutoff,
 	).Scan(&totalSessions, &activeCount, &inputTokens, &outputTokens, &toolCalls, &mcpCalls); err != nil {
 		a.internalError(w, "failed to query metrics", err)
 		return
@@ -118,11 +118,13 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := time.Now()
+	activeCutoff := now.Add(-idleThreshold)
 	rows, err := a.db.QueryContext(r.Context(),
-		`SELECT `+sessionSummaryColumns+`
+		`SELECT `+sessionSummaryColumnsWithReopenedFlag()+`
 		 FROM `+sessionProjectionSQL+`
 		 ORDER BY started_at DESC
-		 LIMIT ?`, req.Limit)
+		 LIMIT ?`, activeCutoff, req.Limit)
 	if err != nil {
 		a.internalError(w, "failed to query sessions", err)
 		return
@@ -131,7 +133,7 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 
 	sessions := make([]APISessionSummary, 0)
 	for rows.Next() {
-		s, err := scanSessionSummary(rows, time.Now())
+		s, err := scanSessionSummaryIncludingReopened(rows, now)
 		if err != nil {
 			a.logSkippedRow("sessions", err)
 			continue

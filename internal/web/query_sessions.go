@@ -28,13 +28,14 @@ func queryActiveSessions(ctx context.Context, db *sql.DB, limit int) []views.Ses
 	// timezone mismatch — stored timestamps are UTC but current_timestamp is local.
 	cutoff := now.Add(-idleThreshold)
 
-	// Fetch active sessions: recent activity AND not explicitly ended.
+	// Fetch active sessions: recent activity that is not terminally ended.
+	// A historical session_end does not keep a session completed after newer
+	// non-end activity arrives for the same session.
 	query := `SELECT ` + sessionSummaryColumns + `
 		 FROM ` + sessionProjectionSQL + `
-		 WHERE ended_at >= ?
-		   AND COALESCE(has_session_end, 0) = 0
+		 WHERE ` + activeSessionPredicate() + `
 		 ORDER BY ended_at DESC`
-	args := []any{cutoff}
+	args := []any{cutoff, cutoff}
 	if limit > 0 {
 		query += ` LIMIT ?`
 		args = append(args, limit)
@@ -53,6 +54,7 @@ func queryActiveSessions(ctx context.Context, db *sql.DB, limit int) []views.Ses
 			logQueryScanError("active sessions", err)
 			continue
 		}
+		markSessionReopened(&s, now)
 		active = append(active, s)
 	}
 	if err := activeRows.Err(); err != nil {
@@ -89,10 +91,9 @@ func queryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time
 	cutoff := time.Now().Add(-idleThreshold)
 	query := `SELECT ` + sessionSummaryColumns + `
 		 FROM ` + sessionProjectionSQL + `
-		 WHERE (ended_at < ?
-		    OR COALESCE(has_session_end, 0) = 1)
+		 WHERE ` + completedSessionPredicate() + `
 		   AND (parent_session_id = '' OR parent_session_id IS NULL)`
-	args := []any{cutoff}
+	args := []any{cutoff, cutoff}
 	if since != nil {
 		query += " AND ended_at >= ?"
 		args = append(args, *since)
@@ -253,21 +254,22 @@ func attachSubagentCounts(ctx context.Context, db *sql.DB, sessions []views.Sess
 
 // QueryChildSessions returns subagent sessions spawned from a parent session.
 func QueryChildSessions(ctx context.Context, db *sql.DB, parentID string) []views.SessionSummary {
+	now := time.Now()
+	activeCutoff := now.Add(-idleThreshold)
 	rows, err := db.QueryContext(ctx,
-		`SELECT `+sessionSummaryColumns+`
+		`SELECT `+sessionSummaryColumnsWithReopenedFlag()+`
 		 FROM `+sessionProjectionSQL+`
 		 WHERE parent_session_id = ?
-		 ORDER BY started_at ASC`, parentID)
+		 ORDER BY started_at ASC`, activeCutoff, parentID)
 	if err != nil {
 		logQueryError("child sessions", err)
 		return nil
 	}
 	defer rows.Close()
 
-	now := time.Now()
 	var children []views.SessionSummary
 	for rows.Next() {
-		s, err := scanSessionSummary(rows, now)
+		s, err := scanSessionSummaryIncludingReopened(rows, now)
 		if err != nil {
 			logQueryScanError("child sessions", err)
 			continue
@@ -281,17 +283,45 @@ func QueryChildSessions(ctx context.Context, db *sql.DB, parentID string) []view
 	return children
 }
 
+func markSessionReopened(s *views.SessionSummary, now time.Time) {
+	if s == nil || !s.HasSessionEnd {
+		return
+	}
+	s.HasSessionEnd = false
+	setSessionTiming(s, s.StartedAt, s.EndedAt, now)
+}
+
 // scanSessionSummary scans a row from session_projection into a SessionSummary.
 func scanSessionSummary(scanner interface{ Scan(dest ...any) error }, now time.Time) (views.SessionSummary, error) {
+	return scanSessionSummaryBase(scanner, now, nil)
+}
+
+func scanSessionSummaryIncludingReopened(scanner interface{ Scan(dest ...any) error }, now time.Time) (views.SessionSummary, error) {
+	var reopened int
+	s, err := scanSessionSummaryBase(scanner, now, &reopened)
+	if err != nil {
+		return s, err
+	}
+	if reopened > 0 {
+		markSessionReopened(&s, now)
+	}
+	return s, nil
+}
+
+func scanSessionSummaryBase(scanner interface{ Scan(dest ...any) error }, now time.Time, reopened *int) (views.SessionSummary, error) {
 	var s views.SessionSummary
 	var source, model string
 	var startedAt, endedAt time.Time
 	var hasSessionEnd int
-	err := scanner.Scan(&s.ID, &source, &startedAt, &endedAt,
+	dest := []any{&s.ID, &source, &startedAt, &endedAt,
 		&s.TurnCount, &s.TotalTokens, &s.InputTokens, &s.OutputTokens,
 		&s.CacheReadTokens, &s.CacheCreateTokens,
 		&s.ToolCallCount, &s.MCPCallCount, &s.ErrorCount, &model, &s.WorkingDir,
-		&s.ParentSessionID, &hasSessionEnd, &s.Provider)
+		&s.ParentSessionID, &hasSessionEnd, &s.Provider}
+	if reopened != nil {
+		dest = append(dest, reopened)
+	}
+	err := scanner.Scan(dest...)
 	if err != nil {
 		return s, err
 	}

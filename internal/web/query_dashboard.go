@@ -440,13 +440,13 @@ func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
 
 	if err := db.QueryRowContext(ctx,
 		`SELECT count(),
-		        countIf(ended_at >= ? AND COALESCE(has_session_end, 0) = 0),
+		        countIf(`+activeSessionPredicate()+`),
 		        COALESCE(SUM(total_input_tokens), 0),
 		        COALESCE(SUM(total_output_tokens), 0),
 		        COALESCE(SUM(total_cache_read_tokens), 0),
 		        COALESCE(SUM(tool_call_count), 0),
 		        COALESCE(SUM(mcp_call_count), 0)
-		 FROM `+sessionProjectionSQL, activeCutoff,
+		 FROM `+sessionProjectionSQL, activeCutoff, activeCutoff,
 	).Scan(&totalSessions, &activeSessions, &inputTokens, &outputTokens, &cacheReadTokens, &toolCalls, &mcpCalls); err != nil {
 		logQueryError("dashboard metrics", err)
 		return nil
