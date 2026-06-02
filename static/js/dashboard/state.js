@@ -22,6 +22,9 @@ var sessionTableHeadHTML = '';
 var searchLimitSteps = [30, 60, 120, 240];
 var dashboardURLWriteTimer = 0;
 var pendingDashboardReturnScroll = null;
+var activeSessionPrefsKey = 'beacon-active-session-prefs-v1';
+var activeSessionPrefs = {pinned: []};
+var lastActiveSessionsResponse = null;
 window.dashboardSessionIndex = window.dashboardSessionIndex || {};
 
 var dashboardReturnStateKey = 'beacon-dashboard-return-state-v1';
@@ -42,6 +45,91 @@ function dashboardStorageSet(key, value) {
 
 function dashboardStorageRemove(key) {
 	try { window.sessionStorage.removeItem(key); } catch (err) {}
+}
+
+function dashboardLocalStorageGet(key) {
+	try { return window.localStorage.getItem(key); } catch (err) { return null; }
+}
+
+function dashboardLocalStorageSet(key, value) {
+	try { window.localStorage.setItem(key, value); } catch (err) {}
+}
+
+function normalizeSessionIDList(ids) {
+	var seen = {};
+	return (Array.isArray(ids) ? ids : []).map(function(id) {
+		return String(id || '').trim();
+	}).filter(function(id) {
+		if (!id || seen[id]) return false;
+		seen[id] = true;
+		return true;
+	});
+}
+
+function readActiveSessionPrefs() {
+	var raw = dashboardLocalStorageGet(activeSessionPrefsKey);
+	if (!raw) return {pinned: []};
+	try {
+		var parsed = JSON.parse(raw);
+		return {pinned: normalizeSessionIDList(parsed && parsed.pinned)};
+	} catch (err) {
+		return {pinned: []};
+	}
+}
+
+function saveActiveSessionPrefs() {
+	activeSessionPrefs.pinned = normalizeSessionIDList(activeSessionPrefs.pinned);
+	dashboardLocalStorageSet(activeSessionPrefsKey, JSON.stringify(activeSessionPrefs));
+}
+
+function activeSessionPinnedIDs(items) {
+	var available = null;
+	if (Array.isArray(items)) {
+		available = {};
+		items.forEach(function(session) {
+			if (session && session.id) available[session.id] = true;
+		});
+	}
+	return normalizeSessionIDList(activeSessionPrefs.pinned).filter(function(id) {
+		return !available || !!available[id];
+	});
+}
+
+function lastActiveSessionItems() {
+	if (!lastActiveSessionsResponse || !Array.isArray(lastActiveSessionsResponse.items)) return null;
+	return lastActiveSessionsResponse.items;
+}
+
+function isActiveSessionPinned(id) {
+	return activeSessionPinnedIDs().indexOf(id) >= 0;
+}
+
+function toggleActiveSessionPin(id) {
+	id = String(id || '').trim();
+	if (!id) return;
+	var pinned = activeSessionPinnedIDs(lastActiveSessionItems());
+	var index = pinned.indexOf(id);
+	if (index >= 0) {
+		pinned.splice(index, 1);
+	} else {
+		pinned.unshift(id);
+	}
+	activeSessionPrefs.pinned = pinned;
+	saveActiveSessionPrefs();
+}
+
+function movePinnedActiveSession(id, direction) {
+	id = String(id || '').trim();
+	var delta = direction === 'down' ? 1 : -1;
+	var pinned = activeSessionPinnedIDs(lastActiveSessionItems());
+	var index = pinned.indexOf(id);
+	var next = index + delta;
+	if (index < 0 || next < 0 || next >= pinned.length) return;
+	var swap = pinned[next];
+	pinned[next] = pinned[index];
+	pinned[index] = swap;
+	activeSessionPrefs.pinned = pinned;
+	saveActiveSessionPrefs();
 }
 
 function dashboardIntParam(params, name, fallback, allowedValues) {
@@ -216,6 +304,9 @@ window.writeDashboardStateToURL = writeDashboardStateToURL;
 window.scheduleDashboardStateURLWrite = scheduleDashboardStateURLWrite;
 window.saveDashboardReturnState = saveDashboardReturnState;
 window.restoreDashboardReturnScrollIfNeeded = restoreDashboardReturnScrollIfNeeded;
+window.toggleActiveSessionPin = toggleActiveSessionPin;
+window.movePinnedActiveSession = movePinnedActiveSession;
 
+activeSessionPrefs = readActiveSessionPrefs();
 readDashboardStateFromURL();
 readDashboardReturnScroll();

@@ -162,6 +162,9 @@ test("active cards render compact live stats", () => {
 
   assertNoRawPayloadHTML(html);
   assert.match(html, /active-session-tracker/);
+  assert.match(html, /data-active-session-action="toggle-pin"/);
+  assert.match(html, /data-active-session-action="move-up"/);
+  assert.match(html, /data-active-session-action="move-down"/);
   assert.doesNotMatch(html, /CTX/);
   assert.doesNotMatch(html, /active-context/);
   assert.doesNotMatch(html, /data-context-state/);
@@ -219,6 +222,27 @@ test("active session sorting preserves grouping and handles metrics", () => {
   const byErrors = sandbox.sortActiveSessions(sessions);
   assert.deepEqual(byErrors.map((session) => session.id), ["active-b", "active-c", "active-a"]);
   assert.deepEqual(byErrors[2].child_sessions.map((session) => session.id), ["active-a-child"]);
+});
+
+test("pinned active sessions render above sorted unpinned sessions", () => {
+  const sandbox = loadRenderSandbox();
+  const sessions = [
+    { id: "active-a", status: "active", ended_at: "2026-05-09T18:00:00.000Z", total_tokens: 10 },
+    { id: "active-b", status: "active", ended_at: "2026-05-09T18:00:00.000Z", total_tokens: 90 },
+    { id: "active-c", status: "active", ended_at: "2026-05-09T18:00:00.000Z", total_tokens: 50 },
+  ];
+  sandbox.currentActiveSort = "tokens";
+  sandbox.activeSessionPinnedIDs = () => ["active-c", "active-a"];
+
+  assert.deepEqual(
+    Array.from(sandbox.sortActiveSessions(sessions).map((session) => session.id)),
+    ["active-c", "active-a", "active-b"],
+  );
+
+  const pinned = sandbox.activeCard(sessions[2], { pinnedIndex: 0, pinnedCount: 2 });
+  assert.match(pinned, /data-active-pinned="true"/);
+  assert.match(pinned, /aria-label="Unpin/);
+  assert.match(pinned, /data-active-session-action="move-down"/);
 });
 
 test("search mode ignores completed range alone but honors search state", () => {

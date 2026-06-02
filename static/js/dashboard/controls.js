@@ -92,6 +92,24 @@ function refreshDashboard() {
 	loadActivity();
 }
 
+function focusActiveSessionAction(sessionID, action) {
+	if (!sessionID || !action) return;
+	function focusButton(preferredAction) {
+		var selector = '[data-active-session-id="' + cssEscape(sessionID) + '"] [data-active-session-action="' + cssEscape(preferredAction) + '"]';
+		var button = document.querySelector(selector);
+		if (!button || button.hasAttribute('disabled')) return false;
+		try {
+			button.focus({preventScroll: true});
+		} catch (err) {
+			button.focus();
+		}
+		return document.activeElement === button;
+	}
+	window.requestAnimationFrame(function() {
+		if (!focusButton(action)) focusButton('toggle-pin');
+	});
+}
+
 async function toggleJSONSubagents(button) {
 	var sessionID = button.getAttribute('data-session-id');
 	var parentRow = document.getElementById('session-row-' + sessionID);
@@ -147,6 +165,24 @@ document.addEventListener('click', function(evt) {
 		evt.preventDefault();
 		evt.stopPropagation();
 		toggleJSONSubagents(subBtn);
+		return;
+	}
+	var activeSessionAction = evt.target.closest && evt.target.closest('[data-active-session-action]');
+	if (activeSessionAction) {
+		evt.preventDefault();
+		evt.stopPropagation();
+		if (activeSessionAction.hasAttribute('disabled')) return;
+		var action = activeSessionAction.getAttribute('data-active-session-action') || '';
+		var sessionID = activeSessionAction.getAttribute('data-active-session-id') || '';
+		if (action === 'toggle-pin' && typeof toggleActiveSessionPin === 'function') {
+			toggleActiveSessionPin(sessionID);
+		} else if ((action === 'move-up' || action === 'move-down') && typeof movePinnedActiveSession === 'function') {
+			movePinnedActiveSession(sessionID, action === 'move-down' ? 'down' : 'up');
+		}
+		if (lastActiveSessionsResponse && typeof renderActive === 'function') {
+			renderActive(lastActiveSessionsResponse);
+			focusActiveSessionAction(sessionID, action);
+		}
 		return;
 	}
 	var openBtn = evt.target.closest && evt.target.closest('.session-row-open');

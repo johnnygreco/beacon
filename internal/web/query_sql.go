@@ -104,6 +104,39 @@ func sessionProjectionSubquery(where string) string {
 	FROM session_projection FINAL ` + sqlWhereClause(where) + `)`
 }
 
+func reopenedSessionIDsSubquery() string {
+	return `(SELECT session_id
+	        FROM (
+			SELECT event_uid,
+			       argMax(session_id, captured_at) AS session_id,
+			       argMax(timestamp, captured_at) AS timestamp,
+			       argMax(event_kind, captured_at) AS event_kind
+			FROM activity_events
+			PREWHERE timestamp >= ?
+			WHERE session_id != ''
+			  AND timestamp > toDateTime64(0, 3, 'UTC')
+			GROUP BY event_uid
+	        )
+	        GROUP BY session_id
+	        HAVING maxIf(timestamp, event_kind != 'session_end') > maxIf(timestamp, event_kind = 'session_end'))`
+}
+
+func reopenedSessionPredicate() string {
+	return `session_id IN ` + reopenedSessionIDsSubquery()
+}
+
+func activeSessionPredicate() string {
+	return `(ended_at >= ? AND (COALESCE(has_session_end, 0) = 0 OR ` + reopenedSessionPredicate() + `))`
+}
+
+func completedSessionPredicate() string {
+	return `(ended_at < ? OR (COALESCE(has_session_end, 0) = 1 AND NOT (` + reopenedSessionPredicate() + `)))`
+}
+
+func sessionSummaryColumnsWithReopenedFlag() string {
+	return sessionSummaryColumns + `, if(` + reopenedSessionPredicate() + `, 1, 0)`
+}
+
 var analyticsProjectionSQL = analyticsProjectionSubquery("")
 
 func analyticsProjectionSubquery(where string) string {

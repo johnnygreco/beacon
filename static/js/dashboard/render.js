@@ -390,9 +390,17 @@ function renderActive(response) {
 		var wrap = document.getElementById('active-sessions');
 		if (!wrap) return;
 		var items = (response.items || []).filter(validSession);
+		lastActiveSessionsResponse = response;
 		var dot = items.length ? '<span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span></span>' : '<span class="relative flex h-2 w-2"><span class="relative inline-flex rounded-full h-2 w-2 bg-gray-600"></span></span>';
 		var count = items.length ? '<span class="text-xs font-normal text-gray-500">(' + items.length + ')</span>' : '';
-		var cards = sortActiveSessions(items).map(activeCard).join('');
+		var sorted = sortActiveSessions(items);
+		var pinned = currentActiveSessionPinnedIDs(sorted);
+		var cards = sorted.map(function(session) {
+			return activeCard(session, {
+				pinnedIndex: pinned.indexOf(session.id),
+				pinnedCount: pinned.length
+			});
+		}).join('');
 		if (!cards) {
 			cards = '<div class="active-session-empty"><p class="text-sm text-gray-500">No active sessions</p><p class="text-xs text-gray-600 mt-1">Sessions appear here when agents are running</p></div>';
 		}
@@ -437,6 +445,11 @@ function activeSortControl() {
 	return '<label class="active-session-sort"><span class="sr-only">Active session sort order</span><select id="active-session-sort" class="active-session-sort-select" aria-label="Active session sort order" onchange="setActiveSessionSort(this.value)">' + options + '</select></label>';
 }
 
+function currentActiveSessionPinnedIDs(items) {
+	if (typeof activeSessionPinnedIDs === 'function') return activeSessionPinnedIDs(items);
+	return [];
+}
+
 function activeDurationFromLabel(session) {
 	var total = 0;
 	String(session && session.duration || '').replace(/(\d+)\s*([hms])/g, function(_, amount, unit) {
@@ -467,10 +480,26 @@ function compareActiveSessionRecords(a, b) {
 }
 
 function sortActiveSessions(items) {
-	return items
+	var byID = {};
+	items.forEach(function(session) {
+		byID[session.id] = session;
+	});
+	var pinnedIDs = currentActiveSessionPinnedIDs(items);
+	var pinnedLookup = {};
+	pinnedIDs.forEach(function(id) {
+		pinnedLookup[id] = true;
+	});
+	var unpinned = items.filter(function(session) {
+		return !pinnedLookup[session.id];
+	})
 		.map(function(session, index) { return {session: session, index: index}; })
 		.sort(compareActiveSessionRecords)
 		.map(function(record) { return record.session; });
+	var pinned = pinnedIDs.map(function(id) {
+		return byID[id];
+	}).filter(validSession);
+	if (pinned.length === 0) return unpinned;
+	return pinned.concat(unpinned);
 }
 
 function setActiveSessionSort(value) {
@@ -486,24 +515,77 @@ function activeStatusDot(live, sub) {
 	return '<span class="relative flex h-2.5 w-2.5 flex-shrink-0" aria-hidden="true"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span></span>';
 }
 
-function activeTrackerCell(label, value, sublabel, tone) {
+function activeTrackerCell(label, value, tone) {
 	var toneClass = tone ? ' active-tracker-cell-' + escapeAttr(tone) : '';
-	return '<div class="active-tracker-cell' + toneClass + '"><span class="active-tracker-label">' + escapeHTML(label) + '</span><strong class="active-tracker-value">' + escapeHTML(value) + '</strong>' + (sublabel ? '<small class="active-tracker-subvalue">' + escapeHTML(sublabel) + '</small>' : '') + '</div>';
+	return '<div class="active-tracker-cell' + toneClass + '"><span class="active-tracker-label">' + escapeHTML(label) + '</span><strong class="active-tracker-value">' + escapeHTML(value) + '</strong></div>';
+}
+
+function compactActiveDuration(duration) {
+	var text = String(duration || '').trim();
+	var hours = text.match(/^(\d+)\s*h(?:\s+(\d+)\s*m)?/);
+	if (hours) return hours[1] + 'h' + (hours[2] ? ' ' + hours[2] + 'm' : '');
+	var minutes = text.match(/^(\d+)\s*m/);
+	if (minutes) return minutes[1] + 'm';
+	var seconds = text.match(/^(\d+)\s*s/);
+	if (seconds) return seconds[1] + 's';
+	return text;
 }
 
 function activeSessionTracker(session, turnCount, toolCount, errorCount) {
 	var cells = [
-		activeTrackerCell('Run', session.duration || '', 'live', ''),
-		activeTrackerCell('Turns', String(turnCount), 'so far', ''),
-		activeTrackerCell('Tools', String(toolCount), 'calls', '')
+		activeTrackerCell('Run', compactActiveDuration(session.duration), ''),
+		activeTrackerCell('Turns', String(turnCount), ''),
+		activeTrackerCell('Tools', String(toolCount), '')
 	];
 	if (errorCount > 0) {
-		cells.push(activeTrackerCell('Errors', String(errorCount), 'review', 'error'));
+		cells.push(activeTrackerCell('Errors', String(errorCount), 'error'));
 	}
 	return '<div class="active-session-tracker" aria-label="Active session live stats">' + cells.join('') + '</div>';
 }
 
-function activeCard(session) {
+function activeSessionActionIcon(name) {
+	if (name === 'pin') {
+		return '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 17v5"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 17h14"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 3h8l-1 7 3 4H6l3-4-1-7z"></path></svg>';
+	}
+	if (name === 'up') {
+		return '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19V5"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12l7-7 7 7"></path></svg>';
+	}
+	return '<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 12l-7 7-7-7"></path></svg>';
+}
+
+function activeSessionActionButton(action, session, label, title, disabled, active, icon) {
+	return '<button type="button" class="active-session-action-btn' + (active ? ' active-session-action-btn-active' : '') + '" data-active-session-action="' + escapeAttr(action) + '" data-active-session-id="' + escapeAttr(session.id) + '" aria-label="' + escapeAttr(label) + '" title="' + escapeAttr(title) + '"' + (disabled ? ' disabled aria-disabled="true"' : '') + '>' + activeSessionActionIcon(icon) + '</button>';
+}
+
+function activeSessionActions(session, context) {
+	context = context || {};
+	var pinnedIndex = typeof context.pinnedIndex === 'number' ? context.pinnedIndex : -1;
+	var pinnedCount = typeof context.pinnedCount === 'number' ? context.pinnedCount : 0;
+	var pinned = pinnedIndex >= 0;
+	var title = sessionTitle(session);
+	return '<div class="active-session-actions" aria-label="Active session row controls">' +
+		activeSessionActionButton('toggle-pin', session, (pinned ? 'Unpin ' : 'Pin ') + title, pinned ? 'Unpin session' : 'Pin to top', false, pinned, 'pin') +
+		activeSessionActionButton('move-up', session, 'Move pinned session up: ' + title, 'Move pinned session up', !pinned || pinnedIndex === 0, false, 'up') +
+		activeSessionActionButton('move-down', session, 'Move pinned session down: ' + title, 'Move pinned session down', !pinned || pinnedIndex === pinnedCount - 1, false, 'down') +
+		'</div>';
+}
+
+function activeSessionLinkContent(session, statusDot, live, sub, turnCount, toolCount, errorCount) {
+	var statusClass = sub ? 'active-session-status-sub' : (live ? 'active-session-status-live' : 'active-session-status-idle');
+	var statusLabel = live ? 'Live' : 'Idle';
+	var kicker = sub
+		? '<span>Subagent</span><span class="font-mono">' + escapeHTML(shortID(session.id)) + '</span><span>parent ' + escapeHTML(shortID(session.parent_session_id)) + '</span>'
+		: '<span class="font-mono">' + escapeHTML(shortID(session.id)) + '</span><span>' + escapeHTML(session.status || '') + '</span>';
+	var path = session.working_dir ? '<span class="active-session-path" title="' + escapeAttr(session.working_dir) + '">' + escapeHTML(session.working_dir) + '</span>' : '';
+	var meta = modelChip(session.last_model || '') + providerBadge(session.provider) + '<span class="active-session-status ' + statusClass + '">' + statusLabel + '</span><span class="active-session-kicker">' + kicker + '</span>' + path;
+	return '<div class="active-session-card-header">' +
+			'<div class="active-session-title-row">' + statusDot + '<div class="active-session-title">' + escapeHTML(sessionTitle(session)) + '</div></div>' +
+			activeSessionTracker(session, turnCount, toolCount, errorCount) +
+		'</div>' +
+		'<div class="active-session-inline-meta">' + meta + '</div>';
+}
+
+function activeCard(session, context) {
 	var live = session.status === 'active';
 	var sub = !!session.parent_session_id;
 	var border = sub ? (live ? 'active-session-card-sub' : 'active-session-card-idle') : (live ? 'active-session-card-live' : 'active-session-card-idle');
@@ -511,14 +593,12 @@ function activeCard(session) {
 	var turnCount = nonNegativeInt(session.turn_count);
 	var toolCount = nonNegativeInt(session.tool_call_count);
 	var errorCount = nonNegativeInt(session.error_count);
+	var pinned = context && typeof context.pinnedIndex === 'number' && context.pinnedIndex >= 0;
+	var attrs = ' data-active-session-id="' + escapeAttr(session.id) + '" data-active-pinned="' + (pinned ? 'true' : 'false') + '"';
+	var link = '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(session.id)) + '" class="active-session-link">' + activeSessionLinkContent(session, statusDot, live, sub, turnCount, toolCount, errorCount) + '</a>';
+	var shell = '<div class="active-session-row-shell">' + link + activeSessionActions(session, context) + '</div>';
 	if (sub) {
-		return '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(session.id)) + '" data-active-session-id="' + escapeAttr(session.id) + '" class="active-session-card ' + border + '">' +
-			'<div class="active-session-card-header"><div class="active-session-title-row">' + statusDot + '<div class="min-w-0"><div class="active-session-title">' + escapeHTML(sessionTitle(session)) + '</div><div class="active-session-kicker"><span>Subagent</span><span class="font-mono">' + escapeHTML(shortID(session.id)) + '</span><span>parent ' + escapeHTML(shortID(session.parent_session_id)) + '</span></div></div></div>' +
-				'<span class="active-session-status ' + (live ? 'active-session-status-sub' : 'active-session-status-idle') + '">' + (live ? 'Live' : 'Idle') + '</span></div>' +
-				'<div class="active-session-meta-row">' + modelChip(session.last_model || '') + providerBadge(session.provider) + '</div>' +
-				activeSessionTracker(session, turnCount, toolCount, errorCount) +
-			(session.working_dir ? '<p class="active-session-path" title="' + escapeAttr(session.working_dir) + '">' + escapeHTML(session.working_dir) + '</p>' : '') +
-			'</a>';
+		return '<div class="active-session-card ' + border + '"' + attrs + '>' + shell + '</div>';
 	}
 	var childHTML = '';
 	var childSessions = (session.child_sessions || []).filter(validSession);
@@ -530,13 +610,7 @@ function activeCard(session) {
 			return '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(child.id)) + '" class="active-child-row"><div class="active-child-main">' + childDot + '<span class="active-child-id">' + escapeHTML(shortID(child.id)) + '</span>' + childModel + '<span class="active-child-stat">' + escapeHTML(child.duration || '') + '</span><span class="active-child-stat">' + nonNegativeInt(child.tool_call_count) + 't</span></div></a>';
 		}).join('') + '</div>';
 	}
-	return '<div class="active-session-card ' + border + '" data-active-session-id="' + escapeAttr(session.id) + '">' +
-		'<a href="' + escapeAttr('/sessions/' + encodeURIComponent(session.id)) + '" class="active-session-link">' +
-			'<div class="active-session-card-header"><div class="active-session-title-row">' + statusDot + '<div class="min-w-0"><div class="active-session-title">' + escapeHTML(sessionTitle(session)) + '</div><div class="active-session-kicker"><span class="font-mono">' + escapeHTML(shortID(session.id)) + '</span><span>' + escapeHTML(session.status || '') + '</span></div></div></div><div class="active-session-badges">' + providerBadge(session.provider) + '<span class="active-session-status ' + (live ? 'active-session-status-live' : 'active-session-status-idle') + '">' + (live ? 'Live' : 'Idle') + '</span></div></div>' +
-			'<div class="active-session-meta-row">' + modelChip(session.last_model || '') + '</div>' +
-			activeSessionTracker(session, turnCount, toolCount, errorCount) +
-		(session.working_dir ? '<p class="active-session-path" title="' + escapeAttr(session.working_dir) + '">' + escapeHTML(session.working_dir) + '</p>' : '') +
-		'</a>' + childHTML + '</div>';
+	return '<div class="active-session-card ' + border + '"' + attrs + '>' + shell + childHTML + '</div>';
 }
 
 function activityDotColor(type) {

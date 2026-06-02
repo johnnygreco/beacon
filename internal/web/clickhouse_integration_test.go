@@ -145,6 +145,7 @@ func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T)
 	now := time.Now().UTC().Truncate(time.Second)
 	activeID := "dashboard-live-active"
 	completedID := "dashboard-live-completed"
+	reopenedID := "dashboard-live-reopened"
 	events := []models.Event{
 		liveEvent("dash-active-user", activeID, "message", "user", now, "openai", "", "", 0, 0, 0),
 		liveEvent("dash-active-assistant", activeID, "message", "assistant", now.Add(time.Second), "openai", "gpt-4.1", "", 10, 20, 0),
@@ -152,8 +153,10 @@ func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T)
 		liveEvent("dash-completed-user", completedID, "message", "user", now.Add(-10*time.Minute), "openai", "", "", 0, 0, 0),
 		liveEvent("dash-completed-assistant", completedID, "message", "assistant", now.Add(-10*time.Minute+time.Second), "openai", "gpt-4.1", "", 7, 8, 0),
 		liveEvent("dash-completed-end", completedID, "session_end", "system", now.Add(-9*time.Minute), "openai", "", "", 0, 0, 0),
+		liveEvent("dash-reopened-end", reopenedID, "session_end", "system", now.Add(-2*time.Minute), "openai", "", "", 0, 0, 0),
+		liveEvent("dash-reopened-user", reopenedID, "message", "user", now.Add(-10*time.Second), "openai", "", "", 0, 0, 0),
 	}
-	events[len(events)-1].PayloadType = "last-prompt"
+	events[5].PayloadType = "last-prompt"
 	for i := range events {
 		events[i].SourceLineNo = i + 1
 		events[i].SourceOffset = int64(i * 10)
@@ -175,7 +178,7 @@ func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T)
 	if err := json.Unmarshal([]byte(activeBody), &active); err != nil {
 		t.Fatalf("decode active sessions: %v\n%s", err, activeBody)
 	}
-	if !containsSession(active.Items, activeID) || containsSession(active.Items, completedID) {
+	if !containsSession(active.Items, activeID) || !containsSession(active.Items, reopenedID) || containsSession(active.Items, completedID) {
 		t.Fatalf("active sessions = %#v", active.Items)
 	}
 
@@ -184,7 +187,7 @@ func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T)
 	if err := json.Unmarshal([]byte(completedBody), &completed); err != nil {
 		t.Fatalf("decode completed sessions: %v\n%s", err, completedBody)
 	}
-	if !containsSession(completed.Items, completedID) || containsSession(completed.Items, activeID) {
+	if !containsSession(completed.Items, completedID) || containsSession(completed.Items, activeID) || containsSession(completed.Items, reopenedID) {
 		t.Fatalf("completed sessions = %#v", completed.Items)
 	}
 
@@ -202,8 +205,8 @@ func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T)
 	if err := json.Unmarshal([]byte(metricsBody), &metrics); err != nil {
 		t.Fatalf("decode metrics: %v\n%s", err, metricsBody)
 	}
-	assertMetric(t, metrics, "Total Sessions", 2)
-	assertMetric(t, metrics, "Active Sessions", 1)
+	assertMetric(t, metrics, "Total Sessions", 3)
+	assertMetric(t, metrics, "Active Sessions", 2)
 	assertMetric(t, metrics, "Input Tokens", 22)
 	assertMetric(t, metrics, "Output Tokens", 29)
 	assertMetric(t, metrics, "Tool Calls", 1)
