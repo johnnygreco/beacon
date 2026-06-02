@@ -266,6 +266,7 @@ npm run vendor       # refresh vendored frontend assets
 npm run vendor:check # verify vendored frontend assets and notices are current
 npm run test:frontend # JS lint and unit tests
 npm run test:e2e    # dashboard and integrated search Playwright tests
+npm run test:e2e:search # focused dashboard search Playwright tests
 npm run test:a11y   # accessibility tests
 npm run test:visual # visual regression tests
 ```

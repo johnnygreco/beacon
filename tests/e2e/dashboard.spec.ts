@@ -130,6 +130,7 @@ async function readActiveSessionGeometry(page: Page) {
     const panelRect = panel?.getBoundingClientRect();
     const scrollRect = scroll?.getBoundingClientRect();
     const gridRect = grid?.getBoundingClientRect();
+    const scrollStyle = scroll ? window.getComputedStyle(scroll) : null;
     const cardRects = cards.map((card) => {
       const rect = card.getBoundingClientRect();
       return {
@@ -162,6 +163,7 @@ async function readActiveSessionGeometry(page: Page) {
       scrollClientHeight: Math.round(scroll?.clientHeight || 0),
       scrollHeight: Math.round(scroll?.scrollHeight || 0),
       scrollTop: Math.round(scroll?.scrollTop || 0),
+      scrollOverflowY: scrollStyle?.overflowY || '',
       scrollRectTop: Math.round(scrollRect?.top || 0),
       scrollRectBottom: Math.round(scrollRect?.bottom || 0),
       gridLeft: Math.round(gridRect?.left || 0),
@@ -636,6 +638,62 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('keeps active-session board height fixed across content refreshes', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installDashboardFixtures(page, { activeScenarioSequence: ['default', 'many-active', 'long-active'] });
+    await gotoDashboard(page);
+
+    await expect(page.locator('#active-sessions')).toContainText('Realtime dashboard smoke run');
+    const initial = await readActiveSessionGeometry(page);
+    const completedInitial = await page.locator('.completed-table-surface').boundingBox();
+    expect(initial.cards).toHaveLength(1);
+    expect(initial.panelHeight).toBeGreaterThan(0);
+    expect(initial.scrollClientHeight).toBeGreaterThan(0);
+    expect(['auto', 'scroll']).toContain(initial.scrollOverflowY);
+
+    await page.evaluate(() => (window as Window & { loadActiveSessions: () => Promise<void> }).loadActiveSessions());
+    await expect(page.locator('#active-sessions')).toContainText('Live queue item 8');
+    const many = await readActiveSessionGeometry(page);
+    expect(many.cards).toHaveLength(8);
+    expect(Math.abs(many.panelHeight - initial.panelHeight)).toBeLessThanOrEqual(1);
+    expect(Math.abs(many.scrollClientHeight - initial.scrollClientHeight)).toBeLessThanOrEqual(1);
+    expect(many.scrollHeight).toBeGreaterThan(many.scrollClientHeight);
+    expect(['auto', 'scroll']).toContain(many.scrollOverflowY);
+    expect(many.protrusions).toEqual([]);
+    const completedAfterMany = await page.locator('.completed-table-surface').boundingBox();
+    expect(Math.round(completedAfterMany?.y || 0)).toBe(Math.round(completedInitial?.y || 0));
+
+    const internalScroll = await page.locator('#active-sessions .active-session-board-scroll').evaluate((scroll) => {
+      const el = scroll as HTMLElement;
+      el.scrollTop = el.scrollHeight;
+      return {
+        scrollTop: Math.round(el.scrollTop),
+        clientHeight: Math.round(el.clientHeight),
+        scrollHeight: Math.round(el.scrollHeight),
+        dashboardTop: Math.round(document.getElementById('dashboard-main')?.scrollTop || 0),
+        windowY: Math.round(window.scrollY || window.pageYOffset || 0),
+      };
+    });
+    expect(internalScroll.scrollHeight).toBeGreaterThan(internalScroll.clientHeight);
+    expect(internalScroll.scrollTop).toBeGreaterThan(0);
+    expect(internalScroll.dashboardTop).toBe(0);
+    expect(internalScroll.windowY).toBe(0);
+
+    await page.evaluate(() => (window as Window & { loadActiveSessions: () => Promise<void> }).loadActiveSessions());
+    await expect(page.locator('#active-sessions')).toContainText('overflow validation');
+    const long = await readActiveSessionGeometry(page);
+    expect(long.cards).toHaveLength(4);
+    expect(Math.abs(long.panelHeight - initial.panelHeight)).toBeLessThanOrEqual(1);
+    expect(Math.abs(long.scrollClientHeight - initial.scrollClientHeight)).toBeLessThanOrEqual(1);
+    expect(long.protrusions).toEqual([]);
+    const completedAfterLong = await page.locator('.completed-table-surface').boundingBox();
+    expect(Math.round(completedAfterLong?.y || 0)).toBe(Math.round(completedInitial?.y || 0));
+    await expectNoHorizontalOverflow(page);
+
+    await guards.expectClean();
+  });
+
   test('contains long active-session text, stats, paths, and child rows without layout overflow', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page, { scenario: 'long-active' });
@@ -689,6 +747,82 @@ test.describe('dashboard battle-tested workflows', () => {
       expect(containment.some((item) => item.selector === '.active-session-path' && item.overflow === 'hidden' && item.textOverflow === 'ellipsis' && item.whiteSpace === 'nowrap')).toBe(true);
       await expect(page.locator('#active-sessions [data-session-context]')).toHaveCount(0);
     }
+
+    await guards.expectClean();
+  });
+
+  test('loads the collapsed activity-bar fixture state before dashboard scripts run', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page, { scenario: 'collapsed-activity' });
+    await gotoDashboard(page);
+
+    await expect(page.locator('html')).toHaveAttribute('data-beacon-timeline-collapsed', 'true');
+    await expect(page.locator('#timeline-sidebar')).toHaveClass(/collapsed/);
+    await expect(page.locator('#timeline-sidebar')).toHaveAttribute('inert', '');
+    await expect(page.locator('#timeline-sidebar')).toHaveAttribute('aria-hidden', 'true');
+    await expect(page.locator('#timeline-toggle-btn')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('#sidebar-divider')).toHaveAttribute('aria-valuenow', '0');
+    await expect(page.locator('#sidebar-divider')).toHaveAttribute('aria-valuetext', 'Activity bar collapsed');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-timeline-width'))).toBe('0');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-timeline-prev-width'))).toBe('420');
+    await expectNoHorizontalOverflow(page);
+
+    await guards.expectClean();
+  });
+
+  test('loads the resized activity-bar fixture state before dashboard scripts run', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installDashboardFixtures(page, { scenario: 'resized-activity' });
+    await gotoDashboard(page);
+
+    await expect(page.locator('#timeline-sidebar')).not.toHaveClass(/collapsed/);
+    await expect(page.locator('#timeline-sidebar')).not.toHaveAttribute('inert', '');
+    await expect(page.locator('#timeline-toggle-btn')).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('#sidebar-divider')).toHaveAttribute('aria-valuenow', '520');
+    const sidebarMetrics = await page.evaluate(() => {
+      const sidebar = document.getElementById('timeline-sidebar');
+      const divider = document.getElementById('sidebar-divider');
+      return {
+        width: Math.round(sidebar?.getBoundingClientRect().width || 0),
+        max: Number(divider?.getAttribute('aria-valuemax') || 0),
+      };
+    });
+    expect(sidebarMetrics.width).toBeGreaterThan(450);
+    expect(sidebarMetrics.width).toBeLessThanOrEqual(sidebarMetrics.max + 1);
+    expect(await page.evaluate(() => localStorage.getItem('beacon-timeline-width'))).toBe('520');
+    await expectNoHorizontalOverflow(page);
+
+    await guards.expectClean();
+  });
+
+  test('loads the light theme fixture state before dashboard scripts run', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page, { scenario: 'light-theme' });
+    await gotoDashboard(page);
+
+    await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'catppuccin-light');
+    await expect(page.locator('#dashboard-theme-select')).toHaveValue('catppuccin');
+    await expect(page.locator('#dashboard-appearance-toggle')).toHaveAttribute('aria-checked', 'false');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-theme'))).toBe('catppuccin');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-appearance'))).toBe('light');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-resolved-theme'))).toBe('catppuccin-light');
+
+    await guards.expectClean();
+  });
+
+  test('loads the fixed dark theme fixture state before dashboard scripts run', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page, { scenario: 'fixed-dark-theme' });
+    await gotoDashboard(page);
+
+    await expect(page.locator('html')).toHaveAttribute('data-dashboard-theme', 'dracula-dark');
+    await expect(page.locator('#dashboard-theme-select')).toHaveValue('dracula');
+    await expect(page.locator('#dashboard-appearance-toggle')).toBeDisabled();
+    await expect(page.locator('#dashboard-appearance-toggle')).toHaveAttribute('aria-checked', 'true');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-theme'))).toBe('dracula');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-appearance'))).toBe('dark');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-resolved-theme'))).toBe('dracula-dark');
 
     await guards.expectClean();
   });
