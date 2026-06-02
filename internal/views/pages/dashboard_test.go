@@ -137,6 +137,7 @@ func TestDashboardLiveAnalyticsUsesSingleTokenChart(t *testing.T) {
 		"Tokens by Model Over Time",
 		"dashboard-chart-range-control",
 		"dashboard-chart-refresh-btn",
+		"dashboard-table-refresh-btn",
 	} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("dashboard live analytics missing %q", expected)
@@ -146,6 +147,7 @@ func TestDashboardLiveAnalyticsUsesSingleTokenChart(t *testing.T) {
 		"requestURL('/api/dashboard/charts'",
 		"currentChartRange = '24h'",
 		"setDashboardChartRange",
+		"refreshCompletedTable",
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("dashboard live analytics missing %q", expected)

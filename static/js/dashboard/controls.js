@@ -79,6 +79,10 @@ function refreshDashboardCharts() {
 	loadDashboardCharts();
 }
 
+function refreshCompletedTable() {
+	loadCompletedSessions(currentCompletedOffset);
+}
+
 function refreshDashboard() {
 	loadActiveSessions();
 	loadDashboardCharts();

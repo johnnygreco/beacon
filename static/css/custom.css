@@ -1787,6 +1787,7 @@ html[data-beacon-timeline-collapsed="true"] .timeline-panel {
   flex-direction: column;
   gap: 0.85rem;
   min-width: min(100%, 58rem);
+  overflow: hidden;
   padding: 0.875rem;
 }
 
@@ -2781,23 +2782,46 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
 .dashboard-table-top {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 0.875rem;
+  gap: 0.65rem;
   align-items: start;
   margin-bottom: 0;
+}
+
+.dashboard-table-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.dashboard-table-controls-scroll {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-gutter: stable;
 }
 
 .dashboard-table-left {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
+  width: 100%;
   min-width: 0;
+}
+
+@media (min-width: 641px) {
+  .dashboard-table-left {
+    min-width: 58rem;
+  }
 }
 
 .dashboard-table-toolbar {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  min-width: min(100%, 28rem);
+  min-width: min(100%, 32rem);
   position: relative;
 }
 
@@ -3094,6 +3118,7 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
   align-items: center;
   flex-wrap: wrap;
   gap: 0.45rem;
+  min-width: 0;
 }
 
 .dashboard-search-filter-group {
