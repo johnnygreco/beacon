@@ -173,6 +173,9 @@ test.describe('dashboard battle-tested workflows', () => {
 
     await expect(page).toHaveTitle('Dashboard | Beacon');
     await expect(page.locator('#dashboard-title')).toHaveText('Beacon Realtime Dashboard');
+    await expect(page.locator('.dashboard-brand-mark')).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Dashboard controls' })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Theme controls' })).toBeVisible();
     await expect(page.locator('#dashboard-name-clear')).toHaveCount(0);
     await expect(page.locator('[data-dashboard-name-control]')).toContainText('Beacon Realtime Dashboard');
     const restingNameMetrics = await page.locator('#dashboard-name-edit').evaluate((edit) => {
@@ -226,6 +229,56 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-name'))).toBeNull();
     await page.keyboard.press('Enter');
     await expect(page.locator('#dashboard-title')).toHaveText('Beacon Realtime Dashboard');
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const longName = 'Beacon operations dashboard for west coast release train alpha bravo charlie';
+    await page.locator('#dashboard-name-edit').click();
+    await page.locator('#dashboard-name-input').fill(longName);
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#dashboard-title')).toHaveText(longName);
+    await expectNoHorizontalOverflow(page);
+    const longNameHeaderMetrics = await page.locator('.dashboard-header').evaluate((header) => {
+      const brandRect = header.querySelector('.dashboard-brand-mark')?.getBoundingClientRect();
+      const titleRect = header.querySelector('#dashboard-title')?.getBoundingClientRect();
+      const actionsRect = header.querySelector('.dashboard-header-actions')?.getBoundingClientRect();
+      return {
+        brandLeft: Math.floor(brandRect?.left || 0),
+        brandRight: Math.ceil(brandRect?.right || 0),
+        titleLeft: Math.floor(titleRect?.left || 0),
+        titleRight: Math.ceil(titleRect?.right || 0),
+        titleTop: Math.round(titleRect?.top || 0),
+        actionsLeft: Math.floor(actionsRect?.left || 0),
+        actionsTop: Math.round(actionsRect?.top || 0),
+      };
+    });
+    expect(longNameHeaderMetrics.brandLeft).toBeGreaterThanOrEqual(0);
+    expect(longNameHeaderMetrics.brandRight).toBeLessThanOrEqual(longNameHeaderMetrics.titleLeft);
+    if (Math.abs(longNameHeaderMetrics.titleTop - longNameHeaderMetrics.actionsTop) <= 2) {
+      expect(longNameHeaderMetrics.titleRight).toBeLessThanOrEqual(longNameHeaderMetrics.actionsLeft);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#dashboard-analytics-summary > div')).toHaveCount(4);
+    await expect(page.locator('#dashboard-title')).toHaveText(longName);
+    await expectNoHorizontalOverflow(page);
+    const mobileLongNameHeaderMetrics = await page.locator('.dashboard-header').evaluate((header) => {
+      const brandRect = header.querySelector('.dashboard-brand-mark')?.getBoundingClientRect();
+      const titleRect = header.querySelector('#dashboard-title')?.getBoundingClientRect();
+      const actionsRect = header.querySelector('.dashboard-header-actions')?.getBoundingClientRect();
+      return {
+        brandLeft: Math.floor(brandRect?.left || 0),
+        titleLeft: Math.floor(titleRect?.left || 0),
+        titleRight: Math.ceil(titleRect?.right || 0),
+        actionsLeft: Math.floor(actionsRect?.left || 0),
+        actionsRight: Math.ceil(actionsRect?.right || 0),
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(mobileLongNameHeaderMetrics.brandLeft).toBeGreaterThanOrEqual(0);
+    expect(mobileLongNameHeaderMetrics.titleLeft).toBeGreaterThanOrEqual(0);
+    expect(mobileLongNameHeaderMetrics.titleRight).toBeLessThanOrEqual(mobileLongNameHeaderMetrics.viewportWidth);
+    expect(mobileLongNameHeaderMetrics.actionsLeft).toBeGreaterThanOrEqual(0);
+    expect(mobileLongNameHeaderMetrics.actionsRight).toBeLessThanOrEqual(mobileLongNameHeaderMetrics.viewportWidth);
 
     const unsafeName = '<script>window.__beaconNameExecuted = true</script>';
     await page.locator('#dashboard-name-edit').click();
@@ -778,13 +831,8 @@ test.describe('dashboard battle-tested workflows', () => {
     const divider = page.locator('#sidebar-divider');
     const box = await divider.boundingBox();
     expect(box).not.toBeNull();
-    if (box) {
-      const dragY = box.y + box.height / 2;
-      await page.mouse.move(box.x + 1, dragY);
-      await page.mouse.down();
-      await page.mouse.move(980, dragY);
-      await page.mouse.up();
-    }
+    await divider.focus();
+    await page.keyboard.press('Shift+ArrowLeft');
     await page.waitForFunction(() => Number(localStorage.getItem('beacon-timeline-width') || 0) > 390);
     await expectDashboardTokenChartReady(page);
     const savedWidth = await page.evaluate(() => Number(localStorage.getItem('beacon-timeline-width') || 0));
@@ -869,6 +917,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#dashboard-theme-control')).not.toContainText('Theme');
     await expect(page.locator('#dashboard-refresh-btn')).toHaveText('');
     await expect(page.locator('#timeline-toggle-btn')).toHaveText('');
+    await expect(page.locator('#timeline-toggle-btn')).toHaveAttribute('aria-controls', 'timeline-sidebar');
     await expect(page.locator('#dashboard-search-reset')).toHaveText('');
     await expect(appearanceToggle).toHaveAttribute('role', 'switch');
     await expect(appearanceToggle).toHaveAttribute('aria-label', 'Dark mode');
