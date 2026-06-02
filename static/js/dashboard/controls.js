@@ -33,7 +33,7 @@ function rangeButtonValue(button) {
 
 function syncDashboardRangeControls() {
 	document.querySelectorAll('#dashboard-range-control .dash-range-btn').forEach(function(button) {
-		var active = rangeButtonValue(button) === currentRange;
+		var active = rangeButtonValue(button) === completedRangeValue();
 		button.className = active
 			? 'dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors'
 			: 'dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
@@ -58,13 +58,15 @@ function syncDashboardChartRangeControls() {
 }
 
 function setDashboardRange(btn, value) {
-	currentRange = value || '';
+	currentCompletedRange = value || '';
+	currentRange = currentCompletedRange;
+	if (!currentActivityRangePinned) currentActivityRange = currentCompletedRange;
 	currentCompletedOffset = 0;
 	syncDashboardRangeControls();
 	updateRangeCaption();
 	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 	loadCompletedSessions(0);
-	loadActivity();
+	if (!currentActivityRangePinned) loadActivity();
 }
 
 function setDashboardChartRange(btn, value) {

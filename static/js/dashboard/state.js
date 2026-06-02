@@ -1,6 +1,9 @@
 // --- JSON dashboard stores ---
 var currentActivityFilter = 'all';
-var currentRange = '24h';
+var currentCompletedRange = '24h';
+var currentActivityRange = '24h';
+var currentActivityRangePinned = false;
+var currentRange = currentCompletedRange;
 var currentChartRange = '24h';
 var currentActiveSort = 'recent';
 var currentCompletedOffset = 0;
@@ -58,13 +61,27 @@ function dashboardEnumParam(params, name, fallback, allowedValues, aliases) {
 	return allowedValues.indexOf(raw) >= 0 ? raw : fallback;
 }
 
+function dashboardHasValidEnumParam(params, name, allowedValues, aliases) {
+	var raw = params.get(name);
+	if (raw === null) return false;
+	raw = String(raw).trim();
+	if (aliases && Object.prototype.hasOwnProperty.call(aliases, raw)) raw = aliases[raw];
+	return allowedValues.indexOf(raw) >= 0;
+}
+
 function readDashboardStateFromURL() {
 	var params = new URLSearchParams(window.location.search || '');
-	currentRange = dashboardEnumParam(params, 'range', currentRange, dashboardRanges, {all: ''});
+	currentCompletedRange = dashboardEnumParam(params, 'range', currentCompletedRange, dashboardRanges, {all: ''});
 	if (!params.has('range') && params.has('search_range')) {
-		currentRange = dashboardEnumParam(params, 'search_range', currentRange, dashboardRanges, {all: ''});
+		currentCompletedRange = dashboardEnumParam(params, 'search_range', currentCompletedRange, dashboardRanges, {all: ''});
 	}
+	currentRange = currentCompletedRange;
 	currentChartRange = dashboardEnumParam(params, 'chart_range', currentChartRange, dashboardRanges, {all: ''});
+	currentActivityRangePinned = dashboardHasValidEnumParam(params, 'activity_range', dashboardRanges, {all: ''});
+	currentActivityRange = currentActivityRangePinned
+		? dashboardEnumParam(params, 'activity_range', currentActivityRange, dashboardRanges, {all: ''})
+		: currentCompletedRange;
+	currentActiveSort = dashboardEnumParam(params, 'active_sort', currentActiveSort, dashboardActiveSorts);
 	currentSearchQuery = (params.get('q') || '').trim();
 	currentSearchEventKind = dashboardEnumParam(params, 'event_kind', currentSearchEventKind, dashboardSearchEventKinds);
 	currentSearchSessionID = (params.get('session_id') || '').trim();
@@ -80,8 +97,10 @@ function readDashboardStateFromURL() {
 function dashboardStatePath() {
 	var url = new URL('/', window.location.origin);
 	var params = url.searchParams;
-	if (currentRange !== '24h') params.set('range', currentRange === '' ? 'all' : currentRange);
+	if (currentCompletedRange !== '24h') params.set('range', currentCompletedRange === '' ? 'all' : currentCompletedRange);
 	if (currentChartRange !== '24h') params.set('chart_range', currentChartRange === '' ? 'all' : currentChartRange);
+	if (currentActivityRangePinned || currentActivityRange !== currentCompletedRange) params.set('activity_range', currentActivityRange === '' ? 'all' : currentActivityRange);
+	if (currentActiveSort !== 'recent') params.set('active_sort', currentActiveSort);
 	if (currentSearchQuery) params.set('q', currentSearchQuery);
 	if (currentSearchEventKind) params.set('event_kind', currentSearchEventKind);
 	if (currentSearchSessionID) params.set('session_id', currentSearchSessionID);

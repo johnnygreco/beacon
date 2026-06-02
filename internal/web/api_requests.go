@@ -44,15 +44,30 @@ func parseAPIIntParam(values url.Values, spec apiIntParam) (int, error) {
 	return value, nil
 }
 
-func parseAPIRangeParam(values url.Values, defaultRange string) string {
-	rangeValues, ok := values["range"]
-	if !ok {
-		return defaultRange
+func parseAPIRangeParam(values url.Values, defaultRange string, names ...string) string {
+	if len(names) == 0 {
+		names = []string{"range"}
 	}
-	if len(rangeValues) == 0 {
-		return ""
+	for _, name := range names {
+		rangeValues, ok := values[name]
+		if !ok {
+			continue
+		}
+		if len(rangeValues) == 0 {
+			return ""
+		}
+		value := strings.TrimSpace(rangeValues[0])
+		if value == "" || strings.EqualFold(value, "all") {
+			return ""
+		}
+		switch value {
+		case "1h", "24h", "7d", "30d":
+			return value
+		default:
+			return defaultRange
+		}
 	}
-	return strings.TrimSpace(rangeValues[0])
+	return defaultRange
 }
 
 func parseAPICSVParam(values url.Values, name string) []string {
@@ -112,7 +127,7 @@ func parseDashboardSessionsAPIRequest(values url.Values) (dashboardSessionsAPIRe
 	}
 	return dashboardSessionsAPIRequest{
 		State:   state,
-		Range:   parseAPIRangeParam(values, ""),
+		Range:   parseAPIRangeParam(values, "", "completed_range", "range", "search_range"),
 		Query:   strings.TrimSpace(values.Get("q")),
 		SortKey: strings.TrimSpace(values.Get("sort")),
 		SortAsc: strings.EqualFold(strings.TrimSpace(values.Get("direction")), "asc"),
@@ -147,7 +162,7 @@ func parseDashboardSearchAPIRequest(values url.Values) (dashboardSearchAPIReques
 	}
 	return dashboardSearchAPIRequest{
 		Query:     strings.TrimSpace(values.Get("q")),
-		Range:     parseAPIRangeParam(values, ""),
+		Range:     parseAPIRangeParam(values, "", "completed_range", "range", "search_range"),
 		EventKind: strings.TrimSpace(values.Get("event_kind")),
 		SessionID: strings.TrimSpace(values.Get("session_id")),
 		SortBy:    sortBy,
@@ -166,7 +181,7 @@ type activityAPIRequest struct {
 }
 
 func parseActivityAPIRequest(values url.Values) activityAPIRequest {
-	rangeVal := parseAPIRangeParam(values, "24h")
+	rangeVal := parseAPIRangeParam(values, "24h", "activity_range", "range")
 	return activityAPIRequest{
 		Range:      rangeVal,
 		Since:      parseRange(rangeVal),
@@ -179,7 +194,7 @@ type dashboardChartsAPIRequest struct {
 }
 
 func parseDashboardChartsAPIRequest(values url.Values) dashboardChartsAPIRequest {
-	return dashboardChartsAPIRequest{Range: parseAPIRangeParam(values, "24h")}
+	return dashboardChartsAPIRequest{Range: parseAPIRangeParam(values, "24h", "chart_range", "range")}
 }
 
 type sessionEventsAPIRequest struct {

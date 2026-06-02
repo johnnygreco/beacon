@@ -591,11 +591,16 @@ test.describe('dashboard battle-tested workflows', () => {
     await sort.selectOption('tokens');
     await expect(sort).toHaveValue('tokens');
     await expect(page.locator('#active-sessions .active-session-card').first()).toHaveAttribute('data-active-session-id', 'active-parent-008');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('active_sort') === 'tokens');
     many = await readActiveSessionGeometry(page);
     expect(many.panelHeight).toBe(stableBeforeMany.panelHeight);
     expect(many.scrollHeight).toBeGreaterThan(many.scrollClientHeight);
     const completedAfterSort = await page.locator('.completed-table-surface').boundingBox();
     expect(Math.round(completedAfterSort?.y || 0)).toBe(Math.round(completedBeforeMany?.y || 0));
+
+    await page.goto('/?active_sort=tokens', { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#active-session-sort')).toHaveValue('tokens');
+    await expect(page.locator('#active-sessions .active-session-card').first()).toHaveAttribute('data-active-session-id', 'active-parent-008');
 
     for (const viewport of [
       { width: 390, height: 844 },
@@ -872,7 +877,7 @@ test.describe('dashboard battle-tested workflows', () => {
 
     const allChartsRequest = page.waitForRequest((request) => {
       const url = new URL(request.url());
-      return url.pathname === '/api/dashboard/charts' && url.searchParams.has('range') && url.searchParams.get('range') === '';
+      return url.pathname === '/api/dashboard/charts' && url.searchParams.has('chart_range') && url.searchParams.get('chart_range') === '';
     });
     await page.locator('#dashboard-chart-range-control').getByRole('button', { name: 'All' }).click();
     await allChartsRequest;
@@ -882,11 +887,11 @@ test.describe('dashboard battle-tested workflows', () => {
 
     const allActivityRequest = page.waitForRequest((request) => {
       const url = new URL(request.url());
-      return url.pathname === '/api/dashboard/activity' && url.searchParams.has('range') && url.searchParams.get('range') === '';
+      return url.pathname === '/api/dashboard/activity' && url.searchParams.has('activity_range') && url.searchParams.get('activity_range') === '';
     });
     const allCompletedRequest = page.waitForRequest((request) => {
       const url = new URL(request.url());
-      return url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'completed' && url.searchParams.has('range') && url.searchParams.get('range') === '';
+      return url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'completed' && url.searchParams.has('completed_range') && url.searchParams.get('completed_range') === '';
     });
     await page.locator('#dashboard-range-control').getByRole('button', { name: 'All' }).click();
     await Promise.all([allActivityRequest, allCompletedRequest]);
@@ -896,7 +901,7 @@ test.describe('dashboard battle-tested workflows', () => {
 
     const tableRefreshRequest = page.waitForRequest((request) => {
       const url = new URL(request.url());
-      return url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'completed' && url.searchParams.has('range') && url.searchParams.get('range') === '';
+      return url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'completed' && url.searchParams.has('completed_range') && url.searchParams.get('completed_range') === '';
     });
     await page.getByRole('button', { name: 'Refresh completed sessions table' }).click();
     await tableRefreshRequest;
@@ -1171,7 +1176,7 @@ test.describe('dashboard battle-tested workflows', () => {
 
     const rangeResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
-      return response.ok() && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('range') === '7d';
+      return response.ok() && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('completed_range') === '7d';
     });
     await page.locator('#dashboard-range-control').getByRole('button', { name: '7d' }).click();
     await rangeResponse;
@@ -1288,7 +1293,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await waitForCompletedRows(page, 30);
     const rangeResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
-      return response.ok() && url.pathname === '/api/dashboard/activity' && url.searchParams.get('range') === '7d';
+      return response.ok() && url.pathname === '/api/dashboard/activity' && url.searchParams.get('activity_range') === '7d';
     });
     await page.locator('#dashboard-range-control').getByRole('button', { name: '7d' }).click();
     await rangeResponse;
@@ -1316,7 +1321,7 @@ test.describe('dashboard battle-tested workflows', () => {
       const url = new URL(response.url());
       return response.ok() &&
         url.pathname === '/api/dashboard/sessions' &&
-        url.searchParams.get('range') === '7d' &&
+        url.searchParams.get('completed_range') === '7d' &&
         url.searchParams.get('offset') === '30' &&
         url.searchParams.get('sort') === 'tokens' &&
         url.searchParams.get('direction') === 'asc';
@@ -1325,7 +1330,7 @@ test.describe('dashboard battle-tested workflows', () => {
       const url = new URL(response.url());
       return response.ok() &&
         url.pathname === '/api/dashboard/charts' &&
-        url.searchParams.get('range') === '1h';
+        url.searchParams.get('chart_range') === '1h';
     });
     await page.goto('/?range=7d&chart_range=1h&offset=30&sort=tokens&dir=asc', { waitUntil: 'domcontentloaded' });
     await Promise.all([completedResponse, chartResponse]);
@@ -1351,18 +1356,24 @@ test.describe('dashboard battle-tested workflows', () => {
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#timeline-sidebar').getByRole('button', { name: 'Errors' })).toHaveAttribute('aria-pressed', 'true');
 
-    await page.goto('/?range=bogus&chart_range=bogus&search_limit=999&offset=-1&sort=%3Cscript%3E&dir=sideways&activity=bogus', { waitUntil: 'domcontentloaded' });
+    await page.goto('/?range=bogus&chart_range=bogus&activity_range=bogus&active_sort=bogus&event_kind=bogus&search_sort=bogus&search_limit=999&offset=-1&sort=%3Cscript%3E&dir=sideways&activity=bogus', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 24 hours');
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#active-session-sort')).toHaveValue('recent');
     await waitForCompletedRows(page, 30);
+    await page.waitForFunction(() => {
+      const params = new URL(window.location.href).searchParams;
+      return ['range', 'chart_range', 'activity_range', 'active_sort', 'event_kind', 'search_sort', 'search_limit', 'offset', 'sort', 'dir', 'activity']
+        .every((name) => !params.has(name));
+    });
 
     const legacyRangeResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return response.ok() &&
         url.pathname === '/api/dashboard/sessions' &&
         url.searchParams.get('state') === 'completed' &&
-        url.searchParams.get('range') === '7d';
+        url.searchParams.get('completed_range') === '7d';
     });
     await page.goto('/?search_range=7d', { waitUntil: 'domcontentloaded' });
     await legacyRangeResponse;
