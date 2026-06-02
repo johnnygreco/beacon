@@ -26,6 +26,9 @@ function loadRenderSandbox() {
     currentSearchEventKind: "",
     currentSearchSessionID: "",
     currentSearchLimit: 30,
+    currentCompletedRange: "24h",
+    currentActivityRange: "24h",
+    currentActivityRangePinned: false,
     currentRange: "24h",
     currentChartRange: "24h",
     currentActiveSort: "recent",
@@ -218,9 +221,10 @@ test("active session sorting preserves grouping and handles metrics", () => {
   assert.deepEqual(byErrors[2].child_sessions.map((session) => session.id), ["active-a-child"]);
 });
 
-test("search mode ignores dashboard range alone but honors search state", () => {
+test("search mode ignores completed range alone but honors search state", () => {
   const sandbox = loadRenderSandbox();
 
+  sandbox.currentCompletedRange = "7d";
   sandbox.currentRange = "7d";
   assert.equal(sandbox.isSearchMode(), false);
 
@@ -241,6 +245,7 @@ test("analytics summaries describe the chart range independently", () => {
   const wrap = {};
   sandbox.document.getElementById = (id) => (id === "dashboard-analytics-summary" ? wrap : null);
 
+  sandbox.currentCompletedRange = "7d";
   sandbox.currentRange = "7d";
   sandbox.currentChartRange = "1h";
   sandbox.renderAnalyticsSummary({
@@ -253,6 +258,27 @@ test("analytics summaries describe the chart range independently", () => {
 
   assert.match(wrap.innerHTML, /Last hour/);
   assert.doesNotMatch(wrap.innerHTML, /Last 7 days/);
+});
+
+test("range helpers keep completed, activity, and chart state separate", () => {
+  const sandbox = loadRenderSandbox();
+  const completedCaption = {};
+  const activityCaption = {};
+  sandbox.document.getElementById = (id) => (id === "dashboard-range-caption" ? completedCaption : null);
+  sandbox.document.querySelector = (selector) => (selector === "#timeline-sidebar .activity-bar-range" ? activityCaption : null);
+
+  sandbox.currentCompletedRange = "30d";
+  sandbox.currentActivityRange = "7d";
+  sandbox.currentChartRange = "1h";
+  sandbox.currentRange = "24h";
+
+  assert.equal(sandbox.completedRangeValue(), "30d");
+  assert.equal(sandbox.activityRangeValue(), "7d");
+  assert.equal(sandbox.chartRangeValue(), "1h");
+
+  sandbox.updateRangeCaption();
+  assert.equal(completedCaption.textContent, "Last 30 days");
+  assert.equal(activityCaption.textContent, "(7d)");
 });
 
 test("chart point values support Chart.js object points", () => {

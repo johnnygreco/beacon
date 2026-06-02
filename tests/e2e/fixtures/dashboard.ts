@@ -182,6 +182,15 @@ function rangeFixtureLabel(range: string) {
   return '';
 }
 
+function panelRange(url: URL, keys: string[], fallback = '24h') {
+  for (const key of keys) {
+    if (!url.searchParams.has(key)) continue;
+    const value = url.searchParams.get(key) || '';
+    return value === 'all' ? '' : value;
+  }
+  return fallback;
+}
+
 function manyActiveSessions() {
   const modelCases = [
     { last_model: 'claude-sonnet-4', provider: 'anthropic' },
@@ -478,7 +487,7 @@ function dashboardSearchMatchesText(result: ReturnType<typeof dashboardSearchBas
 
 function dashboardSearchForRequest(url: URL, scenario: Scenario) {
   const query = (url.searchParams.get('q') || '').trim();
-  const range = url.searchParams.get('range') || '';
+  const range = panelRange(url, ['completed_range', 'range', 'search_range'], '');
   const eventKind = url.searchParams.get('event_kind') || '';
   const sessionID = (url.searchParams.get('session_id') || '').toLowerCase();
   const sort = url.searchParams.get('sort') || 'relevance';
@@ -553,7 +562,7 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
 function completedForRequest(url: URL, scenario: Scenario) {
   if (scenario === 'empty') return { items: [], hasMore: false };
   const query = (url.searchParams.get('q') || '').toLowerCase();
-  const range = url.searchParams.get('range') || '24h';
+  const range = panelRange(url, ['completed_range', 'range', 'search_range']);
   const offset = Number(url.searchParams.get('offset') || 0);
   const limit = Number(url.searchParams.get('limit') || 30);
   let source = query
@@ -801,7 +810,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
     const completed = completedForRequest(url, scenario);
     return fulfillJSON(route, {
       state: 'completed',
-      range: url.searchParams.get('range') || '24h',
+      range: panelRange(url, ['completed_range', 'range', 'search_range']),
       query: url.searchParams.get('q') || '',
       offset: Number(url.searchParams.get('offset') || 0),
       limit: Number(url.searchParams.get('limit') || 30),
@@ -822,7 +831,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
       return fulfillJSON(route, {
         state: 'unavailable',
         query: url.searchParams.get('q') || '',
-        range: url.searchParams.get('range') || '',
+        range: panelRange(url, ['completed_range', 'range', 'search_range'], ''),
         event_kind: url.searchParams.get('event_kind') || '',
         session_id: url.searchParams.get('session_id') || '',
         sort: url.searchParams.get('sort') || 'relevance',
@@ -837,7 +846,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
   await page.route('**/api/dashboard/charts**', async (route) => {
     const url = new URL(route.request().url());
     if (failures.delete('charts')) return fulfillJSON(route, { error: 'fixture failure' }, 500);
-    const range = url.searchParams.has('range') ? (url.searchParams.get('range') || '') : '24h';
+    const range = panelRange(url, ['chart_range', 'range']);
     return fulfillJSON(route, chartPayload(scenario, range), 200, 'APIDashboardCharts');
   });
 
@@ -845,7 +854,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
     if (failures.delete('activity')) return fulfillJSON(route, { error: 'fixture failure' }, 500);
     const url = new URL(route.request().url());
     const kinds = (url.searchParams.get('event_kind') || '').split(',').filter(Boolean);
-    const range = url.searchParams.has('range') ? (url.searchParams.get('range') || '') : '24h';
+    const range = panelRange(url, ['activity_range', 'range']);
     const items = activityItems(scenario, range).filter((item) => kinds.length === 0 || kinds.includes(item.type));
     return fulfillJSON(route, items, 200, 'APIActivityItem[]');
   });

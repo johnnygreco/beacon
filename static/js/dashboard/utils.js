@@ -79,7 +79,7 @@
 		var query = new URLSearchParams();
 		Object.keys(params || {}).forEach(function(key) {
 			var value = params[key];
-			if (value !== undefined && value !== null && (value !== '' || key === 'range')) query.set(key, value);
+			if (value !== undefined && value !== null && (value !== '' || key === 'range' || key.slice(-6) === '_range')) query.set(key, value);
 		});
 		var qs = query.toString();
 		return path + (qs ? '?' + qs : '');

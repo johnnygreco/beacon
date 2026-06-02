@@ -261,13 +261,13 @@ func TestAPIIntParamParsingIsBounded(t *testing.T) {
 
 func TestAPIRequestParsingNormalizesFilters(t *testing.T) {
 	sessions, err := parseDashboardSessionsAPIRequest(url.Values{
-		"state":     {" active "},
-		"range":     {" 7d "},
-		"q":         {" dashboard "},
-		"sort":      {" oldest "},
-		"direction": {"ASC"},
-		"offset":    {"-5"},
-		"limit":     {"500"},
+		"state":           {" active "},
+		"completed_range": {" 7d "},
+		"q":               {" dashboard "},
+		"sort":            {" oldest "},
+		"direction":       {"ASC"},
+		"offset":          {"-5"},
+		"limit":           {"500"},
 	})
 	if err != nil {
 		t.Fatalf("parseDashboardSessionsAPIRequest error: %v", err)
@@ -280,8 +280,8 @@ func TestAPIRequestParsingNormalizesFilters(t *testing.T) {
 	}
 
 	activity := parseActivityAPIRequest(url.Values{
-		"range":      {""},
-		"event_kind": {" tool_call,error ", "message"},
+		"activity_range": {""},
+		"event_kind":     {" tool_call,error ", "message"},
 	})
 	if activity.Since != nil {
 		t.Fatalf("explicit blank activity range should mean all time, got %v", activity.Since)
@@ -295,9 +295,22 @@ func TestAPIRequestParsingNormalizesFilters(t *testing.T) {
 	if charts.Range != "24h" {
 		t.Fatalf("default chart range = %q, want 24h", charts.Range)
 	}
-	charts = parseDashboardChartsAPIRequest(url.Values{"range": {""}})
+	charts = parseDashboardChartsAPIRequest(url.Values{"chart_range": {""}})
 	if charts.Range != "" {
 		t.Fatalf("explicit blank chart range = %q, want all time", charts.Range)
+	}
+
+	legacySearch, err := parseDashboardSearchAPIRequest(url.Values{"search_range": {"30d"}})
+	if err != nil {
+		t.Fatalf("parseDashboardSearchAPIRequest legacy range error: %v", err)
+	}
+	if legacySearch.Range != "30d" {
+		t.Fatalf("legacy search_range = %q, want 30d", legacySearch.Range)
+	}
+
+	invalidCharts := parseDashboardChartsAPIRequest(url.Values{"chart_range": {"bogus"}})
+	if invalidCharts.Range != "24h" {
+		t.Fatalf("invalid chart range = %q, want default 24h", invalidCharts.Range)
 	}
 }
 

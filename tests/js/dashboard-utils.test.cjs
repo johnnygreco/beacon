@@ -19,8 +19,12 @@ test("dashboard numeric helpers normalize untrusted API fields", () => {
 
 test("dashboard URL helper preserves empty range but omits empty filters", () => {
   assert.equal(
-    utils.requestURL("/api/dashboard/sessions", { state: "completed", range: "", event_kind: "" }),
-    "/api/dashboard/sessions?state=completed&range=",
+    utils.requestURL("/api/dashboard/sessions", { state: "completed", completed_range: "", event_kind: "" }),
+    "/api/dashboard/sessions?state=completed&completed_range=",
+  );
+  assert.equal(
+    utils.requestURL("/api/dashboard/charts", { chart_range: "", event_kind: "" }),
+    "/api/dashboard/charts?chart_range=",
   );
 });
 

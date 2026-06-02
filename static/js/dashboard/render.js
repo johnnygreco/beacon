@@ -288,7 +288,7 @@ function renderCompleted(response) {
 		if (status) {
 			var count = (response.items || []).length;
 			var countLabel = count + (hasMore ? '+' : '');
-			status.textContent = currentSearchQuery ? (countLabel + ' search result' + (count === 1 && !hasMore ? '' : 's') + ' in ' + rangeLabel(currentRange)) : (countLabel + ' shown for ' + rangeLabel(currentRange));
+			status.textContent = currentSearchQuery ? (countLabel + ' search result' + (count === 1 && !hasMore ? '' : 's') + ' in ' + rangeLabel(completedRangeValue())) : (countLabel + ' shown for ' + rangeLabel(completedRangeValue()));
 		}
 		var changed = setHTMLIfChanged(tbody, rows.join(''));
 		if (changed) updateCompletedSortIndicators();
@@ -476,6 +476,7 @@ function sortActiveSessions(items) {
 function setActiveSessionSort(value) {
 	var sorts = activeSortValues();
 	currentActiveSort = sorts.indexOf(value) >= 0 ? value : 'recent';
+	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 	loadActiveSessions();
 }
 
@@ -590,15 +591,26 @@ function rangeLabel(value) {
 	return 'All time';
 }
 
+function completedRangeValue() {
+	if (typeof currentCompletedRange !== 'undefined') return currentCompletedRange;
+	if (typeof currentRange !== 'undefined') return currentRange;
+	return '24h';
+}
+
+function activityRangeValue() {
+	if (typeof currentActivityRange !== 'undefined') return currentActivityRange;
+	return completedRangeValue();
+}
+
 function updateRangeCaption() {
 	var caption = document.getElementById('dashboard-range-caption');
-	if (caption) caption.textContent = rangeLabel(currentRange);
+	if (caption) caption.textContent = rangeLabel(completedRangeValue());
 	var title = document.querySelector('#timeline-sidebar .activity-bar-range');
-	if (title) title.textContent = '(' + (currentRange || 'all') + ')';
+	if (title) title.textContent = '(' + (activityRangeValue() || 'all') + ')';
 }
 
 function chartRangeValue() {
-	return typeof currentChartRange !== 'undefined' ? currentChartRange : currentRange;
+	return typeof currentChartRange !== 'undefined' ? currentChartRange : completedRangeValue();
 }
 
 function updateChartRangeCaption(state) {
@@ -673,7 +685,7 @@ function updateDashboardCharts(payload) {
 async function loadDashboardCharts() {
 	setAnalyticsBusy(true);
 	updateChartRangeCaption('loading');
-	var result = await fetchDashboardJSON('charts', requestURL('/api/dashboard/charts', {range: chartRangeValue()}));
+	var result = await fetchDashboardJSON('charts', requestURL('/api/dashboard/charts', {chart_range: chartRangeValue()}));
 	if (!result || result.stale) return;
 	if (result.error) {
 		updateDashboardCharts({token_cumulative: {labels: [], datasets: [], summary: {}}});
@@ -708,7 +720,7 @@ async function loadDashboardSearch(options) {
 	if (!silent) renderDashboardSearchLoading();
 	var result = await fetchDashboardJSON('completed', requestURL('/api/dashboard/search', {
 		q: currentSearchQuery,
-		range: currentRange,
+		completed_range: completedRangeValue(),
 		event_kind: currentSearchEventKind,
 		session_id: currentSearchSessionID,
 		sort: currentSearchSort,
@@ -745,7 +757,7 @@ async function loadCompletedSessions(offset, options) {
 		state: 'completed',
 		limit: completedPageSize,
 		offset: currentCompletedOffset,
-		range: currentRange,
+		completed_range: completedRangeValue(),
 		sort: sortColumn,
 		direction: sortAsc ? 'asc' : 'desc'
 	}));
@@ -766,7 +778,7 @@ async function loadCompletedSessions(offset, options) {
 
 async function loadActivity() {
 	var result = await fetchDashboardJSON('activity', requestURL('/api/dashboard/activity', {
-		range: currentRange,
+		activity_range: activityRangeValue(),
 		event_kind: currentActivityFilter === 'all' ? '' : (currentActivityFilter === 'error' ? 'error,tool_error' : currentActivityFilter)
 	}));
 	if (!result || result.stale) return;
