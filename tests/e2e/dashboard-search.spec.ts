@@ -682,7 +682,7 @@ test.describe('dashboard search workflows', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await installDashboardFixtures(page, {
       mockEventSource: true,
-      activeScenarioSequence: ['default', 'many-active', 'error'],
+      activeScenarioSequence: ['default', 'many-active', 'many-active', 'error'],
     });
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
@@ -707,6 +707,22 @@ test.describe('dashboard search workflows', () => {
     expect(Math.abs(afterGrowth.dashboardTop - before.dashboardTop)).toBeLessThanOrEqual(2);
     expect(afterGrowth.windowY).toBe(0);
     expect(afterGrowth.mainContentTop).toBe(0);
+
+    const beforeSort = await readSearchOffsetInDashboard(page);
+    const activeSortResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'active';
+    });
+    await page.locator('#active-session-sort').selectOption('tokens');
+    await activeSortResponse;
+    await expect(page.locator('#active-sessions .active-session-card').first()).toHaveAttribute('data-active-session-id', 'active-parent-008');
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+
+    const afterSort = await readSearchOffsetInDashboard(page);
+    expect(Math.abs(afterSort.offset - beforeSort.offset)).toBeLessThanOrEqual(2);
+    expect(Math.abs(afterSort.dashboardTop - beforeSort.dashboardTop)).toBeLessThanOrEqual(2);
+    expect(afterSort.windowY).toBe(0);
+    expect(afterSort.mainContentTop).toBe(0);
 
     const beforeError = await readSearchOffsetInDashboard(page);
     const activeErrorResponse = page.waitForResponse((response) => {

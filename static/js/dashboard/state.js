@@ -1,6 +1,7 @@
 // --- JSON dashboard stores ---
 var currentActivityFilter = 'all';
 var currentRange = '24h';
+var currentActiveSort = 'recent';
 var currentCompletedOffset = 0;
 var currentSearchQuery = '';
 var currentSearchEventKind = '';
@@ -21,6 +22,7 @@ window.dashboardSessionIndex = window.dashboardSessionIndex || {};
 
 var dashboardReturnStateKey = 'beacon-dashboard-return-state-v1';
 var dashboardRanges = ['', '1h', '24h', '7d', '30d'];
+var dashboardActiveSorts = ['recent', 'longest', 'tokens', 'tools', 'errors'];
 var dashboardSearchEventKinds = ['', 'message', 'tool_call', 'tool_result', 'reasoning', 'error'];
 var dashboardSearchSorts = ['relevance', 'newest', 'oldest'];
 var dashboardSortColumns = ['name', 'provider', 'model', 'tokens', 'turns', 'tools', 'duration', 'project', 'ended', 'id'];

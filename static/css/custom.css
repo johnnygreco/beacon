@@ -1788,9 +1788,33 @@ html[data-beacon-timeline-collapsed="true"] .timeline-panel {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 0.75rem;
   flex-shrink: 0;
   padding: 0.875rem 0.875rem 0;
+}
+
+.active-session-sort {
+  flex: 0 1 12rem;
+  min-width: 9.5rem;
+}
+
+.active-session-sort-select {
+  width: 100%;
+  height: 2rem;
+  min-width: 0;
+  border: 1px solid var(--dash-border);
+  border-radius: 4px;
+  background: var(--dash-surface-soft);
+  color: var(--dash-text-soft);
+  font-size: 0.75rem;
+  padding: 0 1.65rem 0 0.55rem;
+  outline: none;
+}
+
+.active-session-sort-select:focus {
+  border-color: var(--dash-accent);
+  box-shadow: 0 0 0 2px var(--dash-accent-soft);
 }
 
 .active-session-board-scroll {
