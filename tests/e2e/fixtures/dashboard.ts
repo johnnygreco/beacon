@@ -6,7 +6,17 @@ export const ACTIVE_SESSION_ID = 'active-parent-001';
 export const TEST_EVENT_ID = 'event-older-001';
 export const SEARCH_SESSION_ID = 'session-search-001';
 
-type Scenario = 'default' | 'empty' | 'error-heavy' | 'many-active' | 'long-active';
+type Scenario =
+  | 'default'
+  | 'empty'
+  | 'error-heavy'
+  | 'many-active'
+  | 'long-active'
+  | 'search-many'
+  | 'collapsed-activity'
+  | 'resized-activity'
+  | 'light-theme'
+  | 'fixed-dark-theme';
 
 type DashboardFixtureOptions = {
   scenario?: Scenario;
@@ -499,10 +509,13 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
   if (scenario === 'empty') {
     return { state: 'ready', query, range, event_kind: eventKind, session_id: sessionID, sort, limit, has_more: false, items: [] };
   }
-  const source = query.toLowerCase() === 'many' ? dashboardSearchManyResults(range) : dashboardSearchBaseResults();
+  const denseSearchFixture = scenario === 'search-many';
+  const source = denseSearchFixture || query.toLowerCase() === 'many'
+    ? dashboardSearchManyResults(range)
+    : dashboardSearchBaseResults();
   const acceptedKinds = eventKind === 'error' ? new Set(['error', 'tool_error']) : new Set(eventKind ? [eventKind] : []);
   const eventResults = source.filter((result) => {
-    if (!dashboardSearchMatchesText(result, query)) return false;
+    if (!denseSearchFixture && !dashboardSearchMatchesText(result, query)) return false;
     if (acceptedKinds.size > 0 && !acceptedKinds.has(result.event_kind)) return false;
     if (sessionID && !result.session_id.toLowerCase().startsWith(sessionID)) return false;
     return true;
@@ -659,6 +672,37 @@ function activeForScenario(scenario: Scenario) {
   return activeSessions;
 }
 
+function initialStorageForScenario(scenario: Scenario): Record<string, string> {
+  switch (scenario) {
+    case 'collapsed-activity':
+      return {
+        'beacon-timeline-width': '0',
+        'beacon-timeline-prev-width': '420',
+      };
+    case 'resized-activity':
+      return {
+        'beacon-timeline-width': '520',
+        'beacon-timeline-prev-width': '520',
+      };
+    case 'light-theme':
+      return {
+        'beacon-dashboard-theme': 'catppuccin',
+        'beacon-dashboard-appearance': 'light',
+        'beacon-dashboard-preferred-appearance': 'light',
+        'beacon-dashboard-resolved-theme': 'catppuccin-light',
+      };
+    case 'fixed-dark-theme':
+      return {
+        'beacon-dashboard-theme': 'dracula',
+        'beacon-dashboard-appearance': 'dark',
+        'beacon-dashboard-preferred-appearance': 'dark',
+        'beacon-dashboard-resolved-theme': 'dracula-dark',
+      };
+    default:
+      return {};
+  }
+}
+
 async function fulfillJSON(route: Route, data: unknown, status = 200, contractName = '') {
   if (contractName) validateContract(contractName, data);
   await route.fulfill({
@@ -754,6 +798,15 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
   const scenario = options.scenario || 'default';
   const failures = new Set(options.failOnce || []);
   let activeRequestCount = 0;
+
+  const initialStorage = initialStorageForScenario(scenario);
+  if (Object.keys(initialStorage).length > 0) {
+    await page.addInitScript((values) => {
+      for (const [key, value] of Object.entries(values as Record<string, string>)) {
+        localStorage.setItem(key, value);
+      }
+    }, initialStorage);
+  }
 
   if (options.mockEventSource) {
     await page.addInitScript(() => {

@@ -222,6 +222,32 @@ test.describe('dashboard search workflows', () => {
     await guards.expectClean();
   });
 
+  test('uses the search-many fixture scenario for dense search pagination', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installDashboardFixtures(page, { scenario: 'search-many' });
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+
+    await fillDashboardSearchAndWait(page, 'fixture density');
+    await waitForDashboardSearchRows(page, 30);
+    await expect(page.locator('#completed-session-status')).toHaveText(/30\+ search results/);
+    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Many-result fixture item 1');
+    await expect(page.getByRole('button', { name: 'Show more' })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    await triggerDashboardSearchAndWait(
+      page,
+      () => page.getByRole('button', { name: 'Show more' }).click(),
+      (url) => url.searchParams.get('q') === 'fixture density' && url.searchParams.get('limit') === '60',
+    );
+    await waitForDashboardSearchRows(page, 35);
+    await expect(page.locator('#completed-session-status')).toHaveText('35 search results');
+    await expect(page.getByRole('button', { name: 'Show more' })).toHaveCount(0);
+
+    await guards.expectClean();
+  });
+
   test('keeps chart range independent from table, search, activity, URL, and refresh', async ({ page }) => {
     const guards = attachPageGuards(page);
     await page.setViewportSize({ width: 1440, height: 900 });
