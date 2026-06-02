@@ -1,4 +1,4 @@
-// --- Sidebar drag-to-resize ---
+// The DOM keeps timeline-* IDs for compatibility; the UI presents this as the Activity Bar.
 (function() {
 	var divider = document.getElementById('sidebar-divider');
 	var sidebar = document.getElementById('timeline-sidebar');
@@ -35,7 +35,7 @@
 		if (!btn) return;
 		var collapsed = isCollapsed();
 		btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-		var label = collapsed ? 'Expand activity timeline' : 'Collapse activity timeline';
+		var label = collapsed ? 'Expand activity bar' : 'Collapse activity bar';
 		btn.setAttribute('aria-label', label);
 		btn.setAttribute('title', label);
 	}
@@ -45,7 +45,7 @@
 		var parsed = parseInt(sidebar.style.width, 10);
 		var width = isCollapsed() ? 0 : (Number.isFinite(parsed) ? parsed : DEFAULT_WIDTH);
 		divider.setAttribute('aria-valuenow', String(width));
-		divider.setAttribute('aria-valuetext', width > 0 ? ('Activity timeline width ' + width + ' pixels') : 'Activity timeline collapsed');
+		divider.setAttribute('aria-valuetext', width > 0 ? ('Activity bar width ' + width + ' pixels') : 'Activity bar collapsed');
 	}
 
 	function maxWidthForViewport() {
@@ -233,17 +233,17 @@
 
 	// Keyboard shortcut: T toggles collapsed/expanded
 	document.addEventListener('keydown', function(e) {
-			if (e.key === 'T' || e.key === 't') {
-				if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
-				if (e.target.closest && e.target.closest('input, textarea, select, button, a, [contenteditable="true"]')) return;
-				e.preventDefault();
-				if (isCollapsed()) {
-					var restored = parseInt(storageGet('beacon-timeline-prev-width'), 10) || DEFAULT_WIDTH;
-					expand(restored);
-				} else {
-					collapse();
-				}
-				resizeChartsSoon();
+		if (e.key === 'T' || e.key === 't') {
+			if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+			if (e.target.closest && e.target.closest('input, textarea, select, button, a, [contenteditable="true"]')) return;
+			e.preventDefault();
+			if (isCollapsed()) {
+				var restored = parseInt(storageGet('beacon-timeline-prev-width'), 10) || DEFAULT_WIDTH;
+				expand(restored);
+			} else {
+				collapse();
 			}
-		});
+			resizeChartsSoon();
+		}
+	});
 })();

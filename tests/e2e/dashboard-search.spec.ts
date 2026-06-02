@@ -252,7 +252,7 @@ test.describe('dashboard search workflows', () => {
     await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 24 hours');
     await expect(page.locator('#completed-session-status')).toHaveText('30+ shown for Last 24 hours');
-    await expect(page.locator('#timeline-sidebar h2 span')).toHaveText('(24h)');
+    await expect(page.locator('#timeline-sidebar .activity-bar-range')).toHaveText('(24h)');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('chart_range') === '7d');
     expect(new URL(page.url()).searchParams.get('range')).toBeNull();
     expect(new URL(page.url()).searchParams.get('search_range')).toBeNull();
@@ -280,7 +280,7 @@ test.describe('dashboard search workflows', () => {
     expect(tableRequests.some((request) => request.startsWith('/api/dashboard/charts?'))).toBe(false);
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 30 days');
     await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('Last 7 days');
-    await expect(page.locator('#timeline-sidebar h2 span')).toHaveText('(30d)');
+    await expect(page.locator('#timeline-sidebar .activity-bar-range')).toHaveText('(30d)');
     await expect(page.locator('#completed-session-status')).toHaveText('30+ search results');
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('30d range fixture');
     await expect(page.locator('#activity-feed')).toContainText('30d range fixture');

@@ -567,14 +567,18 @@ function activityLabel(type) {
 function renderActivity(items) {
 	var feed = document.getElementById('activity-feed');
 	if (!items || items.length === 0) {
-		setHTMLIfChanged(feed, '<p class="text-sm text-gray-500 text-center py-4">No recent activity</p>');
+		setHTMLIfChanged(feed, '<p class="activity-bar-state">No recent activity</p>');
 		return;
 	}
-	setHTMLIfChanged(feed, '<div class="relative pl-8"><div class="absolute left-3 top-0 bottom-0 w-px bg-gray-700"></div>' + items.map(function(item) {
+	setHTMLIfChanged(feed, '<div class="activity-bar-list"><div class="activity-bar-rail" aria-hidden="true"></div>' + items.map(function(item) {
 		var url = '/sessions/' + encodeURIComponent(item.session_id || '') + '#' + encodeURIComponent(item.id || '');
 		var provider = item.provider ? '<span class="px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 ' + providerBadgeClasses(item.provider) + '">' + escapeHTML(providerShort(item.provider)) + '</span>' : '';
 		var sid = item.session_id ? '<span class="text-xs text-gray-600 font-mono flex-shrink-0">' + escapeHTML(shortID(item.session_id)) + '</span>' : '';
-		return '<a href="' + escapeAttr(url) + '" data-type="' + escapeAttr(item.type) + '" data-transcript-link="true" class="block relative py-2 pl-4 hover:bg-gray-800/50 rounded-lg transition-colors group"><div class="absolute left-[-8px] top-3.5 w-2.5 h-2.5 rounded-full ring-2 ring-gray-900 ' + activityDotColor(item.type) + '"></div><p class="text-sm text-gray-300 group-hover:text-gray-100 transition-colors mb-1">' + escapeHTML(item.summary) + '</p><div class="flex items-center gap-2 flex-wrap"><span class="px-1.5 py-0.5 rounded text-xs flex-shrink-0 ' + activityBadgeStyle(item.type) + '">' + escapeHTML(activityLabel(item.type)) + '</span>' + provider + sid + '<span class="text-xs text-gray-600 flex-shrink-0">' + escapeHTML(item.relative_time || relativeTime(item.timestamp)) + '</span></div></a>';
+		return '<a href="' + escapeAttr(url) + '" data-type="' + escapeAttr(item.type) + '" data-transcript-link="true" class="activity-bar-item group">' +
+			'<div class="activity-bar-dot ' + activityDotColor(item.type) + '"></div>' +
+			'<p class="activity-bar-summary">' + escapeHTML(item.summary) + '</p>' +
+			'<div class="activity-bar-meta"><span class="px-1.5 py-0.5 rounded text-xs flex-shrink-0 ' + activityBadgeStyle(item.type) + '">' + escapeHTML(activityLabel(item.type)) + '</span>' + provider + sid + '<span class="text-xs text-gray-600 flex-shrink-0">' + escapeHTML(item.relative_time || relativeTime(item.timestamp)) + '</span></div>' +
+			'</a>';
 	}).join('') + '</div>');
 }
 
@@ -589,7 +593,7 @@ function rangeLabel(value) {
 function updateRangeCaption() {
 	var caption = document.getElementById('dashboard-range-caption');
 	if (caption) caption.textContent = rangeLabel(currentRange);
-	var title = document.querySelector('#timeline-sidebar h2 span');
+	var title = document.querySelector('#timeline-sidebar .activity-bar-range');
 	if (title) title.textContent = '(' + (currentRange || 'all') + ')';
 }
 
