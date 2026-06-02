@@ -372,6 +372,8 @@ test.describe('dashboard battle-tested workflows', () => {
       await expectDashboardTokenChartReady(page);
       await expect(page.getByRole('searchbox', { name: 'Search table sessions and events' })).toHaveAttribute('placeholder', 'Search table sessions and events');
       await expect(page.locator('.dashboard-search-filters')).toHaveAttribute('aria-label', 'Table filters');
+      await expect(page.locator('[data-dashboard-table-toolbar]')).toHaveCount(1);
+      await expect(page.getByRole('button', { name: 'Refresh completed sessions table' })).toBeVisible();
       await expect(page.getByLabel('Message type')).toHaveValue('');
       await expect(page.locator('[data-search-event-kind]')).toHaveCount(0);
       const shellLayout = await page.evaluate(() => {
@@ -386,6 +388,11 @@ test.describe('dashboard battle-tested workflows', () => {
         const title = document.querySelector('.completed-table-title')?.getBoundingClientRect();
         const search = document.querySelector('.dashboard-table-search')?.getBoundingClientRect();
         const controls = document.querySelector('.dashboard-table-left')?.getBoundingClientRect();
+        const controlScroller = document.querySelector('.dashboard-table-controls-scroll');
+        const controlScrollerRect = controlScroller?.getBoundingClientRect();
+        const tableScroller = document.querySelector('.dashboard-table-scroll');
+        const tableScrollerRect = tableScroller?.getBoundingClientRect();
+        const table = document.getElementById('completed-table');
         const chart = document.querySelector('.dashboard-table-chart')?.getBoundingClientRect();
         const summary = document.getElementById('dashboard-analytics-summary')?.getBoundingClientRect();
         const filterOverflow = Array.from(document.querySelectorAll('.dashboard-search-filters, .dashboard-search-filter-group')).some((el) => {
@@ -418,6 +425,13 @@ test.describe('dashboard battle-tested workflows', () => {
           searchTop: Math.round(search?.top || 0),
           controlsTop: Math.round(controls?.top || 0),
           controlsBottom: Math.round(controls?.bottom || 0),
+          controlScrollerRight: Math.round(controlScrollerRect?.right || 0),
+          controlScrollerClientWidth: Math.round((controlScroller as HTMLElement | null)?.clientWidth || 0),
+          controlScrollerScrollWidth: Math.round((controlScroller as HTMLElement | null)?.scrollWidth || 0),
+          tableScrollerRight: Math.round(tableScrollerRect?.right || 0),
+          tableScrollerClientWidth: Math.round((tableScroller as HTMLElement | null)?.clientWidth || 0),
+          tableScrollerScrollWidth: Math.round((tableScroller as HTMLElement | null)?.scrollWidth || 0),
+          tableMinWidth: window.getComputedStyle(table || document.body).minWidth,
           summaryLeft: Math.round(summary?.left || 0),
           summaryRight: Math.round(summary?.right || 0),
           filterOverflow,
@@ -436,6 +450,15 @@ test.describe('dashboard battle-tested workflows', () => {
       expect(shellLayout.completedTop).toBeGreaterThanOrEqual(shellLayout.overviewBottom);
       expect(shellLayout.titleTop).toBeLessThanOrEqual(shellLayout.searchTop);
       expect(shellLayout.titleBottom).toBeLessThanOrEqual(shellLayout.searchTop + 1);
+      expect(shellLayout.controlScrollerRight).toBeLessThanOrEqual(shellLayout.completedRight + 1);
+      expect(shellLayout.tableScrollerRight).toBeLessThanOrEqual(shellLayout.completedRight + 1);
+      if (viewport.width > 640) {
+        expect(shellLayout.controlScrollerScrollWidth).toBeGreaterThanOrEqual(900);
+        expect(shellLayout.tableScrollerScrollWidth).toBeGreaterThanOrEqual(900);
+        expect(shellLayout.tableMinWidth).toBe('928px');
+      } else {
+        expect(shellLayout.controlScrollerScrollWidth).toBeLessThanOrEqual(shellLayout.controlScrollerClientWidth + 1);
+      }
       expect(shellLayout.summaryLeft).toBeGreaterThanOrEqual(0);
       expect(shellLayout.summaryRight).toBeLessThanOrEqual(viewport.width);
       expect(shellLayout.filterOverflow).toBe(false);
@@ -830,6 +853,14 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#dashboard-range-caption')).toHaveText('All time');
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('All time');
+
+    const tableRefreshRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'completed' && url.searchParams.has('range') && url.searchParams.get('range') === '';
+    });
+    await page.getByRole('button', { name: 'Refresh completed sessions table' }).click();
+    await tableRefreshRequest;
+    await waitForCompletedRows(page, 30);
 
     const modelDropdown = page.locator('#dashboardTokenCumulativeChart-model-dropdown');
     const modelDropdownTrigger = modelDropdown.locator('.model-dropdown-trigger');
