@@ -1132,7 +1132,7 @@ export async function emitDashboardEvent(page: Page, type: string) {
 export async function readCompletedRegionMetrics(page: Page) {
   return page.evaluate(() => {
     const search = document.getElementById('dashboard-search');
-    const region = search?.parentElement;
+    const region = search?.closest('.completed-table-surface');
     const tableScroller = document.getElementById('completed-table')?.parentElement;
     if (!region || !tableScroller) return { height: 0, tableGap: 0 };
     const regionRect = region.getBoundingClientRect();
@@ -1152,20 +1152,23 @@ export async function expectNoHorizontalOverflow(page: Page) {
 export async function expectDashboardTokenChartReady(page: Page) {
   const metrics = await page.locator('#dashboardTokenCumulativeChart').evaluate((canvas) => {
     const shell = canvas.closest('.dashboard-compact-chart');
+    const analytics = canvas.closest('.dashboard-analytics-panel');
     const surface = canvas.closest('.completed-table-surface');
     const searchHeader = canvas.closest('#dashboard-search');
     const summary = document.getElementById('dashboard-analytics-summary');
     const canvasRect = canvas.getBoundingClientRect();
     const shellRect = shell?.getBoundingClientRect();
-    const surfaceRect = surface?.getBoundingClientRect();
+    const analyticsRect = analytics?.getBoundingClientRect();
     return {
       canvasHeight: Math.round(canvasRect.height),
       canvasWidth: Math.round(canvasRect.width),
       shellHeight: Math.round(shellRect?.height || 0),
       shellWidth: Math.round(shellRect?.width || 0),
-      surfaceWidth: Math.round(surfaceRect?.width || 0),
+      analyticsWidth: Math.round(analyticsRect?.width || 0),
+      inAnalyticsPanel: Boolean(analytics),
       inCompletedSurface: Boolean(surface),
       inSearchHeader: Boolean(searchHeader),
+      summaryInAnalyticsPanel: Boolean(summary?.closest('.dashboard-analytics-panel')),
       summaryInCompletedSurface: Boolean(summary?.closest('.completed-table-surface')),
       summaryInSearchHeader: Boolean(summary?.closest('#dashboard-search')),
     };
@@ -1174,11 +1177,13 @@ export async function expectDashboardTokenChartReady(page: Page) {
   expect(metrics.canvasWidth).toBeGreaterThan(0);
   expect(metrics.shellHeight).toBeGreaterThan(metrics.canvasHeight);
   expect(metrics.shellWidth).toBeGreaterThan(0);
-  expect(metrics.shellWidth).toBeLessThanOrEqual(metrics.surfaceWidth);
-  expect(metrics.inCompletedSurface).toBe(true);
-  expect(metrics.inSearchHeader).toBe(true);
-  expect(metrics.summaryInCompletedSurface).toBe(true);
-  expect(metrics.summaryInSearchHeader).toBe(true);
+  expect(metrics.shellWidth).toBeLessThanOrEqual(metrics.analyticsWidth);
+  expect(metrics.inAnalyticsPanel).toBe(true);
+  expect(metrics.inCompletedSurface).toBe(false);
+  expect(metrics.inSearchHeader).toBe(false);
+  expect(metrics.summaryInAnalyticsPanel).toBe(true);
+  expect(metrics.summaryInCompletedSurface).toBe(false);
+  expect(metrics.summaryInSearchHeader).toBe(false);
   await expect(page.locator('.dashboard-analytics-grid')).toHaveCount(0);
   await expect(page.locator('#dashboardModelActivityChart')).toHaveCount(0);
   await expect(page.locator('#dashboard-model-metric-control')).toHaveCount(0);

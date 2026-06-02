@@ -63,7 +63,7 @@ function dashboardScrollOwner() {
 	return document.getElementById('dashboard-main');
 }
 
-var activeSessionScrollAnchorSelector = '#dashboard-search, #completed-table, #dashboard-analytics-summary, #dashboardTokenCumulativeChart';
+var activeSessionScrollAnchorSelector = '#dashboard-search, #completed-table, .dashboard-analytics-panel, #dashboardTokenCumulativeChart';
 
 function dashboardScrollAnchor(owner, selectorList) {
 	if (!owner || !selectorList) return null;
@@ -85,7 +85,8 @@ function dashboardScrollAnchor(owner, selectorList) {
 
 function completedTableRegion() {
 	var search = document.getElementById('dashboard-search');
-	var region = search && search.parentElement ? search.parentElement : null;
+	var region = search && search.closest ? search.closest('.completed-table-surface') : null;
+	if (!region && search && search.parentElement) region = search.parentElement;
 	if (region) region.setAttribute('data-dashboard-stable-region', 'completed');
 	return region;
 }
@@ -387,6 +388,7 @@ function renderDashboardSearchLoading() {
 function renderActive(response) {
 	withDashboardScrollStability(function() {
 		var wrap = document.getElementById('active-sessions');
+		if (!wrap) return;
 		var items = (response.items || []).filter(validSession);
 		var dot = items.length ? '<span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span></span>' : '<span class="relative flex h-2 w-2"><span class="relative inline-flex rounded-full h-2 w-2 bg-gray-600"></span></span>';
 		var count = items.length ? '<span class="text-xs font-normal text-gray-500">(' + items.length + ')</span>' : '';
@@ -394,8 +396,19 @@ function renderActive(response) {
 		if (!cards) {
 			cards = '<div class="active-session-empty"><p class="text-sm text-gray-500">No active sessions</p><p class="text-xs text-gray-600 mt-1">Sessions appear here when agents are running</p></div>';
 		}
-		setHTMLIfChanged(wrap, '<div class="active-session-heading"><h2 class="text-lg font-semibold text-gray-200 flex items-center gap-2">' + dot + 'Active Sessions ' + count + '</h2></div><div class="active-session-grid">' + cards + '</div>');
+		renderActiveShell(wrap, '<h2 id="active-sessions-title" class="text-lg font-semibold text-gray-200 flex items-center gap-2">' + dot + 'Active Sessions ' + count + '</h2>', '<div class="active-session-grid">' + cards + '</div>');
 	}, {anchorSelector: activeSessionScrollAnchorSelector});
+}
+
+function renderActiveShell(wrap, headingHTML, bodyHTML) {
+	var heading = wrap.querySelector('.active-session-heading');
+	var body = wrap.querySelector('.active-session-board-scroll');
+	if (!heading || !body) {
+		setHTMLIfChanged(wrap, '<div class="active-session-heading">' + headingHTML + '</div><div class="active-session-board-scroll">' + bodyHTML + '</div>');
+		return;
+	}
+	setHTMLIfChanged(heading, headingHTML);
+	setHTMLIfChanged(body, bodyHTML);
 }
 
 function activeStatusDot(live, sub) {
@@ -569,7 +582,8 @@ async function loadActiveSessions() {
 	if (result.error) {
 		withDashboardScrollStability(function() {
 			var wrap = document.getElementById('active-sessions');
-			setHTMLIfChanged(wrap, '<h2 class="text-lg font-semibold text-gray-200 mb-3">Active Sessions</h2><div class="rounded border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">Unable to load active sessions. <button type="button" class="underline" onclick="loadActiveSessions()">Retry</button></div>');
+			if (!wrap) return;
+			renderActiveShell(wrap, '<h2 id="active-sessions-title" class="text-lg font-semibold text-gray-200 flex items-center gap-2">Active Sessions</h2>', '<div class="rounded border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">Unable to load active sessions. <button type="button" class="underline" onclick="loadActiveSessions()">Retry</button></div>');
 		}, {anchorSelector: activeSessionScrollAnchorSelector});
 		return;
 	}
