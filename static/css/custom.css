@@ -2291,6 +2291,10 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
   .active-session-tracker {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .active-session-tracker:has(> .active-tracker-cell:nth-child(3):last-child) > .active-tracker-cell:last-child {
+    grid-column: 1 / -1;
+  }
 }
 
 body[data-page="dashboard"],
