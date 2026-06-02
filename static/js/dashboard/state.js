@@ -1,6 +1,7 @@
 // --- JSON dashboard stores ---
 var currentActivityFilter = 'all';
 var currentRange = '24h';
+var currentChartRange = '24h';
 var currentActiveSort = 'recent';
 var currentCompletedOffset = 0;
 var currentSearchQuery = '';
@@ -63,6 +64,7 @@ function readDashboardStateFromURL() {
 	if (!params.has('range') && params.has('search_range')) {
 		currentRange = dashboardEnumParam(params, 'search_range', currentRange, dashboardRanges, {all: ''});
 	}
+	currentChartRange = dashboardEnumParam(params, 'chart_range', currentChartRange, dashboardRanges, {all: ''});
 	currentSearchQuery = (params.get('q') || '').trim();
 	currentSearchEventKind = dashboardEnumParam(params, 'event_kind', currentSearchEventKind, dashboardSearchEventKinds);
 	currentSearchSessionID = (params.get('session_id') || '').trim();
@@ -79,6 +81,7 @@ function dashboardStatePath() {
 	var url = new URL('/', window.location.origin);
 	var params = url.searchParams;
 	if (currentRange !== '24h') params.set('range', currentRange === '' ? 'all' : currentRange);
+	if (currentChartRange !== '24h') params.set('chart_range', currentChartRange === '' ? 'all' : currentChartRange);
 	if (currentSearchQuery) params.set('q', currentSearchQuery);
 	if (currentSearchEventKind) params.set('event_kind', currentSearchEventKind);
 	if (currentSearchSessionID) params.set('session_id', currentSearchSessionID);

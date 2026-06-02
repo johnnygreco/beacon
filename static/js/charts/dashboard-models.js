@@ -94,7 +94,7 @@ function modelDatasetFromPayload(ds, index, metricKind) {
   var c = modelDatasetColor(index);
   return {
     label: ds.label,
-    data: ds.values || [],
+    data: ds.values || ds.data || [],
     borderColor: c.border,
     backgroundColor: c.bg,
     borderWidth: metricKind === 'tokens' ? 2.5 : 2,

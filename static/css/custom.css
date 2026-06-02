@@ -1731,6 +1731,29 @@ html[data-beacon-timeline-collapsed="true"] .timeline-panel {
   min-width: 0;
 }
 
+.dashboard-analytics-heading {
+  align-items: flex-start;
+}
+
+.dashboard-chart-controls {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.dashboard-chart-range-control {
+  flex-wrap: nowrap;
+  max-width: 100%;
+}
+
+.dashboard-chart-refresh-btn {
+  flex: 0 0 auto;
+}
+
 .dashboard-analytics-chart {
   flex: 1 1 auto;
 }
@@ -3349,6 +3372,21 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
 
   .dashboard-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-analytics-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dashboard-chart-controls {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .dashboard-chart-range-control {
+    flex: 1 1 auto;
+    flex-wrap: wrap;
   }
 
   .dashboard-compact-chart {

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Request } from '@playwright/test';
 import {
   SEARCH_SESSION_ID,
   attachPageGuards,
@@ -75,6 +75,22 @@ async function readDashboardChartTotal(page: Page) {
       return sum + (dataset.data || []).reduce((datasetSum, value) => datasetSum + Number(value || 0), 0);
     }, 0);
   });
+}
+
+async function collectDashboardRequestsDuring(page: Page, action: () => Promise<unknown>) {
+  const requests: string[] = [];
+  const handler = (request: Request) => {
+    const url = new URL(request.url());
+    if (url.pathname.startsWith('/api/dashboard/')) requests.push(`${url.pathname}?${url.searchParams.toString()}`);
+  };
+  page.on('request', handler);
+  try {
+    await action();
+    await page.waitForTimeout(75);
+  } finally {
+    page.off('request', handler);
+  }
+  return requests;
 }
 
 async function scrollDashboardMainToBottom(page: Page) {
@@ -206,7 +222,7 @@ test.describe('dashboard search workflows', () => {
     await guards.expectClean();
   });
 
-  test('keeps the unified range wired through chart, table, search, activity, URL, and refresh', async ({ page }) => {
+  test('keeps chart range independent from table, search, activity, URL, and refresh', async ({ page }) => {
     const guards = attachPageGuards(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoDashboardSearch(page);
@@ -214,6 +230,8 @@ test.describe('dashboard search workflows', () => {
     await expectNoHorizontalOverflow(page);
     await expect(page.locator('#dashboard-range-control')).toHaveCount(1);
     await expect(page.locator('#dashboard-search #dashboard-range-control')).toHaveCount(1);
+    await expect(page.locator('#dashboard-chart-range-control')).toHaveCount(1);
+    await expect(page.locator('.dashboard-analytics-panel #dashboard-chart-range-control')).toHaveCount(1);
     await expect(page.locator('[data-search-range]')).toHaveCount(0);
 
     const initialChartTotal = await readDashboardChartTotal(page);
@@ -221,32 +239,28 @@ test.describe('dashboard search workflows', () => {
       const url = new URL(response.url());
       return response.ok() && url.pathname === '/api/dashboard/charts' && url.searchParams.get('range') === '7d';
     });
-    const completed7d = page.waitForResponse((response) => {
-      const url = new URL(response.url());
-      return response.ok() && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'completed' && url.searchParams.get('range') === '7d';
+    const chartRequests = await collectDashboardRequestsDuring(page, async () => {
+      await page.locator('#dashboard-chart-range-control').getByRole('button', { name: '7d' }).click();
+      await chart7d;
     });
-    const activity7d = page.waitForResponse((response) => {
-      const url = new URL(response.url());
-      return response.ok() && url.pathname === '/api/dashboard/activity' && url.searchParams.get('range') === '7d';
-    });
-    await page.locator('#dashboard-range-control').getByRole('button', { name: '7d' }).click();
-    await Promise.all([chart7d, completed7d, activity7d]);
     await waitForCompletedRows(page, 30);
-    await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 7 days');
-    await expect(page.locator('#completed-session-status')).toHaveText('30+ shown for Last 7 days');
-    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toContainText('7d range fixture completed session');
-    await expect(page.locator('#activity-feed')).toContainText('7d range fixture');
-    await expect(page.locator('#timeline-sidebar h2 span')).toHaveText('(7d)');
-    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('range') === '7d');
+    expect(chartRequests.some((request) => request.startsWith('/api/dashboard/charts?') && request.includes('range=7d'))).toBe(true);
+    expect(chartRequests.some((request) => request.startsWith('/api/dashboard/sessions?'))).toBe(false);
+    expect(chartRequests.some((request) => request.startsWith('/api/dashboard/search?'))).toBe(false);
+    expect(chartRequests.some((request) => request.startsWith('/api/dashboard/activity?'))).toBe(false);
+    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('Last 7 days');
+    await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 24 hours');
+    await expect(page.locator('#completed-session-status')).toHaveText('30+ shown for Last 24 hours');
+    await expect(page.locator('#timeline-sidebar h2 span')).toHaveText('(24h)');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('chart_range') === '7d');
+    expect(new URL(page.url()).searchParams.get('range')).toBeNull();
     expect(new URL(page.url()).searchParams.get('search_range')).toBeNull();
     expect(await readDashboardChartTotal(page)).toBeGreaterThan(initialChartTotal);
+    const chart7dTotal = await readDashboardChartTotal(page);
 
     await fillDashboardSearchAndWait(page, 'many');
     await waitForDashboardSearchRows(page, 30);
-    const chart30d = page.waitForResponse((response) => {
-      const url = new URL(response.url());
-      return response.ok() && url.pathname === '/api/dashboard/charts' && url.searchParams.get('range') === '30d';
-    });
     const search30d = waitForDashboardSearchResponse(page, (url) =>
       url.searchParams.get('q') === 'many' &&
       url.searchParams.get('range') === '30d' &&
@@ -256,20 +270,28 @@ test.describe('dashboard search workflows', () => {
       const url = new URL(response.url());
       return response.ok() && url.pathname === '/api/dashboard/activity' && url.searchParams.get('range') === '30d';
     });
-    await page.locator('#dashboard-range-control').getByRole('button', { name: '30d' }).click();
-    await Promise.all([chart30d, search30d, activity30d]);
+    const tableRequests = await collectDashboardRequestsDuring(page, async () => {
+      await page.locator('#dashboard-range-control').getByRole('button', { name: '30d' }).click();
+      await Promise.all([search30d, activity30d]);
+    });
     await waitForDashboardSearchRows(page, 30);
+    expect(tableRequests.some((request) => request.startsWith('/api/dashboard/search?') && request.includes('range=30d'))).toBe(true);
+    expect(tableRequests.some((request) => request.startsWith('/api/dashboard/activity?') && request.includes('range=30d'))).toBe(true);
+    expect(tableRequests.some((request) => request.startsWith('/api/dashboard/charts?'))).toBe(false);
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 30 days');
+    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('Last 7 days');
     await expect(page.locator('#timeline-sidebar h2 span')).toHaveText('(30d)');
     await expect(page.locator('#completed-session-status')).toHaveText('30+ search results');
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('30d range fixture');
     await expect(page.locator('#activity-feed')).toContainText('30d range fixture');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('range') === '30d');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('chart_range') === '7d');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('q') === 'many');
+    expect(await readDashboardChartTotal(page)).toBe(chart7dTotal);
 
     const refreshCharts = page.waitForResponse((response) => {
       const url = new URL(response.url());
-      return response.ok() && url.pathname === '/api/dashboard/charts' && url.searchParams.get('range') === '30d';
+      return response.ok() && url.pathname === '/api/dashboard/charts' && url.searchParams.get('range') === '7d';
     });
     await page.locator('#dashboard-refresh-btn').click();
     await refreshCharts;
@@ -280,8 +302,10 @@ test.describe('dashboard search workflows', () => {
     await legacySearch;
     await waitForDashboardSearchRows(page, 30);
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('7d range fixture');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('range') === '7d');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('chart_range') === null);
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('search_range') === null);
 
     await guards.expectClean();
@@ -555,10 +579,6 @@ test.describe('dashboard search workflows', () => {
     });
 
     await expectDashboardScrollStableDuring(page, async () => {
-      const chartsResponse = page.waitForResponse((response) => {
-        const url = new URL(response.url());
-        return response.ok() && url.pathname === '/api/dashboard/charts' && url.searchParams.get('range') === '7d';
-      });
       const activityResponse = page.waitForResponse((response) => {
         const url = new URL(response.url());
         return response.ok() && url.pathname === '/api/dashboard/activity' && url.searchParams.get('range') === '7d';
@@ -570,8 +590,19 @@ test.describe('dashboard search workflows', () => {
       await page.locator('#dashboard-range-control').getByRole('button', { name: '7d' }).evaluate((button) => {
         (button as HTMLButtonElement).click();
       });
-      await Promise.all([chartsResponse, activityResponse, sessionsResponse]);
+      await Promise.all([activityResponse, sessionsResponse]);
       await waitForCompletedRows(page, 30);
+    });
+
+    await expectDashboardScrollStableDuring(page, async () => {
+      const chartsResponse = page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return response.ok() && url.pathname === '/api/dashboard/charts' && url.searchParams.get('range') === '7d';
+      });
+      await page.locator('#dashboard-chart-range-control').getByRole('button', { name: '7d' }).evaluate((button) => {
+        (button as HTMLButtonElement).click();
+      });
+      await chartsResponse;
     });
 
     await expectDashboardScrollStableDuring(page, async () => {

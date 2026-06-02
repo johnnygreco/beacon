@@ -135,6 +135,8 @@ func TestDashboardLiveAnalyticsUsesSingleTokenChart(t *testing.T) {
 		"dashboardTokenCumulativeChart",
 		"dashboard-token-cumulative-data",
 		"Tokens by Model Over Time",
+		"dashboard-chart-range-control",
+		"dashboard-chart-refresh-btn",
 	} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("dashboard live analytics missing %q", expected)
@@ -142,7 +144,8 @@ func TestDashboardLiveAnalyticsUsesSingleTokenChart(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"requestURL('/api/dashboard/charts'",
-		"currentRange = '24h'",
+		"currentChartRange = '24h'",
+		"setDashboardChartRange",
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("dashboard live analytics missing %q", expected)

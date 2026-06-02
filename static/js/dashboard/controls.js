@@ -41,15 +41,42 @@ function syncDashboardRangeControls() {
 	});
 }
 
+function chartRangeButtonValue(button) {
+	var action = button.getAttribute('onclick') || '';
+	var match = action.match(/setDashboardChartRange\(this,\s*'([^']*)'/);
+	return match ? match[1] : '';
+}
+
+function syncDashboardChartRangeControls() {
+	document.querySelectorAll('#dashboard-chart-range-control .dash-range-btn').forEach(function(button) {
+		var active = chartRangeButtonValue(button) === currentChartRange;
+		button.className = active
+			? 'dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors'
+			: 'dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors';
+		button.setAttribute('aria-pressed', active ? 'true' : 'false');
+	});
+}
+
 function setDashboardRange(btn, value) {
 	currentRange = value || '';
 	currentCompletedOffset = 0;
 	syncDashboardRangeControls();
 	updateRangeCaption();
 	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
-	loadDashboardCharts();
 	loadCompletedSessions(0);
 	loadActivity();
+}
+
+function setDashboardChartRange(btn, value) {
+	currentChartRange = value || '';
+	syncDashboardChartRangeControls();
+	updateChartRangeCaption('loading');
+	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
+	loadDashboardCharts();
+}
+
+function refreshDashboardCharts() {
+	loadDashboardCharts();
 }
 
 function refreshDashboard() {
@@ -302,9 +329,11 @@ document.addEventListener('click', function(evt) {
 		setDashboardConnection('Static');
 	}
 	syncDashboardRangeControls();
+	syncDashboardChartRangeControls();
 	syncActivityControls();
 	syncSearchControls();
 	updateRangeCaption();
+	updateChartRangeCaption();
 	var initialLoads = [
 		loadActiveSessions(),
 		loadCompletedSessions(currentCompletedOffset),
