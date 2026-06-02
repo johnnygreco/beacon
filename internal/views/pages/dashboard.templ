@@ -123,6 +123,16 @@ templ Dashboard(data views.DashboardData) {
 									</span>
 									Active Sessions
 								</h2>
+								<label class="active-session-sort">
+									<span class="sr-only">Active session sort order</span>
+									<select id="active-session-sort" class="active-session-sort-select" aria-label="Active session sort order" onchange="setActiveSessionSort(this.value)">
+										<option value="recent" selected>Recently updated</option>
+										<option value="longest">Longest running</option>
+										<option value="tokens">Most tokens</option>
+										<option value="tools">Most tool calls</option>
+										<option value="errors">Errors first</option>
+									</select>
+								</label>
 							</div>
 							<div class="active-session-board-scroll">
 								<div class="active-session-grid">

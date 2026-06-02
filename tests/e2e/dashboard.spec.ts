@@ -123,8 +123,12 @@ async function expectDashboardSearchInputInView(page: Page) {
 
 async function readActiveSessionGeometry(page: Page) {
   return page.evaluate(() => {
+    const panel = document.getElementById('active-sessions');
+    const scroll = document.querySelector('#active-sessions .active-session-board-scroll');
     const grid = document.querySelector('#active-sessions .active-session-grid');
     const cards = Array.from(document.querySelectorAll('#active-sessions .active-session-card'));
+    const panelRect = panel?.getBoundingClientRect();
+    const scrollRect = scroll?.getBoundingClientRect();
     const gridRect = grid?.getBoundingClientRect();
     const cardRects = cards.map((card) => {
       const rect = card.getBoundingClientRect();
@@ -154,9 +158,16 @@ async function readActiveSessionGeometry(page: Page) {
     return {
       viewportWidth: window.innerWidth,
       bodyScrollWidth: document.documentElement.scrollWidth,
+      panelHeight: Math.round(panelRect?.height || 0),
+      scrollClientHeight: Math.round(scroll?.clientHeight || 0),
+      scrollHeight: Math.round(scroll?.scrollHeight || 0),
+      scrollTop: Math.round(scroll?.scrollTop || 0),
+      scrollRectTop: Math.round(scrollRect?.top || 0),
+      scrollRectBottom: Math.round(scrollRect?.bottom || 0),
       gridLeft: Math.round(gridRect?.left || 0),
       gridRight: Math.round(gridRect?.right || 0),
       gridWidth: Math.round(gridRect?.width || 0),
+      ids: cards.map((card) => card.getAttribute('data-active-session-id') || ''),
       cards: cardRects,
       firstRowCount: cardRects.filter((rect) => rect.top === cardRects[0]?.top).length,
       rowCount: new Set(cardRects.map((rect) => rect.top)).size,
@@ -528,18 +539,39 @@ test.describe('dashboard battle-tested workflows', () => {
       expect(single.cards[0].width).toBeGreaterThan(220);
       expect(single.cards[0].right).toBeLessThanOrEqual(single.gridRight);
       expect(single.cards[0].width).toBeLessThanOrEqual(single.gridWidth);
+      expect(single.scrollClientHeight).toBeGreaterThan(0);
+      expect(single.scrollHeight).toBeGreaterThan(0);
       expect(single.protrusions).toEqual([]);
     }
 
+    const stableBeforeMany = await readActiveSessionGeometry(page);
+    const completedBeforeMany = await page.locator('.completed-table-surface').boundingBox();
     await page.evaluate(() => (window as Window & { loadActiveSessions: () => Promise<void> }).loadActiveSessions());
     await expect(page.locator('#active-sessions')).toContainText('Live queue item 8');
     let many = await readActiveSessionGeometry(page);
     expect(many.cards).toHaveLength(8);
     expect(many.firstRowCount).toBeGreaterThanOrEqual(1);
     expect(many.rowCount).toBeGreaterThan(1);
+    expect(many.panelHeight).toBe(stableBeforeMany.panelHeight);
+    expect(many.scrollHeight).toBeGreaterThan(many.scrollClientHeight);
     expect(many.cards.every((card) => card.left >= many.gridLeft && card.right <= many.gridRight)).toBe(true);
     expect(many.cards.every((card) => card.width > 220)).toBe(true);
     expect(many.protrusions).toEqual([]);
+    const completedAfterMany = await page.locator('.completed-table-surface').boundingBox();
+    expect(Math.round(completedAfterMany?.y || 0)).toBe(Math.round(completedBeforeMany?.y || 0));
+
+    const sort = page.locator('#active-session-sort');
+    await expect(sort).toHaveValue('recent');
+    await sort.focus();
+    await expect(sort).toBeFocused();
+    await sort.selectOption('tokens');
+    await expect(sort).toHaveValue('tokens');
+    await expect(page.locator('#active-sessions .active-session-card').first()).toHaveAttribute('data-active-session-id', 'active-parent-008');
+    many = await readActiveSessionGeometry(page);
+    expect(many.panelHeight).toBe(stableBeforeMany.panelHeight);
+    expect(many.scrollHeight).toBeGreaterThan(many.scrollClientHeight);
+    const completedAfterSort = await page.locator('.completed-table-surface').boundingBox();
+    expect(Math.round(completedAfterSort?.y || 0)).toBe(Math.round(completedBeforeMany?.y || 0));
 
     for (const viewport of [
       { width: 390, height: 844 },
@@ -553,6 +585,7 @@ test.describe('dashboard battle-tested workflows', () => {
       expect(many.cards).toHaveLength(8);
       expect(many.firstRowCount).toBe(1);
       expect(many.rowCount).toBe(8);
+      expect(many.scrollHeight).toBeLessThanOrEqual(many.scrollClientHeight + 1);
       expect(many.cards.every((card) => Math.abs(card.width - many.gridWidth) <= 1)).toBe(true);
       expect(many.bodyScrollWidth).toBeLessThanOrEqual(many.viewportWidth);
       expect(many.protrusions).toEqual([]);

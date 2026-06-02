@@ -27,6 +27,8 @@ function loadRenderSandbox() {
     currentSearchSessionID: "",
     currentSearchLimit: 30,
     currentRange: "24h",
+    currentActiveSort: "recent",
+    dashboardActiveSorts: ["recent", "longest", "tokens", "tools", "errors"],
     completedPageSize: 50,
     sessionTableHeadHTML: "",
     dashboardRequestSeq: {},
@@ -161,6 +163,58 @@ test("active cards render compact live stats", () => {
   assert.doesNotMatch(html, /data-context-state/);
   assert.equal(html.includes('role="progressbar"'), false);
   assert.doesNotMatch(html, /Over window/);
+});
+
+test("active session sorting preserves grouping and handles metrics", () => {
+  const sandbox = loadRenderSandbox();
+  const sessions = [
+    {
+      id: "active-a",
+      title: "Alpha",
+      status: "active",
+      ended_at: "2026-05-09T18:00:00.000Z",
+      duration: "4m 22s",
+      total_tokens: 42000,
+      tool_call_count: 6,
+      error_count: 0,
+      child_sessions: [{ id: "active-a-child", status: "active", tool_call_count: 1 }],
+    },
+    {
+      id: "active-b",
+      title: "Bravo",
+      status: "active",
+      ended_at: "2026-05-09T18:00:00.000Z",
+      duration: "2h 1m",
+      total_tokens: 12000,
+      tool_call_count: 40,
+      error_count: 3,
+      child_sessions: [],
+    },
+    {
+      id: "active-c",
+      title: "Charlie",
+      status: "active",
+      ended_at: "2026-05-09T18:00:00.000Z",
+      duration: "9m",
+      total_tokens: 99000,
+      tool_call_count: 2,
+      error_count: 1,
+      child_sessions: [],
+    },
+  ];
+
+  sandbox.currentActiveSort = "recent";
+  assert.deepEqual(sandbox.sortActiveSessions(sessions).map((session) => session.id), ["active-a", "active-b", "active-c"]);
+  sandbox.currentActiveSort = "longest";
+  assert.deepEqual(sandbox.sortActiveSessions(sessions).map((session) => session.id), ["active-b", "active-c", "active-a"]);
+  sandbox.currentActiveSort = "tokens";
+  assert.deepEqual(sandbox.sortActiveSessions(sessions).map((session) => session.id), ["active-c", "active-a", "active-b"]);
+  sandbox.currentActiveSort = "tools";
+  assert.deepEqual(sandbox.sortActiveSessions(sessions).map((session) => session.id), ["active-b", "active-a", "active-c"]);
+  sandbox.currentActiveSort = "errors";
+  const byErrors = sandbox.sortActiveSessions(sessions);
+  assert.deepEqual(byErrors.map((session) => session.id), ["active-b", "active-c", "active-a"]);
+  assert.deepEqual(byErrors[2].child_sessions.map((session) => session.id), ["active-a-child"]);
 });
 
 test("search mode ignores dashboard range alone but honors search state", () => {

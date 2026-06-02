@@ -392,11 +392,11 @@ function renderActive(response) {
 		var items = (response.items || []).filter(validSession);
 		var dot = items.length ? '<span class="relative flex h-2 w-2"><span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span></span>' : '<span class="relative flex h-2 w-2"><span class="relative inline-flex rounded-full h-2 w-2 bg-gray-600"></span></span>';
 		var count = items.length ? '<span class="text-xs font-normal text-gray-500">(' + items.length + ')</span>' : '';
-		var cards = items.map(activeCard).join('');
+		var cards = sortActiveSessions(items).map(activeCard).join('');
 		if (!cards) {
 			cards = '<div class="active-session-empty"><p class="text-sm text-gray-500">No active sessions</p><p class="text-xs text-gray-600 mt-1">Sessions appear here when agents are running</p></div>';
 		}
-		renderActiveShell(wrap, '<h2 id="active-sessions-title" class="text-lg font-semibold text-gray-200 flex items-center gap-2">' + dot + 'Active Sessions ' + count + '</h2>', '<div class="active-session-grid">' + cards + '</div>');
+		renderActiveShell(wrap, '<h2 id="active-sessions-title" class="text-lg font-semibold text-gray-200 flex items-center gap-2">' + dot + 'Active Sessions ' + count + '</h2>' + activeSortControl(), '<div class="active-session-grid">' + cards + '</div>');
 	}, {anchorSelector: activeSessionScrollAnchorSelector});
 }
 
@@ -409,6 +409,74 @@ function renderActiveShell(wrap, headingHTML, bodyHTML) {
 	}
 	setHTMLIfChanged(heading, headingHTML);
 	setHTMLIfChanged(body, bodyHTML);
+}
+
+var activeSortLabels = {
+	recent: 'Recently updated',
+	longest: 'Longest running',
+	tokens: 'Most tokens',
+	tools: 'Most tool calls',
+	errors: 'Errors first'
+};
+
+function activeSortValues() {
+	return typeof dashboardActiveSorts !== 'undefined' ? dashboardActiveSorts : ['recent', 'longest', 'tokens', 'tools', 'errors'];
+}
+
+function activeSortValue() {
+	var sorts = activeSortValues();
+	var current = typeof currentActiveSort !== 'undefined' ? currentActiveSort : 'recent';
+	return sorts.indexOf(current) >= 0 ? current : 'recent';
+}
+
+function activeSortControl() {
+	var current = activeSortValue();
+	var options = activeSortValues().map(function(value) {
+		return '<option value="' + escapeAttr(value) + '"' + (value === current ? ' selected' : '') + '>' + escapeHTML(activeSortLabels[value] || value) + '</option>';
+	}).join('');
+	return '<label class="active-session-sort"><span class="sr-only">Active session sort order</span><select id="active-session-sort" class="active-session-sort-select" aria-label="Active session sort order" onchange="setActiveSessionSort(this.value)">' + options + '</select></label>';
+}
+
+function activeDurationFromLabel(session) {
+	var total = 0;
+	String(session && session.duration || '').replace(/(\d+)\s*([hms])/g, function(_, amount, unit) {
+		var value = Number(amount) || 0;
+		if (unit === 'h') total += value * 3600;
+		else if (unit === 'm') total += value * 60;
+		else total += value;
+		return '';
+	});
+	return total;
+}
+
+function activeMetric(session, sort) {
+	if (sort === 'longest') return activeDurationFromLabel(session) || durationSeconds(session);
+	if (sort === 'tokens') return nonNegativeInt(session.total_tokens);
+	if (sort === 'tools') return nonNegativeInt(session.tool_call_count);
+	if (sort === 'errors') return nonNegativeInt(session.error_count);
+	var updated = session.ended_at || session.started_at || '';
+	var time = updated ? new Date(updated).getTime() : 0;
+	return Number.isFinite(time) ? time : 0;
+}
+
+function compareActiveSessionRecords(a, b) {
+	var sort = activeSortValue();
+	var diff = activeMetric(b.session, sort) - activeMetric(a.session, sort);
+	if (diff !== 0) return diff;
+	return a.index - b.index;
+}
+
+function sortActiveSessions(items) {
+	return items
+		.map(function(session, index) { return {session: session, index: index}; })
+		.sort(compareActiveSessionRecords)
+		.map(function(record) { return record.session; });
+}
+
+function setActiveSessionSort(value) {
+	var sorts = activeSortValues();
+	currentActiveSort = sorts.indexOf(value) >= 0 ? value : 'recent';
+	loadActiveSessions();
 }
 
 function activeStatusDot(live, sub) {
@@ -443,7 +511,7 @@ function activeCard(session) {
 	var toolCount = nonNegativeInt(session.tool_call_count);
 	var errorCount = nonNegativeInt(session.error_count);
 	if (sub) {
-		return '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(session.id)) + '" class="active-session-card ' + border + '">' +
+		return '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(session.id)) + '" data-active-session-id="' + escapeAttr(session.id) + '" class="active-session-card ' + border + '">' +
 			'<div class="active-session-card-header"><div class="active-session-title-row">' + statusDot + '<div class="min-w-0"><div class="active-session-title">' + escapeHTML(sessionTitle(session)) + '</div><div class="active-session-kicker"><span>Subagent</span><span class="font-mono">' + escapeHTML(shortID(session.id)) + '</span><span>parent ' + escapeHTML(shortID(session.parent_session_id)) + '</span></div></div></div>' +
 				'<span class="active-session-status ' + (live ? 'active-session-status-sub' : 'active-session-status-idle') + '">' + (live ? 'Live' : 'Idle') + '</span></div>' +
 				'<div class="active-session-meta-row">' + modelChip(session.last_model || '') + providerBadge(session.provider) + '</div>' +
@@ -461,7 +529,7 @@ function activeCard(session) {
 			return '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(child.id)) + '" class="active-child-row"><div class="active-child-main">' + childDot + '<span class="active-child-id">' + escapeHTML(shortID(child.id)) + '</span>' + childModel + '<span class="active-child-stat">' + escapeHTML(child.duration || '') + '</span><span class="active-child-stat">' + nonNegativeInt(child.tool_call_count) + 't</span></div></a>';
 		}).join('') + '</div>';
 	}
-	return '<div class="active-session-card ' + border + '">' +
+	return '<div class="active-session-card ' + border + '" data-active-session-id="' + escapeAttr(session.id) + '">' +
 		'<a href="' + escapeAttr('/sessions/' + encodeURIComponent(session.id)) + '" class="active-session-link">' +
 			'<div class="active-session-card-header"><div class="active-session-title-row">' + statusDot + '<div class="min-w-0"><div class="active-session-title">' + escapeHTML(sessionTitle(session)) + '</div><div class="active-session-kicker"><span class="font-mono">' + escapeHTML(shortID(session.id)) + '</span><span>' + escapeHTML(session.status || '') + '</span></div></div></div><div class="active-session-badges">' + providerBadge(session.provider) + '<span class="active-session-status ' + (live ? 'active-session-status-live' : 'active-session-status-idle') + '">' + (live ? 'Live' : 'Idle') + '</span></div></div>' +
 			'<div class="active-session-meta-row">' + modelChip(session.last_model || '') + '</div>' +
@@ -583,7 +651,7 @@ async function loadActiveSessions() {
 		withDashboardScrollStability(function() {
 			var wrap = document.getElementById('active-sessions');
 			if (!wrap) return;
-			renderActiveShell(wrap, '<h2 id="active-sessions-title" class="text-lg font-semibold text-gray-200 flex items-center gap-2">Active Sessions</h2>', '<div class="rounded border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">Unable to load active sessions. <button type="button" class="underline" onclick="loadActiveSessions()">Retry</button></div>');
+			renderActiveShell(wrap, '<h2 id="active-sessions-title" class="text-lg font-semibold text-gray-200 flex items-center gap-2">Active Sessions</h2>' + activeSortControl(), '<div class="rounded border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">Unable to load active sessions. <button type="button" class="underline" onclick="loadActiveSessions()">Retry</button></div>');
 		}, {anchorSelector: activeSessionScrollAnchorSelector});
 		return;
 	}
