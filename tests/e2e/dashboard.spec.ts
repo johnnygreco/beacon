@@ -633,6 +633,27 @@ test.describe('dashboard battle-tested workflows', () => {
       expect(many.cards.every((card) => Math.abs(card.width - many.gridWidth) <= 1)).toBe(true);
       expect(many.bodyScrollWidth).toBeLessThanOrEqual(many.viewportWidth);
       expect(many.protrusions).toEqual([]);
+      const trackerLayout = await page.locator('#active-sessions .active-session-tracker').first().evaluate((tracker) => {
+        const trackerRect = tracker.getBoundingClientRect();
+        const cells = Array.from(tracker.querySelectorAll('.active-tracker-cell')).map((cell) => {
+          const rect = cell.getBoundingClientRect();
+          return {
+            left: Math.round(rect.left),
+            right: Math.round(rect.right),
+          };
+        });
+        const last = cells[cells.length - 1] || { left: 0, right: 0 };
+        return {
+          count: cells.length,
+          trackerLeft: Math.round(trackerRect.left),
+          trackerRight: Math.round(trackerRect.right),
+          lastLeft: last.left,
+          lastRight: last.right,
+        };
+      });
+      expect(trackerLayout.count).toBe(3);
+      expect(Math.abs(trackerLayout.lastLeft - trackerLayout.trackerLeft)).toBeLessThanOrEqual(1);
+      expect(Math.abs(trackerLayout.lastRight - trackerLayout.trackerRight)).toBeLessThanOrEqual(1);
     }
 
     await guards.expectClean();
