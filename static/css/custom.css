@@ -1588,7 +1588,7 @@ html[data-dashboard-theme="proof-light"] {
   white-space: nowrap;
 }
 
-/* --- Timeline sidebar --- */
+/* --- Activity bar sidebar --- */
 .timeline-panel {
   width: 380px;
   min-width: 380px;
@@ -1606,6 +1606,129 @@ html[data-beacon-timeline-collapsed="true"] .timeline-panel {
 /* Disable transition while dragging for instant feedback */
 .sidebar-resizing .timeline-panel {
   transition: none;
+}
+
+.activity-bar-panel {
+  border-left: 1px solid var(--dash-border-muted);
+}
+
+.timeline-panel.collapsed.activity-bar-panel,
+html[data-beacon-timeline-collapsed="true"] .activity-bar-panel {
+  border-left-width: 0;
+}
+
+.activity-bar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--dash-border-muted);
+}
+
+.activity-bar-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dash-text-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: 1.15rem;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.activity-bar-range {
+  color: var(--dash-text-faint);
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-transform: none;
+}
+
+.activity-bar-filters {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 0.375rem;
+  overflow-x: auto;
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid var(--dash-border-muted);
+}
+
+.activity-bar-list {
+  position: relative;
+  min-width: 0;
+  padding: 0.5rem 0.65rem 0.75rem 2rem;
+}
+
+.activity-bar-rail {
+  position: absolute;
+  top: 0.75rem;
+  bottom: 0.75rem;
+  left: 1.1rem;
+  width: 1px;
+  background: var(--dash-border-muted);
+}
+
+.activity-bar-item {
+  position: relative;
+  display: block;
+  min-width: 0;
+  padding: 0.5rem 0.5rem 0.55rem 0.65rem;
+  border-radius: 6px;
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.activity-bar-item:hover,
+.activity-bar-item:focus-visible {
+  background: var(--dash-hover);
+}
+
+.activity-bar-item:focus-visible {
+  outline: 2px solid var(--dash-accent);
+  outline-offset: 2px;
+}
+
+.activity-bar-dot {
+  position: absolute;
+  top: 0.72rem;
+  left: -0.96rem;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px var(--dash-bg);
+}
+
+.activity-bar-summary {
+  overflow-wrap: anywhere;
+  color: var(--dash-text-soft);
+  font-size: 0.875rem;
+  line-height: 1.2rem;
+  margin-bottom: 0.28rem;
+}
+
+.activity-bar-item:hover .activity-bar-summary,
+.activity-bar-item:focus-visible .activity-bar-summary {
+  color: var(--dash-text);
+}
+
+.activity-bar-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.activity-bar-state {
+  padding: 1rem;
+  color: var(--dash-text-muted);
+  font-size: 0.875rem;
+  text-align: center;
 }
 
 .dashboard-shell {
@@ -3323,6 +3446,7 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
     min-width: 0 !important;
     max-height: 440px;
     border-top: 1px solid var(--dash-border-muted);
+    border-left: 0;
   }
 
   .timeline-panel.collapsed,
@@ -3337,7 +3461,7 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
     flex-shrink: 0;
   }
 
-  #timeline-sidebar > .flex.items-center.gap-1\.5 {
+  .activity-bar-filters {
     overflow-x: auto;
   }
 

@@ -816,6 +816,46 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('keeps high-volume activity inside the fixed activity bar', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page, { scenario: 'error-heavy' });
+    await page.setViewportSize({ width: 1440, height: 620 });
+    await gotoDashboard(page);
+
+    await expect(page.locator('#activity-feed a[data-transcript-link]')).toHaveCount(11);
+    const initial = await page.evaluate(() => {
+      const shell = document.getElementById('dashboard-wrap');
+      const sidebar = document.getElementById('timeline-sidebar');
+      const feed = document.getElementById('activity-feed');
+      if (!shell || !sidebar || !feed) throw new Error('Missing activity bar geometry target');
+      return {
+        shellHeight: Math.round(shell.getBoundingClientRect().height),
+        sidebarHeight: Math.round(sidebar.getBoundingClientRect().height),
+        feedClientHeight: feed.clientHeight,
+        feedScrollHeight: feed.scrollHeight,
+        feedOverflowY: getComputedStyle(feed).overflowY,
+      };
+    });
+    expect(Math.abs(initial.sidebarHeight - initial.shellHeight)).toBeLessThanOrEqual(1);
+    expect(initial.feedOverflowY).toBe('auto');
+    expect(initial.feedScrollHeight).toBeGreaterThan(initial.feedClientHeight + 20);
+
+    const afterScroll = await page.locator('#activity-feed').evaluate((feed) => {
+      feed.scrollTop = feed.scrollHeight;
+      const sidebar = document.getElementById('timeline-sidebar');
+      return {
+        feedScrollTop: Math.round(feed.scrollTop),
+        sidebarHeight: Math.round(sidebar?.getBoundingClientRect().height || 0),
+        windowY: Math.round(window.scrollY),
+      };
+    });
+    expect(afterScroll.feedScrollTop).toBeGreaterThan(0);
+    expect(afterScroll.sidebarHeight).toBe(initial.sidebarHeight);
+    expect(afterScroll.windowY).toBe(0);
+
+    await guards.expectClean();
+  });
+
   test('exercises dashboard controls, search, sorting, pagination, subagents, and timeline sizing', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);
@@ -1387,6 +1427,8 @@ test.describe('dashboard battle-tested workflows', () => {
     await installDashboardFixtures(page);
     await gotoDashboard(page);
 
+    await expect(page.locator('#activity-bar-title')).toContainText('Activity Bar');
+    await expect(page.locator('#timeline-sidebar .activity-bar-filters')).toHaveAttribute('aria-label', 'Activity type filter');
     await page.locator('#timeline-sidebar').getByRole('button', { name: 'Errors' }).click();
     await expect(page.locator('#timeline-sidebar').getByRole('button', { name: 'Errors' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#activity-feed a[data-type="error"], #activity-feed a[data-type="tool_error"]')).toHaveCount(2);

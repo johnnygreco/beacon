@@ -102,7 +102,7 @@ templ Dashboard(data views.DashboardData) {
 								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 4v7h-7"></path>
 							</svg>
 						</button>
-						<button type="button" id="timeline-toggle-btn" onclick="toggleTimelineSidebar()" aria-controls="timeline-sidebar" aria-expanded="true" class="dashboard-icon-btn timeline-toggle-btn" aria-label="Collapse activity timeline" title="Collapse activity timeline">
+						<button type="button" id="timeline-toggle-btn" onclick="toggleTimelineSidebar()" aria-controls="timeline-sidebar" aria-expanded="true" class="dashboard-icon-btn timeline-toggle-btn" aria-label="Collapse activity bar" title="Collapse activity bar">
 							<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
 								<rect x="3" y="5" width="18" height="14" rx="2" stroke-width="2"></rect>
 								<path stroke-linecap="round" stroke-width="2" d="M15 5v14M11 9l-3 3 3 3"></path>
@@ -311,16 +311,16 @@ templ Dashboard(data views.DashboardData) {
 			</div>
 
 			<!-- Draggable Divider -->
-			<div id="sidebar-divider" class="sidebar-divider" role="separator" aria-label="Resize activity timeline" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="700" aria-valuenow="380" aria-valuetext="Activity timeline width 380 pixels" tabindex="0" title="Drag to resize activity timeline">
+			<div id="sidebar-divider" class="sidebar-divider" role="separator" aria-label="Resize activity bar" aria-orientation="vertical" aria-valuemin="0" aria-valuemax="700" aria-valuenow="380" aria-valuetext="Activity bar width 380 pixels" tabindex="0" title="Drag to resize activity bar">
 				<div class="sidebar-divider-line"></div>
 			</div>
 
-			<!-- Activity Timeline Sidebar -->
-			<aside id="timeline-sidebar" class="timeline-panel flex flex-col bg-gray-800/30">
-				<div class="flex items-center justify-between px-4 py-3 border-b border-gray-700/50 flex-shrink-0">
-					<h2 class="text-sm font-medium text-gray-400 uppercase tracking-wide whitespace-nowrap">Activity Timeline <span class="text-gray-600 normal-case">(24h)</span></h2>
+			<!-- Activity Bar Sidebar -->
+			<aside id="timeline-sidebar" class="timeline-panel activity-bar-panel flex flex-col bg-gray-800/30" aria-labelledby="activity-bar-title">
+				<div class="activity-bar-header">
+					<h2 id="activity-bar-title" class="activity-bar-title">Activity Bar <span class="activity-bar-range">(24h)</span></h2>
 				</div>
-				<div class="flex items-center gap-1.5 px-4 py-2 border-b border-gray-700/50 flex-shrink-0">
+				<div class="activity-bar-filters" role="group" aria-label="Activity type filter">
 					<button type="button" onclick="filterActivity(this, 'all')" aria-pressed="true" class="activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
 					<button type="button" onclick="filterActivity(this, 'message')" aria-pressed="false" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Messages</button>
 					<button type="button" onclick="filterActivity(this, 'tool_call')" aria-pressed="false" class="activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Tools</button>
