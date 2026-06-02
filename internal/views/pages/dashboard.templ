@@ -330,6 +330,36 @@ templ Dashboard(data views.DashboardData) {
 					<p class="text-sm text-gray-500 text-center py-4">Loading activity...</p>
 				</div>
 			</aside>
+			<script>
+			(function() {
+				try {
+					if (!document.documentElement.hasAttribute('data-beacon-timeline-collapsed')) return;
+					var sidebar = document.getElementById('timeline-sidebar');
+					var toggle = document.getElementById('timeline-toggle-btn');
+					var divider = document.getElementById('sidebar-divider');
+					if (sidebar) {
+						sidebar.classList.add('collapsed');
+						sidebar.setAttribute('inert', '');
+						sidebar.setAttribute('aria-hidden', 'true');
+					}
+					if (toggle) {
+						toggle.setAttribute('aria-expanded', 'false');
+						toggle.setAttribute('aria-label', 'Expand activity bar');
+						toggle.setAttribute('title', 'Expand activity bar');
+					}
+					if (divider) {
+						var wrap = document.getElementById('dashboard-wrap');
+						var max = 700;
+						if (wrap && wrap.offsetWidth) {
+							max = Math.min(700, Math.max(200, Math.floor(wrap.offsetWidth * 0.5)));
+						}
+						divider.setAttribute('aria-valuemax', String(max));
+						divider.setAttribute('aria-valuenow', '0');
+						divider.setAttribute('aria-valuetext', 'Activity bar collapsed');
+					}
+				} catch (err) {}
+			})();
+			</script>
 
 			<div id="session-inspector" role="dialog" aria-modal="true" aria-labelledby="inspector-title" class="hidden fixed inset-y-0 right-0 w-full max-w-2xl bg-gray-950 border-l border-gray-700 shadow-2xl z-[60] flex flex-col">
 				<div class="flex items-center justify-between px-4 py-3 border-b border-gray-800">
