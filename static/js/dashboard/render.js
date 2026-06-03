@@ -8,7 +8,7 @@ var shortID = dashboardUtils.shortID;
 var shortModel = dashboardUtils.shortModel;
 var providerShort = dashboardUtils.providerShort;
 var formatTokens = dashboardUtils.formatTokens;
-var relativeTime = dashboardUtils.relativeTime;
+var absoluteTime = dashboardUtils.absoluteTime;
 var durationSeconds = dashboardUtils.durationSeconds;
 var requestURL = dashboardUtils.requestURL;
 
@@ -50,6 +50,14 @@ function setHTMLIfChanged(el, html) {
 	// dynamic text/attributes with escapeHTML/escapeAttr or normalize numbers.
 	el.innerHTML = html;
 	el.__beaconRenderSignature = html;
+	return true;
+}
+
+function setTextIfChanged(el, text) {
+	if (!el) return false;
+	text = String(text == null ? '' : text);
+	if (el.textContent === text) return false;
+	el.textContent = text;
 	return true;
 }
 
@@ -225,7 +233,8 @@ function completedRow(session, isSubagent, parentID) {
 	var endedSort = Number.isFinite(endedTime) ? Math.floor(endedTime / 1000) : 0;
 	var rowClass = isSubagent ? 'border-b border-gray-800/50 cursor-pointer transition-colors bg-gray-800/20' : 'border-b border-gray-800/50 cursor-pointer transition-colors';
 	var nameCellClass = isSubagent ? 'py-1.5 px-3 text-sm text-gray-400 whitespace-nowrap pl-10' : 'py-2 px-3 text-sm text-gray-300 whitespace-nowrap';
-	var mobileMeta = formatTokens(totalTokens) + ' tok · ' + turnCount + ' turns · ' + toolCount + ' tools · ' + (session.duration || relativeTime(session.ended_at));
+	var endedLabel = absoluteTime(session.ended_at);
+	var mobileMeta = formatTokens(totalTokens) + ' tok · ' + turnCount + ' turns · ' + toolCount + ' tools · ' + (session.duration || endedLabel);
 	var toggle = '';
 	if (!isSubagent && subagentCount > 0) {
 		toggle = '<button type="button" class="json-subagent-toggle text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0" data-session-id="' + escapeAttr(session.id) + '" title="' + subagentCount + ' subagents" aria-label="Toggle ' + subagentCount + ' subagents for ' + escapeAttr(sessionTitle(session)) + '" aria-expanded="false"><svg class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg></button>';
@@ -256,7 +265,7 @@ function completedRow(session, isSubagent, parentID) {
 		'<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums">' + toolCount + '</td>' +
 		'<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums whitespace-nowrap">' + escapeHTML(session.duration || '') + '</td>' +
 		'<td class="py-2 px-3 text-xs text-gray-500 max-w-[180px] truncate" title="' + escapeAttr(session.working_dir || '') + '">' + escapeHTML(session.working_dir || '') + '</td>' +
-		'<td class="py-2 px-3 text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">' + relativeTime(session.ended_at) + '</td>' +
+		'<td class="py-2 px-3 text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">' + escapeHTML(endedLabel) + '</td>' +
 		'<td class="py-2 px-3 text-xs text-gray-600 font-mono whitespace-nowrap">' + escapeHTML(shortID(session.id)) + '</td>' +
 		'</tr>';
 }
@@ -280,18 +289,14 @@ function renderCompleted(response) {
 		if ((response.items || []).length > 0 || offset > 0) {
 			var prev = offset > 0 ? '<button type="button" class="json-page-btn px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors" data-offset="' + Math.max(0, offset - limit) + '">Previous</button>' : '';
 			var next = hasMore ? '<button type="button" class="json-page-btn px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors" data-offset="' + (offset + limit) + '">Next</button>' : '';
-			var start = offset + 1;
-			var end = offset + (response.items || []).length;
-			rows.push('<tr class="border-none" data-pagination-row><td colspan="10" class="py-3"><div class="flex items-center justify-center gap-4">' + prev + '<span class="text-xs text-gray-500 tabular-nums">Showing ' + start + '-' + end + (hasMore ? '+' : '') + '<\/span>' + next + '<\/div><\/td><\/tr>');
+			if (prev || next) {
+				rows.push('<tr class="border-none" data-pagination-row><td colspan="10" class="py-3"><div class="flex items-center justify-center gap-4">' + prev + next + '<\/div><\/td><\/tr>');
+			}
 		}
 		if (rows.length === 0) {
 			rows.push('<tr><td colspan="10" class="text-center py-4"><span class="text-sm text-gray-500">' + (currentSearchQuery ? 'No sessions match your search' : 'No completed sessions') + '<\/span><\/td><\/tr>');
 		}
-		if (status) {
-			var count = (response.items || []).length;
-			var countLabel = count + (hasMore ? '+' : '');
-			status.textContent = currentSearchQuery ? (countLabel + ' search result' + (count === 1 && !hasMore ? '' : 's') + ' in ' + rangeLabel(completedRangeValue())) : (countLabel + ' shown for ' + rangeLabel(completedRangeValue()));
-		}
+		setTextIfChanged(status, rangeLabel(completedRangeValue()));
 		var changed = setHTMLIfChanged(tbody, rows.join(''));
 		if (changed) updateCompletedSortIndicators();
 	}, {completedRegion: true, establishCompletedHeightFloor: true});
@@ -332,12 +337,13 @@ function searchRow(item) {
 	var tool = item.tool_name ? '<span class="text-[11px] text-gray-500 truncate" title="' + escapeAttr(item.tool_name) + '">' + escapeHTML(item.tool_name) + '</span>' : '';
 	var scoreValue = numericValue(item.score, 0);
 	var score = currentSearchSort === 'relevance' && scoreValue > 0 ? scoreValue.toFixed(2) : '';
+	var timeLabel = absoluteTime(item.timestamp);
 	return '<tr class="border-b border-gray-800/50 hover:bg-gray-800/40 transition-colors cursor-pointer" data-search-row data-transcript-link="true" data-href="' + escapeAttr(href) + '" data-event-kind="' + escapeAttr(item.event_kind || '') + '" data-session-id="' + escapeAttr(item.session_id || '') + '">' +
 		'<td class="py-2 px-3 min-w-[18rem]"><a href="' + escapeAttr(href) + '" data-transcript-link="true" class="dashboard-search-result-link"><div class="flex items-center gap-2 mb-1"><span class="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ' + searchEventBadge(item.event_kind) + '">' + escapeHTML(searchEventLabel(item.event_kind)) + '</span>' + tool + '</div><div class="dashboard-search-snippet">' + escapeHTML(item.snippet || '') + '</div></a></td>' +
 		'<td class="py-2 px-3 text-xs whitespace-nowrap">' + providerBadge(item.provider) + '</td>' +
 		'<td class="py-2 px-3 text-xs text-gray-400 max-w-[160px] truncate" title="' + escapeAttr(item.model || '') + '">' + escapeHTML(shortModel(item.model || '')) + '</td>' +
 		'<td class="py-2 px-3 text-xs text-gray-500 max-w-[220px]"><div class="truncate" title="' + escapeAttr(item.session_id || '') + '">' + escapeHTML(sessionLabel) + ' <span class="font-mono text-gray-600">' + escapeHTML(shortID(item.session_id)) + '</span></div>' + project + '</td>' +
-		'<td class="py-2 px-3 text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">' + escapeHTML(item.relative_time || relativeTime(item.timestamp)) + '</td>' +
+		'<td class="py-2 px-3 text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">' + escapeHTML(timeLabel) + '</td>' +
 		'<td class="py-2 px-3 text-right text-xs text-gray-500 tabular-nums">' + escapeHTML(score) + '</td>' +
 		'</tr>';
 }
@@ -353,7 +359,7 @@ function renderDashboardSearch(response) {
 		var hasMore = !!response.has_more;
 		var rows = response.items.map(searchRow);
 		if (hasMore) {
-			rows.push('<tr class="border-none" data-search-more-row><td colspan="6" class="py-3"><div class="flex items-center justify-center gap-4"><button type="button" class="dashboard-search-show-more px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Show more</button><span class="text-xs text-gray-500 tabular-nums">Showing ' + response.items.length + '+ results</span></div></td></tr>');
+			rows.push('<tr class="border-none" data-search-more-row><td colspan="6" class="py-3"><div class="flex items-center justify-center gap-4"><button type="button" class="dashboard-search-show-more px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">Show more</button></div></td></tr>');
 		}
 		if (rows.length === 0) {
 			var message = response.state === 'unavailable'
@@ -364,12 +370,11 @@ function renderDashboardSearch(response) {
 		setHTMLIfChanged(tbody, rows.join(''));
 		if (status) {
 			if (response.state === 'unavailable') {
-				status.textContent = 'Search unavailable';
+				setTextIfChanged(status, 'Search unavailable');
 			} else if (response.state === 'idle') {
-				status.textContent = 'Search table sessions and events';
+				setTextIfChanged(status, 'Search table sessions and events');
 			} else {
-				var count = response.items.length;
-				status.textContent = count + (hasMore ? '+' : '') + ' search result' + (count === 1 && !hasMore ? '' : 's');
+				setTextIfChanged(status, rangeLabel(completedRangeValue()));
 			}
 		}
 	}, {completedRegion: true});
@@ -383,7 +388,7 @@ function renderDashboardSearchLoading() {
 		if (title) title.textContent = 'Search Results';
 		setCompletedTableMode('search');
 		setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-gray-500">Searching table sessions and events...</span></td></tr>');
-		if (status) status.textContent = 'Searching table sessions and events...';
+		setTextIfChanged(status, 'Searching table sessions and events...');
 	}, {completedRegion: true});
 }
 
@@ -654,7 +659,7 @@ function renderActivity(items) {
 		return '<a href="' + escapeAttr(url) + '" data-type="' + escapeAttr(item.type) + '" data-transcript-link="true" class="activity-bar-item group">' +
 			'<div class="activity-bar-dot ' + activityDotColor(item.type) + '"></div>' +
 			'<p class="activity-bar-summary">' + escapeHTML(item.summary) + '</p>' +
-			'<div class="activity-bar-meta"><span class="px-1.5 py-0.5 rounded text-xs flex-shrink-0 ' + activityBadgeStyle(item.type) + '">' + escapeHTML(activityLabel(item.type)) + '</span>' + provider + sid + '<span class="text-xs text-gray-600 flex-shrink-0">' + escapeHTML(item.relative_time || relativeTime(item.timestamp)) + '</span></div>' +
+			'<div class="activity-bar-meta"><span class="px-1.5 py-0.5 rounded text-xs flex-shrink-0 ' + activityBadgeStyle(item.type) + '">' + escapeHTML(activityLabel(item.type)) + '</span>' + provider + sid + '</div>' +
 			'</a>';
 	}).join('') + '</div>');
 }
@@ -812,7 +817,7 @@ async function loadDashboardSearch(options) {
 			if (title) title.textContent = 'Search Results';
 			setCompletedTableMode('search');
 			setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-red-400">Unable to search table sessions and events. <button type="button" class="underline" onclick="loadDashboardSearch()">Retry</button></span></td></tr>');
-			if (status) status.textContent = 'Search failed';
+			setTextIfChanged(status, 'Search failed');
 		}, {completedRegion: true});
 		return;
 	}
@@ -828,7 +833,7 @@ async function loadCompletedSessions(offset, options) {
 	currentCompletedOffset = Math.max(0, offset || 0);
 	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 	var status = document.getElementById('completed-session-status');
-	if (status && !options.silent) status.textContent = currentSearchQuery ? 'Searching completed sessions...' : 'Loading sessions...';
+	if (status && !options.silent) setTextIfChanged(status, currentSearchQuery ? 'Searching completed sessions...' : 'Loading sessions...');
 	var result = await fetchDashboardJSON('completed', requestURL('/api/dashboard/sessions', {
 		state: 'completed',
 		limit: completedPageSize,
@@ -843,7 +848,7 @@ async function loadCompletedSessions(offset, options) {
 		withDashboardScrollStability(function() {
 			var tbody = document.getElementById('completed-sessions');
 			setHTMLIfChanged(tbody, '<tr><td colspan="10" class="text-center py-4"><span class="text-sm text-red-400">Unable to load completed sessions. <button type="button" class="underline" onclick="loadCompletedSessions(currentCompletedOffset)">Retry</button></span></td></tr>');
-			if (status) status.textContent = 'Unable to load sessions';
+			setTextIfChanged(status, 'Unable to load sessions');
 		}, {completedRegion: true});
 		return;
 	}
