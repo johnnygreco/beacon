@@ -2,14 +2,19 @@
   <img src="assets/beacon.png" alt="Beacon" width="800" />
 </p>
 
-Beacon is a local dashboard for long-running AI coding agents. It watches the session files already on your machine, writes normalized events to ClickHouse, and gives you a live view of what agents are doing, which tools they used, how much token volume they consumed, and what happened in past runs.
+Beacon is a local dashboard for long-running AI coding agents. It watches the
+session files already on your machine, writes normalized events to ClickHouse,
+and gives you a live view of active work, searchable history, tool usage, token
+volume, and past transcripts.
 
 ## What It Looks Like
 
-**Dashboard overview.** Active sessions with compact live stat trackers, completed runs, table-scoped search filters, token volume by model, and a live Activity Bar in one view.
+**Dashboard overview.** Active sessions with compact live stat trackers, a
+Sessions-first completed-run table, scoped search filters, selectable Token
+Analytics metrics, and a live Activity Bar in one view.
 
 <p>
-  <img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing active sessions, completed-session table controls, token volume by model, and Activity Bar" />
+  <img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing active sessions, Sessions-first table controls, selectable Token Analytics metrics, and Activity Bar" />
 </p>
 
 **Session transcript.** A single run with session metrics, token charts, tool usage, and the replayable conversation below.
@@ -20,10 +25,14 @@ Beacon is a local dashboard for long-running AI coding agents. It watches the se
 
 ## Why Use Beacon
 
-- See active and completed agent runs in one place, including project paths, models, duration, turns, tool calls, subagents, and errors.
-- Catch expensive or noisy work quickly with token-over-time charts, cache-token counts, active-session status, and error activity.
-- Name each dashboard window so multiple Beacon dashboards, such as different machines, are easy to distinguish in browser tabs.
-- Search prompts, responses, tool calls, paths, and errors across captured sessions without rebuilding an external search service.
+- See active and completed agent runs in one place, including project paths,
+  models, duration, turns, tool calls, subagents, and errors.
+- Watch active sessions appear in the live board while scoped dashboard panels
+  refresh without disturbing the rest of the page.
+- Catch expensive or noisy work quickly with Token Analytics metrics for total,
+  input, output, cache-read tokens, tool calls, errors, and error rate.
+- Search sessions first, then switch the same table to events, tool calls, or
+  error-focused searches when you need detail.
 - Replay a session as a readable transcript with expandable tool payloads and timeline context.
 - Let agents query prior work through MCP tools instead of asking you to remember which session contained the answer.
 
@@ -39,12 +48,8 @@ curl -sSfL https://johnnygreco.dev/beacon/install.sh | sh
 
 It installs `beacon` to `~/.local/bin`. If ClickHouse is not already available on `PATH`, it also installs a managed ClickHouse binary to `~/.beacon/bin`.
 Beacon release archives are verified against the release `checksums.txt` before
-they are installed. Managed Linux ClickHouse downloads are verified with
-ClickHouse's upstream `.sha512` sidecars; managed macOS ClickHouse downloads rely
-on the pinned ClickHouse release URL and HTTPS because upstream does not publish
-sidecar checksums for those macOS assets. The selected Beacon release must
-include the current platform archive and `checksums.txt`; older partial releases
-may only install on platforms they published.
+installation. Managed ClickHouse downloads use the pinned ClickHouse release
+documented in [docs/release.md](docs/release.md).
 
 If your shell cannot find `beacon`, add the install directory to `PATH`:
 
@@ -57,6 +62,7 @@ Common variants:
 ```bash
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_DIR=/usr/local/bin sh
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=x.y.z sh
+curl -sSfL https://johnnygreco.dev/beacon/install.sh | INCLUDE_PRERELEASE=1 sh
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_CLICKHOUSE=0 sh
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERIFY_CHECKSUMS=0 sh
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
@@ -85,6 +91,24 @@ beacon down     # stop the running Beacon web server
 beacon db down  # stop Beacon-managed local ClickHouse
 beacon --version # show the Beacon CLI version
 ```
+
+## Dashboard
+
+The top-left header shows the Beacon mark, live connection indicator, and
+editable dashboard name. The active-session board updates through SSE as
+sessions start or change. Completed sessions load immediately for the selected
+time range; no search is required to populate the table.
+
+The completed table defaults to **Sessions** because that is the primary review
+workflow. Use the table controls to filter by range, search text, session ID,
+result type, sort order, and pagination. The table refresh button reloads only
+the completed/search table.
+
+Token Analytics has its own range controls, log-scale toggle, model filter,
+metric dropdown, and refresh button. The metric dropdown supports total tokens,
+input tokens, output tokens, cache-read tokens, tool calls, errors, and error
+rate. The selected metric is stored in the dashboard URL as `chart_metric`, so
+shared links and reloads keep the chart state.
 
 ## Capture Sources
 
@@ -270,6 +294,10 @@ npm run test:e2e:search # focused dashboard search Playwright tests
 npm run test:a11y   # accessibility tests
 npm run test:visual # visual regression tests
 ```
+
+`package.json` is private development metadata for vendored browser assets,
+linting, and Playwright tests. Beacon release versions come from Git tags and
+are injected into the Go binary by GoReleaser.
 
 Cleanup targets only remove files inside the repository checkout. They do not
 delete Beacon user data under `~/.beacon`; use `beacon db reset --force` or the
