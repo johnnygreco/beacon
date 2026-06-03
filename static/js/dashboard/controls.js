@@ -244,8 +244,25 @@ document.addEventListener('click', function(evt) {
 	function syncSearchControls() {
 		if (searchInput && searchInput.value.trim() !== currentSearchQuery) searchInput.value = currentSearchQuery;
 		if (searchSession && searchSession.value.trim() !== currentSearchSessionID) searchSession.value = currentSearchSessionID;
-		if (searchKind) searchKind.value = currentSearchEventKind;
+		if (searchKind) searchKind.value = currentSearchEventKind || 'event';
 		if (searchSort) searchSort.value = currentSearchSort;
+	}
+	function resetSearchFilters() {
+		currentSearchQuery = '';
+		currentSearchEventKind = 'session';
+		currentSearchSessionID = '';
+		currentSearchSort = 'relevance';
+		currentSearchLimit = 30;
+		currentCompletedOffset = 0;
+		if (searchInput) searchInput.value = '';
+		if (searchSession) searchSession.value = '';
+		if (searchKind) searchKind.value = 'session';
+		if (searchSort) searchSort.value = 'relevance';
+		clearTimeout(dashboardSearchTimer);
+		dashboardSearchTimer = 0;
+		syncSearchControls();
+		if (typeof writeDashboardStateToURL === 'function') writeDashboardStateToURL();
+		loadCompletedSessions(0);
 	}
 	if (searchInput) {
 		searchInput.addEventListener('input', function() {
@@ -265,23 +282,15 @@ document.addEventListener('click', function(evt) {
 				currentSearchLimit = 30;
 				if (typeof writeDashboardStateToURL === 'function') writeDashboardStateToURL();
 				loadCompletedSessions(0);
-			} else if (evt.key === 'Escape' && currentSearchQuery !== '') {
+			} else if (evt.key === 'Escape' && isSearchMode()) {
 				evt.preventDefault();
-				clearTimeout(dashboardSearchTimer);
-				dashboardSearchTimer = 0;
-				currentSearchQuery = '';
-				currentCompletedOffset = 0;
-				currentSearchLimit = 30;
-				searchInput.value = '';
-				syncSearchControls();
-				if (typeof writeDashboardStateToURL === 'function') writeDashboardStateToURL();
-				loadCompletedSessions(0);
+				resetSearchFilters();
 			}
 		});
 	}
 	if (searchKind) {
 		searchKind.addEventListener('change', function() {
-			currentSearchEventKind = searchKind.value || '';
+			currentSearchEventKind = searchKind.value || 'event';
 			currentCompletedOffset = 0;
 			currentSearchLimit = 30;
 			syncSearchControls();
@@ -308,20 +317,7 @@ document.addEventListener('click', function(evt) {
 	}
 	if (searchReset) {
 		searchReset.addEventListener('click', function() {
-			currentSearchQuery = '';
-			currentSearchEventKind = '';
-			currentSearchSessionID = '';
-			currentSearchSort = 'relevance';
-			currentSearchLimit = 30;
-			currentCompletedOffset = 0;
-			if (searchInput) searchInput.value = '';
-			if (searchSession) searchSession.value = '';
-			if (searchKind) searchKind.value = '';
-			clearTimeout(dashboardSearchTimer);
-			dashboardSearchTimer = 0;
-			syncSearchControls();
-			if (typeof writeDashboardStateToURL === 'function') writeDashboardStateToURL();
-			loadCompletedSessions(0);
+			resetSearchFilters();
 			focusWithoutScroll(searchInput);
 		});
 	}

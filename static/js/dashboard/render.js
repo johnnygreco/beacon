@@ -169,10 +169,14 @@ function setDashboardConnection(status) {
 
 function isSearchMode() {
 	return currentSearchQuery !== '' ||
-		currentSearchEventKind !== '' ||
+		currentSearchEventKind !== 'session' ||
 		currentSearchSessionID !== '' ||
 		currentSearchSort !== 'relevance' ||
 		currentSearchLimit !== 30;
+}
+
+function dashboardSearchRequestEventKind() {
+	return currentSearchEventKind || 'event';
 }
 
 function setCompletedTableMode(mode) {
@@ -802,7 +806,7 @@ async function loadDashboardSearch(options) {
 	var result = await fetchDashboardJSON('completed', requestURL('/api/dashboard/search', {
 		q: currentSearchQuery,
 		completed_range: completedRangeValue(),
-		event_kind: currentSearchEventKind,
+		event_kind: dashboardSearchRequestEventKind(),
 		session_id: currentSearchSessionID,
 		sort: currentSearchSort,
 		limit: currentSearchLimit

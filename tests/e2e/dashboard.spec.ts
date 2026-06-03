@@ -121,6 +121,23 @@ async function expectDashboardSearchInputInView(page: Page) {
   expect(visible).toBe(true);
 }
 
+async function selectDashboardSearchType(page: Page, type: string) {
+  const current = await page.locator('#dashboard-search-kind').inputValue();
+  if (current === type) return;
+  const response = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('event_kind') === type);
+  await page.locator('#dashboard-search-kind').selectOption(type);
+  await response;
+}
+
+async function fillDashboardEventSearchAndWait(page: Page, value: string) {
+  await selectDashboardSearchType(page, 'event');
+  return fillDashboardSearchAndWait(
+    page,
+    value,
+    (url) => url.searchParams.get('q') === value && url.searchParams.get('event_kind') === 'event',
+  );
+}
+
 async function readActiveSessionGeometry(page: Page) {
   return page.evaluate(() => {
     const panel = document.getElementById('active-sessions');
@@ -420,7 +437,7 @@ test.describe('dashboard battle-tested workflows', () => {
       await expect(page.locator('.dashboard-search-filters')).toHaveAttribute('aria-label', 'Table filters');
       await expect(page.locator('[data-dashboard-table-toolbar]')).toHaveCount(1);
       await expect(page.getByRole('button', { name: 'Refresh completed sessions table' })).toBeVisible();
-      await expect(page.getByLabel('Message type')).toHaveValue('');
+      await expect(page.getByLabel('Table type')).toHaveValue('session');
       await expect(page.locator('[data-search-event-kind]')).toHaveCount(0);
       const shellLayout = await page.evaluate(() => {
         const wrap = document.getElementById('dashboard-wrap')?.getBoundingClientRect();
@@ -1289,15 +1306,17 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(divider).toHaveAttribute('aria-valuenow', '380');
     await expectDashboardTokenChartReady(page);
 
-    await fillDashboardSearchAndWait(page, 'migration');
-    await waitForDashboardSearchRows(page, 2);
+    await fillDashboardEventSearchAndWait(page, 'migration');
+    await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#completed-table-title')).toHaveText('Search Results');
     await expect(page.locator('#completed-session-status')).toHaveText('All time');
     await expect(page.locator('#dashboard-search-clear')).toHaveCount(0);
     await page.keyboard.press('Escape');
     await waitForCompletedRows(page, 30);
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
+    await expect(page.locator('#dashboard-search-kind')).toHaveValue('session');
 
-    await fillDashboardSearchAndWait(page, 'dashboard payload');
+    await fillDashboardEventSearchAndWait(page, 'dashboard payload');
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#completed-session-status')).toHaveText('All time');
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-session-id', SEARCH_SESSION_ID);
@@ -1588,20 +1607,22 @@ test.describe('dashboard battle-tested workflows', () => {
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
 
-    await fillDashboardSearchAndWait(page, 'many');
+    await fillDashboardEventSearchAndWait(page, 'many');
     await waitForDashboardSearchRows(page, 30);
-    const moreResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('limit') === '60');
+    const moreResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'event' && url.searchParams.get('limit') === '60');
     await page.getByRole('button', { name: 'Show more' }).click();
     await moreResponse;
     await waitForDashboardSearchRows(page, 35);
     await page.locator('#completed-sessions a[data-transcript-link]').first().click();
     await expect(page).toHaveURL(/\/sessions\/session-search-/);
     await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', /q=many/);
+    await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', /event_kind=event/);
     await expect(page.locator('.transcript-back-link')).toHaveAttribute('href', /search_limit=60/);
 
     await page.locator('.transcript-back-link').click();
     await expect(page.getByRole('heading', { name: 'Beacon Realtime Dashboard' })).toBeVisible();
     await expect(page.locator('#dashboard-session-search')).toHaveValue('many');
+    await expect(page.locator('#dashboard-search-kind')).toHaveValue('event');
     await waitForDashboardSearchRows(page, 35);
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('search_limit') === '60');
 
@@ -1852,8 +1873,8 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(Date.now() - rangeStart).toBeLessThan(800);
 
     const searchStart = Date.now();
-    await fillDashboardSearchAndWait(page, 'migration');
-    await waitForDashboardSearchRows(page, 2);
+    await fillDashboardEventSearchAndWait(page, 'migration');
+    await waitForDashboardSearchRows(page, 1);
     expect(Date.now() - searchStart).toBeLessThan(800);
 
     const resizeStart = Date.now();

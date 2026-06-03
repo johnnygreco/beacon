@@ -513,8 +513,10 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
   const source = denseSearchFixture || query.toLowerCase() === 'many'
     ? dashboardSearchManyResults(range)
     : dashboardSearchBaseResults();
-  const acceptedKinds = eventKind === 'error' ? new Set(['error', 'tool_error']) : new Set(eventKind ? [eventKind] : []);
-  const eventResults = source.filter((result) => {
+  const acceptedKinds = eventKind === 'error'
+    ? new Set(['error', 'tool_error'])
+    : new Set(eventKind && eventKind !== 'event' && eventKind !== 'session' ? [eventKind] : []);
+  const eventResults = eventKind === 'session' ? [] : source.filter((result) => {
     if (!denseSearchFixture && !dashboardSearchMatchesText(result, query)) return false;
     if (acceptedKinds.size > 0 && !acceptedKinds.has(result.event_kind)) return false;
     if (sessionID && !result.session_id.toLowerCase().startsWith(sessionID)) return false;
@@ -526,11 +528,13 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
     return b.score - a.score;
   });
   const seenSessions = new Set(sortedEvents.map((result) => result.session_id));
-  const sessionResults = query && !eventKind
+  const includeSessionResults = eventKind === 'session' || (query && !eventKind);
+  const sessionResults = includeSessionResults
     ? baseCompletedSessions
       .filter((session) => {
         if (seenSessions.has(session.id)) return false;
         if (sessionID && !session.id.toLowerCase().startsWith(sessionID)) return false;
+        if (!query) return true;
         const haystack = [session.id, session.title, session.last_model, session.working_dir, session.provider].join(' ').toLowerCase();
         return query.toLowerCase().split(/\s+/).filter(Boolean).every((token) => haystack.includes(token));
       })

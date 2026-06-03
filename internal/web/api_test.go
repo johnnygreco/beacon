@@ -148,6 +148,31 @@ func TestDashboardSearchSessionResultFormatsMetadataMatch(t *testing.T) {
 	}
 }
 
+func TestDashboardSearchSessionKindBypassesEventSearcher(t *testing.T) {
+	handlers := &APIHandlers{logger: testLogger()}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/dashboard/search?q=dashboard&event_kind=session", nil)
+	handlers.GetDashboardSearch(w, r)
+
+	var got APIDashboardSearchResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.State != "ready" || got.EventKind != "session" || len(got.Items) != 0 {
+		t.Fatalf("session-kind response = state %q kind %q items %d, want ready/session/0", got.State, got.EventKind, len(got.Items))
+	}
+}
+
+func TestDashboardSearchEventKindMapping(t *testing.T) {
+	if got := dashboardSearchEventKinds("event"); got != nil {
+		t.Fatalf("event kind mapping = %#v, want nil for all events", got)
+	}
+	if got := dashboardSearchEventKinds("session"); got != nil {
+		t.Fatalf("session kind mapping = %#v, want nil synthetic mode", got)
+	}
+}
+
 func TestDashboardSearchMetadataSort(t *testing.T) {
 	tests := []struct {
 		sortBy  string

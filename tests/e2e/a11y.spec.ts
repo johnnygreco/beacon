@@ -102,7 +102,13 @@ test.describe('dashboard accessibility', () => {
   test('has no serious or critical axe violations on dashboard search results', async ({ page }) => {
     await installDashboardFixtures(page);
     await gotoDashboard(page);
-    await fillDashboardSearchAndWait(page, 'many');
+    const typeResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/search' && url.searchParams.get('event_kind') === 'event';
+    });
+    await page.locator('#dashboard-search-kind').selectOption('event');
+    await typeResponse;
+    await fillDashboardSearchAndWait(page, 'many', (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'event');
     await waitForDashboardSearchRows(page, 30);
 
     expect(await axeSeriousOrCritical(page)).toEqual([]);
