@@ -1290,15 +1290,16 @@ test.describe('dashboard battle-tested workflows', () => {
     await expectDashboardTokenChartReady(page);
 
     await fillDashboardSearchAndWait(page, 'migration');
-    await expect(page.locator('#completed-session-status')).toHaveText(/2 search results/);
     await waitForDashboardSearchRows(page, 2);
+    await expect(page.locator('#completed-table-title')).toHaveText('Search Results');
+    await expect(page.locator('#completed-session-status')).toHaveText('All time');
     await expect(page.locator('#dashboard-search-clear')).toHaveCount(0);
     await page.keyboard.press('Escape');
     await waitForCompletedRows(page, 30);
 
     await fillDashboardSearchAndWait(page, 'dashboard payload');
-    await expect(page.locator('#completed-session-status')).toHaveText(/1 search result/);
     await waitForDashboardSearchRows(page, 1);
+    await expect(page.locator('#completed-session-status')).toHaveText('All time');
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-session-id', SEARCH_SESSION_ID);
     await page.keyboard.press('Escape');
     await waitForCompletedRows(page, 30);
@@ -1847,7 +1848,7 @@ test.describe('dashboard battle-tested workflows', () => {
     const rangeStart = Date.now();
     await page.locator('#dashboard-range-control').getByRole('button', { name: '1h' }).click();
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last hour');
-    await expect(page.locator('#completed-session-status')).toContainText('shown');
+    await expect(page.locator('#completed-session-status')).toHaveText('Last hour');
     expect(Date.now() - rangeStart).toBeLessThan(800);
 
     const searchStart = Date.now();

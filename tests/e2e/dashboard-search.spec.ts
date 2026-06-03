@@ -231,9 +231,12 @@ test.describe('dashboard search workflows', () => {
 
     await fillDashboardSearchAndWait(page, 'fixture density');
     await waitForDashboardSearchRows(page, 30);
-    await expect(page.locator('#completed-session-status')).toHaveText(/30\+ search results/);
+    await expect(page.locator('#completed-table-title')).toHaveText('Search Results');
+    await expect(page.locator('#completed-session-status')).toHaveText('Last 24 hours');
+    await expect(page.locator('#completed-session-status')).not.toContainText(/search results?|shown/i);
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Many-result fixture item 1');
     await expect(page.getByRole('button', { name: 'Show more' })).toBeVisible();
+    await expect(page.locator('[data-search-more-row]')).not.toContainText(/Showing/i);
     await expectNoHorizontalOverflow(page);
 
     await triggerDashboardSearchAndWait(
@@ -242,7 +245,7 @@ test.describe('dashboard search workflows', () => {
       (url) => url.searchParams.get('q') === 'fixture density' && url.searchParams.get('limit') === '60',
     );
     await waitForDashboardSearchRows(page, 35);
-    await expect(page.locator('#completed-session-status')).toHaveText('35 search results');
+    await expect(page.locator('#completed-session-status')).toHaveText('Last 24 hours');
     await expect(page.getByRole('button', { name: 'Show more' })).toHaveCount(0);
 
     await guards.expectClean();
@@ -277,7 +280,8 @@ test.describe('dashboard search workflows', () => {
     await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('Last 7 days');
     await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 24 hours');
-    await expect(page.locator('#completed-session-status')).toHaveText('30+ shown for Last 24 hours');
+    await expect(page.locator('#completed-session-status')).toHaveText('Last 24 hours');
+    await expect(page.locator('#completed-session-status')).not.toContainText(/shown|search results?/i);
     await expect(page.locator('#timeline-sidebar .activity-bar-range')).toHaveText('(24h)');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('chart_range') === '7d');
     expect(new URL(page.url()).searchParams.get('range')).toBeNull();
@@ -307,7 +311,7 @@ test.describe('dashboard search workflows', () => {
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 30 days');
     await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('Last 7 days');
     await expect(page.locator('#timeline-sidebar .activity-bar-range')).toHaveText('(30d)');
-    await expect(page.locator('#completed-session-status')).toHaveText('30+ search results');
+    await expect(page.locator('#completed-session-status')).toHaveText('Last 30 days');
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('30d range fixture');
     await expect(page.locator('#activity-feed')).toContainText('30d range fixture');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('range') === '30d');
@@ -506,7 +510,7 @@ test.describe('dashboard search workflows', () => {
     await page.getByRole('button', { name: 'Show more' }).click();
     await moreResponse;
     await waitForDashboardSearchRows(page, 35);
-    await expect(page.locator('#completed-session-status')).toHaveText('35 search results');
+    await expect(page.locator('#completed-session-status')).toHaveText('Last 24 hours');
     await page.evaluate(() => {
       const status = document.getElementById('completed-session-status');
       const rows = document.getElementById('completed-sessions');
@@ -535,7 +539,7 @@ test.describe('dashboard search workflows', () => {
     for (let i = 0; i < 3; i += 1) {
       const refreshResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('limit') === '60');
       await emitDashboardEvent(page, 'completed-sessions-update');
-      await expect(page.locator('#completed-session-status')).toHaveText('35 search results');
+      await expect(page.locator('#completed-session-status')).toHaveText('Last 24 hours');
       await expect(page.locator('#completed-sessions tr[data-search-row]')).toHaveCount(35);
       await refreshResponse;
       await waitForDashboardSearchRows(page, 35);
@@ -556,10 +560,10 @@ test.describe('dashboard search workflows', () => {
       return response.status() === 500 && url.pathname === '/api/dashboard/search' && url.searchParams.get('q') === 'many';
     });
     await emitDashboardEvent(page, 'completed-sessions-update');
-    await expect(page.locator('#completed-session-status')).toHaveText('35 search results');
+    await expect(page.locator('#completed-session-status')).toHaveText('Last 24 hours');
     await expect(page.locator('#completed-sessions tr[data-search-row]')).toHaveCount(35);
     await failedRefresh;
-    await expect(page.locator('#completed-session-status')).toHaveText('35 search results');
+    await expect(page.locator('#completed-session-status')).toHaveText('Last 24 hours');
     await expect(page.locator('#completed-sessions tr[data-search-row]')).toHaveCount(35);
     await expectDashboardScrollNear(page, bottom, 4);
 
@@ -575,6 +579,7 @@ test.describe('dashboard search workflows', () => {
     });
     expect(statusSamples.some((sample) => /searching/i.test(sample))).toBe(false);
     expect(statusSamples.some((sample) => /failed/i.test(sample))).toBe(false);
+    expect(statusSamples.every((sample) => sample === 'Last 24 hours')).toBe(true);
     expect(Math.min(...rowCounts)).toBe(35);
   });
 

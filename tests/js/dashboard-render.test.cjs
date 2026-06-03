@@ -145,6 +145,25 @@ test("active cards and activity feed escape JSON-rendered payloads", () => {
   assert.match(feed.innerHTML, /activity &quot;&gt;&lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
 });
 
+test("activity feed omits refresh-sensitive time labels", () => {
+  const sandbox = loadRenderSandbox();
+  const feed = {};
+  sandbox.document.getElementById = (id) => (id === "activity-feed" ? feed : null);
+  sandbox.renderActivity([{
+    id: "event-1",
+    type: "message",
+    summary: "Stable activity copy",
+    session_id: "session-stable",
+    provider: "openai",
+    timestamp: "2026-05-22T10:00:00Z",
+    relative_time: "3h ago",
+  }]);
+
+  assertNoRawPayloadHTML(feed.innerHTML);
+  assert.match(feed.innerHTML, /Stable activity copy/);
+  assert.doesNotMatch(feed.innerHTML, /3h ago|2026|10:00/);
+});
+
 test("active cards render compact live stats", () => {
   const sandbox = loadRenderSandbox();
   const html = sandbox.activeCard({

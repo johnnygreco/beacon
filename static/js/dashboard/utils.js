@@ -68,6 +68,18 @@
 		});
 	}
 
+	function absoluteTime(value) {
+		var t = value ? new Date(value) : null;
+		if (!t || isNaN(t.getTime())) return '';
+		return t.toLocaleString(undefined, {
+			year: 'numeric',
+			month: 'numeric',
+			day: 'numeric',
+			hour: 'numeric',
+			minute: '2-digit'
+		});
+	}
+
 	function durationSeconds(session) {
 		var start = session && session.started_at ? new Date(session.started_at) : null;
 		var end = session && session.ended_at ? new Date(session.ended_at) : null;
@@ -96,6 +108,7 @@
 		providerShort: providerShort,
 		formatTokens: formatTokens,
 		relativeTime: relativeTime,
+		absoluteTime: absoluteTime,
 		durationSeconds: durationSeconds,
 		requestURL: requestURL
 	};

@@ -43,3 +43,10 @@ test("dashboard relative time is deterministic when a clock is supplied", () => 
   assert.equal(utils.relativeTime("2026-05-22T07:00:00Z", now), "3h ago");
   assert.equal(utils.relativeTime("2026-05-20T10:00:00Z", now), "2d ago");
 });
+
+test("dashboard absolute time does not depend on the current clock", () => {
+  const formatted = utils.absoluteTime("2026-05-22T10:00:00Z");
+  assert.match(formatted, /2026/);
+  assert.doesNotMatch(formatted, /ago|just now/i);
+  assert.equal(utils.absoluteTime("not-a-date"), "");
+});
