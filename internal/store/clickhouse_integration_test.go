@@ -104,6 +104,203 @@ func TestClickHouseResetDropsRowsAndRecreatesTables(t *testing.T) {
 	}
 }
 
+func TestClickHouseRefreshOutdatedProjectionsRepairsMissingAndStaleProjection(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	sessionID := "missing-projection-session"
+	event := models.Event{
+		EventUID:     "evt-missing-projection",
+		SessionID:    sessionID,
+		SourceName:   "claude",
+		Provider:     "anthropic",
+		Format:       "jsonl",
+		EventKind:    "message",
+		ActorRole:    "assistant",
+		Timestamp:    time.Date(2026, 5, 22, 11, 0, 0, 0, time.UTC),
+		TextContent:  "projection repair event",
+		TextPreview:  "projection repair event",
+		OutputTokens: 42,
+		SourceFile:   "repair.jsonl",
+		SourceLineNo: 1,
+	}
+
+	if err := ch.insertActivityEvents(ctx, []models.Event{event}); err != nil {
+		t.Fatalf("insert activity events: %v", err)
+	}
+	refreshed, didRefresh, err := ch.RefreshOutdatedProjections(ctx)
+	if err != nil {
+		t.Fatalf("refresh outdated projections: %v", err)
+	}
+	if !didRefresh || refreshed != 1 {
+		t.Fatalf("refresh outdated projections = count %d refreshed %v, want 1 true", refreshed, didRefresh)
+	}
+
+	var projectedEvents, projectedTokens uint64
+	if err := ch.DB.QueryRowContext(ctx,
+		`SELECT argMax(event_count, updated_at), argMax(total_tokens, updated_at)
+		 FROM session_projection
+		 WHERE session_id = ?`, sessionID).Scan(&projectedEvents, &projectedTokens); err != nil {
+		t.Fatalf("projection query: %v", err)
+	}
+	if projectedEvents != 1 || projectedTokens != 42 {
+		t.Fatalf("projection = events %d tokens %d, want 1 and 42", projectedEvents, projectedTokens)
+	}
+
+	staleEvent := event
+	staleEvent.EventUID = "evt-stale-projection"
+	staleEvent.TextContent = "stale projection event"
+	staleEvent.TextPreview = "stale projection event"
+	staleEvent.OutputTokens = 10
+	if err := ch.insertActivityEvents(ctx, []models.Event{staleEvent}); err != nil {
+		t.Fatalf("insert stale activity event: %v", err)
+	}
+	refreshed, didRefresh, err = ch.RefreshOutdatedProjections(ctx)
+	if err != nil {
+		t.Fatalf("refresh stale projections: %v", err)
+	}
+	if !didRefresh || refreshed != 1 {
+		t.Fatalf("refresh stale projections = count %d refreshed %v, want 1 true", refreshed, didRefresh)
+	}
+	if err := ch.DB.QueryRowContext(ctx,
+		`SELECT argMax(event_count, updated_at), argMax(total_tokens, updated_at)
+		 FROM session_projection
+		 WHERE session_id = ?`, sessionID).Scan(&projectedEvents, &projectedTokens); err != nil {
+		t.Fatalf("stale projection query: %v", err)
+	}
+	if projectedEvents != 2 || projectedTokens != 52 {
+		t.Fatalf("stale projection = events %d tokens %d, want 2 and 52", projectedEvents, projectedTokens)
+	}
+
+	refreshed, didRefresh, err = ch.RefreshOutdatedProjections(ctx)
+	if err != nil {
+		t.Fatalf("second refresh outdated projections: %v", err)
+	}
+	if didRefresh || refreshed != 0 {
+		t.Fatalf("second refresh outdated projections = count %d refreshed %v, want 0 false", refreshed, didRefresh)
+	}
+}
+
+func TestClickHouseRefreshOutdatedSearchIndexRebuildsLegacyDocuments(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	sessionID := "legacy-search-index-session"
+	event := models.Event{
+		EventUID:    "evt-legacy-search-index",
+		SessionID:   sessionID,
+		SourceName:  "claude",
+		Provider:    "anthropic",
+		Format:      "jsonl",
+		EventKind:   "tool_call",
+		ActorRole:   "assistant",
+		Timestamp:   time.Date(2026, 5, 22, 11, 30, 0, 0, time.UTC),
+		TextPreview: "Read",
+		ToolName:    "Read",
+		PayloadJSON: `{"request":"eventpayloadrefresh"}`,
+		SourceFile:  "search.jsonl",
+	}
+	payload := models.ToolPayload{
+		EventUID:     event.EventUID,
+		ToolName:     "Read",
+		ToolPhase:    "call",
+		InputJSON:    `{"file_path":"inputpayloadrefresh.go"}`,
+		OutputJSON:   `{"result":"outputpayloadrefresh"}`,
+		InputPreview: `{"file_path":"preview.go"}`,
+	}
+	legacyDoc := models.SearchDocument{
+		EventUID:       event.EventUID,
+		SessionID:      sessionID,
+		EventKind:      event.EventKind,
+		Timestamp:      event.Timestamp,
+		TextPreview:    event.TextPreview,
+		ToolName:       event.ToolName,
+		Provider:       event.Provider,
+		SearchableText: "legacy search text without payload marker",
+		DocumentLength: 6,
+	}
+
+	if err := ch.insertActivityEvents(ctx, []models.Event{event}); err != nil {
+		t.Fatalf("insert activity event: %v", err)
+	}
+	if err := ch.insertToolPayloads(ctx, []models.ToolPayload{payload}); err != nil {
+		t.Fatalf("insert tool payload: %v", err)
+	}
+	if err := ch.insertSearchDocuments(ctx, []models.SearchDocument{legacyDoc}); err != nil {
+		t.Fatalf("insert legacy search document: %v", err)
+	}
+
+	refreshed, didRefresh, err := ch.RefreshOutdatedSearchIndex(ctx)
+	if err != nil {
+		t.Fatalf("refresh outdated search index: %v", err)
+	}
+	if !didRefresh || refreshed != 1 {
+		t.Fatalf("refresh outdated search index = count %d refreshed %v, want 1 true", refreshed, didRefresh)
+	}
+
+	var indexedText string
+	if err := ch.DB.QueryRowContext(ctx,
+		`SELECT argMax(searchable_text, updated_at)
+		 FROM search_documents
+		 WHERE event_uid = ?`, event.EventUID).Scan(&indexedText); err != nil {
+		t.Fatalf("query refreshed search document: %v", err)
+	}
+	for _, want := range []string{searchIndexVersionMarker, "eventpayloadrefresh", "inputpayloadrefresh.go", "outputpayloadrefresh"} {
+		if !strings.Contains(indexedText, want) {
+			t.Fatalf("refreshed search text missing %q: %s", want, indexedText)
+		}
+	}
+
+	refreshed, didRefresh, err = ch.RefreshOutdatedSearchIndex(ctx)
+	if err != nil {
+		t.Fatalf("second refresh outdated search index: %v", err)
+	}
+	if didRefresh || refreshed != 0 {
+		t.Fatalf("second refresh outdated search index = count %d refreshed %v, want 0 false", refreshed, didRefresh)
+	}
+
+	postingSessionID := "missing-postings-session"
+	postingEvent := models.Event{
+		EventUID:    "evt-missing-postings",
+		SessionID:   postingSessionID,
+		SourceName:  "claude",
+		Provider:    "anthropic",
+		Format:      "jsonl",
+		EventKind:   "message",
+		ActorRole:   "assistant",
+		Timestamp:   time.Date(2026, 5, 22, 11, 31, 0, 0, time.UTC),
+		TextContent: "missingpostingsneedle",
+		TextPreview: "missingpostingsneedle",
+		SourceFile:  "search.jsonl",
+	}
+	if err := ch.insertActivityEvents(ctx, []models.Event{postingEvent}); err != nil {
+		t.Fatalf("insert posting activity event: %v", err)
+	}
+	currentDocs, _ := buildSearchRows([]models.Event{postingEvent}, nil)
+	if len(currentDocs) != 1 {
+		t.Fatalf("current docs = %d, want 1", len(currentDocs))
+	}
+	if err := ch.insertSearchDocuments(ctx, currentDocs); err != nil {
+		t.Fatalf("insert current search document without postings: %v", err)
+	}
+	refreshed, didRefresh, err = ch.RefreshOutdatedSearchIndex(ctx)
+	if err != nil {
+		t.Fatalf("refresh missing search postings: %v", err)
+	}
+	if !didRefresh || refreshed != 2 {
+		t.Fatalf("refresh missing search postings = count %d refreshed %v, want 2 true", refreshed, didRefresh)
+	}
+
+	var postingCount uint64
+	if err := ch.DB.QueryRowContext(ctx,
+		`SELECT count()
+		 FROM search_postings FINAL
+		 WHERE event_uid = ? AND token = 'missingpostingsneedle'`, postingEvent.EventUID).Scan(&postingCount); err != nil {
+		t.Fatalf("query refreshed search postings: %v", err)
+	}
+	if postingCount != 1 {
+		t.Fatalf("missingpostingsneedle posting count = %d, want 1", postingCount)
+	}
+}
+
 func TestClickHouseSchemaVersionRecorded(t *testing.T) {
 	ch := setupLiveClickHouse(t)
 	version, ok, err := DetectSchemaVersion(context.Background(), ch.DB, ch.Database())
@@ -344,12 +541,12 @@ func TestClickHouseFlushRefreshesDeduplicatedProjection(t *testing.T) {
 	var secretDocs uint64
 	if err := ch.DB.QueryRowContext(context.Background(),
 		`SELECT countIf(position(searchable_text, 'SECRET_FULL_ONLY') > 0)
-		 FROM search_documents
+		 FROM search_documents FINAL
 		 WHERE session_id = ?`, sessionID).Scan(&secretDocs); err != nil {
 		t.Fatalf("search document query: %v", err)
 	}
-	if secretDocs != 0 {
-		t.Fatalf("full payload leaked into search_documents: %d docs", secretDocs)
+	if secretDocs != 1 {
+		t.Fatalf("full payload indexed docs = %d, want 1", secretDocs)
 	}
 }
 

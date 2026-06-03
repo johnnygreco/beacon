@@ -90,11 +90,8 @@ func (s *Store) RefreshAllProjections(ctx context.Context, batchSize int) (int, 
 		if len(batch) == 0 {
 			return nil
 		}
-		if err := s.RefreshSessionProjections(ctx, batch); err != nil {
-			return fmt.Errorf("refresh session projections: %w", err)
-		}
-		if err := s.RefreshAnalyticsProjections(ctx, batch); err != nil {
-			return fmt.Errorf("refresh analytics projections: %w", err)
+		if err := s.refreshProjections(ctx, batch); err != nil {
+			return err
 		}
 		total += len(batch)
 		batch = batch[:0]
@@ -120,6 +117,86 @@ func (s *Store) RefreshAllProjections(ctx context.Context, batchSize int) (int, 
 		return total, err
 	}
 	return total, nil
+}
+
+func (s *Store) refreshProjections(ctx context.Context, ids []string) error {
+	if err := s.RefreshSessionProjections(ctx, ids); err != nil {
+		return fmt.Errorf("refresh session projections: %w", err)
+	}
+	if err := s.RefreshAnalyticsProjections(ctx, ids); err != nil {
+		return fmt.Errorf("refresh analytics projections: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) RefreshOutdatedProjections(ctx context.Context) (int, bool, error) {
+	if s == nil || s.DB == nil {
+		return 0, false, nil
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT events.session_id
+		FROM (
+			SELECT projected_session_id AS session_id,
+			       count() AS event_count,
+			       max(latest_captured_at) AS latest_captured_at
+			FROM (
+				SELECT event_uid,
+				       argMax(session_id, captured_at) AS projected_session_id,
+				       max(captured_at) AS latest_captured_at
+				FROM activity_events
+				WHERE session_id != ''
+				GROUP BY event_uid
+			)
+			WHERE projected_session_id != ''
+			GROUP BY projected_session_id
+		) AS events
+		LEFT JOIN (
+			SELECT session_id AS projected_session_id,
+			       event_count AS projected_event_count,
+			       updated_at AS projected_updated_at
+			FROM session_projection FINAL
+			WHERE session_id != ''
+		) AS projected ON events.session_id = projected.projected_session_id
+		WHERE projected.projected_session_id = ''
+		   OR events.event_count != projected.projected_event_count
+		   OR events.latest_captured_at > projected.projected_updated_at`)
+	if err != nil {
+		return 0, false, err
+	}
+	defer rows.Close()
+
+	total := 0
+	batch := make([]string, 0, defaultProjectionRefreshBatch)
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		if err := s.refreshProjections(ctx, batch); err != nil {
+			return err
+		}
+		total += len(batch)
+		batch = batch[:0]
+		return nil
+	}
+
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return total, total > 0, err
+		}
+		batch = append(batch, id)
+		if len(batch) >= defaultProjectionRefreshBatch {
+			if err := flush(); err != nil {
+				return total, total > 0, err
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return total, total > 0, err
+	}
+	if err := flush(); err != nil {
+		return total, total > 0, err
+	}
+	return total, total > 0, nil
 }
 
 func (s *Store) RefreshAnalyticsProjections(ctx context.Context, ids []string) error {

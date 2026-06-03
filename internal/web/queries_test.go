@@ -152,6 +152,24 @@ func TestReopenedSessionPredicatesUseActivityAfterLatestEnd(t *testing.T) {
 	}
 }
 
+func TestCompletedSessionPredicateForQualifiesOnlyOuterColumns(t *testing.T) {
+	predicate := completedSessionPredicateFor("s.ended_at", "s.has_session_end", "s.session_id")
+	for _, fragment := range []string{
+		"s.ended_at < ?",
+		"COALESCE(s.has_session_end, 0) = 1",
+		"NOT (s.session_id IN",
+		"SELECT session_id",
+		"WHERE session_id != ''",
+	} {
+		if !strings.Contains(predicate, fragment) {
+			t.Fatalf("aliased completed predicate missing %q: %s", fragment, predicate)
+		}
+	}
+	if strings.Contains(predicate, "SELECT s.session_id") || strings.Contains(predicate, "WHERE s.session_id") {
+		t.Fatalf("aliased completed predicate leaked outer alias into reopened subquery: %s", predicate)
+	}
+}
+
 func TestRecentActivityKindFilterUsesParameterizedArgs(t *testing.T) {
 	hostile := "message') OR 1=1 --"
 	clause, args := recentActivityKindFilter([]string{" tool_call ", hostile, ""})

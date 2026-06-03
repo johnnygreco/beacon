@@ -17,7 +17,7 @@ Beacon can store the following content from configured capture sources:
   source metadata;
 - full tool input/output payloads when a parser extracts them;
 - text previews and tokenized search documents/postings derived from event text,
-  tool names, paths, models, and tool payload previews;
+  tool names, paths, models, tool payload previews, and bounded payload content;
 - session and analytics projections derived from captured events;
 - search query log rows containing search text, normalized terms, result counts,
   and timing data;

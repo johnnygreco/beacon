@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -551,6 +552,47 @@ func TestCompletedSessionEventSearchSessionIDs_UsesSearchForMultiTokenQuery(t *t
 	}
 }
 
+func TestCompletedSessionEventSearchSessionIDs_SkipsDatabaseFallbackWhenIndexFindsIDs(t *testing.T) {
+	fake := &fakeAPISearcher{
+		results: []search.SearchResult{
+			{SessionID: "session-indexed-001"},
+			{SessionID: "session-indexed-001"},
+			{SessionID: "session-indexed-002"},
+		},
+	}
+	db, queryCalls := newTrackingAPIDB(t)
+	handlers := &APIHandlers{db: db, searcher: fake, logger: testLogger()}
+
+	ids, err := handlers.completedSessionEventSearchSessionIDs(t.Context(), "indexed payload")
+	if err != nil {
+		t.Fatalf("completedSessionEventSearchSessionIDs error: %v", err)
+	}
+	expected := []string{"session-indexed-001", "session-indexed-002"}
+	if fmt.Sprint(ids) != fmt.Sprint(expected) {
+		t.Fatalf("ids = %#v, want %#v", ids, expected)
+	}
+	if got := queryCalls.Load(); got != 0 {
+		t.Fatalf("database fallback calls = %d, want 0", got)
+	}
+}
+
+func TestCompletedSessionEventSearchSessionIDs_FallsBackToDatabaseWhenIndexHasNoIDs(t *testing.T) {
+	fake := &fakeAPISearcher{}
+	db, queryCalls := newTrackingAPIDB(t)
+	handlers := &APIHandlers{db: db, searcher: fake, logger: testLogger()}
+
+	ids, err := handlers.completedSessionEventSearchSessionIDs(t.Context(), "payload only")
+	if err != nil {
+		t.Fatalf("completedSessionEventSearchSessionIDs error: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Fatalf("ids = %#v, want none from empty fallback rows", ids)
+	}
+	if got := queryCalls.Load(); got != 1 {
+		t.Fatalf("database fallback calls = %d, want 1", got)
+	}
+}
+
 func TestCompletedSessionEventSearchSessionIDs_SkipsBlankQueryAndMissingSearcher(t *testing.T) {
 	fake := &fakeAPISearcher{}
 	handlers := &APIHandlers{searcher: fake}
@@ -655,6 +697,8 @@ func newFailingAPIDB(t *testing.T) *sql.DB {
 }
 
 var registerEmptyAPIDriver sync.Once
+var registerTrackingAPIDriver sync.Once
+var trackingAPIQueryCalls atomic.Int32
 
 type emptyAPIDriver struct{}
 
@@ -705,4 +749,43 @@ func newEmptyAPIDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+type trackingAPIDriver struct{}
+
+func (trackingAPIDriver) Open(string) (driver.Conn, error) {
+	return trackingAPIConn{}, nil
+}
+
+type trackingAPIConn struct{}
+
+func (trackingAPIConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("tracking api driver does not prepare statements")
+}
+
+func (trackingAPIConn) Close() error {
+	return nil
+}
+
+func (trackingAPIConn) Begin() (driver.Tx, error) {
+	return nil, errors.New("tracking api driver does not support transactions")
+}
+
+func (trackingAPIConn) QueryContext(context.Context, string, []driver.NamedValue) (driver.Rows, error) {
+	trackingAPIQueryCalls.Add(1)
+	return emptyAPIRows{}, nil
+}
+
+func newTrackingAPIDB(t *testing.T) (*sql.DB, *atomic.Int32) {
+	t.Helper()
+	registerTrackingAPIDriver.Do(func() {
+		sql.Register("beacon_api_tracking", trackingAPIDriver{})
+	})
+	trackingAPIQueryCalls.Store(0)
+	db, err := sql.Open("beacon_api_tracking", "")
+	if err != nil {
+		t.Fatalf("open tracking db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db, &trackingAPIQueryCalls
 }

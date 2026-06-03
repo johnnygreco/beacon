@@ -60,6 +60,24 @@ func runServe(cmd *cobra.Command, args []string) error {
 	}
 	defer ch.Close()
 
+	projectionStart := time.Now()
+	if count, refreshed, err := ch.RefreshOutdatedProjections(context.Background()); err != nil {
+		logger.Warn("session projection refresh failed", "error", err)
+	} else if refreshed {
+		logger.Info("session projections refreshed", "sessions", count, "duration", time.Since(projectionStart))
+	} else {
+		logger.Debug("session projections current", "duration", time.Since(projectionStart))
+	}
+
+	searchIndexStart := time.Now()
+	if count, refreshed, err := ch.RefreshOutdatedSearchIndex(context.Background()); err != nil {
+		logger.Warn("search index refresh failed", "error", err)
+	} else if refreshed {
+		logger.Info("search index refreshed", "events", count, "duration", time.Since(searchIndexStart))
+	} else {
+		logger.Debug("search index current", "duration", time.Since(searchIndexStart))
+	}
+
 	broker := sse.NewBroker(cfg.SSE.SubscriberBuffer, logger)
 	updater := web.NewUpdater(broker, logger)
 

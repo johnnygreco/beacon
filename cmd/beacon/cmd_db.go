@@ -185,7 +185,11 @@ func runDBRefreshProjections(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("refresh projections failed: %w", err)
 	}
-	fmt.Printf("Refreshed projections for %d sessions.\n", count)
+	searchEvents, err := ch.RefreshSearchIndex(context.Background(), 0)
+	if err != nil {
+		return fmt.Errorf("refresh search index failed: %w", err)
+	}
+	fmt.Printf("Refreshed projections for %d sessions and search index for %d events.\n", count, searchEvents)
 	return nil
 }
 

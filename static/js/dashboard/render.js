@@ -1012,7 +1012,7 @@ async function loadCompletedSessions(offset, options) {
 		withDashboardScrollStability(function() {
 			var tbody = document.getElementById('completed-sessions');
 			setHTMLIfChanged(tbody, '<tr><td colspan="10" class="text-center py-4"><span class="text-sm text-red-400">Unable to load completed sessions. <button type="button" class="underline" onclick="loadCompletedSessions(currentCompletedOffset)">Retry</button></span></td></tr>');
-			setTextIfChanged(status, 'Unable to load sessions');
+			setTextIfChanged(status, 'Unable to load completed sessions');
 		}, {completedRegion: true});
 		return;
 	}

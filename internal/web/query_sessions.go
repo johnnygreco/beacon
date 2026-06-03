@@ -70,7 +70,6 @@ func queryActiveSessions(ctx context.Context, db *sql.DB, limit int) []views.Ses
 // Completed sessions are fetched separately with LIMIT+1 to determine hasMore.
 func QueryDashboardSessions(ctx context.Context, db *sql.DB) (active, completed []views.SessionSummary, hasMore bool) {
 	active = QueryActiveSessions(ctx, db)
-	// Fetch completed sessions with LIMIT+1 for hasMore detection
 	completed, hasMore = QueryCompletedSessions(ctx, db, nil, 0, defaultSessionPageSize)
 	return active, completed, hasMore
 }
@@ -163,15 +162,16 @@ func queryCompletedSessionContentMatchIDs(ctx context.Context, db *sql.DB, since
 	if limit <= 0 {
 		limit = completedSessionEventSearchLimit
 	}
-	cutoff := time.Now().Add(-idleThreshold)
 	query := `SELECT e.session_id
 		 FROM activity_events FINAL AS e
 		 INNER JOIN ` + sessionProjectionSQL + ` AS s ON s.session_id = e.session_id
 		 LEFT JOIN tool_payloads FINAL AS tp ON tp.event_uid = e.event_uid
-		 WHERE (s.ended_at < ? OR (COALESCE(s.has_session_end, 0) = 1 AND NOT (s.session_id IN ` + reopenedSessionIDsSubquery() + `)))
-		   AND (s.parent_session_id = '' OR s.parent_session_id IS NULL)
+		 WHERE (s.parent_session_id = '' OR s.parent_session_id IS NULL)
 		   AND e.session_id != ''`
-	args := []any{cutoff, cutoff}
+	var args []any
+	cutoff := time.Now().Add(-idleThreshold)
+	query += ` AND ` + completedSessionPredicateFor("s.ended_at", "s.has_session_end", "s.session_id")
+	args = append(args, cutoff, cutoff)
 	if since != nil {
 		query += " AND s.ended_at >= ?"
 		args = append(args, *since)

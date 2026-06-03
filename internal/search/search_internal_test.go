@@ -132,7 +132,9 @@ func TestSearchBuildsPostingsQueryWithDeterministicRankingAndFilters(t *testing.
 		func(query string, args []driver.NamedValue) (driver.Rows, error) {
 			assertSQLContains(t, query,
 				"FROM search_postings FINAL",
-				"WHERE token IN (?,?)",
+				"INNER JOIN (SELECT event_uid, updated_at FROM search_documents FINAL) AS d ON d.event_uid = p.event_uid",
+				"WHERE p.token IN (?,?)",
+				"AND p.updated_at >= d.updated_at",
 				"AND startsWith(p.session_id, ?)",
 				"AND p.event_kind IN (?,?)",
 				"AND p.timestamp >= ?",
@@ -229,7 +231,7 @@ func TestSearchCachesStatsAcrossSearches(t *testing.T) {
 	rowTime := time.Date(2026, 5, 22, 13, 0, 0, 0, time.UTC)
 	postingsQuery := func(id string) stubQuery {
 		return func(query string, args []driver.NamedValue) (driver.Rows, error) {
-			assertSQLContains(t, query, "FROM search_postings FINAL", "ORDER BY score DESC, timestamp DESC")
+			assertSQLContains(t, query, "FROM search_postings FINAL", "p.updated_at >= d.updated_at", "ORDER BY score DESC, timestamp DESC")
 			assertNamedValues(t, args, []any{float64(2), float64(8), "cache", 0.0, 3})
 			return searchResultDriverRows([]SearchResult{
 				{EventUID: id, SessionID: "session-cache", EventKind: "message", Score: 1.5, Timestamp: rowTime},
@@ -271,7 +273,7 @@ func TestSearchIgnoresQueryLogInsertFailure(t *testing.T) {
 			return newDriverRows([]string{"documents", "avg_doc_len"}, []driver.Value{int64(1), float64(5)}), nil
 		},
 		func(query string, args []driver.NamedValue) (driver.Rows, error) {
-			assertSQLContains(t, query, "FROM search_postings FINAL")
+			assertSQLContains(t, query, "FROM search_postings FINAL", "p.updated_at >= d.updated_at")
 			assertNamedValues(t, args, []any{float64(1), float64(5), "alpha", 0.0, 5})
 			return searchResultDriverRows([]SearchResult{
 				{EventUID: "evt-alpha", SessionID: "session-alpha", EventKind: "message", Score: 1.25, Timestamp: rowTime},

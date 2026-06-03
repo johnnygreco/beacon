@@ -147,6 +147,10 @@ On each flush with activity events, Beacon:
 3. refreshes `session_projection` for the affected session ids;
 4. refreshes `analytics_projection` for the affected session ids.
 
+On startup, Beacon repairs stale or missing projection rows and refreshes the
+derived search index when existing search documents were built by an older index
+format or are missing rows for captured events.
+
 Because the projection tables are derived from `activity_events`, they can be
 dropped and rebuilt from captured source files by resetting the database and
 letting Beacon backfill. They should not be edited by hand.

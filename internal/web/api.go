@@ -209,7 +209,10 @@ func (a *APIHandlers) completedSessionContentSearchSessionIDs(ctx context.Contex
 			firstErr = err
 			a.log().Debug("indexed session content search failed", "error", err)
 		} else {
-			allIDs = append(allIDs, searchResultSessionIDs(results)...)
+			indexedIDs := searchResultSessionIDs(results)
+			if len(indexedIDs) > 0 {
+				return indexedIDs, nil
+			}
 		}
 	}
 	dbSucceeded := false

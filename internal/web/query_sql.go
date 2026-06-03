@@ -130,7 +130,11 @@ func activeSessionPredicate() string {
 }
 
 func completedSessionPredicate() string {
-	return `(ended_at < ? OR (COALESCE(has_session_end, 0) = 1 AND NOT (` + reopenedSessionPredicate() + `)))`
+	return completedSessionPredicateFor("ended_at", "has_session_end", "session_id")
+}
+
+func completedSessionPredicateFor(endedAtExpr, hasSessionEndExpr, sessionIDExpr string) string {
+	return `(` + endedAtExpr + ` < ? OR (COALESCE(` + hasSessionEndExpr + `, 0) = 1 AND NOT (` + sessionIDExpr + ` IN ` + reopenedSessionIDsSubquery() + `)))`
 }
 
 func sessionSummaryColumnsWithReopenedFlag() string {

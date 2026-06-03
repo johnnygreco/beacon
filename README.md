@@ -102,7 +102,9 @@ time range; no search is required to populate the table.
 The completed table defaults to **Sessions** because that is the primary review
 workflow. Use the table controls to filter by range, search text, session ID,
 result type, sort order, and pagination. The table refresh button reloads only
-the completed/search table.
+the completed/search table. Sessions search uses Beacon's indexed session
+content, including event text, session metadata, tool names, payload previews,
+and bounded payload JSON.
 
 Token Analytics has its own range controls, log-scale toggle, model filter,
 metric dropdown, and refresh button. The metric dropdown supports total tokens,
@@ -198,7 +200,7 @@ Manual database commands:
 beacon db up            # start local ClickHouse and migrate tables
 beacon db down          # stop Beacon-managed local ClickHouse
 beacon db migrate       # migrate an already-running ClickHouse
-beacon db refresh-projections # rebuild derived session and analytics projections
+beacon db refresh-projections # rebuild derived projections and search index
 beacon db reset --force # destructive: drop and recreate Beacon tables
 ```
 
@@ -256,7 +258,7 @@ Available tools:
 | `beacon db up` | Start local ClickHouse and migrate tables |
 | `beacon db down` | Stop Beacon-managed local ClickHouse |
 | `beacon db migrate` | Create or update ClickHouse tables |
-| `beacon db refresh-projections` | Rebuild derived session and analytics projections |
+| `beacon db refresh-projections` | Rebuild derived projections and search index |
 | `beacon db reset --force` | Delete Beacon data and recreate tables |
 
 ## Build From Source
