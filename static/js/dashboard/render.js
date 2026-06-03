@@ -107,9 +107,13 @@ function stabilizeCompletedTableRegion(establishFloor) {
 		region.removeAttribute('data-dashboard-height-floor');
 		return;
 	}
+	var floor = parseFloat(region.getAttribute('data-dashboard-height-floor') || '0') || 0;
+	if (!establishFloor && floor > 0) {
+		region.style.minHeight = floor + 'px';
+		return;
+	}
 	region.style.minHeight = '';
 	var height = Math.ceil(region.getBoundingClientRect().height);
-	var floor = parseFloat(region.getAttribute('data-dashboard-height-floor') || '0') || 0;
 	if (establishFloor && height > floor) {
 		region.setAttribute('data-dashboard-height-floor', String(height));
 		floor = height;
@@ -762,7 +766,9 @@ function updateChartRangeCaption(state) {
 
 function setAnalyticsBusy(busy) {
 	var panel = document.querySelector('.dashboard-analytics-panel');
-	if (panel) panel.setAttribute('aria-busy', busy ? 'true' : 'false');
+	if (!panel) return;
+	panel.setAttribute('data-loading', busy ? 'true' : 'false');
+	panel.removeAttribute('aria-busy');
 }
 
 function summaryTile(label, value, sublabel) {

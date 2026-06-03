@@ -1773,8 +1773,8 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#timeline-sidebar').getByRole('button', { name: 'Errors' })).toHaveAttribute('aria-pressed', 'true');
 
     await page.goto('/?range=bogus&chart_range=bogus&chart_metric=bogus&activity_range=bogus&active_sort=bogus&event_kind=bogus&search_sort=bogus&search_limit=999&offset=-1&sort=%3Cscript%3E&dir=sideways&activity=bogus', { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 24 hours');
-    await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-range-caption')).toHaveText('All time');
+    await expect(page.locator('#dashboard-range-control').getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#dashboard-chart-metric')).toHaveValue('total_tokens');
     await expect(page.locator('#active-session-sort')).toHaveValue('recent');

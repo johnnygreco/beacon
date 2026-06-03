@@ -148,12 +148,20 @@ func TestDashboardSearchSessionResultFormatsMetadataMatch(t *testing.T) {
 	}
 }
 
-func TestDashboardSearchSessionKindBypassesEventSearcher(t *testing.T) {
-	handlers := &APIHandlers{logger: testLogger()}
+func TestDashboardSearchSessionKindUsesEventSearcherForMatchingSessionIDs(t *testing.T) {
+	fake := &fakeAPISearcher{results: []search.SearchResult{{SessionID: "session-from-event"}}}
+	handlers := &APIHandlers{searcher: fake, logger: testLogger()}
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/api/dashboard/search?q=dashboard&event_kind=session", nil)
 	handlers.GetDashboardSearch(w, r)
+
+	if fake.searchCalls != 1 || fake.browseCalls != 0 {
+		t.Fatalf("calls search=%d browse=%d, want session search to ask for matching event session IDs", fake.searchCalls, fake.browseCalls)
+	}
+	if fake.query.Query != "dashboard" || fake.query.Limit != completedSessionEventSearchLimit {
+		t.Fatalf("event session query = %#v, want dashboard query with completed session search limit", fake.query)
+	}
 
 	var got APIDashboardSearchResponse
 	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {

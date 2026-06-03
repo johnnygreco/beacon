@@ -294,7 +294,15 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 	}
 	hasMore := len(items) > req.Limit
 	if req.EventKind == "session" || (req.Query != "" && req.EventKind == "") {
-		sessionItems, sessionHasMore := a.dashboardSearchSessionMetadataResults(r.Context(), req.Query, req.Range, req.SessionID, req.SortBy, seenSessions, req.Limit+1)
+		var eventSessionIDs []string
+		if req.EventKind == "session" {
+			eventSessionIDs, err = a.completedSessionEventSearchSessionIDs(r.Context(), req.Query)
+			if err != nil {
+				a.internalError(w, "search failed", err)
+				return
+			}
+		}
+		sessionItems, sessionHasMore := a.dashboardSearchSessionMetadataResults(r.Context(), req.Query, req.Range, req.SessionID, req.SortBy, seenSessions, eventSessionIDs, req.Limit+1)
 		if sessionHasMore {
 			hasMore = true
 		}
@@ -344,13 +352,13 @@ func dashboardSearchSnippet(result search.SearchResult) string {
 	return snippet
 }
 
-func (a *APIHandlers) dashboardSearchSessionMetadataResults(ctx context.Context, query, rangeVal, sessionIDPrefix, sortBy string, seenSessions map[string]struct{}, limit int) ([]APIDashboardSearchResult, bool) {
+func (a *APIHandlers) dashboardSearchSessionMetadataResults(ctx context.Context, query, rangeVal, sessionIDPrefix, sortBy string, seenSessions map[string]struct{}, eventSessionIDs []string, limit int) ([]APIDashboardSearchResult, bool) {
 	if a.db == nil || limit <= 0 {
 		return nil, false
 	}
 	fetchLimit := limit + len(seenSessions) + 1
 	sortKey, sortAsc := dashboardSearchMetadataSort(sortBy)
-	sessions, storeHasMore := queryCompletedSessionsFiltered(ctx, a.db, parseRange(rangeVal), 0, fetchLimit, query, nil, sortKey, sortAsc, sessionIDPrefix)
+	sessions, storeHasMore := queryCompletedSessionsFiltered(ctx, a.db, parseRange(rangeVal), 0, fetchLimit, query, eventSessionIDs, sortKey, sortAsc, sessionIDPrefix)
 	items := make([]APIDashboardSearchResult, 0, min(limit, len(sessions)))
 	for _, session := range sessions {
 		if _, ok := seenSessions[session.ID]; ok {

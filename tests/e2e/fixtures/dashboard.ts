@@ -566,7 +566,10 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
         if (sessionID && !session.id.toLowerCase().startsWith(sessionID)) return false;
         if (!query) return true;
         const haystack = [session.id, session.title, session.last_model, session.working_dir, session.provider].join(' ').toLowerCase();
-        return query.toLowerCase().split(/\s+/).filter(Boolean).every((token) => haystack.includes(token));
+        const queryTokens = query.toLowerCase().split(/\s+/).filter(Boolean);
+        const indexedEventText = session.id === TEST_SESSION_ID ? 'read dashboard fixture payload migration' : '';
+        return queryTokens.every((token) => haystack.includes(token)) ||
+          queryTokens.every((token) => indexedEventText.includes(token));
       })
       .map((session) => ({
         result_type: 'session',
