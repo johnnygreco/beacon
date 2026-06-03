@@ -1,8 +1,13 @@
 package web
 
 import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
 	"fmt"
+	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -283,6 +288,16 @@ func TestBuildDashboardModelCharts_TokenBucketsAndActivity(t *testing.T) {
 	}
 }
 
+func TestQueryDashboardModelAnalytics_PlottableIncludesCacheReadTokens(t *testing.T) {
+	db := newDashboardQueryCaptureDB(t)
+	QueryDashboardModelAnalytics(context.Background(), db, nil, "24h")
+
+	query := capturedDashboardModelAnalyticsQuery()
+	if !strings.Contains(query, "OR cache_read_tokens != 0") {
+		t.Fatalf("dashboard model analytics should plot cache-read-only rows, got query:\n%s", query)
+	}
+}
+
 func TestDashboardBucketMinutes(t *testing.T) {
 	cases := map[string]int{
 		"1h":  1,
@@ -296,6 +311,76 @@ func TestDashboardBucketMinutes(t *testing.T) {
 			t.Fatalf("dashboardBucketMinutes(%q) = %d, want %d", rangeVal, got, want)
 		}
 	}
+}
+
+var (
+	registerDashboardQueryCaptureDriver sync.Once
+	dashboardQueryCaptureMu             sync.Mutex
+	dashboardQueryCaptureSQL            string
+)
+
+type dashboardQueryCaptureDriver struct{}
+
+func (dashboardQueryCaptureDriver) Open(string) (driver.Conn, error) {
+	return dashboardQueryCaptureConn{}, nil
+}
+
+type dashboardQueryCaptureConn struct{}
+
+func (dashboardQueryCaptureConn) Prepare(string) (driver.Stmt, error) {
+	return nil, fmt.Errorf("dashboard query capture driver does not prepare statements")
+}
+
+func (dashboardQueryCaptureConn) Close() error {
+	return nil
+}
+
+func (dashboardQueryCaptureConn) Begin() (driver.Tx, error) {
+	return nil, fmt.Errorf("dashboard query capture driver does not support transactions")
+}
+
+func (dashboardQueryCaptureConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+	dashboardQueryCaptureMu.Lock()
+	dashboardQueryCaptureSQL = query
+	dashboardQueryCaptureMu.Unlock()
+	return dashboardQueryCaptureRows{}, nil
+}
+
+type dashboardQueryCaptureRows struct{}
+
+func (dashboardQueryCaptureRows) Columns() []string {
+	return []string{"bucket", "provider_key", "model_key", "tokens", "input_tokens", "output_tokens", "cache_read_tokens", "tool_calls", "calls", "errors"}
+}
+
+func (dashboardQueryCaptureRows) Close() error {
+	return nil
+}
+
+func (dashboardQueryCaptureRows) Next([]driver.Value) error {
+	return io.EOF
+}
+
+func newDashboardQueryCaptureDB(t *testing.T) *sql.DB {
+	t.Helper()
+	registerDashboardQueryCaptureDriver.Do(func() {
+		sql.Register("beacon_dashboard_query_capture", dashboardQueryCaptureDriver{})
+	})
+	dashboardQueryCaptureMu.Lock()
+	dashboardQueryCaptureSQL = ""
+	dashboardQueryCaptureMu.Unlock()
+
+	db, err := sql.Open("beacon_dashboard_query_capture", "")
+	if err != nil {
+		t.Fatalf("open dashboard query capture db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+func capturedDashboardModelAnalyticsQuery() string {
+	dashboardQueryCaptureMu.Lock()
+	defer dashboardQueryCaptureMu.Unlock()
+	return dashboardQueryCaptureSQL
 }
 
 func TestBuildChatTurns_SingleUserMessage(t *testing.T) {

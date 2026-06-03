@@ -187,6 +187,7 @@ func QueryDashboardModelAnalytics(ctx context.Context, db *sql.DB, since *time.T
 			  AND model_key != '<synthetic>'
 			  AND (
 				total_tokens != 0
+				OR cache_read_tokens != 0
 				OR call_count != 0
 				OR tool_call_count != 0
 				OR event_kind IN ('error', 'tool_error')

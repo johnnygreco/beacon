@@ -398,7 +398,7 @@ test("dashboard chart metric helpers select model activity series", () => {
     },
     model_activity: {
       labels: ["2026-06-02T10:00:00Z"],
-      summary: { total_tokens: 10 },
+      summary: { total_tokens: 10, call_count: 8, error_count: 0 },
       time_unit: "hour",
       bucket_minutes: 60,
       metrics: {
@@ -410,7 +410,7 @@ test("dashboard chart metric helpers select model activity series", () => {
         error_rate: {
           label: "Error Rate",
           unit: "%",
-          datasets: [{ label: "gpt", values: [12.5], error_count: 1, call_count: 8 }],
+          datasets: [{ label: "gpt", values: [0, 0], error_count: 0, call_count: 8 }],
         },
       },
     },
@@ -426,7 +426,14 @@ test("dashboard chart metric helpers select model activity series", () => {
   sandbox.currentChartMetric = "error_rate";
   const rate = sandbox.dashboardMetricPayload(payload);
   assert.equal(rate.unit, "%");
-  assert.deepEqual(rate.datasets[0].values, [12.5]);
+  assert.deepEqual(rate.datasets[0].values, [0, 0]);
+  assert.equal(sandbox.dashboardMetricHasSeriesData(rate), true);
+  assert.equal(sandbox.dashboardMetricHasSeriesData({
+    metric: "error_rate",
+    unit: "%",
+    summary: { call_count: 0, error_count: 0 },
+    datasets: [{ values: [0, 0] }],
+  }), false);
 
   sandbox.currentChartMetric = "cache_read_tokens";
   const missing = sandbox.dashboardMetricPayload(payload);

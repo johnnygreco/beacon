@@ -828,6 +828,7 @@ function emptyDashboardMetricPayload(payload, metric) {
 		summary: tokenChart.summary || modelActivity.summary || {},
 		time_unit: tokenChart.time_unit || modelActivity.time_unit || 'hour',
 		bucket_minutes: tokenChart.bucket_minutes || modelActivity.bucket_minutes || 60,
+		metric: metric,
 		label: chartMetricLabel(metric),
 		unit: chartMetricUnit(metric)
 	};
@@ -840,6 +841,7 @@ function dashboardMetricPayload(payload) {
 	if (metric === 'total_tokens') {
 		selected = payload.token_cumulative || {};
 		return Object.assign({}, selected, {
+			metric: metric,
 			label: chartMetricLabel(metric),
 			unit: chartMetricUnit(metric)
 		});
@@ -853,6 +855,7 @@ function dashboardMetricPayload(payload) {
 		summary: modelActivity.summary || (payload.token_cumulative && payload.token_cumulative.summary) || {},
 		time_unit: modelActivity.time_unit || (payload.token_cumulative && payload.token_cumulative.time_unit) || 'hour',
 		bucket_minutes: modelActivity.bucket_minutes || (payload.token_cumulative && payload.token_cumulative.bucket_minutes) || 60,
+		metric: metric,
 		label: series.label || chartMetricLabel(metric),
 		unit: series.unit || chartMetricUnit(metric)
 	};
@@ -860,9 +863,20 @@ function dashboardMetricPayload(payload) {
 
 function dashboardMetricHasSeriesData(metricPayload) {
 	var datasets = metricPayload && metricPayload.datasets ? metricPayload.datasets : [];
-	return datasets.some(function(dataset) {
+	var hasPositiveValue = datasets.some(function(dataset) {
 		var points = dataset.data || dataset.values || [];
 		return points.some(function(value) { return chartPointValue(value) > 0; });
+	});
+	if (hasPositiveValue) return true;
+	var metric = metricPayload && metricPayload.metric ? metricPayload.metric : chartMetricValue();
+	if (metric !== 'error_rate' && !(metricPayload && metricPayload.unit === '%')) return false;
+	var summary = metricPayload && metricPayload.summary ? metricPayload.summary : {};
+	var summaryAttempts = numericValue(summary.call_count, 0) + numericValue(summary.error_count, 0);
+	if (summaryAttempts > 0) return true;
+	return datasets.some(function(dataset) {
+		var points = dataset.data || dataset.values || [];
+		var attempts = numericValue(dataset.call_count, dataset.callCount || 0) + numericValue(dataset.error_count, dataset.errorCount || 0);
+		return points.length > 0 && attempts > 0;
 	});
 }
 
