@@ -413,10 +413,11 @@ function renderActive(response) {
 		var count = items.length ? '<span class="text-xs font-normal text-gray-500">(' + items.length + ')</span>' : '';
 		var sorted = sortActiveSessions(items);
 		var pinned = currentActiveSessionPinnedIDs(sorted);
-		var cards = sorted.map(function(session) {
+		var cards = sorted.map(function(session, index) {
 			return activeCard(session, {
 				pinnedIndex: pinned.indexOf(session.id),
-				pinnedCount: pinned.length
+				orderIndex: index,
+				orderCount: sorted.length
 			});
 		}).join('');
 		if (!cards) {
@@ -468,6 +469,11 @@ function currentActiveSessionPinnedIDs(items) {
 	return [];
 }
 
+function currentActiveSessionOrderIDs(items) {
+	if (typeof activeSessionOrderIDs === 'function') return activeSessionOrderIDs(items);
+	return [];
+}
+
 function activeDurationFromLabel(session) {
 	var total = 0;
 	String(session && session.duration || '').replace(/(\d+)\s*([hms])/g, function(_, amount, unit) {
@@ -516,13 +522,23 @@ function sortActiveSessions(items) {
 	var pinned = pinnedIDs.map(function(id) {
 		return byID[id];
 	}).filter(validSession);
-	if (pinned.length === 0) return unpinned;
-	return pinned.concat(unpinned);
+	var sorted = pinned.length === 0 ? unpinned : pinned.concat(unpinned);
+	var orderIDs = currentActiveSessionOrderIDs(items);
+	if (orderIDs.length === 0) return sorted;
+	var orderedLookup = {};
+	var ordered = orderIDs.map(function(id) {
+		orderedLookup[id] = true;
+		return byID[id];
+	}).filter(validSession);
+	return ordered.concat(sorted.filter(function(session) {
+		return !orderedLookup[session.id];
+	}));
 }
 
 function setActiveSessionSort(value) {
 	var sorts = activeSortValues();
 	currentActiveSort = sorts.indexOf(value) >= 0 ? value : 'recent';
+	if (typeof clearActiveSessionManualOrder === 'function') clearActiveSessionManualOrder();
 	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 	loadActiveSessions();
 }
@@ -578,13 +594,17 @@ function activeSessionActionButton(action, session, label, title, disabled, acti
 function activeSessionActions(session, context) {
 	context = context || {};
 	var pinnedIndex = typeof context.pinnedIndex === 'number' ? context.pinnedIndex : -1;
-	var pinnedCount = typeof context.pinnedCount === 'number' ? context.pinnedCount : 0;
+	var orderIndex = typeof context.orderIndex === 'number' ? context.orderIndex : -1;
+	var orderCount = typeof context.orderCount === 'number' ? context.orderCount : 0;
 	var pinned = pinnedIndex >= 0;
 	var title = sessionTitle(session);
+	var moveButtons = orderCount > 1
+		? activeSessionActionButton('move-up', session, 'Move session up: ' + title, 'Move session up', orderIndex <= 0, false, 'up') +
+			activeSessionActionButton('move-down', session, 'Move session down: ' + title, 'Move session down', orderIndex < 0 || orderIndex >= orderCount - 1, false, 'down')
+		: '';
 	return '<div class="active-session-actions" aria-label="Active session row controls">' +
 		activeSessionActionButton('toggle-pin', session, (pinned ? 'Unpin ' : 'Pin ') + title, pinned ? 'Unpin session' : 'Pin to top', false, pinned, 'pin') +
-		activeSessionActionButton('move-up', session, 'Move pinned session up: ' + title, 'Move pinned session up', !pinned || pinnedIndex === 0, false, 'up') +
-		activeSessionActionButton('move-down', session, 'Move pinned session down: ' + title, 'Move pinned session down', !pinned || pinnedIndex === pinnedCount - 1, false, 'down') +
+		moveButtons +
 		'</div>';
 }
 

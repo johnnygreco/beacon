@@ -186,8 +186,8 @@ test("active cards render compact live stats", () => {
   assertNoRawPayloadHTML(html);
   assert.match(html, /active-session-tracker/);
   assert.match(html, /data-active-session-action="toggle-pin"/);
-  assert.match(html, /data-active-session-action="move-up"/);
-  assert.match(html, /data-active-session-action="move-down"/);
+  assert.doesNotMatch(html, /data-active-session-action="move-up"/);
+  assert.doesNotMatch(html, /data-active-session-action="move-down"/);
   assert.doesNotMatch(html, /CTX/);
   assert.doesNotMatch(html, /active-context/);
   assert.doesNotMatch(html, /data-context-state/);
@@ -289,7 +289,13 @@ test("pinned active sessions render above sorted unpinned sessions", () => {
     ["active-c", "active-a", "active-b"],
   );
 
-  const pinned = sandbox.activeCard(sessions[2], { pinnedIndex: 0, pinnedCount: 2 });
+  sandbox.activeSessionOrderIDs = () => ["active-b", "active-c"];
+  assert.deepEqual(
+    Array.from(sandbox.sortActiveSessions(sessions).map((session) => session.id)),
+    ["active-b", "active-c", "active-a"],
+  );
+
+  const pinned = sandbox.activeCard(sessions[2], { pinnedIndex: 0, orderIndex: 0, orderCount: 2 });
   assert.match(pinned, /data-active-pinned="true"/);
   assert.match(pinned, /aria-label="Unpin/);
   assert.match(pinned, /data-active-session-action="move-down"/);

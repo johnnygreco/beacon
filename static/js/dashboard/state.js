@@ -24,7 +24,7 @@ var searchLimitSteps = [30, 60, 120, 240];
 var dashboardURLWriteTimer = 0;
 var pendingDashboardReturnScroll = null;
 var activeSessionPrefsKey = 'beacon-active-session-prefs-v1';
-var activeSessionPrefs = {pinned: []};
+var activeSessionPrefs = {pinned: [], order: []};
 var lastActiveSessionsResponse = null;
 var lastDashboardChartsPayload = null;
 window.dashboardSessionIndex = window.dashboardSessionIndex || {};
@@ -71,17 +71,21 @@ function normalizeSessionIDList(ids) {
 
 function readActiveSessionPrefs() {
 	var raw = dashboardLocalStorageGet(activeSessionPrefsKey);
-	if (!raw) return {pinned: []};
+	if (!raw) return {pinned: [], order: []};
 	try {
 		var parsed = JSON.parse(raw);
-		return {pinned: normalizeSessionIDList(parsed && parsed.pinned)};
+		return {
+			pinned: normalizeSessionIDList(parsed && parsed.pinned),
+			order: normalizeSessionIDList(parsed && parsed.order)
+		};
 	} catch (err) {
-		return {pinned: []};
+		return {pinned: [], order: []};
 	}
 }
 
 function saveActiveSessionPrefs() {
 	activeSessionPrefs.pinned = normalizeSessionIDList(activeSessionPrefs.pinned);
+	activeSessionPrefs.order = normalizeSessionIDList(activeSessionPrefs.order);
 	dashboardLocalStorageSet(activeSessionPrefsKey, JSON.stringify(activeSessionPrefs));
 }
 
@@ -94,6 +98,19 @@ function activeSessionPinnedIDs(items) {
 		});
 	}
 	return normalizeSessionIDList(activeSessionPrefs.pinned).filter(function(id) {
+		return !available || !!available[id];
+	});
+}
+
+function activeSessionOrderIDs(items) {
+	var available = null;
+	if (Array.isArray(items)) {
+		available = {};
+		items.forEach(function(session) {
+			if (session && session.id) available[session.id] = true;
+		});
+	}
+	return normalizeSessionIDList(activeSessionPrefs.order).filter(function(id) {
 		return !available || !!available[id];
 	});
 }
@@ -118,20 +135,43 @@ function toggleActiveSessionPin(id) {
 		pinned.unshift(id);
 	}
 	activeSessionPrefs.pinned = pinned;
+	activeSessionPrefs.order = [];
+	saveActiveSessionPrefs();
+}
+
+function sortedActiveSessionIDsForMove(items) {
+	items = Array.isArray(items) ? items : [];
+	var sorted = typeof sortActiveSessions === 'function' ? sortActiveSessions(items) : items;
+	return sorted.map(function(session) {
+		return session && session.id ? String(session.id) : '';
+	}).filter(function(id) {
+		return id !== '';
+	});
+}
+
+function moveActiveSession(id, direction) {
+	id = String(id || '').trim();
+	if (!id) return;
+	var delta = direction === 'down' ? 1 : -1;
+	var ids = sortedActiveSessionIDsForMove(lastActiveSessionItems());
+	var index = ids.indexOf(id);
+	var next = index + delta;
+	if (index < 0 || next < 0 || next >= ids.length) return;
+	var swap = ids[next];
+	ids[next] = ids[index];
+	ids[index] = swap;
+	activeSessionPrefs.pinned = activeSessionPinnedIDs(lastActiveSessionItems());
+	activeSessionPrefs.order = ids;
 	saveActiveSessionPrefs();
 }
 
 function movePinnedActiveSession(id, direction) {
-	id = String(id || '').trim();
-	var delta = direction === 'down' ? 1 : -1;
-	var pinned = activeSessionPinnedIDs(lastActiveSessionItems());
-	var index = pinned.indexOf(id);
-	var next = index + delta;
-	if (index < 0 || next < 0 || next >= pinned.length) return;
-	var swap = pinned[next];
-	pinned[next] = pinned[index];
-	pinned[index] = swap;
-	activeSessionPrefs.pinned = pinned;
+	moveActiveSession(id, direction);
+}
+
+function clearActiveSessionManualOrder() {
+	if (!activeSessionPrefs.order || activeSessionPrefs.order.length === 0) return;
+	activeSessionPrefs.order = [];
 	saveActiveSessionPrefs();
 }
 
