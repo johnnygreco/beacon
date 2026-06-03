@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/johnnygreco/beacon/internal/textindex"
 	"github.com/johnnygreco/beacon/internal/views"
 )
 
@@ -152,6 +153,100 @@ func completedSessionIDPrefixClause(prefix string) (string, []any) {
 		return "", nil
 	}
 	return " AND positionCaseInsensitive(session_id, ?) = 1", []any{prefix}
+}
+
+func queryCompletedSessionContentMatchIDs(ctx context.Context, db *sql.DB, since *time.Time, searchText, sessionIDPrefix string, limit int) ([]string, error) {
+	searchText = strings.TrimSpace(searchText)
+	if db == nil || searchText == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = completedSessionEventSearchLimit
+	}
+	cutoff := time.Now().Add(-idleThreshold)
+	query := `SELECT e.session_id
+		 FROM activity_events FINAL AS e
+		 INNER JOIN ` + sessionProjectionSQL + ` AS s ON s.session_id = e.session_id
+		 LEFT JOIN tool_payloads FINAL AS tp ON tp.event_uid = e.event_uid
+		 WHERE (s.ended_at < ? OR (COALESCE(s.has_session_end, 0) = 1 AND NOT (s.session_id IN ` + reopenedSessionIDsSubquery() + `)))
+		   AND (s.parent_session_id = '' OR s.parent_session_id IS NULL)
+		   AND e.session_id != ''`
+	args := []any{cutoff, cutoff}
+	if since != nil {
+		query += " AND s.ended_at >= ?"
+		args = append(args, *since)
+	}
+	if sessionIDPrefix = strings.TrimSpace(sessionIDPrefix); sessionIDPrefix != "" {
+		query += " AND positionCaseInsensitive(s.session_id, ?) = 1"
+		args = append(args, sessionIDPrefix)
+	}
+	contentColumns := []string{
+		"COALESCE(s.session_id, '')",
+		"COALESCE(s.source_name, '')",
+		"COALESCE(s.provider, '')",
+		"COALESCE(s.last_model, '')",
+		"COALESCE(s.working_dir, '')",
+		"COALESCE(e.text_content, '')",
+		"COALESCE(e.text_preview, '')",
+		"COALESCE(e.tool_name, '')",
+		"COALESCE(e.error_code, '')",
+		"COALESCE(e.error_message, '')",
+		"COALESCE(e.cwd, '')",
+		"COALESCE(e.payload_json, '')",
+		"COALESCE(tp.input_preview, '')",
+		"COALESCE(tp.output_preview, '')",
+		"COALESCE(tp.input_json, '')",
+		"COALESCE(tp.output_json, '')",
+	}
+	for _, term := range completedSessionContentSearchTerms(searchText) {
+		clauses := make([]string, 0, len(contentColumns))
+		for _, column := range contentColumns {
+			clauses = append(clauses, "positionCaseInsensitive("+column+", ?) > 0")
+			args = append(args, term)
+		}
+		query += " AND (" + strings.Join(clauses, " OR ") + ")"
+	}
+	query += " GROUP BY e.session_id ORDER BY max(s.ended_at) DESC, e.session_id DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return ids, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func completedSessionContentSearchTerms(searchText string) []string {
+	tokens := textindex.Tokenize(searchText)
+	if len(tokens) == 0 {
+		return []string{searchText}
+	}
+	terms := make([]string, 0, len(tokens))
+	seen := make(map[string]struct{}, len(tokens))
+	for _, token := range tokens {
+		if token == "" {
+			continue
+		}
+		if _, ok := seen[token]; ok {
+			continue
+		}
+		seen[token] = struct{}{}
+		terms = append(terms, token)
+	}
+	if len(terms) == 0 {
+		return []string{searchText}
+	}
+	return terms
 }
 
 func completedSessionsOrderBy(sortKey string, asc bool) string {

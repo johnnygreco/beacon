@@ -140,7 +140,7 @@ templ Dashboard(data views.DashboardData) {
 							<div class="dashboard-panel-heading dashboard-analytics-heading">
 								<div class="min-w-0">
 									<h2 id="dashboard-analytics-title" class="text-sm font-medium text-gray-400 uppercase tracking-wide">Token Analytics</h2>
-									<p id="dashboard-chart-range-caption" class="text-xs text-gray-600 mt-1" aria-live="polite">Last 24 hours</p>
+									<p id="dashboard-chart-range-caption" class="text-xs text-gray-600 mt-1" aria-live="polite">All time</p>
 								</div>
 								<div class="dashboard-chart-controls">
 									<label class="dashboard-search-select-wrap dashboard-chart-metric-wrap">
@@ -156,9 +156,9 @@ templ Dashboard(data views.DashboardData) {
 										</select>
 									</label>
 									<div id="dashboard-chart-range-control" class="dashboard-search-filter-group dashboard-chart-range-control" role="group" aria-label="Token analytics time range">
-										<button type="button" onclick="setDashboardChartRange(this, '')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">All</button>
+										<button type="button" onclick="setDashboardChartRange(this, '')" aria-pressed="true" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
 										<button type="button" onclick="setDashboardChartRange(this, '1h')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">1h</button>
-										<button type="button" onclick="setDashboardChartRange(this, '24h')" aria-pressed="true" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">24h</button>
+										<button type="button" onclick="setDashboardChartRange(this, '24h')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">24h</button>
 										<button type="button" onclick="setDashboardChartRange(this, '7d')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">7d</button>
 										<button type="button" onclick="setDashboardChartRange(this, '30d')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">30d</button>
 									</div>

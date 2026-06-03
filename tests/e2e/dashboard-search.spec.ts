@@ -9,16 +9,19 @@ import {
   expectDashboardScrollStableDuring,
   expectNoHorizontalOverflow,
   fillDashboardSearchAndWait,
+  fillDashboardSessionSearchAndWait,
   gotoDashboard,
   installDashboardFixtures,
   readCompletedRegionMetrics,
   readDashboardScroll,
   scrollDashboardMainToSearch,
   triggerDashboardSearchAndWait,
+  triggerDashboardSessionsAndWait,
   waitForDashboardSearchRequest,
   waitForCompletedRows,
   waitForDashboardSearchResponse,
   waitForDashboardSearchRows,
+  waitForDashboardSessionsResponse,
 } from './fixtures/dashboard';
 
 async function gotoDashboardSearch(page: Page) {
@@ -206,36 +209,36 @@ test.describe('dashboard search workflows', () => {
     expect(searchRequests).toEqual([]);
   });
 
-  test('hydrates direct session search URLs as session search results', async ({ page }) => {
+  test('hydrates direct session search URLs as filtered session rows', async ({ page }) => {
     await installDashboardFixtures(page);
     const query = 'claude-sonnet-4-super-long-model-name';
-    const searchResponse = waitForDashboardSearchResponse(page, (url) =>
+    const sessionsResponse = waitForDashboardSessionsResponse(page, (url) =>
       url.searchParams.get('q') === query &&
-      url.searchParams.get('event_kind') === 'session'
+      url.searchParams.get('state') === 'completed'
     );
 
     await page.goto(`/?q=${encodeURIComponent(query)}&event_kind=session`, { waitUntil: 'domcontentloaded' });
-    await searchResponse;
+    await sessionsResponse;
     await expect(page.locator('#dashboard-search-kind')).toHaveValue('session');
-    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'search');
-    await waitForDashboardSearchRows(page, 1);
-    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-event-kind', 'session');
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
+    await waitForCompletedRows(page, 1);
+    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-model', 'claude-sonnet-4-super-long-model-name');
   });
 
-  test('hydrates direct query URLs as default session search results', async ({ page }) => {
+  test('hydrates direct query URLs as default filtered session rows', async ({ page }) => {
     await installDashboardFixtures(page);
     const query = 'claude-sonnet-4-super-long-model-name';
-    const searchResponse = waitForDashboardSearchResponse(page, (url) =>
+    const sessionsResponse = waitForDashboardSessionsResponse(page, (url) =>
       url.searchParams.get('q') === query &&
-      url.searchParams.get('event_kind') === 'session'
+      url.searchParams.get('state') === 'completed'
     );
 
     await page.goto(`/?q=${encodeURIComponent(query)}`, { waitUntil: 'domcontentloaded' });
-    await searchResponse;
+    await sessionsResponse;
     await expect(page.locator('#dashboard-search-kind')).toHaveValue('session');
-    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'search');
-    await waitForDashboardSearchRows(page, 1);
-    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-event-kind', 'session');
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
+    await waitForCompletedRows(page, 1);
+    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-model', 'claude-sonnet-4-super-long-model-name');
   });
 
   test('searches full session contents while table type remains Sessions', async ({ page }) => {
@@ -243,17 +246,16 @@ test.describe('dashboard search workflows', () => {
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
 
-    await fillDashboardSearchAndWait(
+    await fillDashboardSessionSearchAndWait(
       page,
       'read dashboard fixture payload',
-      (url) => url.searchParams.get('q') === 'read dashboard fixture payload' && url.searchParams.get('event_kind') === 'session',
+      (url) => url.searchParams.get('q') === 'read dashboard fixture payload' && url.searchParams.get('state') === 'completed',
     );
 
     await expect(page.locator('#dashboard-search-kind')).toHaveValue('session');
-    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'search');
-    await waitForDashboardSearchRows(page, 1);
-    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-event-kind', 'session');
-    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-session-id', TEST_SESSION_ID);
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
+    await waitForCompletedRows(page, 1);
+    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-session-link', `/sessions/${TEST_SESSION_ID}`);
   });
 
   test('exercises query, filters, clearing, reset, and pagination', async ({ page }) => {
@@ -267,15 +269,14 @@ test.describe('dashboard search workflows', () => {
     await page.keyboard.press('/');
     await expect(page.locator('#dashboard-session-search')).toBeFocused();
 
-    await fillDashboardSearchAndWait(
+    await fillDashboardSessionSearchAndWait(
       page,
       'claude-sonnet-4-super-long-model-name',
-      (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name' && url.searchParams.get('event_kind') === 'session',
+      (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name' && url.searchParams.get('state') === 'completed',
     );
-    await waitForDashboardSearchRows(page, 1);
-    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'search');
-    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-event-kind', 'session');
-    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Session metadata');
+    await waitForCompletedRows(page, 1);
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
+    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-model', 'claude-sonnet-4-super-long-model-name');
     await expect(page.locator('#dashboard-search-clear')).toHaveCount(0);
 
     const escapeClearResponse = page.waitForResponse((response) => {
@@ -359,21 +360,20 @@ test.describe('dashboard search workflows', () => {
     await waitForDashboardSearchRows(page, 35);
     await expect(page.getByRole('button', { name: 'Show more' })).toHaveCount(0);
 
-    await triggerDashboardSearchAndWait(
+    await triggerDashboardSessionsAndWait(
       page,
       () => page.locator('#dashboard-search-kind').selectOption('session'),
-      (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'session',
+      (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('state') === 'completed',
     );
-    const metadataRequest = await triggerDashboardSearchAndWait(
+    const metadataRequest = await triggerDashboardSessionsAndWait(
       page,
       () => page.locator('#dashboard-session-search').fill('claude-sonnet-4-super-long-model-name'),
       (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name',
     );
     expect(metadataRequest.searchParams.get('limit')).toBe('30');
-    expect(metadataRequest.searchParams.get('event_kind')).toBe('session');
-    await waitForDashboardSearchRows(page, 1);
-    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-event-kind', 'session');
-    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Session metadata');
+    expect(metadataRequest.searchParams.get('event_kind')).toBeNull();
+    await waitForCompletedRows(page, 1);
+    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-model', 'claude-sonnet-4-super-long-model-name');
 
     await guards.expectClean();
   });
@@ -469,7 +469,7 @@ test.describe('dashboard search workflows', () => {
     const chart7dState = await readDashboardChartState(page);
     expect(chart7dState.metricKind).toBe('input_tokens');
     expect(chart7dState.yTitle).toBe('Input Tokens');
-    expect(chart7dState.total).toBeGreaterThan(initialInputState.total);
+    expect(chart7dState.total).toBeLessThan(initialInputState.total);
     const chart7dTotal = chart7dState.total;
 
     await fillDashboardEventSearchAndWait(page, 'many');
@@ -554,7 +554,7 @@ test.describe('dashboard search workflows', () => {
     await legacySearch;
     await waitForDashboardSearchRows(page, 30);
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#dashboard-chart-metric')).toHaveValue('total_tokens');
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('7d range fixture');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('range') === '7d');
@@ -602,12 +602,12 @@ test.describe('dashboard search workflows', () => {
     await waitForCompletedRows(page, 30);
     await scrollDashboardMainToSearch(page);
 
-    await fillDashboardSearchAndWait(
+    await fillDashboardSessionSearchAndWait(
       page,
       'claude-sonnet-4-super-long-model-name',
-      (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name' && url.searchParams.get('event_kind') === 'session',
+      (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name' && url.searchParams.get('state') === 'completed',
     );
-    await waitForDashboardSearchRows(page, 1);
+    await waitForCompletedRows(page, 1);
     await expect(page.locator('#dashboard-session-search')).toBeFocused();
     const beforeEscape = await readDashboardScroll(page);
     const completedResponse = page.waitForResponse((response) => {
@@ -634,12 +634,12 @@ test.describe('dashboard search workflows', () => {
     await waitForCompletedRows(page, 30);
     await scrollDashboardMainToSearch(page);
 
-    await fillDashboardSearchAndWait(
+    await fillDashboardSessionSearchAndWait(
       page,
       'claude-sonnet-4-super-long-model-name',
-      (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name' && url.searchParams.get('event_kind') === 'session',
+      (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name' && url.searchParams.get('state') === 'completed',
     );
-    await waitForDashboardSearchRows(page, 1);
+    await waitForCompletedRows(page, 1);
     await expect(page.locator('#dashboard-search-clear')).toHaveCount(0);
     await expect(page.locator('#dashboard-session-search')).toHaveValue('claude-sonnet-4-super-long-model-name');
 
@@ -759,6 +759,7 @@ test.describe('dashboard search workflows', () => {
     await page.route('**/api/dashboard/search**', async (route) => {
       if (!failNextSearch) return route.fallback();
       failNextSearch = false;
+      await new Promise((resolve) => setTimeout(resolve, 1200));
       return route.fulfill({
         status: 500,
         contentType: 'application/json',
@@ -1044,23 +1045,49 @@ test.describe('dashboard search workflows', () => {
   });
 
   test('shows loading and error retry states in the table area', async ({ page }) => {
-    await installDashboardFixtures(page, { failOnce: ['search'], searchDelayMs: 500 });
+    await installDashboardFixtures(page, { searchDelayMs: 500 });
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
-    const query = 'claude-sonnet-4-super-long-model-name';
+    await selectDashboardSearchType(page, 'event');
+    const query = 'dashboard payload';
+    let failNextSearch = true;
+    await page.route('**/api/dashboard/search**', async (route) => {
+      if (!failNextSearch) return route.fallback();
+      failNextSearch = false;
+      return route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'fixture failure' }),
+      });
+    });
 
     const failedResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
-      return url.pathname === '/api/dashboard/search' && url.searchParams.get('q') === query && url.searchParams.get('event_kind') === 'session' && response.status() === 500;
+      return url.pathname === '/api/dashboard/search' && url.searchParams.get('q') === query && url.searchParams.get('event_kind') === 'event' && response.status() === 500;
+    });
+    await page.evaluate(() => {
+      const rows = document.getElementById('completed-sessions');
+      const samples: string[] = [];
+      const record = () => samples.push(rows?.textContent || '');
+      const observer = new MutationObserver(record);
+      if (rows) observer.observe(rows, { childList: true, characterData: true, subtree: true });
+      record();
+      (window as Window & { __beaconSearchLoadingSamples?: string[] }).__beaconSearchLoadingSamples = samples;
+      (window as Window & { __beaconSearchLoadingObserver?: MutationObserver }).__beaconSearchLoadingObserver = observer;
     });
     await page.locator('#dashboard-session-search').fill(query);
     await page.locator('#dashboard-session-search').press('Enter');
-    await expect(page.locator('#completed-sessions')).toContainText('Searching table sessions and events');
     await failedResponse;
+    const loadingSamples = await page.evaluate(() => {
+      const store = window as Window & { __beaconSearchLoadingSamples?: string[]; __beaconSearchLoadingObserver?: MutationObserver };
+      store.__beaconSearchLoadingObserver?.disconnect();
+      return store.__beaconSearchLoadingSamples || [];
+    });
+    expect(loadingSamples.some((sample) => sample.includes('Searching table sessions and events'))).toBe(true);
     await expect(page.locator('#completed-sessions')).toContainText('Unable to search table sessions and events');
     await expect(page.locator('#completed-session-status')).toContainText('Search failed');
 
-    const retryResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === query && url.searchParams.get('event_kind') === 'session');
+    const retryResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === query && url.searchParams.get('event_kind') === 'event');
     await page.getByRole('button', { name: 'Retry' }).click();
     await retryResponse;
     await waitForDashboardSearchRows(page, 1);

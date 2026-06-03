@@ -97,13 +97,14 @@ func parseSessionsAPIRequest(values url.Values) (sessionsAPIRequest, error) {
 }
 
 type dashboardSessionsAPIRequest struct {
-	State   string
-	Range   string
-	Query   string
-	SortKey string
-	SortAsc bool
-	Offset  int
-	Limit   int
+	State     string
+	Range     string
+	Query     string
+	SessionID string
+	SortKey   string
+	SortAsc   bool
+	Offset    int
+	Limit     int
 }
 
 func parseDashboardSessionsAPIRequest(values url.Values) (dashboardSessionsAPIRequest, error) {
@@ -126,13 +127,14 @@ func parseDashboardSessionsAPIRequest(values url.Values) (dashboardSessionsAPIRe
 		state = "completed"
 	}
 	return dashboardSessionsAPIRequest{
-		State:   state,
-		Range:   parseAPIRangeParam(values, "", "completed_range", "range", "search_range"),
-		Query:   strings.TrimSpace(values.Get("q")),
-		SortKey: strings.TrimSpace(values.Get("sort")),
-		SortAsc: strings.EqualFold(strings.TrimSpace(values.Get("direction")), "asc"),
-		Offset:  offset,
-		Limit:   limit,
+		State:     state,
+		Range:     parseAPIRangeParam(values, "", "completed_range", "range", "search_range"),
+		Query:     strings.TrimSpace(values.Get("q")),
+		SessionID: strings.TrimSpace(values.Get("session_id")),
+		SortKey:   strings.TrimSpace(values.Get("sort")),
+		SortAsc:   strings.EqualFold(strings.TrimSpace(values.Get("direction")), "asc"),
+		Offset:    offset,
+		Limit:     limit,
 	}, nil
 }
 
@@ -194,7 +196,7 @@ type dashboardChartsAPIRequest struct {
 }
 
 func parseDashboardChartsAPIRequest(values url.Values) dashboardChartsAPIRequest {
-	return dashboardChartsAPIRequest{Range: parseAPIRangeParam(values, "24h", "chart_range", "range")}
+	return dashboardChartsAPIRequest{Range: parseAPIRangeParam(values, "", "chart_range", "range")}
 }
 
 type sessionEventsAPIRequest struct {

@@ -297,6 +297,7 @@ func TestAPIRequestParsingNormalizesFilters(t *testing.T) {
 		"state":           {" active "},
 		"completed_range": {" 7d "},
 		"q":               {" dashboard "},
+		"session_id":      {" session-prefix "},
 		"sort":            {" oldest "},
 		"direction":       {"ASC"},
 		"offset":          {"-5"},
@@ -305,7 +306,7 @@ func TestAPIRequestParsingNormalizesFilters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseDashboardSessionsAPIRequest error: %v", err)
 	}
-	if sessions.State != "active" || sessions.Range != "7d" || sessions.Query != "dashboard" || sessions.SortKey != "oldest" || !sessions.SortAsc {
+	if sessions.State != "active" || sessions.Range != "7d" || sessions.Query != "dashboard" || sessions.SessionID != "session-prefix" || sessions.SortKey != "oldest" || !sessions.SortAsc {
 		t.Fatalf("normalized dashboard sessions request = %#v", sessions)
 	}
 	if sessions.Offset != 0 || sessions.Limit != maxDashboardSessionsAPILimit {
@@ -325,8 +326,8 @@ func TestAPIRequestParsingNormalizesFilters(t *testing.T) {
 	}
 
 	charts := parseDashboardChartsAPIRequest(url.Values{})
-	if charts.Range != "24h" {
-		t.Fatalf("default chart range = %q, want 24h", charts.Range)
+	if charts.Range != "" {
+		t.Fatalf("default chart range = %q, want all time", charts.Range)
 	}
 	charts = parseDashboardChartsAPIRequest(url.Values{"chart_range": {""}})
 	if charts.Range != "" {
@@ -342,8 +343,8 @@ func TestAPIRequestParsingNormalizesFilters(t *testing.T) {
 	}
 
 	invalidCharts := parseDashboardChartsAPIRequest(url.Values{"chart_range": {"bogus"}})
-	if invalidCharts.Range != "24h" {
-		t.Fatalf("invalid chart range = %q, want default 24h", invalidCharts.Range)
+	if invalidCharts.Range != "" {
+		t.Fatalf("invalid chart range = %q, want default all time", invalidCharts.Range)
 	}
 }
 

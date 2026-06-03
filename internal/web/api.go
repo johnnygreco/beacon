@@ -161,12 +161,12 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 	case "active":
 		sessions = QueryActiveSessions(r.Context(), a.db)
 	default:
-		eventSessionIDs, err := a.completedSessionEventSearchSessionIDs(r.Context(), req.Query)
+		eventSessionIDs, err := a.completedSessionContentSearchSessionIDs(r.Context(), req.Query, req.Range, req.SessionID)
 		if err != nil {
 			a.internalError(w, "search failed", err)
 			return
 		}
-		sessions, hasMore = QueryCompletedSessionsFiltered(r.Context(), a.db, parseRange(req.Range), req.Offset, req.Limit, req.Query, eventSessionIDs, req.SortKey, req.SortAsc)
+		sessions, hasMore = queryCompletedSessionsFiltered(r.Context(), a.db, parseRange(req.Range), req.Offset, req.Limit, req.Query, eventSessionIDs, req.SortKey, req.SortAsc, req.SessionID)
 		req.State = "completed"
 	}
 
@@ -186,30 +186,73 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 }
 
 func (a *APIHandlers) completedSessionEventSearchSessionIDs(ctx context.Context, query string) ([]string, error) {
-	if strings.TrimSpace(query) == "" || a.searcher == nil {
+	return a.completedSessionContentSearchSessionIDs(ctx, query, "", "")
+}
+
+func (a *APIHandlers) completedSessionContentSearchSessionIDs(ctx context.Context, query, rangeVal, sessionIDPrefix string) ([]string, error) {
+	if strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
-	results, err := a.searcher.Search(ctx, search.SearchQuery{Query: query, Limit: completedSessionEventSearchLimit})
-	if err != nil {
-		return nil, err
+	var allIDs []string
+	var firstErr error
+	if a.searcher != nil {
+		sq := search.SearchQuery{
+			Query:     query,
+			Limit:     completedSessionEventSearchLimit,
+			SessionID: sessionIDPrefix,
+		}
+		if t := parseRange(rangeVal); t != nil {
+			sq.FromTime = *t
+		}
+		results, err := a.searcher.Search(ctx, sq)
+		if err != nil {
+			firstErr = err
+			a.log().Debug("indexed session content search failed", "error", err)
+		} else {
+			allIDs = append(allIDs, searchResultSessionIDs(results)...)
+		}
 	}
-	return searchResultSessionIDs(results), nil
+	dbSucceeded := false
+	dbIDs, err := queryCompletedSessionContentMatchIDs(ctx, a.db, parseRange(rangeVal), query, sessionIDPrefix, completedSessionEventSearchLimit)
+	if err != nil {
+		if firstErr == nil {
+			firstErr = err
+		}
+		a.log().Debug("database session content search failed", "error", err)
+	} else {
+		dbSucceeded = a.db != nil
+		allIDs = append(allIDs, dbIDs...)
+	}
+	ids := uniqueSessionIDs(allIDs)
+	if len(ids) > 0 || dbSucceeded || firstErr == nil {
+		return ids, nil
+	}
+	return nil, firstErr
 }
 
 func searchResultSessionIDs(results []search.SearchResult) []string {
-	seen := make(map[string]struct{}, len(results))
 	ids := make([]string, 0, len(results))
 	for _, result := range results {
-		if result.SessionID == "" {
-			continue
-		}
-		if _, ok := seen[result.SessionID]; ok {
-			continue
-		}
-		seen[result.SessionID] = struct{}{}
 		ids = append(ids, result.SessionID)
 	}
-	return ids
+	return uniqueSessionIDs(ids)
+}
+
+func uniqueSessionIDs(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	unique := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	return unique
 }
 
 // GetDashboardSearch returns event and session-metadata search results for the dashboard table.
@@ -296,7 +339,7 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 	if req.EventKind == "session" || (req.Query != "" && req.EventKind == "") {
 		var eventSessionIDs []string
 		if req.EventKind == "session" {
-			eventSessionIDs, err = a.completedSessionEventSearchSessionIDs(r.Context(), req.Query)
+			eventSessionIDs, err = a.completedSessionContentSearchSessionIDs(r.Context(), req.Query, req.Range, req.SessionID)
 			if err != nil {
 				a.internalError(w, "search failed", err)
 				return
