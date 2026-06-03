@@ -57,10 +57,10 @@
 
 		var titleEl = document.getElementById('dashboard-title');
 		var input = document.getElementById('dashboard-name-input');
-		var editButton = document.getElementById('dashboard-name-edit');
 		var defaultName = normalizeDashboardName(control.getAttribute('data-dashboard-default-name') || '');
 		var headingFallback = normalizeDashboardName(control.getAttribute('data-dashboard-fallback-heading') || fallbackHeading) || fallbackHeading;
 		var storedOverride = readStoredOverride();
+		var preEditStoredOverride = storedOverride;
 
 		function effectiveName() {
 			return storedOverride || defaultName;
@@ -79,24 +79,44 @@
 
 		function startEditing() {
 			if (!input) return;
+			preEditStoredOverride = storedOverride;
 			input.value = storedOverride || effectiveName();
 			control.classList.add('is-editing');
-			if (titleEl) titleEl.classList.add('hidden');
+			if (titleEl) {
+				titleEl.classList.add('hidden');
+				titleEl.setAttribute('aria-expanded', 'true');
+			}
 			input.classList.remove('hidden');
 			input.focus();
 			input.select();
 		}
 
-		function finishEditing() {
+		function finishEditing(refocusTitle) {
 			if (!input) return;
 			input.classList.add('hidden');
-			if (titleEl) titleEl.classList.remove('hidden');
+			if (titleEl) {
+				titleEl.classList.remove('hidden');
+				titleEl.setAttribute('aria-expanded', 'false');
+			}
 			control.classList.remove('is-editing');
 			renderName(true);
+			if (refocusTitle && titleEl) titleEl.focus();
 		}
 
-		if (editButton) {
-			editButton.addEventListener('click', startEditing);
+		function cancelEditing() {
+			storedOverride = writeStoredOverride(preEditStoredOverride);
+			finishEditing(true);
+		}
+
+		if (titleEl) {
+			titleEl.setAttribute('aria-expanded', 'false');
+			titleEl.addEventListener('click', startEditing);
+			titleEl.addEventListener('keydown', function(evt) {
+				if (evt.key === 'Enter' || evt.key === ' ') {
+					evt.preventDefault();
+					startEditing();
+				}
+			});
 		}
 		if (input) {
 			input.addEventListener('input', function() {
@@ -105,16 +125,19 @@
 				renderName(false);
 			});
 			input.addEventListener('keydown', function(evt) {
-				if (evt.key === 'Enter' || evt.key === 'Escape') {
+				if (evt.key === 'Enter') {
 					evt.preventDefault();
-					finishEditing();
+					finishEditing(true);
+				} else if (evt.key === 'Escape') {
+					evt.preventDefault();
+					cancelEditing();
 				}
 			});
 		}
 		control.addEventListener('focusout', function(evt) {
 			var next = evt.relatedTarget || null;
 			if (next && typeof control.contains === 'function' && control.contains(next)) return;
-			finishEditing();
+			finishEditing(false);
 		});
 
 		renderName(true);

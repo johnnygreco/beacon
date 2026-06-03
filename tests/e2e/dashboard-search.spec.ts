@@ -347,7 +347,7 @@ test.describe('dashboard search workflows', () => {
       const url = new URL(response.url());
       return response.ok() && url.pathname === '/api/dashboard/charts' && url.searchParams.get('chart_range') === '1h';
     });
-    await page.locator('#dashboard-refresh-btn').click();
+    await page.locator('#dashboard-chart-refresh-btn').click();
     await refreshCharts;
     await expectDashboardTokenChartReady(page);
 

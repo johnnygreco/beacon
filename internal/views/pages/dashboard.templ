@@ -19,9 +19,12 @@ templ Dashboard(data views.DashboardData) {
 		</script>
 		<div id="dashboard-wrap" class="dashboard-shell">
 			<div id="dashboard-main" class="dashboard-main">
-				<header class="dashboard-header" aria-labelledby="dashboard-title">
+				<header class="dashboard-header" aria-labelledby="dashboard-heading">
 					<div class="dashboard-header-title">
-						<img src="/static/favicon.svg" class="dashboard-brand-mark" alt="" aria-hidden="true"/>
+						<div class="dashboard-brand-lockup">
+							<img src="/static/favicon.svg" class="dashboard-brand-mark" alt="" aria-hidden="true"/>
+							<span id="dashboard-connection-indicator" class="dashboard-connection-indicator" data-status="connecting" role="status" aria-live="polite" aria-label="Dashboard connection: Connecting"></span>
+						</div>
 						<div class="dashboard-header-copy">
 							<div
 								class="dashboard-name-control"
@@ -29,21 +32,17 @@ templ Dashboard(data views.DashboardData) {
 								data-dashboard-default-name={ data.DashboardName }
 								data-dashboard-fallback-heading={ data.HeaderTitle() }
 							>
-								<button type="button" id="dashboard-name-edit" class="dashboard-name-btn" aria-label="Edit dashboard name" aria-controls="dashboard-name-input" title="Edit dashboard name">
-									<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16.9 4.6a2.1 2.1 0 013 3L8.7 18.8l-4 .8.8-4L16.9 4.6z"></path>
-									</svg>
-								</button>
-								<h1 id="dashboard-title" data-dashboard-title class="dashboard-title text-xl font-semibold text-gray-100">{ data.HeaderTitle() }</h1>
+								<h1 id="dashboard-heading" class="dashboard-name-heading text-xl font-semibold text-gray-100">
+									<button type="button" id="dashboard-title" data-dashboard-title aria-describedby="dashboard-name-edit-hint" aria-controls="dashboard-name-input" class="dashboard-title" title="Edit dashboard name">{ data.HeaderTitle() }</button>
+								</h1>
+								<span id="dashboard-name-edit-hint" class="sr-only">Press Enter to edit dashboard name</span>
 								<label for="dashboard-name-input" class="sr-only">Dashboard name</label>
 								<input id="dashboard-name-input" data-dashboard-name-input type="text" autocomplete="off" maxlength="80" value={ data.DashboardName } placeholder={ data.HeaderTitle() } class="dashboard-name-input hidden"/>
 							</div>
 							<p class="dashboard-header-status text-xs text-gray-500">
 								<span id="dashboard-range-caption">Last 24 hours</span>
 								<span class="mx-1 text-gray-700" aria-hidden="true">/</span>
-								<span id="dashboard-connection-label">Connecting</span>
-								<span class="mx-1 text-gray-700" aria-hidden="true">/</span>
-								<span id="dashboard-last-updated">Not refreshed yet</span>
+								<span id="dashboard-connection-label" aria-live="polite">Connecting</span>
 							</p>
 						</div>
 					</div>
@@ -96,12 +95,6 @@ templ Dashboard(data views.DashboardData) {
 								</svg>
 							</button>
 						</div>
-						<button type="button" id="dashboard-refresh-btn" onclick="refreshDashboard()" class="dashboard-icon-btn" aria-label="Refresh dashboard" title="Refresh dashboard">
-							<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 11a8 8 0 10-2.3 5.7"></path>
-								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 4v7h-7"></path>
-							</svg>
-						</button>
 						<button type="button" id="timeline-toggle-btn" onclick="toggleTimelineSidebar()" aria-controls="timeline-sidebar" aria-expanded="true" class="dashboard-icon-btn timeline-toggle-btn" aria-label="Collapse activity bar" title="Collapse activity bar">
 							<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
 								<rect x="3" y="5" width="18" height="14" rx="2" stroke-width="2"></rect>

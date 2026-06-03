@@ -122,11 +122,9 @@ test("dashboard name init supports empty commits without a clear button", () => 
   });
   const title = createElement({ id: "dashboard-title", textContent: "Configured Station" });
   const input = createElement({ id: "dashboard-name-input", value: "", classes: ["hidden"] });
-  const edit = createElement({ id: "dashboard-name-edit" });
   const elements = new Map([
     [title.id, title],
     [input.id, input],
-    [edit.id, edit],
   ]);
   const sandbox = createNameSandbox({ storage: { "beacon-dashboard-name": "Custom Name" } });
   sandbox.document.title = "";
@@ -137,7 +135,7 @@ test("dashboard name init supports empty commits without a clear button", () => 
 
   assert.equal(sandbox.document.title, "Custom Name | Beacon");
   assert.equal(title.textContent, "Custom Name");
-  edit.dispatch("click");
+  title.dispatch("click");
   assert.equal(input.classList.contains("hidden"), false);
   input.value = "";
   input.dispatch("input");
@@ -150,5 +148,6 @@ test("dashboard name init supports empty commits without a clear button", () => 
   assert.equal(sandbox.document.title, "Configured Station | Beacon");
   assert.equal(title.textContent, "Configured Station");
   assert.equal(input.classList.contains("hidden"), true);
+  assert.equal(title.focused, true);
   assert.equal(sandbox.document.getElementById("dashboard-name-clear"), null);
 });

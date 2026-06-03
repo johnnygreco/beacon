@@ -85,13 +85,6 @@ function refreshCompletedTable() {
 	loadCompletedSessions(currentCompletedOffset);
 }
 
-function refreshDashboard() {
-	loadActiveSessions();
-	loadDashboardCharts();
-	loadCompletedSessions(currentCompletedOffset);
-	loadActivity();
-}
-
 function focusActiveSessionAction(sessionID, action) {
 	if (!sessionID || !action) return;
 	function focusButton(preferredAction) {
@@ -345,12 +338,14 @@ document.addEventListener('click', function(evt) {
 		}
 	});
 	if (window.EventSource) {
+		setDashboardConnection('Connecting');
 		var dashboardEvents = new EventSource('/sse/dashboard');
 		dashboardEvents.onopen = function() {
 			setDashboardConnection('Live');
 		};
 		dashboardEvents.onerror = function() {
-			setDashboardConnection('Disconnected');
+			var closedState = typeof EventSource.CLOSED === 'number' ? EventSource.CLOSED : 2;
+			setDashboardConnection(dashboardEvents.readyState === closedState ? 'Disconnected' : 'Connecting');
 		};
 		dashboardEvents.addEventListener('active-sessions-update', function() {
 			loadActiveSessions();
