@@ -261,7 +261,7 @@ document.addEventListener('click', function(evt) {
 	function syncSearchControls() {
 		if (searchInput && searchInput.value.trim() !== currentSearchQuery) searchInput.value = currentSearchQuery;
 		if (searchSession && searchSession.value.trim() !== currentSearchSessionID) searchSession.value = currentSearchSessionID;
-		if (searchKind) searchKind.value = currentSearchEventKind || 'event';
+		if (searchKind) searchKind.value = currentSearchEventKind || 'session';
 		if (searchSort) searchSort.value = currentSearchSort;
 	}
 	function resetSearchFilters() {
@@ -307,7 +307,7 @@ document.addEventListener('click', function(evt) {
 	}
 	if (searchKind) {
 		searchKind.addEventListener('change', function() {
-			currentSearchEventKind = searchKind.value || 'event';
+			currentSearchEventKind = searchKind.value || 'session';
 			currentCompletedOffset = 0;
 			currentSearchLimit = 30;
 			syncSearchControls();

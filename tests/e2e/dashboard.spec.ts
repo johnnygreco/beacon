@@ -1235,16 +1235,16 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator('#dashboard-range-control').getByRole('button', { name: '7d' }).click();
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 7 days');
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('Last 24 hours');
-
-    const allChartsRequest = page.waitForRequest((request) => {
-      const url = new URL(request.url());
-      return url.pathname === '/api/dashboard/charts' && url.searchParams.has('chart_range') && url.searchParams.get('chart_range') === '';
-    });
-    await page.locator('#dashboard-chart-range-control').getByRole('button', { name: 'All' }).click();
-    await allChartsRequest;
     await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('All time');
-    await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
+
+    const chart24hRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/dashboard/charts' && url.searchParams.get('chart_range') === '24h';
+    });
+    await page.locator('#dashboard-chart-range-control').getByRole('button', { name: '24h' }).click();
+    await chart24hRequest;
+    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('Last 24 hours');
+    await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#dashboard-range-caption')).toHaveText('Last 7 days');
 
     const allActivityRequest = page.waitForRequest((request) => {
@@ -1259,7 +1259,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await Promise.all([allActivityRequest, allCompletedRequest]);
     await expect(page.locator('#dashboard-range-caption')).toHaveText('All time');
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('All time');
+    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('Last 24 hours');
 
     const tableRefreshRequest = page.waitForRequest((request) => {
       const url = new URL(request.url());
@@ -1560,7 +1560,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
-    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('Last 24 hours');
+    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('All time');
 
     const allChartsRequest = page.waitForRequest((request) => {
       const url = new URL(request.url());
@@ -1570,7 +1570,7 @@ test.describe('dashboard battle-tested workflows', () => {
       const url = new URL(response.url());
       return response.ok() && url.pathname === '/api/dashboard/charts' && url.searchParams.has('chart_range') && url.searchParams.get('chart_range') === '';
     });
-    await page.locator('#dashboard-chart-range-control').getByRole('button', { name: 'All' }).click();
+    await page.getByRole('button', { name: 'Refresh token analytics' }).click();
     await allChartsRequest;
     await page.waitForTimeout(100);
     await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('All time');
@@ -1775,7 +1775,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.goto('/?range=bogus&chart_range=bogus&chart_metric=bogus&activity_range=bogus&active_sort=bogus&event_kind=bogus&search_sort=bogus&search_limit=999&offset=-1&sort=%3Cscript%3E&dir=sideways&activity=bogus', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#dashboard-range-caption')).toHaveText('All time');
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#dashboard-chart-metric')).toHaveValue('total_tokens');
     await expect(page.locator('#active-session-sort')).toHaveValue('recent');
     await waitForCompletedRows(page, 30);
@@ -1936,7 +1936,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator('#activity-feed button', { hasText: 'Retry' }).click();
     await expect(page.locator('#activity-feed a[data-transcript-link]')).toHaveCount(4);
     await page.locator('#dashboard-chart-refresh-btn').click();
-    await expect(page.locator('#dashboard-analytics-summary')).toContainText('201.5K');
+    await expect(page.locator('#dashboard-analytics-summary')).toContainText('2.6M');
   });
 
   test('meets local interaction performance budgets with deterministic fixtures', async ({ page }) => {

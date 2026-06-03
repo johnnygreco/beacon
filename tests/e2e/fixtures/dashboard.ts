@@ -31,6 +31,7 @@ type DashboardFixtureOptions = {
 };
 
 type DashboardSearchURLPredicate = (url: URL) => boolean;
+type DashboardSessionsURLPredicate = (url: URL) => boolean;
 type DashboardScrollSnapshot = {
   windowY: number;
   mainContentTop: number;
@@ -1041,6 +1042,11 @@ function isDashboardSearchURL(rawURL: string, predicate?: DashboardSearchURLPred
   return url.pathname === '/api/dashboard/search' && (!predicate || predicate(url));
 }
 
+function isDashboardSessionsURL(rawURL: string, predicate?: DashboardSessionsURLPredicate) {
+  const url = new URL(rawURL);
+  return url.pathname === '/api/dashboard/sessions' && (!predicate || predicate(url));
+}
+
 export function waitForDashboardSearchRequest(page: Page, predicate?: DashboardSearchURLPredicate) {
   return page.waitForRequest((request: Request) => isDashboardSearchURL(request.url(), predicate));
 }
@@ -1053,8 +1059,26 @@ export async function waitForDashboardSearchResponse(page: Page, predicate?: Das
   return response;
 }
 
+export function waitForDashboardSessionsRequest(page: Page, predicate?: DashboardSessionsURLPredicate) {
+  return page.waitForRequest((request: Request) => isDashboardSessionsURL(request.url(), predicate));
+}
+
+export async function waitForDashboardSessionsResponse(page: Page, predicate?: DashboardSessionsURLPredicate) {
+  const response = await page.waitForResponse((candidate: Response) => {
+    return candidate.status() === 200 && isDashboardSessionsURL(candidate.url(), predicate);
+  });
+  expect(response.ok()).toBe(true);
+  return response;
+}
+
 export async function fillDashboardSearchAndWait(page: Page, value: string, predicate?: DashboardSearchURLPredicate) {
   const responsePromise = waitForDashboardSearchResponse(page, predicate || ((url) => url.searchParams.get('q') === value));
+  await page.locator('#dashboard-session-search').fill(value);
+  return responsePromise;
+}
+
+export async function fillDashboardSessionSearchAndWait(page: Page, value: string, predicate?: DashboardSessionsURLPredicate) {
+  const responsePromise = waitForDashboardSessionsResponse(page, predicate || ((url) => url.searchParams.get('q') === value));
   await page.locator('#dashboard-session-search').fill(value);
   return responsePromise;
 }
@@ -1066,6 +1090,18 @@ export async function triggerDashboardSearchAndWait(
 ) {
   const requestPromise = waitForDashboardSearchRequest(page, predicate);
   const responsePromise = waitForDashboardSearchResponse(page, predicate);
+  await action();
+  const [request] = await Promise.all([requestPromise, responsePromise]);
+  return new URL(request.url());
+}
+
+export async function triggerDashboardSessionsAndWait(
+  page: Page,
+  action: () => Promise<unknown>,
+  predicate?: DashboardSessionsURLPredicate,
+) {
+  const requestPromise = waitForDashboardSessionsRequest(page, predicate);
+  const responsePromise = waitForDashboardSessionsResponse(page, predicate);
   await action();
   const [request] = await Promise.all([requestPromise, responsePromise]);
   return new URL(request.url());

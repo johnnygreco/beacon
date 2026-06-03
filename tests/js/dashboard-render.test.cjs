@@ -31,7 +31,7 @@ function loadRenderSandbox() {
     currentActivityRange: "",
     currentActivityRangePinned: false,
     currentRange: "",
-    currentChartRange: "24h",
+    currentChartRange: "",
     currentChartMetric: "total_tokens",
     currentActiveSort: "recent",
     dashboardChartMetrics: ["total_tokens", "input_tokens", "output_tokens", "cache_read_tokens", "tool_calls", "errors", "error_rate"],
@@ -313,6 +313,13 @@ test("search mode ignores completed range alone but honors search state", () => 
   sandbox.currentSearchEventKind = "session";
   assert.equal(sandbox.isSearchMode(), false);
 
+  sandbox.currentSearchQuery = "dashboard payload";
+  assert.equal(sandbox.isSearchMode(), false);
+  sandbox.currentSearchSessionID = "session-";
+  assert.equal(sandbox.isSearchMode(), false);
+  sandbox.currentSearchQuery = "";
+  sandbox.currentSearchSessionID = "";
+
   sandbox.currentSearchEventKind = "event";
   assert.equal(sandbox.isSearchMode(), true);
 
@@ -548,5 +555,5 @@ test("chart point values support Chart.js object points", () => {
       summary: { total_tokens: 9, model_count: 1 },
     },
   });
-  assert.equal(captionState, "Last 24 hours");
+  assert.equal(captionState, "All time");
 });

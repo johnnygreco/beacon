@@ -178,7 +178,7 @@ function hasDashboardSearchFilter() {
 }
 
 function isSearchMode() {
-	return hasDashboardSearchFilter();
+	return (currentSearchEventKind || 'session') !== 'session';
 }
 
 function dashboardSearchRequestEventKind() {
@@ -1001,6 +1001,8 @@ async function loadCompletedSessions(offset, options) {
 		limit: completedPageSize,
 		offset: currentCompletedOffset,
 		completed_range: completedRangeValue(),
+		q: currentSearchQuery,
+		session_id: currentSearchSessionID,
 		sort: sortColumn,
 		direction: sortAsc ? 'asc' : 'desc'
 	}));

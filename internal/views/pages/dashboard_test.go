@@ -158,7 +158,7 @@ func TestDashboardLiveAnalyticsUsesSingleTokenChart(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"requestURL('/api/dashboard/charts'",
-		"currentChartRange = '24h'",
+		"currentChartRange = ''",
 		"currentChartMetric = 'total_tokens'",
 		"setDashboardChartRange",
 		"setDashboardChartMetric",
