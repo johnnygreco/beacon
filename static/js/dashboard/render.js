@@ -699,13 +699,66 @@ function chartRangeValue() {
 	return typeof currentChartRange !== 'undefined' ? currentChartRange : completedRangeValue();
 }
 
+var dashboardChartMetricLabels = {
+	total_tokens: 'Total Tokens',
+	input_tokens: 'Input Tokens',
+	output_tokens: 'Output Tokens',
+	cache_read_tokens: 'Cache Read Tokens',
+	tool_calls: 'Tool Calls',
+	errors: 'Errors',
+	error_rate: 'Error Rate'
+};
+
+var dashboardChartMetricUnits = {
+	total_tokens: 'tokens',
+	input_tokens: 'tokens',
+	output_tokens: 'tokens',
+	cache_read_tokens: 'tokens',
+	tool_calls: 'tool calls',
+	errors: 'errors',
+	error_rate: '%'
+};
+
+function dashboardChartMetricValues() {
+	return typeof dashboardChartMetrics !== 'undefined' ? dashboardChartMetrics : Object.keys(dashboardChartMetricLabels);
+}
+
+function chartMetricValue() {
+	var values = dashboardChartMetricValues();
+	var current = typeof currentChartMetric !== 'undefined' ? currentChartMetric : 'total_tokens';
+	if (current === 'tokens') current = 'total_tokens';
+	return values.indexOf(current) >= 0 ? current : 'total_tokens';
+}
+
+function chartMetricLabel(metric) {
+	metric = metric || chartMetricValue();
+	return dashboardChartMetricLabels[metric] || dashboardChartMetricLabels.total_tokens;
+}
+
+function chartMetricUnit(metric) {
+	metric = metric || chartMetricValue();
+	return dashboardChartMetricUnits[metric] || '';
+}
+
+function emptyChartMetricLabel(metric) {
+	metric = metric || chartMetricValue();
+	if (metric === 'input_tokens') return 'input token';
+	if (metric === 'output_tokens') return 'output token';
+	if (metric === 'cache_read_tokens') return 'cache read token';
+	if (metric === 'tool_calls') return 'tool call';
+	if (metric === 'error_rate') return 'error rate';
+	if (metric === 'errors') return 'error';
+	return 'token';
+}
+
 function updateChartRangeCaption(state) {
 	var caption = document.getElementById('dashboard-chart-range-caption');
 	if (!caption) return;
 	var label = rangeLabel(chartRangeValue());
-	if (state === 'loading') caption.textContent = 'Loading ' + label;
-	else if (state === 'error') caption.textContent = 'Unable to load ' + label;
-	else if (state === 'empty') caption.textContent = label + ' · no token data';
+	var metric = chartMetricLabel();
+	if (state === 'loading') caption.textContent = 'Loading ' + metric + ' for ' + label;
+	else if (state === 'error') caption.textContent = 'Unable to load ' + metric + ' for ' + label;
+	else if (state === 'empty') caption.textContent = label + ' · no ' + emptyChartMetricLabel() + ' data';
 	else caption.textContent = label;
 }
 
@@ -734,38 +787,124 @@ function chartPointValue(point) {
 	return numericValue(point, 0);
 }
 
-function renderAnalyticsSummary(summary) {
+function dashboardMetricPayloadTotal(metricPayload) {
+	var total = 0;
+	(metricPayload && metricPayload.datasets ? metricPayload.datasets : []).forEach(function(dataset) {
+		var points = dataset.data || dataset.values || [];
+		points.forEach(function(value) {
+			total += chartPointValue(value);
+		});
+	});
+	return total;
+}
+
+function formatDashboardMetricValue(metric, value) {
+	if (metric === 'error_rate') return formatPercent(value);
+	return formatTokens(value);
+}
+
+function dashboardMetricSummaryValue(metric, summary, metricPayload) {
+	summary = summary || {};
+	if (metric === 'total_tokens') return numericValue(summary.total_tokens, dashboardMetricPayloadTotal(metricPayload));
+	if (metric === 'tool_calls') return numericValue(summary.tool_call_count, dashboardMetricPayloadTotal(metricPayload));
+	if (metric === 'errors') return numericValue(summary.error_count, dashboardMetricPayloadTotal(metricPayload));
+	if (metric === 'error_rate') return numericValue(summary.error_rate, 0);
+	return dashboardMetricPayloadTotal(metricPayload);
+}
+
+function pluralizeCount(value, singular, plural) {
+	var count = nonNegativeInt(value);
+	return count + ' ' + (count === 1 ? singular : plural);
+}
+
+function emptyDashboardMetricPayload(payload, metric) {
+	payload = payload || {};
+	var tokenChart = payload.token_cumulative || {};
+	var modelActivity = payload.model_activity || {};
+	var labels = tokenChart.labels && tokenChart.labels.length ? tokenChart.labels : (modelActivity.labels || []);
+	return {
+		labels: labels,
+		datasets: [],
+		summary: tokenChart.summary || modelActivity.summary || {},
+		time_unit: tokenChart.time_unit || modelActivity.time_unit || 'hour',
+		bucket_minutes: tokenChart.bucket_minutes || modelActivity.bucket_minutes || 60,
+		label: chartMetricLabel(metric),
+		unit: chartMetricUnit(metric)
+	};
+}
+
+function dashboardMetricPayload(payload) {
+	payload = payload || {};
+	var metric = chartMetricValue();
+	var selected;
+	if (metric === 'total_tokens') {
+		selected = payload.token_cumulative || {};
+		return Object.assign({}, selected, {
+			label: chartMetricLabel(metric),
+			unit: chartMetricUnit(metric)
+		});
+	}
+	var modelActivity = payload.model_activity || {};
+	var series = modelActivity.metrics && modelActivity.metrics[metric];
+	if (!series) return emptyDashboardMetricPayload(payload, metric);
+	return {
+		labels: modelActivity.labels || [],
+		datasets: series.datasets || [],
+		summary: modelActivity.summary || (payload.token_cumulative && payload.token_cumulative.summary) || {},
+		time_unit: modelActivity.time_unit || (payload.token_cumulative && payload.token_cumulative.time_unit) || 'hour',
+		bucket_minutes: modelActivity.bucket_minutes || (payload.token_cumulative && payload.token_cumulative.bucket_minutes) || 60,
+		label: series.label || chartMetricLabel(metric),
+		unit: series.unit || chartMetricUnit(metric)
+	};
+}
+
+function dashboardMetricHasSeriesData(metricPayload) {
+	var datasets = metricPayload && metricPayload.datasets ? metricPayload.datasets : [];
+	return datasets.some(function(dataset) {
+		var points = dataset.data || dataset.values || [];
+		return points.some(function(value) { return chartPointValue(value) > 0; });
+	});
+}
+
+function renderAnalyticsSummary(summary, metricPayload) {
 	withDashboardScrollStability(function() {
 		var wrap = document.getElementById('dashboard-analytics-summary');
 		if (!wrap) return;
 		summary = summary || {};
+		var metric = chartMetricValue();
 		var chartRangeLabel = rangeLabel(chartRangeValue());
+		var metricValue = dashboardMetricSummaryValue(metric, summary, metricPayload);
+		var metricSublabel = metric === 'error_rate' ? pluralizeCount(summary.error_count, 'error', 'errors') : chartRangeLabel;
+		var thirdTile = metric === 'total_tokens'
+			? summaryTile('Tool Calls', formatTokens(summary.tool_call_count), chartRangeLabel)
+			: summaryTile('Total Tokens', formatTokens(summary.total_tokens), chartRangeLabel);
+		var fourthTile = (metric === 'errors' || metric === 'error_rate')
+			? summaryTile('Tool Calls', formatTokens(summary.tool_call_count), chartRangeLabel)
+			: summaryTile('Error Rate', formatPercent(summary.error_rate), pluralizeCount(summary.error_count, 'error', 'errors'));
 		setHTMLIfChanged(wrap, [
-			summaryTile('Tokens', formatTokens(summary.total_tokens), chartRangeLabel),
+			summaryTile(chartMetricLabel(metric), formatDashboardMetricValue(metric, metricValue), metricSublabel),
 			summaryTile('Models', nonNegativeInt(summary.model_count), 'Series'),
-			summaryTile('Tool Calls', formatTokens(summary.tool_call_count), chartRangeLabel),
-			summaryTile('Error Rate', formatPercent(summary.error_rate), nonNegativeInt(summary.error_count) + ' errors')
+			thirdTile,
+			fourthTile
 		].join(''));
 	});
 }
 
 function updateDashboardCharts(payload) {
 	if (!payload) return;
+	lastDashboardChartsPayload = payload;
 	payload.token_cumulative = payload.token_cumulative || {labels: [], datasets: [], summary: {}};
+	payload.model_activity = payload.model_activity || {labels: [], metrics: {}, summary: payload.token_cumulative.summary || {}};
 	setAnalyticsBusy(false);
 	var tokenDataEl = document.getElementById('dashboard-token-cumulative-data');
 	if (tokenDataEl && payload.token_cumulative) tokenDataEl.textContent = JSON.stringify(payload.token_cumulative);
+	var metricPayload = dashboardMetricPayload(payload);
 	if (typeof updateDashboardModelChart === 'function') {
-		updateDashboardModelChart('dashboardTokenCumulativeChart', payload.token_cumulative, 'tokens');
+		updateDashboardModelChart('dashboardTokenCumulativeChart', metricPayload, chartMetricValue());
 	}
-	var summary = payload.token_cumulative && payload.token_cumulative.summary ? payload.token_cumulative.summary : null;
-	renderAnalyticsSummary(summary);
-	var datasets = payload.token_cumulative && payload.token_cumulative.datasets ? payload.token_cumulative.datasets : [];
-	var hasSeriesData = datasets.some(function(dataset) {
-		var points = dataset.data || dataset.values || [];
-		return points.some(function(value) { return chartPointValue(value) > 0; });
-	});
-	updateChartRangeCaption(hasSeriesData ? '' : 'empty');
+	var summary = metricPayload && metricPayload.summary ? metricPayload.summary : null;
+	renderAnalyticsSummary(summary, metricPayload);
+	updateChartRangeCaption(dashboardMetricHasSeriesData(metricPayload) ? '' : 'empty');
 }
 
 async function loadDashboardCharts() {

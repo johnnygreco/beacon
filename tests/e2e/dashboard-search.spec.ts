@@ -96,6 +96,39 @@ async function readDashboardChartTotal(page: Page) {
   });
 }
 
+async function readDashboardChartState(page: Page) {
+  return page.evaluate(() => {
+    const chart = (window as Window & {
+      dashboardTokenCumulativeChart?: {
+        $dashboardMetricKind?: string;
+        $dashboardMetricUnit?: string;
+        options: { scales: { y: { title?: { text?: string } } } };
+        data: { datasets: Array<{ data: number[] }> };
+      };
+    }).dashboardTokenCumulativeChart;
+    const total = (chart?.data.datasets || []).reduce((sum, dataset) => {
+      return sum + (dataset.data || []).reduce((datasetSum, value) => datasetSum + Number(value || 0), 0);
+    }, 0);
+    return {
+      metricKind: chart?.$dashboardMetricKind || '',
+      metricUnit: chart?.$dashboardMetricUnit || '',
+      yTitle: chart?.options.scales.y.title?.text || '',
+      total,
+    };
+  });
+}
+
+async function expectDashboardChartMetricState(page: Page, metricKind: string, metricUnit: string, yTitle: RegExp | string) {
+  await expect(page.locator('#dashboard-chart-metric')).toHaveValue(metricKind);
+  const state = await readDashboardChartState(page);
+  expect(state.metricKind).toBe(metricKind);
+  expect(state.metricUnit).toBe(metricUnit);
+  if (typeof yTitle === 'string') expect(state.yTitle).toBe(yTitle);
+  else expect(state.yTitle).toMatch(yTitle);
+  expect(state.total).toBeGreaterThan(0);
+  return state;
+}
+
 async function collectDashboardRequestsDuring(page: Page, action: () => Promise<unknown>) {
   const requests: string[] = [];
   const handler = (request: Request) => {
@@ -347,8 +380,31 @@ test.describe('dashboard search workflows', () => {
     await expect(page.locator('#dashboard-chart-range-control')).toHaveCount(1);
     await expect(page.locator('.dashboard-analytics-panel #dashboard-chart-range-control')).toHaveCount(1);
     await expect(page.locator('[data-search-range]')).toHaveCount(0);
+    await expect(page.locator('#dashboard-chart-metric')).toHaveValue('total_tokens');
 
-    const initialChartTotal = await readDashboardChartTotal(page);
+    const initialTotalState = await expectDashboardChartMetricState(page, 'total_tokens', 'tokens', /^(Total )?Tokens$/);
+
+    const selectableMetrics: Array<[string, string, string]> = [
+      ['input_tokens', 'tokens', 'Input Tokens'],
+      ['output_tokens', 'tokens', 'Output Tokens'],
+      ['cache_read_tokens', 'tokens', 'Cache Read Tokens'],
+      ['tool_calls', 'tool calls', 'Tool Calls'],
+      ['errors', 'errors', 'Errors'],
+      ['error_rate', '%', 'Error Rate'],
+      ['input_tokens', 'tokens', 'Input Tokens'],
+    ];
+    let initialInputState = initialTotalState;
+    for (const [metric, unit, title] of selectableMetrics) {
+      const metricRequests = await collectDashboardRequestsDuring(page, async () => {
+        await page.locator('#dashboard-chart-metric').selectOption(metric);
+      });
+      expect(metricRequests).toEqual([]);
+      const state = await expectDashboardChartMetricState(page, metric, unit, title);
+      if (metric === 'input_tokens') initialInputState = state;
+    }
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('chart_metric') === 'input_tokens');
+    expect(initialInputState.total).toBeLessThan(initialTotalState.total);
+
     const chart7d = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return response.ok() && url.pathname === '/api/dashboard/charts' && url.searchParams.get('chart_range') === '7d';
@@ -369,10 +425,14 @@ test.describe('dashboard search workflows', () => {
     await expect(page.locator('#completed-session-status')).not.toContainText(/shown|search results?/i);
     await expect(page.locator('#timeline-sidebar .activity-bar-range')).toHaveText('(24h)');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('chart_range') === '7d');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('chart_metric') === 'input_tokens');
     expect(new URL(page.url()).searchParams.get('range')).toBeNull();
     expect(new URL(page.url()).searchParams.get('search_range')).toBeNull();
-    expect(await readDashboardChartTotal(page)).toBeGreaterThan(initialChartTotal);
-    const chart7dTotal = await readDashboardChartTotal(page);
+    const chart7dState = await readDashboardChartState(page);
+    expect(chart7dState.metricKind).toBe('input_tokens');
+    expect(chart7dState.yTitle).toBe('Input Tokens');
+    expect(chart7dState.total).toBeGreaterThan(initialInputState.total);
+    const chart7dTotal = chart7dState.total;
 
     await fillDashboardEventSearchAndWait(page, 'many');
     await waitForDashboardSearchRows(page, 30);
@@ -402,6 +462,7 @@ test.describe('dashboard search workflows', () => {
     await expect(page.locator('#activity-feed')).toContainText('30d range fixture');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('range') === '30d');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('chart_range') === '7d');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('chart_metric') === 'input_tokens');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('q') === 'many');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('event_kind') === 'event');
     expect(await readDashboardChartTotal(page)).toBe(chart7dTotal);
@@ -410,11 +471,16 @@ test.describe('dashboard search workflows', () => {
       const url = new URL(response.url());
       return response.ok() && url.pathname === '/api/dashboard/activity' && url.searchParams.get('activity_range') === '7d';
     });
-    await page.goto('/?range=30d&activity_range=7d&q=many&event_kind=event&chart_range=1h', { waitUntil: 'domcontentloaded' });
+    await page.goto('/?range=30d&activity_range=7d&q=many&event_kind=event&chart_range=1h&chart_metric=error_rate', { waitUntil: 'domcontentloaded' });
     await pinnedActivity;
     await waitForDashboardSearchRows(page, 30);
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '30d' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: '1h' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-chart-metric')).toHaveValue('error_rate');
+    await page.waitForFunction(() => {
+      const chart = (window as Window & { dashboardTokenCumulativeChart?: { $dashboardMetricKind?: string; $dashboardMetricUnit?: string; options: { scales: { y: { title?: { text?: string } } } } } }).dashboardTokenCumulativeChart;
+      return chart?.$dashboardMetricKind === 'error_rate' && chart.$dashboardMetricUnit === '%' && chart.options.scales.y.title?.text === 'Error Rate';
+    });
     await expect(page.locator('#timeline-sidebar .activity-bar-range')).toHaveText('(7d)');
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('30d range fixture');
     await expect(page.locator('#activity-feed')).toContainText('7d range fixture');
@@ -434,6 +500,7 @@ test.describe('dashboard search workflows', () => {
     await expect(page.locator('#activity-feed')).toContainText('7d range fixture');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('range') === '7d');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('activity_range') === '7d');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('chart_metric') === 'error_rate');
 
     const refreshCharts = page.waitForResponse((response) => {
       const url = new URL(response.url());
@@ -442,6 +509,7 @@ test.describe('dashboard search workflows', () => {
     await page.locator('#dashboard-chart-refresh-btn').click();
     await refreshCharts;
     await expectDashboardTokenChartReady(page);
+    await expect(page.locator('#dashboard-chart-metric')).toHaveValue('error_rate');
 
     const legacySearch = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'event' && url.searchParams.get('completed_range') === '7d');
     await page.goto('/?search_range=7d&q=many&event_kind=event', { waitUntil: 'domcontentloaded' });
@@ -449,9 +517,11 @@ test.describe('dashboard search workflows', () => {
     await waitForDashboardSearchRows(page, 30);
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('#dashboard-chart-range-control').getByRole('button', { name: '24h' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#dashboard-chart-metric')).toHaveValue('total_tokens');
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('7d range fixture');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('range') === '7d');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('chart_range') === null);
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('chart_metric') === null);
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('search_range') === null);
 
     await guards.expectClean();

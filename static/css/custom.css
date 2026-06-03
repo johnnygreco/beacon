@@ -1941,6 +1941,11 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
   max-width: 100%;
 }
 
+.dashboard-chart-metric-wrap {
+  flex: 0 0 auto;
+  min-width: 9.75rem;
+}
+
 .dashboard-chart-refresh-btn {
   flex: 0 0 auto;
 }
@@ -3723,6 +3728,10 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
   .dashboard-chart-range-control {
     flex: 1 1 auto;
     flex-wrap: wrap;
+  }
+
+  .dashboard-chart-metric-wrap {
+    flex: 1 1 9.75rem;
   }
 
   .dashboard-compact-chart {

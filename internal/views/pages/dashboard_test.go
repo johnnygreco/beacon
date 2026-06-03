@@ -147,6 +147,7 @@ func TestDashboardLiveAnalyticsUsesSingleTokenChart(t *testing.T) {
 		"dashboardTokenCumulativeChart",
 		"dashboard-token-cumulative-data",
 		"Tokens by Model Over Time",
+		"dashboard-chart-metric",
 		"dashboard-chart-range-control",
 		"dashboard-chart-refresh-btn",
 		"dashboard-table-refresh-btn",
@@ -158,7 +159,9 @@ func TestDashboardLiveAnalyticsUsesSingleTokenChart(t *testing.T) {
 	for _, expected := range []string{
 		"requestURL('/api/dashboard/charts'",
 		"currentChartRange = '24h'",
+		"currentChartMetric = 'total_tokens'",
 		"setDashboardChartRange",
+		"setDashboardChartMetric",
 		"refreshCompletedTable",
 	} {
 		if !strings.Contains(script, expected) {

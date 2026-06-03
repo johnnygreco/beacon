@@ -364,6 +364,12 @@ func TestDashboardChartsAttributeBlankModelsFromSessionTimeline(t *testing.T) {
 			t.Fatalf("dashboard %s chart contains unknown model from empty session: %#v", metricName, metric.Datasets)
 		}
 	}
+	if got := metricSeriesTotal(activity.Metrics["input_tokens"].Datasets); got != 21 {
+		t.Fatalf("input token model activity = %v, want 21 in %#v", got, activity.Metrics["input_tokens"].Datasets)
+	}
+	if got := metricSeriesTotal(activity.Metrics["output_tokens"].Datasets); got != 18 {
+		t.Fatalf("output token model activity = %v, want 18 in %#v", got, activity.Metrics["output_tokens"].Datasets)
+	}
 	if got := metricSeriesTotal(activity.Metrics["tool_calls"].Datasets); got != 0 {
 		t.Fatalf("unattributed empty-session tool calls leaked into model activity: %v in %#v", got, activity.Metrics["tool_calls"].Datasets)
 	}

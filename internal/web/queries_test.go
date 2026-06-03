@@ -233,8 +233,8 @@ func TestSearchResultSessionIDs_DedupesAndSkipsEmpty(t *testing.T) {
 func TestBuildDashboardModelCharts_TokenBucketsAndActivity(t *testing.T) {
 	t0 := time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC)
 	points := []dashboardModelPoint{
-		{Bucket: t0, Provider: "openai", Model: "gpt-5.4", Tokens: 100, InputTokens: 60, OutputTokens: 40, ToolCalls: 2, Calls: 4},
-		{Bucket: t0.Add(15 * time.Minute), Provider: "openai", Model: "gpt-5.4", Tokens: 50, ToolCalls: 1, Calls: 1, Errors: 1},
+		{Bucket: t0, Provider: "openai", Model: "gpt-5.4", Tokens: 100, InputTokens: 60, OutputTokens: 30, CacheReadTokens: 10, ToolCalls: 2, Calls: 4},
+		{Bucket: t0.Add(15 * time.Minute), Provider: "openai", Model: "gpt-5.4", Tokens: 50, InputTokens: 20, OutputTokens: 25, CacheReadTokens: 5, ToolCalls: 1, Calls: 1, Errors: 1},
 		{Bucket: t0, Provider: "anthropic", Model: "claude-opus-4-6", Tokens: 25, Calls: 1},
 		{Bucket: t0.Add(15 * time.Minute), Provider: "anthropic", Model: "claude-opus-4-6", Tokens: 75, ToolCalls: 3, Calls: 3},
 	}
@@ -257,6 +257,22 @@ func TestBuildDashboardModelCharts_TokenBucketsAndActivity(t *testing.T) {
 		t.Fatalf("summary = %#v", tokens.Summary)
 	}
 
+	totalTokens := activity.Metrics["total_tokens"].Datasets[0].Values
+	if len(totalTokens) != 2 || totalTokens[0] != 100 || totalTokens[1] != 50 {
+		t.Fatalf("total token metric values = %#v", totalTokens)
+	}
+	inputTokens := activity.Metrics["input_tokens"].Datasets[0].Values
+	if len(inputTokens) != 2 || inputTokens[0] != 60 || inputTokens[1] != 20 {
+		t.Fatalf("input token values = %#v", inputTokens)
+	}
+	outputTokens := activity.Metrics["output_tokens"].Datasets[0].Values
+	if len(outputTokens) != 2 || outputTokens[0] != 30 || outputTokens[1] != 25 {
+		t.Fatalf("output token values = %#v", outputTokens)
+	}
+	cacheReadTokens := activity.Metrics["cache_read_tokens"].Datasets[0].Values
+	if len(cacheReadTokens) != 2 || cacheReadTokens[0] != 10 || cacheReadTokens[1] != 5 {
+		t.Fatalf("cache read token values = %#v", cacheReadTokens)
+	}
 	errorRate := activity.Metrics["error_rate"].Datasets[0].Values
 	if len(errorRate) != 2 || errorRate[0] != 0 || errorRate[1] != 50 {
 		t.Fatalf("error rate values = %#v", errorRate)
