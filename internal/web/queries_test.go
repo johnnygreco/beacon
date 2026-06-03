@@ -1,8 +1,13 @@
 package web
 
 import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
 	"fmt"
+	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -233,8 +238,8 @@ func TestSearchResultSessionIDs_DedupesAndSkipsEmpty(t *testing.T) {
 func TestBuildDashboardModelCharts_TokenBucketsAndActivity(t *testing.T) {
 	t0 := time.Date(2026, 5, 8, 14, 0, 0, 0, time.UTC)
 	points := []dashboardModelPoint{
-		{Bucket: t0, Provider: "openai", Model: "gpt-5.4", Tokens: 100, InputTokens: 60, OutputTokens: 40, ToolCalls: 2, Calls: 4},
-		{Bucket: t0.Add(15 * time.Minute), Provider: "openai", Model: "gpt-5.4", Tokens: 50, ToolCalls: 1, Calls: 1, Errors: 1},
+		{Bucket: t0, Provider: "openai", Model: "gpt-5.4", Tokens: 100, InputTokens: 60, OutputTokens: 30, CacheReadTokens: 10, ToolCalls: 2, Calls: 4},
+		{Bucket: t0.Add(15 * time.Minute), Provider: "openai", Model: "gpt-5.4", Tokens: 50, InputTokens: 20, OutputTokens: 25, CacheReadTokens: 5, ToolCalls: 1, Calls: 1, Errors: 1},
 		{Bucket: t0, Provider: "anthropic", Model: "claude-opus-4-6", Tokens: 25, Calls: 1},
 		{Bucket: t0.Add(15 * time.Minute), Provider: "anthropic", Model: "claude-opus-4-6", Tokens: 75, ToolCalls: 3, Calls: 3},
 	}
@@ -257,6 +262,22 @@ func TestBuildDashboardModelCharts_TokenBucketsAndActivity(t *testing.T) {
 		t.Fatalf("summary = %#v", tokens.Summary)
 	}
 
+	totalTokens := activity.Metrics["total_tokens"].Datasets[0].Values
+	if len(totalTokens) != 2 || totalTokens[0] != 100 || totalTokens[1] != 50 {
+		t.Fatalf("total token metric values = %#v", totalTokens)
+	}
+	inputTokens := activity.Metrics["input_tokens"].Datasets[0].Values
+	if len(inputTokens) != 2 || inputTokens[0] != 60 || inputTokens[1] != 20 {
+		t.Fatalf("input token values = %#v", inputTokens)
+	}
+	outputTokens := activity.Metrics["output_tokens"].Datasets[0].Values
+	if len(outputTokens) != 2 || outputTokens[0] != 30 || outputTokens[1] != 25 {
+		t.Fatalf("output token values = %#v", outputTokens)
+	}
+	cacheReadTokens := activity.Metrics["cache_read_tokens"].Datasets[0].Values
+	if len(cacheReadTokens) != 2 || cacheReadTokens[0] != 10 || cacheReadTokens[1] != 5 {
+		t.Fatalf("cache read token values = %#v", cacheReadTokens)
+	}
 	errorRate := activity.Metrics["error_rate"].Datasets[0].Values
 	if len(errorRate) != 2 || errorRate[0] != 0 || errorRate[1] != 50 {
 		t.Fatalf("error rate values = %#v", errorRate)
@@ -264,6 +285,16 @@ func TestBuildDashboardModelCharts_TokenBucketsAndActivity(t *testing.T) {
 	toolCalls := activity.Metrics["tool_calls"].Datasets[1].Values
 	if len(toolCalls) != 2 || toolCalls[0] != 0 || toolCalls[1] != 3 {
 		t.Fatalf("tool call values = %#v", toolCalls)
+	}
+}
+
+func TestQueryDashboardModelAnalytics_PlottableIncludesCacheReadTokens(t *testing.T) {
+	db := newDashboardQueryCaptureDB(t)
+	QueryDashboardModelAnalytics(context.Background(), db, nil, "24h")
+
+	query := capturedDashboardModelAnalyticsQuery()
+	if !strings.Contains(query, "OR cache_read_tokens != 0") {
+		t.Fatalf("dashboard model analytics should plot cache-read-only rows, got query:\n%s", query)
 	}
 }
 
@@ -280,6 +311,76 @@ func TestDashboardBucketMinutes(t *testing.T) {
 			t.Fatalf("dashboardBucketMinutes(%q) = %d, want %d", rangeVal, got, want)
 		}
 	}
+}
+
+var (
+	registerDashboardQueryCaptureDriver sync.Once
+	dashboardQueryCaptureMu             sync.Mutex
+	dashboardQueryCaptureSQL            string
+)
+
+type dashboardQueryCaptureDriver struct{}
+
+func (dashboardQueryCaptureDriver) Open(string) (driver.Conn, error) {
+	return dashboardQueryCaptureConn{}, nil
+}
+
+type dashboardQueryCaptureConn struct{}
+
+func (dashboardQueryCaptureConn) Prepare(string) (driver.Stmt, error) {
+	return nil, fmt.Errorf("dashboard query capture driver does not prepare statements")
+}
+
+func (dashboardQueryCaptureConn) Close() error {
+	return nil
+}
+
+func (dashboardQueryCaptureConn) Begin() (driver.Tx, error) {
+	return nil, fmt.Errorf("dashboard query capture driver does not support transactions")
+}
+
+func (dashboardQueryCaptureConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+	dashboardQueryCaptureMu.Lock()
+	dashboardQueryCaptureSQL = query
+	dashboardQueryCaptureMu.Unlock()
+	return dashboardQueryCaptureRows{}, nil
+}
+
+type dashboardQueryCaptureRows struct{}
+
+func (dashboardQueryCaptureRows) Columns() []string {
+	return []string{"bucket", "provider_key", "model_key", "tokens", "input_tokens", "output_tokens", "cache_read_tokens", "tool_calls", "calls", "errors"}
+}
+
+func (dashboardQueryCaptureRows) Close() error {
+	return nil
+}
+
+func (dashboardQueryCaptureRows) Next([]driver.Value) error {
+	return io.EOF
+}
+
+func newDashboardQueryCaptureDB(t *testing.T) *sql.DB {
+	t.Helper()
+	registerDashboardQueryCaptureDriver.Do(func() {
+		sql.Register("beacon_dashboard_query_capture", dashboardQueryCaptureDriver{})
+	})
+	dashboardQueryCaptureMu.Lock()
+	dashboardQueryCaptureSQL = ""
+	dashboardQueryCaptureMu.Unlock()
+
+	db, err := sql.Open("beacon_dashboard_query_capture", "")
+	if err != nil {
+		t.Fatalf("open dashboard query capture db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+func capturedDashboardModelAnalyticsQuery() string {
+	dashboardQueryCaptureMu.Lock()
+	defer dashboardQueryCaptureMu.Unlock()
+	return dashboardQueryCaptureSQL
 }
 
 func TestBuildChatTurns_SingleUserMessage(t *testing.T) {

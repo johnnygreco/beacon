@@ -90,23 +90,70 @@ function modelDatasetColor(index) {
   return dashboardSeriesColor(index, modelLineColors[index % modelLineColors.length]);
 }
 
+var dashboardModelMetricConfigs = {
+  tokens: { label: 'Total Tokens', unit: 'tokens', title: 'Tokens', fill: true, borderWidth: 2.5 },
+  total_tokens: { label: 'Total Tokens', unit: 'tokens', title: 'Tokens', fill: true, borderWidth: 2.5 },
+  input_tokens: { label: 'Input Tokens', unit: 'tokens', title: 'Input Tokens', fill: false, borderWidth: 2 },
+  output_tokens: { label: 'Output Tokens', unit: 'tokens', title: 'Output Tokens', fill: false, borderWidth: 2 },
+  cache_read_tokens: { label: 'Cache Read Tokens', unit: 'tokens', title: 'Cache Read Tokens', fill: false, borderWidth: 2 },
+  tool_calls: { label: 'Tool Calls', unit: 'tool calls', title: 'Tool Calls', fill: false, borderWidth: 2 },
+  errors: { label: 'Errors', unit: 'errors', title: 'Errors', fill: false, borderWidth: 2 },
+  error_rate: { label: 'Error Rate', unit: '%', title: 'Error Rate', fill: false, borderWidth: 2 }
+};
+
+function dashboardModelMetricConfig(metricKind, payload) {
+  var key = metricKind === 'tokens' ? 'total_tokens' : (metricKind || 'total_tokens');
+  if (!dashboardModelMetricConfigs[key]) key = 'total_tokens';
+  var base = dashboardModelMetricConfigs[key] || dashboardModelMetricConfigs.total_tokens;
+  return {
+    key: key,
+    label: payload && payload.label ? payload.label : base.label,
+    unit: payload && payload.unit ? payload.unit : base.unit,
+    title: payload && payload.label && key !== 'total_tokens' ? payload.label : base.title,
+    fill: !!base.fill,
+    borderWidth: base.borderWidth || 2
+  };
+}
+
+function dashboardModelMetricUnitLabel(unit, value) {
+  if (!unit || unit === '%') return '';
+  var numeric = Number(value || 0);
+  if (Math.abs(numeric) === 1 && unit.charAt(unit.length - 1) === 's') {
+    return unit.slice(0, -1);
+  }
+  return unit;
+}
+
+function setDashboardModelChartTitle(canvas, metricKind, payload) {
+  var metric = dashboardModelMetricConfig(metricKind, payload);
+  var title = metric.label + ' by Model Over Time';
+  var shell = canvas && canvas.closest ? canvas.closest('.dashboard-compact-chart') : null;
+  var heading = shell ? shell.querySelector('.dashboard-compact-chart-title') : null;
+  if (heading) heading.textContent = title;
+  if (canvas) canvas.setAttribute('aria-label', title + ' chart');
+}
+
 function modelDatasetFromPayload(ds, index, metricKind) {
+  var metric = dashboardModelMetricConfig(metricKind);
   var c = modelDatasetColor(index);
   return {
     label: ds.label,
     data: ds.values || ds.data || [],
     borderColor: c.border,
     backgroundColor: c.bg,
-    borderWidth: metricKind === 'tokens' ? 2.5 : 2,
+    borderWidth: metric.borderWidth,
     tension: 0.32,
     pointRadius: 0,
     pointHoverRadius: 5,
     hitRadius: 10,
-    fill: metricKind === 'tokens',
+    fill: metric.fill,
     provider: ds.provider || '',
     providerLabel: ds.provider_label || providerDisplayName(ds.provider),
     model: ds.model || ds.label,
     totalTokens: ds.total_tokens || 0,
+    inputTokens: ds.input_tokens || 0,
+    outputTokens: ds.output_tokens || 0,
+    cacheReadTokens: ds.cache_read_tokens || 0,
     toolCallCount: ds.tool_call_count || 0,
     errorCount: ds.error_count || 0,
     callCount: ds.call_count || 0
@@ -119,9 +166,7 @@ function dashboardModelTooltipLabel(ctx) {
   if (unit === '%') {
     return ctx.dataset.label + ': ' + value.toFixed(value >= 10 ? 1 : 2) + '%';
   }
-  if (unit === 'tokens') {
-    return ctx.dataset.label + ': ' + formatCompactNumber(value) + ' tokens';
-  }
+  unit = dashboardModelMetricUnitLabel(unit, value);
   return ctx.dataset.label + ': ' + formatCompactNumber(value) + (unit ? ' ' + unit : '');
 }
 
@@ -137,8 +182,10 @@ function dashboardModelTooltipFooter(items) {
 
 function createDashboardModelChart(el, payload, metricKind) {
   payload = payload || {};
+  var metric = dashboardModelMetricConfig(metricKind, payload);
+  setDashboardModelChartTitle(el, metric.key, payload);
   var datasets = (payload.datasets || []).map(function(ds, i) {
-    return modelDatasetFromPayload(ds, i, metricKind || 'tokens');
+    return modelDatasetFromPayload(ds, i, metric.key);
   });
   var chart = new Chart(el, {
     type: 'line',
@@ -152,7 +199,8 @@ function createDashboardModelChart(el, payload, metricKind) {
         x: dashboardTimeScale(payload),
         y: {
           ...yAxisOptions,
-          title: { display: true, text: metricKind === 'tokens' ? 'Tokens' : '', color: chartTheme().title }
+          ticks: { ...yAxisOptions.ticks, callback: metric.unit === '%' ? formatRateTick : formatTokenTick },
+          title: { display: true, text: metric.title, color: chartTheme().title }
         }
       },
       plugins: {
@@ -167,28 +215,30 @@ function createDashboardModelChart(el, payload, metricKind) {
       }
     }
   });
-  chart.$dashboardMetricUnit = metricKind === 'tokens' ? 'tokens' : '';
-  chart.$dashboardMetricKind = metricKind || 'tokens';
+  chart.$dashboardMetricUnit = metric.unit;
+  chart.$dashboardMetricKind = metric.key;
   return chart;
 }
 
 function updateDashboardModelChart(chartName, payload, metricKind) {
   var canvas = document.getElementById(chartName);
   if (!canvas || !payload) return;
+  var metric = dashboardModelMetricConfig(metricKind, payload);
   if (!window[chartName] || !window[chartName].data) {
-    window[chartName] = createDashboardModelChart(canvas, payload, metricKind);
+    window[chartName] = createDashboardModelChart(canvas, payload, metric.key);
     applyDefaultLog(window[chartName], canvas);
   } else {
     var chart = window[chartName];
     chart.data.labels = payload.labels || [];
     chart.data.datasets = (payload.datasets || []).map(function(ds, i) {
-      return modelDatasetFromPayload(ds, i, metricKind || chart.$dashboardMetricKind || 'tokens');
+      return modelDatasetFromPayload(ds, i, metric.key || chart.$dashboardMetricKind || 'total_tokens');
     });
     chart.options.scales.x = dashboardTimeScale(payload);
-    chart.options.scales.y.ticks.callback = metricKind === 'error_rate' ? formatRateTick : formatTokenTick;
-    chart.options.scales.y.title.text = metricKind === 'tokens' ? 'Tokens' : '';
-    chart.$dashboardMetricUnit = metricKind === 'tokens' ? 'tokens' : '';
-    chart.$dashboardMetricKind = metricKind || 'tokens';
+    chart.options.scales.y.ticks.callback = metric.unit === '%' ? formatRateTick : formatTokenTick;
+    chart.options.scales.y.title.text = metric.title;
+    chart.$dashboardMetricUnit = metric.unit;
+    chart.$dashboardMetricKind = metric.key;
+    setDashboardModelChartTitle(canvas, metric.key, payload);
     applyStoredSeriesVisibility(chartName);
     chart.update('none');
   }

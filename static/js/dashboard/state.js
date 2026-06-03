@@ -5,6 +5,7 @@ var currentActivityRange = '24h';
 var currentActivityRangePinned = false;
 var currentRange = currentCompletedRange;
 var currentChartRange = '24h';
+var currentChartMetric = 'total_tokens';
 var currentActiveSort = 'recent';
 var currentCompletedOffset = 0;
 var currentSearchQuery = '';
@@ -25,10 +26,12 @@ var pendingDashboardReturnScroll = null;
 var activeSessionPrefsKey = 'beacon-active-session-prefs-v1';
 var activeSessionPrefs = {pinned: []};
 var lastActiveSessionsResponse = null;
+var lastDashboardChartsPayload = null;
 window.dashboardSessionIndex = window.dashboardSessionIndex || {};
 
 var dashboardReturnStateKey = 'beacon-dashboard-return-state-v1';
 var dashboardRanges = ['', '1h', '24h', '7d', '30d'];
+var dashboardChartMetrics = ['total_tokens', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'tool_calls', 'errors', 'error_rate'];
 var dashboardActiveSorts = ['recent', 'longest', 'tokens', 'tools', 'errors'];
 var dashboardSearchEventKinds = ['session', 'event', 'message', 'tool_call', 'tool_result', 'reasoning', 'error'];
 var dashboardSearchSorts = ['relevance', 'newest', 'oldest'];
@@ -165,6 +168,7 @@ function readDashboardStateFromURL() {
 	}
 	currentRange = currentCompletedRange;
 	currentChartRange = dashboardEnumParam(params, 'chart_range', currentChartRange, dashboardRanges, {all: ''});
+	currentChartMetric = dashboardEnumParam(params, 'chart_metric', currentChartMetric, dashboardChartMetrics, {tokens: 'total_tokens'});
 	currentActivityRangePinned = dashboardHasValidEnumParam(params, 'activity_range', dashboardRanges, {all: ''});
 	currentActivityRange = currentActivityRangePinned
 		? dashboardEnumParam(params, 'activity_range', currentActivityRange, dashboardRanges, {all: ''})
@@ -187,6 +191,7 @@ function dashboardStatePath() {
 	var params = url.searchParams;
 	if (currentCompletedRange !== '24h') params.set('range', currentCompletedRange === '' ? 'all' : currentCompletedRange);
 	if (currentChartRange !== '24h') params.set('chart_range', currentChartRange === '' ? 'all' : currentChartRange);
+	if (currentChartMetric !== 'total_tokens') params.set('chart_metric', currentChartMetric);
 	if (currentActivityRangePinned || currentActivityRange !== currentCompletedRange) params.set('activity_range', currentActivityRange === '' ? 'all' : currentActivityRange);
 	if (currentActiveSort !== 'recent') params.set('active_sort', currentActiveSort);
 	if (currentSearchQuery) params.set('q', currentSearchQuery);

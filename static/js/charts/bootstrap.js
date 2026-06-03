@@ -1,7 +1,7 @@
 var dashboardCumulativeEl = document.getElementById('dashboardTokenCumulativeChart');
 if (dashboardCumulativeEl) {
   var cumulativePayload = readJSONScript('dashboard-token-cumulative-data') || {};
-  window.dashboardTokenCumulativeChart = createDashboardModelChart(dashboardCumulativeEl, cumulativePayload, 'tokens');
+  window.dashboardTokenCumulativeChart = createDashboardModelChart(dashboardCumulativeEl, cumulativePayload, 'total_tokens');
   applyDefaultLog(window.dashboardTokenCumulativeChart, dashboardCumulativeEl);
   window.dashboardTokenCumulativeChart.update('none');
   setupSeriesModelFilters('dashboardTokenCumulativeChart', cumulativePayload);

@@ -57,6 +57,12 @@ function syncDashboardChartRangeControls() {
 	});
 }
 
+function syncDashboardChartMetricControl() {
+	var select = document.getElementById('dashboard-chart-metric');
+	if (!select) return;
+	select.value = chartMetricValue();
+}
+
 function setDashboardRange(btn, value) {
 	currentCompletedRange = value || '';
 	currentRange = currentCompletedRange;
@@ -75,6 +81,17 @@ function setDashboardChartRange(btn, value) {
 	updateChartRangeCaption('loading');
 	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 	loadDashboardCharts();
+}
+
+function setDashboardChartMetric(value) {
+	currentChartMetric = dashboardChartMetricValues().indexOf(value) >= 0 ? value : 'total_tokens';
+	syncDashboardChartMetricControl();
+	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
+	if (lastDashboardChartsPayload) {
+		updateDashboardCharts(lastDashboardChartsPayload);
+	} else {
+		loadDashboardCharts();
+	}
 }
 
 function refreshDashboardCharts() {
@@ -363,6 +380,7 @@ document.addEventListener('click', function(evt) {
 	}
 	syncDashboardRangeControls();
 	syncDashboardChartRangeControls();
+	syncDashboardChartMetricControl();
 	syncActivityControls();
 	syncSearchControls();
 	updateRangeCaption();

@@ -333,6 +333,35 @@ function chartPayload(scenario: Scenario, range = '24h') {
       time_unit: 'hour',
       bucket_minutes: 60,
       metrics: {
+        total_tokens: {
+          label: 'Total Tokens',
+          unit: 'tokens',
+          datasets,
+        },
+        input_tokens: {
+          label: 'Input Tokens',
+          unit: 'tokens',
+          datasets: datasets.map((d) => ({
+            ...d,
+            values: empty ? [] : d.values.map((value) => Math.round(value * 0.52)),
+          })),
+        },
+        output_tokens: {
+          label: 'Output Tokens',
+          unit: 'tokens',
+          datasets: datasets.map((d) => ({
+            ...d,
+            values: empty ? [] : d.values.map((value) => Math.round(value * 0.38)),
+          })),
+        },
+        cache_read_tokens: {
+          label: 'Cache Read Tokens',
+          unit: 'tokens',
+          datasets: datasets.map((d) => ({
+            ...d,
+            values: empty ? [] : d.values.map((value) => Math.round(value * 0.1)),
+          })),
+        },
         error_rate: {
           label: 'Error Rate',
           unit: '%',
@@ -351,7 +380,7 @@ function chartPayload(scenario: Scenario, range = '24h') {
         },
         tool_calls: {
           label: 'Tool Calls',
-          unit: 'calls',
+          unit: 'tool calls',
           datasets: datasets.map((d, i) => ({
             ...d,
             values: empty ? [] : [1 + i, 3 + i, 4 + i, 6 + i, 8 + i, 10 + i, 13 + i],
@@ -1135,7 +1164,16 @@ async function stopDashboardScrollRecorder(page: Page): Promise<DashboardScrollR
 }
 
 export async function expectDashboardScrollNear(page: Page, expected: DashboardScrollSnapshot, tolerance = 2) {
-  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+  await page.waitForFunction(({ expectedTop, allowed }) => {
+    const owner = document.getElementById('dashboard-main');
+    const mainContent = document.getElementById('main-content');
+    const windowY = Math.round(window.scrollY || window.pageYOffset || 0);
+    const mainContentTop = Math.round(mainContent?.scrollTop || 0);
+    const dashboardTop = Math.round(owner?.scrollTop || 0);
+    return windowY === 0 &&
+      mainContentTop === 0 &&
+      Math.abs(dashboardTop - expectedTop) <= allowed;
+  }, { expectedTop: expected.dashboardTop, allowed: tolerance }, { timeout: 1000 });
   const current = await readDashboardScroll(page);
   expect(current.windowY).toBe(0);
   expect(current.mainContentTop).toBe(0);
@@ -1164,6 +1202,11 @@ export async function expectDashboardScrollStableDuring(page: Page, action: () =
 }
 
 export async function scrollDashboardMainToSearch(page: Page) {
+  await page.waitForFunction(() => {
+    const owner = document.getElementById('dashboard-main');
+    const search = document.getElementById('dashboard-search');
+    return Boolean(owner && search && owner.scrollHeight > owner.clientHeight);
+  });
   await page.locator('#dashboard-main').evaluate((main) => {
     const target = document.getElementById('dashboard-search');
     if (!target) return;
@@ -1177,7 +1220,7 @@ export async function scrollDashboardMainToSearch(page: Page) {
     if (!owner || !search) return false;
     const ownerRect = owner.getBoundingClientRect();
     const searchRect = search.getBoundingClientRect();
-    return searchRect.top >= ownerRect.top && searchRect.top < ownerRect.bottom;
+    return owner.scrollTop > 0 && searchRect.top >= ownerRect.top && searchRect.top < ownerRect.bottom;
   });
   const scroll = await readDashboardScroll(page);
   expect(scroll.windowY).toBe(0);
@@ -1223,6 +1266,7 @@ export async function expectDashboardTokenChartReady(page: Page) {
     const surface = canvas.closest('.completed-table-surface');
     const searchHeader = canvas.closest('#dashboard-search');
     const summary = document.getElementById('dashboard-analytics-summary');
+    const metricSelect = document.getElementById('dashboard-chart-metric');
     const rangeControl = document.getElementById('dashboard-chart-range-control');
     const refresh = document.getElementById('dashboard-chart-refresh-btn');
     const canvasRect = canvas.getBoundingClientRect();
@@ -1240,6 +1284,8 @@ export async function expectDashboardTokenChartReady(page: Page) {
       summaryInAnalyticsPanel: Boolean(summary?.closest('.dashboard-analytics-panel')),
       summaryInCompletedSurface: Boolean(summary?.closest('.completed-table-surface')),
       summaryInSearchHeader: Boolean(summary?.closest('#dashboard-search')),
+      metricSelectInAnalyticsPanel: Boolean(metricSelect?.closest('.dashboard-analytics-panel')),
+      metricSelectInSearchHeader: Boolean(metricSelect?.closest('#dashboard-search')),
       rangeControlInAnalyticsPanel: Boolean(rangeControl?.closest('.dashboard-analytics-panel')),
       refreshInAnalyticsPanel: Boolean(refresh?.closest('.dashboard-analytics-panel')),
     };
@@ -1255,6 +1301,8 @@ export async function expectDashboardTokenChartReady(page: Page) {
   expect(metrics.summaryInAnalyticsPanel).toBe(true);
   expect(metrics.summaryInCompletedSurface).toBe(false);
   expect(metrics.summaryInSearchHeader).toBe(false);
+  expect(metrics.metricSelectInAnalyticsPanel).toBe(true);
+  expect(metrics.metricSelectInSearchHeader).toBe(false);
   expect(metrics.rangeControlInAnalyticsPanel).toBe(true);
   expect(metrics.refreshInAnalyticsPanel).toBe(true);
   await expect(page.locator('.dashboard-analytics-grid')).toHaveCount(0);

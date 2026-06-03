@@ -32,12 +32,15 @@ function loadRenderSandbox() {
     currentActivityRangePinned: false,
     currentRange: "24h",
     currentChartRange: "24h",
+    currentChartMetric: "total_tokens",
     currentActiveSort: "recent",
+    dashboardChartMetrics: ["total_tokens", "input_tokens", "output_tokens", "cache_read_tokens", "tool_calls", "errors", "error_rate"],
     dashboardActiveSorts: ["recent", "longest", "tokens", "tools", "errors"],
     completedPageSize: 50,
     sessionTableHeadHTML: "",
     dashboardRequestSeq: {},
     dashboardControllers: {},
+    lastDashboardChartsPayload: null,
     updateCompletedSortIndicators() {},
     loadCompletedSessions() {},
   };
@@ -337,6 +340,31 @@ test("analytics summaries describe the chart range independently", () => {
   assert.doesNotMatch(wrap.innerHTML, /Last 7 days/);
 });
 
+test("analytics summaries foreground the selected chart metric", () => {
+  const sandbox = loadRenderSandbox();
+  const wrap = {};
+  sandbox.document.getElementById = (id) => (id === "dashboard-analytics-summary" ? wrap : null);
+  sandbox.currentChartMetric = "input_tokens";
+
+  sandbox.renderAnalyticsSummary({
+    total_tokens: 1000,
+    model_count: 2,
+    tool_call_count: 4,
+    error_count: 1,
+    error_rate: 12.5,
+  }, {
+    datasets: [
+      { values: [100, 200] },
+      { values: [50] },
+    ],
+  });
+
+  assert.match(wrap.innerHTML, /Input Tokens/);
+  assert.match(wrap.innerHTML, /350/);
+  assert.match(wrap.innerHTML, /Total Tokens/);
+  assert.match(wrap.innerHTML, /Error Rate/);
+});
+
 test("range helpers keep completed, activity, and chart state separate", () => {
   const sandbox = loadRenderSandbox();
   const completedCaption = {};
@@ -356,6 +384,62 @@ test("range helpers keep completed, activity, and chart state separate", () => {
   sandbox.updateRangeCaption();
   assert.equal(completedCaption.textContent, "Last 30 days");
   assert.equal(activityCaption.textContent, "(7d)");
+});
+
+test("dashboard chart metric helpers select model activity series", () => {
+  const sandbox = loadRenderSandbox();
+  const payload = {
+    token_cumulative: {
+      labels: ["2026-06-02T10:00:00Z"],
+      datasets: [{ label: "gpt", values: [10] }],
+      summary: { total_tokens: 10 },
+      time_unit: "hour",
+      bucket_minutes: 60,
+    },
+    model_activity: {
+      labels: ["2026-06-02T10:00:00Z"],
+      summary: { total_tokens: 10, call_count: 8, error_count: 0 },
+      time_unit: "hour",
+      bucket_minutes: 60,
+      metrics: {
+        tool_calls: {
+          label: "Tool Calls",
+          unit: "tool calls",
+          datasets: [{ label: "gpt", values: [3], tool_call_count: 3 }],
+        },
+        error_rate: {
+          label: "Error Rate",
+          unit: "%",
+          datasets: [{ label: "gpt", values: [0, 0], error_count: 0, call_count: 8 }],
+        },
+      },
+    },
+  };
+
+  sandbox.currentChartMetric = "tool_calls";
+  const tools = sandbox.dashboardMetricPayload(payload);
+  assert.equal(tools.label, "Tool Calls");
+  assert.equal(tools.unit, "tool calls");
+  assert.deepEqual(tools.datasets[0].values, [3]);
+  assert.equal(sandbox.dashboardMetricHasSeriesData(tools), true);
+
+  sandbox.currentChartMetric = "error_rate";
+  const rate = sandbox.dashboardMetricPayload(payload);
+  assert.equal(rate.unit, "%");
+  assert.deepEqual(rate.datasets[0].values, [0, 0]);
+  assert.equal(sandbox.dashboardMetricHasSeriesData(rate), true);
+  assert.equal(sandbox.dashboardMetricHasSeriesData({
+    metric: "error_rate",
+    unit: "%",
+    summary: { call_count: 0, error_count: 0 },
+    datasets: [{ values: [0, 0] }],
+  }), false);
+
+  sandbox.currentChartMetric = "cache_read_tokens";
+  const missing = sandbox.dashboardMetricPayload(payload);
+  assert.equal(missing.label, "Cache Read Tokens");
+  assert.equal(missing.unit, "tokens");
+  assert.equal(missing.datasets.length, 0);
 });
 
 test("chart point values support Chart.js object points", () => {

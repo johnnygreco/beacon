@@ -143,6 +143,18 @@ templ Dashboard(data views.DashboardData) {
 									<p id="dashboard-chart-range-caption" class="text-xs text-gray-600 mt-1" aria-live="polite">Last 24 hours</p>
 								</div>
 								<div class="dashboard-chart-controls">
+									<label class="dashboard-search-select-wrap dashboard-chart-metric-wrap">
+										<span class="sr-only">Token analytics metric</span>
+										<select id="dashboard-chart-metric" class="dashboard-search-select dashboard-chart-metric-select" aria-label="Token analytics metric" onchange="setDashboardChartMetric(this.value)">
+											<option value="total_tokens" selected>Total Tokens</option>
+											<option value="input_tokens">Input Tokens</option>
+											<option value="output_tokens">Output Tokens</option>
+											<option value="cache_read_tokens">Cache Read Tokens</option>
+											<option value="tool_calls">Tool Calls</option>
+											<option value="errors">Errors</option>
+											<option value="error_rate">Error Rate</option>
+										</select>
+									</label>
 									<div id="dashboard-chart-range-control" class="dashboard-search-filter-group dashboard-chart-range-control" role="group" aria-label="Token analytics time range">
 										<button type="button" onclick="setDashboardChartRange(this, '')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">All</button>
 										<button type="button" onclick="setDashboardChartRange(this, '1h')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">1h</button>

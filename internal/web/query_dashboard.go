@@ -187,6 +187,7 @@ func QueryDashboardModelAnalytics(ctx context.Context, db *sql.DB, since *time.T
 			  AND model_key != '<synthetic>'
 			  AND (
 				total_tokens != 0
+				OR cache_read_tokens != 0
 				OR call_count != 0
 				OR tool_call_count != 0
 				OR event_kind IN ('error', 'tool_error')
@@ -257,9 +258,13 @@ func emptyDashboardModelCharts(bucketMinutes int, timeUnit string) (views.ModelS
 	metricChart := views.ModelMetricChart{
 		Labels: []string{},
 		Metrics: map[string]views.ModelMetricSeries{
-			"error_rate": {Label: "Error Rate", Unit: "%", Datasets: []views.ModelSeriesDataset{}},
-			"errors":     {Label: "Errors", Unit: "errors", Datasets: []views.ModelSeriesDataset{}},
-			"tool_calls": {Label: "Tool Calls", Unit: "calls", Datasets: []views.ModelSeriesDataset{}},
+			"total_tokens":      {Label: "Total Tokens", Unit: "tokens", Datasets: []views.ModelSeriesDataset{}},
+			"input_tokens":      {Label: "Input Tokens", Unit: "tokens", Datasets: []views.ModelSeriesDataset{}},
+			"output_tokens":     {Label: "Output Tokens", Unit: "tokens", Datasets: []views.ModelSeriesDataset{}},
+			"cache_read_tokens": {Label: "Cache Read Tokens", Unit: "tokens", Datasets: []views.ModelSeriesDataset{}},
+			"tool_calls":        {Label: "Tool Calls", Unit: "tool calls", Datasets: []views.ModelSeriesDataset{}},
+			"errors":            {Label: "Errors", Unit: "errors", Datasets: []views.ModelSeriesDataset{}},
+			"error_rate":        {Label: "Error Rate", Unit: "%", Datasets: []views.ModelSeriesDataset{}},
 		},
 		Summary:       summary,
 		TimeUnit:      timeUnit,
@@ -372,6 +377,9 @@ func buildDashboardModelCharts(points []dashboardModelPoint, bucketMinutes int, 
 		}
 
 		tokenDataset := base
+		inputDataset := base
+		outputDataset := base
+		cacheReadDataset := base
 		errorRateDataset := base
 		errorDataset := base
 		toolDataset := base
@@ -379,6 +387,9 @@ func buildDashboardModelCharts(points []dashboardModelPoint, bucketMinutes int, 
 		for _, bucket := range buckets {
 			point := valuesByBucket[bucket][key]
 			tokenDataset.Values = append(tokenDataset.Values, float64(point.Tokens))
+			inputDataset.Values = append(inputDataset.Values, float64(point.InputTokens))
+			outputDataset.Values = append(outputDataset.Values, float64(point.OutputTokens))
+			cacheReadDataset.Values = append(cacheReadDataset.Values, float64(point.CacheReadTokens))
 			errorDataset.Values = append(errorDataset.Values, float64(point.Errors))
 			toolDataset.Values = append(toolDataset.Values, float64(point.ToolCalls))
 			attempts := point.Calls + point.Errors
@@ -390,9 +401,13 @@ func buildDashboardModelCharts(points []dashboardModelPoint, bucketMinutes int, 
 		}
 
 		tokenChart.Datasets = append(tokenChart.Datasets, tokenDataset)
+		metricChart.Metrics["total_tokens"] = appendMetricDataset(metricChart.Metrics["total_tokens"], tokenDataset)
+		metricChart.Metrics["input_tokens"] = appendMetricDataset(metricChart.Metrics["input_tokens"], inputDataset)
+		metricChart.Metrics["output_tokens"] = appendMetricDataset(metricChart.Metrics["output_tokens"], outputDataset)
+		metricChart.Metrics["cache_read_tokens"] = appendMetricDataset(metricChart.Metrics["cache_read_tokens"], cacheReadDataset)
+		metricChart.Metrics["tool_calls"] = appendMetricDataset(metricChart.Metrics["tool_calls"], toolDataset)
 		metricChart.Metrics["error_rate"] = appendMetricDataset(metricChart.Metrics["error_rate"], errorRateDataset)
 		metricChart.Metrics["errors"] = appendMetricDataset(metricChart.Metrics["errors"], errorDataset)
-		metricChart.Metrics["tool_calls"] = appendMetricDataset(metricChart.Metrics["tool_calls"], toolDataset)
 
 		summary.TotalTokens += total.Tokens
 		summary.ToolCallCount += total.ToolCalls
