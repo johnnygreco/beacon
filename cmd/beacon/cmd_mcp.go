@@ -55,6 +55,7 @@ func runMCP(cmd *cobra.Command, args []string) error {
 	searcher.ProbeIndex()
 
 	server := mcp.NewServer(ch.DB, searcher, logger)
+	server.SetDefaultContextWindow(cfg.MCP.ContextWindow)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

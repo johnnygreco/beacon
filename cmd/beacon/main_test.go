@@ -26,6 +26,9 @@ func TestRootCommandShowsHelpWithoutSubcommand(t *testing.T) {
 	if !strings.Contains(out.String(), "Available Commands:") {
 		t.Fatalf("expected help output, got %q", out.String())
 	}
+	if !strings.Contains(out.String(), "default: ~/.beacon/beacon.toml") {
+		t.Fatalf("expected default config path in help output, got %q", out.String())
+	}
 }
 
 func TestRootCommandShowsVersion(t *testing.T) {

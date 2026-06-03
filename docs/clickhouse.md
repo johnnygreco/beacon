@@ -5,7 +5,8 @@ Beacon stores normalized agent activity in ClickHouse. The schema is defined in
 application writes go through `internal/store`.
 
 The default database is `beacon`. A different database name can be configured in
-`[database].database`; invalid names are sanitized back to `beacon`.
+`[database].database`; invalid names are rejected during config validation before
+Beacon connects to ClickHouse.
 
 ## Migration behavior
 

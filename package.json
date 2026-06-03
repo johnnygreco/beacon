@@ -1,6 +1,7 @@
 {
   "name": "beacon",
-  "version": "1.0.0",
+  "version": "0.0.0-dev",
+  "private": true,
   "description": "Live dashboard for AI coding agent sessions.",
   "scripts": {
     "vendor": "node scripts/vendor-assets.mjs",

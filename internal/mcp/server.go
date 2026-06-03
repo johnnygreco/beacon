@@ -14,9 +14,10 @@ import (
 )
 
 type Server struct {
-	db       *sql.DB
-	searcher searcher
-	logger   *slog.Logger
+	db            *sql.DB
+	searcher      searcher
+	logger        *slog.Logger
+	contextWindow int
 }
 
 type searcher interface {
@@ -24,7 +25,14 @@ type searcher interface {
 }
 
 func NewServer(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) *Server {
-	return &Server{db: db, searcher: searcher, logger: logger}
+	return &Server{db: db, searcher: searcher, logger: logger, contextWindow: defaultOpenContextWindow}
+}
+
+func (s *Server) SetDefaultContextWindow(events int) {
+	if s == nil || events < 0 {
+		return
+	}
+	s.contextWindow = events
 }
 
 func (s *Server) log() *slog.Logger {
@@ -32,6 +40,16 @@ func (s *Server) log() *slog.Logger {
 		return s.logger
 	}
 	return slog.Default()
+}
+
+func (s *Server) defaultContextWindow() int {
+	if s == nil {
+		return defaultOpenContextWindow
+	}
+	if s.contextWindow < 0 {
+		return defaultOpenContextWindow
+	}
+	return s.contextWindow
 }
 
 type jsonRPCRequest struct {

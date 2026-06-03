@@ -174,6 +174,24 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 	}
 
 	db, stub = newMCPStubDB(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH target AS", "ROW_NUMBER() OVER", "WHERE n.rn BETWEEN")
+			assertMCPNamedValues(t, args, []any{"evt-target", "evt-target", 4, 4})
+			return mcpRows(
+				[]string{"event_uid", "event_kind", "actor_role", "text_preview", "tool_name", "model", "tokens", "timestamp"},
+				[]driver.Value{"evt-target", "tool_call", "assistant", "target", "Bash", "gpt-5.4", int64(5), targetTime},
+			), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+	srv.db = db
+	srv.SetDefaultContextWindow(4)
+	if _, err := srv.toolOpen(context.Background(), json.RawMessage(`{"event_uid":"evt-target"}`)); err != nil {
+		t.Fatalf("toolOpen with configured default context: %v", err)
+	}
+
+	db, stub = newMCPStubDB(t, []mcpStubQuery{
 		func(string, []driver.NamedValue) (driver.Rows, error) {
 			return mcpRows([]string{"event_uid", "event_kind", "actor_role", "text_preview", "tool_name", "model", "tokens", "timestamp"}), nil
 		},

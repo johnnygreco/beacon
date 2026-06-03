@@ -10,6 +10,8 @@ import (
 	"github.com/johnnygreco/beacon/internal/search"
 )
 
+const defaultOpenContextWindow = 3
+
 func toolDefinitions() []map[string]any {
 	return []map[string]any{
 		{
@@ -34,8 +36,8 @@ func toolDefinitions() []map[string]any {
 				"properties": map[string]any{
 					"id":        map[string]any{"type": "string", "description": "Beacon event ID, e.g. event:<id>"},
 					"event_uid": map[string]any{"type": "string", "description": "Raw event UID"},
-					"before":    map[string]any{"type": "integer", "description": "Number of events before target (default 3)"},
-					"after":     map[string]any{"type": "integer", "description": "Number of events after target (default 3)"},
+					"before":    map[string]any{"type": "integer", "description": "Number of events before target (defaults to server context window)"},
+					"after":     map[string]any{"type": "integer", "description": "Number of events after target (defaults to server context window)"},
 				},
 				"anyOf": []map[string]any{
 					{"required": []string{"id"}},
@@ -122,10 +124,10 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 		return "", userToolError("event_uid is required")
 	}
 	if params.Before <= 0 {
-		params.Before = 3
+		params.Before = s.defaultContextWindow()
 	}
 	if params.After <= 0 {
-		params.After = 3
+		params.After = s.defaultContextWindow()
 	}
 
 	// Use a window query to fetch only the target event and its surrounding context,

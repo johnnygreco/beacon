@@ -18,6 +18,14 @@ release_tag() {
     printf 'v%s\n' "$version"
 }
 
+validate_version() {
+    local version="${1#v}"
+    if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "Error: version must use x.y.z format, got '$1'."
+        exit 1
+    fi
+}
+
 rollback_plan() {
     local tag
     tag="$(release_tag "$1")"
@@ -79,6 +87,7 @@ case "${1:-}" in
             usage
             exit 1
         fi
+        validate_version "$2"
         rollback_plan "$2"
         exit 0
         ;;
@@ -89,6 +98,7 @@ case "${1:-}" in
 esac
 
 VERSION="$1"
+validate_version "$VERSION"
 
 # Use gh CLI token if GITHUB_TOKEN is not set
 if [ -z "${GITHUB_TOKEN:-}" ]; then

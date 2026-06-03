@@ -31,6 +31,40 @@ func TestPublishRollbackPlan(t *testing.T) {
 	}
 }
 
+func TestPublishRollbackPlanAcceptsPrefixedVersion(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skipf("bash unavailable: %v", err)
+	}
+
+	cmd := exec.Command("bash", "./publish.sh", "--rollback-plan", "v1.2.3")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("rollback plan failed: %v\n%s", err, out)
+	}
+	if got := string(out); !strings.Contains(got, "Rollback steps for v1.2.3:") {
+		t.Fatalf("rollback plan did not normalize prefixed version:\n%s", got)
+	}
+}
+
+func TestPublishRejectsInvalidVersionBeforeAuth(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skipf("bash unavailable: %v", err)
+	}
+
+	cmd := exec.Command("bash", "./publish.sh", "not-semver")
+	cmd.Env = append(os.Environ(), "GITHUB_TOKEN=")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("publish unexpectedly accepted invalid version:\n%s", out)
+	}
+	if got := string(out); !strings.Contains(got, "version must use x.y.z format") {
+		t.Fatalf("invalid version output = %s", got)
+	}
+	if strings.Contains(string(out), "GITHUB_TOKEN") {
+		t.Fatalf("version validation should happen before auth checks:\n%s", out)
+	}
+}
+
 func TestPublishReleaseFailureRollsBackPushedTag(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skipf("bash unavailable: %v", err)
