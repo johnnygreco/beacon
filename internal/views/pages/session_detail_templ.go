@@ -509,20 +509,46 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<link rel=\"stylesheet\" href=\"/static/css/vendor/github-dark.min.css\"><script src=\"/static/js/vendor/highlight.min.js\"></script><!-- Conversation (lazy-loaded for fast initial render) --><section class=\"transcript-conversation\"><div class=\"transcript-conversation-header flex items-center justify-between gap-3\"><div><h2 class=\"text-lg font-semibold text-gray-200\">Conversation</h2></div><div class=\"transcript-controls flex items-center gap-2\"><button type=\"button\" id=\"btn-expand-all\" onclick=\"expandAll()\" class=\"px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors\">Expand All</button> <button type=\"button\" id=\"btn-collapse-all\" onclick=\"collapseAll()\" class=\"px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors\">Collapse All</button><div class=\"w-px h-5 bg-gray-700\"></div><button type=\"button\" onclick=\"switchView('chat', this)\" aria-pressed=\"true\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-blue-500/20 text-blue-400 border-blue-500/40\">Chat</button> <button type=\"button\" onclick=\"switchView('timeline', this)\" aria-pressed=\"false\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700\">Timeline</button></div></div><div id=\"conversation-container\" hx-get=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<link rel=\"stylesheet\" href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var29 string
-			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/sessions/%s/conversation", data.Session.ID))
+			var templ_7745c5c3_Var29 templ.SafeURL
+			templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinURLErrs(views.AssetURL("/static/css/vendor/github-dark.min.css"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 175, Col: 72}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 149, Col: 89}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "\" hx-trigger=\"load, sse:conversation-update\" hx-swap=\"innerHTML\"><div class=\"flex items-center justify-center py-12 text-gray-500\"><svg class=\"animate-spin h-5 w-5 mr-3\" viewBox=\"0 0 24 24\"><circle class=\"opacity-25\" cx=\"12\" cy=\"12\" r=\"10\" stroke=\"currentColor\" stroke-width=\"4\" fill=\"none\"></circle> <path class=\"opacity-75\" fill=\"currentColor\" d=\"M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z\"></path></svg> Loading conversation...</div></div></section><!-- Scroll to hash fragment after lazy-loaded conversation arrives --><script>\n\t\t\tdocument.body.addEventListener('htmx:afterSettle', function(e) {\n\t\t\t\tif (e.detail.target && e.detail.target.id === 'conversation-container' && window.location.hash) {\n\t\t\t\t\tvar id = window.location.hash.substring(1);\n\t\t\t\t\tvar el = document.getElementById(id);\n\t\t\t\t\tif (!el) {\n\t\t\t\t\t\t// Exact event not found (may have been deduplicated).\n\t\t\t\t\t\t// Fall back to scrolling to the conversation section.\n\t\t\t\t\t\tel = document.getElementById('conversation-container');\n\t\t\t\t\t}\n\t\t\t\t\tif (el) {\n\t\t\t\t\t\tsetTimeout(function() {\n\t\t\t\t\t\t\t// Open any collapsed <details> ancestors so the element is visible\n\t\t\t\t\t\t\tvar parent = el.closest ? el.closest('details') : null;\n\t\t\t\t\t\t\twhile (parent) {\n\t\t\t\t\t\t\t\tparent.open = true;\n\t\t\t\t\t\t\t\tparent = parent.parentElement ? parent.parentElement.closest('details') : null;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t// If the element itself is a <details>, open it too\n\t\t\t\t\t\t\tif (el.tagName === 'DETAILS') { el.open = true; }\n\t\t\t\t\t\t\t// Scroll after layout reflow\n\t\t\t\t\t\t\trequestAnimationFrame(function() {\n\t\t\t\t\t\t\t\tel.scrollIntoView({ behavior: 'smooth', block: 'center' });\n\t\t\t\t\t\t\t\t// Flash highlight if it's the exact element (not fallback)\n\t\t\t\t\t\t\t\tif (el.id !== 'conversation-container') {\n\t\t\t\t\t\t\t\t\tel.style.outline = '2px solid rgba(59, 130, 246, 0.6)';\n\t\t\t\t\t\t\t\t\tel.style.outlineOffset = '4px';\n\t\t\t\t\t\t\t\t\tel.style.borderRadius = '8px';\n\t\t\t\t\t\t\t\t\tsetTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2500);\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t});\n\t\t\t\t\t\t}, 150);\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t});\n\t\t\t</script><!-- Initial chart data embedded as JSON -->")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "\"><script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var30 string
+			templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/vendor/highlight.min.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 150, Col: 69}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "\"></script><!-- Conversation (lazy-loaded for fast initial render) --><section class=\"transcript-conversation\"><div class=\"transcript-conversation-header flex items-center justify-between gap-3\"><div><h2 class=\"text-lg font-semibold text-gray-200\">Conversation</h2></div><div class=\"transcript-controls flex items-center gap-2\"><button type=\"button\" id=\"btn-expand-all\" onclick=\"expandAll()\" class=\"px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors\">Expand All</button> <button type=\"button\" id=\"btn-collapse-all\" onclick=\"collapseAll()\" class=\"px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors\">Collapse All</button><div class=\"w-px h-5 bg-gray-700\"></div><button type=\"button\" onclick=\"switchView('chat', this)\" aria-pressed=\"true\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-blue-500/20 text-blue-400 border-blue-500/40\">Chat</button> <button type=\"button\" onclick=\"switchView('timeline', this)\" aria-pressed=\"false\" class=\"px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700\">Timeline</button></div></div><div id=\"conversation-container\" hx-get=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var31 string
+			templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(fmt.Sprintf("/sessions/%s/conversation", data.Session.ID))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 175, Col: 72}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "\" hx-trigger=\"load, sse:conversation-update\" hx-swap=\"innerHTML\"><div class=\"flex items-center justify-center py-12 text-gray-500\"><svg class=\"animate-spin h-5 w-5 mr-3\" viewBox=\"0 0 24 24\"><circle class=\"opacity-25\" cx=\"12\" cy=\"12\" r=\"10\" stroke=\"currentColor\" stroke-width=\"4\" fill=\"none\"></circle> <path class=\"opacity-75\" fill=\"currentColor\" d=\"M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z\"></path></svg> Loading conversation...</div></div></section><!-- Scroll to hash fragment after lazy-loaded conversation arrives --><script>\n\t\t\tdocument.body.addEventListener('htmx:afterSettle', function(e) {\n\t\t\t\tif (e.detail.target && e.detail.target.id === 'conversation-container' && window.location.hash) {\n\t\t\t\t\tvar id = window.location.hash.substring(1);\n\t\t\t\t\tvar el = document.getElementById(id);\n\t\t\t\t\tif (!el) {\n\t\t\t\t\t\t// Exact event not found (may have been deduplicated).\n\t\t\t\t\t\t// Fall back to scrolling to the conversation section.\n\t\t\t\t\t\tel = document.getElementById('conversation-container');\n\t\t\t\t\t}\n\t\t\t\t\tif (el) {\n\t\t\t\t\t\tsetTimeout(function() {\n\t\t\t\t\t\t\t// Open any collapsed <details> ancestors so the element is visible\n\t\t\t\t\t\t\tvar parent = el.closest ? el.closest('details') : null;\n\t\t\t\t\t\t\twhile (parent) {\n\t\t\t\t\t\t\t\tparent.open = true;\n\t\t\t\t\t\t\t\tparent = parent.parentElement ? parent.parentElement.closest('details') : null;\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t// If the element itself is a <details>, open it too\n\t\t\t\t\t\t\tif (el.tagName === 'DETAILS') { el.open = true; }\n\t\t\t\t\t\t\t// Scroll after layout reflow\n\t\t\t\t\t\t\trequestAnimationFrame(function() {\n\t\t\t\t\t\t\t\tel.scrollIntoView({ behavior: 'smooth', block: 'center' });\n\t\t\t\t\t\t\t\t// Flash highlight if it's the exact element (not fallback)\n\t\t\t\t\t\t\t\tif (el.id !== 'conversation-container') {\n\t\t\t\t\t\t\t\t\tel.style.outline = '2px solid rgba(59, 130, 246, 0.6)';\n\t\t\t\t\t\t\t\t\tel.style.outlineOffset = '4px';\n\t\t\t\t\t\t\t\t\tel.style.borderRadius = '8px';\n\t\t\t\t\t\t\t\t\tsetTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2500);\n\t\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\t});\n\t\t\t\t\t\t}, 150);\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t});\n\t\t\t</script><!-- Initial chart data embedded as JSON -->")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -536,7 +562,137 @@ func SessionDetail(data views.SessionDetailData) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<script src=\"/static/js/vendor/chart.umd.min.js\"></script><script src=\"/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js\"></script><script src=\"/static/js/charts/utils.js\"></script><script src=\"/static/js/charts/core.js\"></script><script src=\"/static/js/charts/dashboard-models.js\"></script><script src=\"/static/js/charts/series-dropdowns.js\"></script><script src=\"/static/js/charts/plugins.js\"></script><script src=\"/static/js/charts/session-models.js\"></script><script src=\"/static/js/charts/bootstrap.js\"></script><script src=\"/static/js/transcript.js\"></script></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "<script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var32 string
+			templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/vendor/chart.umd.min.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 232, Col: 69}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "\"></script><script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var33 string
+			templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 233, Col: 91}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "\"></script><script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var34 string
+			templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/charts/utils.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 234, Col: 61}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "\"></script><script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var35 string
+			templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/charts/core.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 235, Col: 60}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "\"></script><script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var36 string
+			templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/charts/dashboard-models.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 236, Col: 72}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "\"></script><script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var37 string
+			templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/charts/series-dropdowns.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 237, Col: 72}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "\"></script><script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var38 string
+			templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/charts/plugins.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 238, Col: 63}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "\"></script><script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var39 string
+			templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/charts/session-models.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 239, Col: 70}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "\"></script><script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var40 string
+			templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/charts/bootstrap.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 240, Col: 65}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, "\"></script><script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var41 string
+			templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/transcript.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/session_detail.templ`, Line: 241, Col: 59}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "\"></script></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

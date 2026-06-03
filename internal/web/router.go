@@ -23,8 +23,7 @@ func NewRouter(
 	r.Use(middleware.Compress(5))
 
 	// Static files
-	fileServer := http.FileServer(http.FS(staticFS))
-	r.Handle("/static/*", http.StripPrefix("/static/", fileServer))
+	r.Handle("/static/*", http.StripPrefix("/static/", staticFileHandler(staticFS)))
 	r.Get("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/static/favicon.svg", http.StatusFound)
 	})
@@ -64,4 +63,14 @@ func NewRouter(
 	})
 
 	return r
+}
+
+func staticFileHandler(staticFS fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(staticFS))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+		fileServer.ServeHTTP(w, r)
+	})
 }
