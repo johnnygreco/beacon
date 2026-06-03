@@ -27,10 +27,10 @@ function loadRenderSandbox() {
     currentSearchEventKind: "session",
     currentSearchSessionID: "",
     currentSearchLimit: 30,
-    currentCompletedRange: "24h",
-    currentActivityRange: "24h",
+    currentCompletedRange: "",
+    currentActivityRange: "",
     currentActivityRangePinned: false,
-    currentRange: "24h",
+    currentRange: "",
     currentChartRange: "24h",
     currentChartMetric: "total_tokens",
     currentActiveSort: "recent",
@@ -340,6 +340,66 @@ test("analytics range caption stays stable during refresh states", () => {
   assert.equal(caption.textContent, "Last 7 days");
 });
 
+test("analytics busy state does not expose loading as panel label text", () => {
+  const sandbox = loadRenderSandbox();
+  const panel = {
+    attributes: {},
+    setAttribute(name, value) {
+      this.attributes[name] = String(value);
+    },
+    removeAttribute(name) {
+      delete this.attributes[name];
+    },
+  };
+  sandbox.document.querySelector = (selector) => selector === ".dashboard-analytics-panel" ? panel : null;
+
+  sandbox.setAnalyticsBusy(true);
+  assert.equal(panel.attributes["data-loading"], "true");
+  assert.equal(Object.prototype.hasOwnProperty.call(panel.attributes, "aria-busy"), false);
+
+  sandbox.setAnalyticsBusy(false);
+  assert.equal(panel.attributes["data-loading"], "false");
+  assert.equal(Object.prototype.hasOwnProperty.call(panel.attributes, "aria-busy"), false);
+});
+
+test("completed table height floor stays stable during refresh", () => {
+  const sandbox = loadRenderSandbox();
+  sandbox.window.innerWidth = 1440;
+  let measured = 0;
+  const region = {
+    style: { minHeight: "" },
+    attrs: { "data-dashboard-height-floor": "480" },
+    getAttribute(name) {
+      return this.attrs[name] || "";
+    },
+    setAttribute(name, value) {
+      this.attrs[name] = String(value);
+    },
+    removeAttribute(name) {
+      delete this.attrs[name];
+    },
+    getBoundingClientRect() {
+      measured += 1;
+      return { height: 120 };
+    },
+  };
+  const search = {
+    closest(selector) {
+      return selector === ".completed-table-surface" ? region : null;
+    },
+  };
+  sandbox.document.getElementById = (id) => {
+    if (id === "dashboard-wrap") return {};
+    if (id === "dashboard-search") return search;
+    return null;
+  };
+
+  sandbox.stabilizeCompletedTableRegion(false);
+
+  assert.equal(region.style.minHeight, "480px");
+  assert.equal(measured, 0);
+});
+
 test("analytics summaries describe the chart range independently", () => {
   const sandbox = loadRenderSandbox();
   const wrap = {};
@@ -470,7 +530,7 @@ test("chart point values support Chart.js object points", () => {
   assert.equal(sandbox.chartPointValue({ x: "bad" }), 0);
 
   let captionState = "";
-  sandbox.document.querySelector = () => ({ setAttribute() {} });
+  sandbox.document.querySelector = () => ({ setAttribute() {}, removeAttribute() {} });
   sandbox.document.getElementById = (id) => {
     if (id === "dashboard-analytics-summary") return {};
     if (id === "dashboard-chart-range-caption") {

@@ -1,7 +1,7 @@
 // --- JSON dashboard stores ---
 var currentActivityFilter = 'all';
-var currentCompletedRange = '24h';
-var currentActivityRange = '24h';
+var currentCompletedRange = '';
+var currentActivityRange = '';
 var currentActivityRangePinned = false;
 var currentRange = currentCompletedRange;
 var currentChartRange = '24h';
@@ -193,7 +193,7 @@ function readDashboardStateFromURL() {
 function dashboardStatePath() {
 	var url = new URL('/', window.location.origin);
 	var params = url.searchParams;
-	if (currentCompletedRange !== '24h') params.set('range', currentCompletedRange === '' ? 'all' : currentCompletedRange);
+	if (currentCompletedRange !== '') params.set('range', currentCompletedRange);
 	if (currentChartRange !== '24h') params.set('chart_range', currentChartRange === '' ? 'all' : currentChartRange);
 	if (currentChartMetric !== 'total_tokens') params.set('chart_metric', currentChartMetric);
 	if (currentActivityRangePinned || currentActivityRange !== currentCompletedRange) params.set('activity_range', currentActivityRange === '' ? 'all' : currentActivityRange);

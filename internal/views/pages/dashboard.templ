@@ -40,7 +40,7 @@ templ Dashboard(data views.DashboardData) {
 								<input id="dashboard-name-input" data-dashboard-name-input type="text" autocomplete="off" maxlength="80" value={ data.DashboardName } placeholder={ data.HeaderTitle() } class="dashboard-name-input hidden"/>
 							</div>
 							<p class="dashboard-header-status text-xs text-gray-500">
-								<span id="dashboard-range-caption">Last 24 hours</span>
+								<span id="dashboard-range-caption">All time</span>
 								<span class="mx-1 text-gray-700" aria-hidden="true">/</span>
 								<span id="dashboard-connection-label" aria-live="polite">Connecting</span>
 							</p>
@@ -182,7 +182,7 @@ templ Dashboard(data views.DashboardData) {
 							<div class="dashboard-table-title-row">
 								<div class="completed-table-title">
 									<h2 id="completed-table-title" class="text-sm font-medium text-gray-400 uppercase tracking-wide">Completed Sessions</h2>
-									<p id="completed-session-status" class="text-xs text-gray-600 mt-1" aria-live="polite">Last 24 hours</p>
+									<p id="completed-session-status" class="text-xs text-gray-600 mt-1" aria-live="polite">All time</p>
 								</div>
 							</div>
 							<div class="dashboard-table-controls-scroll">
@@ -200,9 +200,9 @@ templ Dashboard(data views.DashboardData) {
 										</div>
 										<div class="dashboard-search-filters" aria-label="Table filters">
 											<div id="dashboard-range-control" class="dashboard-search-filter-group" role="group" aria-label="Completed sessions time range">
-												<button type="button" onclick="setDashboardRange(this, '')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">All</button>
+												<button type="button" onclick="setDashboardRange(this, '')" aria-pressed="true" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
 												<button type="button" onclick="setDashboardRange(this, '1h')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">1h</button>
-												<button type="button" onclick="setDashboardRange(this, '24h')" aria-pressed="true" class="dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">24h</button>
+												<button type="button" onclick="setDashboardRange(this, '24h')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">24h</button>
 												<button type="button" onclick="setDashboardRange(this, '7d')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">7d</button>
 												<button type="button" onclick="setDashboardRange(this, '30d')" aria-pressed="false" class="dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">30d</button>
 											</div>
@@ -324,7 +324,7 @@ templ Dashboard(data views.DashboardData) {
 			<!-- Activity Bar Sidebar -->
 			<aside id="timeline-sidebar" class="timeline-panel activity-bar-panel flex flex-col bg-gray-800/30" aria-labelledby="activity-bar-title">
 				<div class="activity-bar-header">
-					<h2 id="activity-bar-title" class="activity-bar-title">Activity Bar <span class="activity-bar-range">(24h)</span></h2>
+					<h2 id="activity-bar-title" class="activity-bar-title">Activity Bar <span class="activity-bar-range">(all)</span></h2>
 				</div>
 				<div class="activity-bar-filters" role="group" aria-label="Activity type filter">
 					<button type="button" onclick="filterActivity(this, 'all')" aria-pressed="true" class="activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors">All</button>
