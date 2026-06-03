@@ -219,6 +219,7 @@ async function fetchDashboardJSON(key, url) {
 		if (dashboardRequestSeq[key] !== seq) return {stale: true};
 		return {data: data};
 	} catch (err) {
+		if (dashboardRequestSeq[key] !== seq) return {stale: true};
 		if (err && err.name === 'AbortError') return {stale: true};
 		return {error: true};
 	} finally {

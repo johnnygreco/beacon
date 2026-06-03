@@ -5,6 +5,7 @@ import {
   TEST_EVENT_ID,
   TEST_SESSION_ID,
   attachPageGuards,
+  emitDashboardEvent,
   expectDashboardTokenChartReady,
   expectLogAndModelControlsAligned,
   expectNoHorizontalOverflow,
@@ -802,6 +803,56 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(Math.round(completedAfterLong?.y || 0)).toBe(Math.round(completedInitial?.y || 0));
     await expectNoHorizontalOverflow(page);
 
+    await guards.expectClean();
+  });
+
+  test('renders active sessions in realtime while completed panel request is delayed', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page, {
+      mockEventSource: true,
+      activeScenarioSequence: ['default', 'many-active'],
+    });
+    let releaseCompletedRequest: () => void = () => {};
+    const completedGate = new Promise<void>((resolve) => {
+      releaseCompletedRequest = resolve;
+    });
+    let holdNextCompletedRequest = true;
+    await page.route('**/api/dashboard/sessions**', async (route) => {
+      const url = new URL(route.request().url());
+      if (holdNextCompletedRequest && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'completed') {
+        holdNextCompletedRequest = false;
+        await completedGate;
+      }
+      return route.fallback();
+    });
+    const completedRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'completed';
+    });
+    let completedSettled = false;
+    const completedResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'completed';
+    }).then(() => {
+      completedSettled = true;
+    });
+
+    await gotoDashboard(page);
+    await completedRequest;
+    await expect(page.locator('#active-sessions')).toContainText('Realtime dashboard smoke run');
+
+    const activeResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/sessions' && url.searchParams.get('state') === 'active';
+    });
+    await emitDashboardEvent(page, 'active-sessions-update');
+    await activeResponse;
+    await expect(page.locator('#active-sessions')).toContainText('Live queue item 8', { timeout: 1000 });
+    expect(completedSettled).toBe(false);
+
+    releaseCompletedRequest();
+    await completedResponse;
+    await waitForCompletedRows(page, 30);
     await guards.expectClean();
   });
 
