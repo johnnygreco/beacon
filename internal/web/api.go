@@ -228,7 +228,7 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 		})
 		return
 	}
-	if a.searcher == nil {
+	if a.searcher == nil && req.EventKind != "session" {
 		a.jsonResponse(w, APIDashboardSearchResponse{
 			State:     "unavailable",
 			Query:     req.Query,
@@ -242,54 +242,58 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	sq := search.SearchQuery{
-		Query:      req.Query,
-		Limit:      req.Limit + 1,
-		SessionID:  req.SessionID,
-		EventKinds: dashboardSearchEventKinds(req.EventKind),
-		SortBy:     req.SortBy,
-	}
-	if t := parseRange(req.Range); t != nil {
-		sq.FromTime = *t
-	}
-
-	var results []search.SearchResult
-	if req.Query == "" {
-		results, err = a.searcher.Browse(r.Context(), sq)
-	} else {
-		results, err = a.searcher.Search(r.Context(), sq)
-	}
-	if err != nil {
-		a.internalError(w, "search failed", err)
-		return
-	}
-
-	sessionMeta := a.dashboardSearchSessionMeta(r.Context(), searchResultSessionIDs(results))
-	items := make([]APIDashboardSearchResult, 0, len(results))
-	seenSessions := make(map[string]struct{}, len(results))
-	for _, result := range results {
-		if result.SessionID != "" {
-			seenSessions[result.SessionID] = struct{}{}
+	items := make([]APIDashboardSearchResult, 0)
+	seenSessions := make(map[string]struct{})
+	if req.EventKind != "session" {
+		sq := search.SearchQuery{
+			Query:      req.Query,
+			Limit:      req.Limit + 1,
+			SessionID:  req.SessionID,
+			EventKinds: dashboardSearchEventKinds(req.EventKind),
+			SortBy:     req.SortBy,
 		}
-		meta := sessionMeta[result.SessionID]
-		items = append(items, APIDashboardSearchResult{
-			ResultType:   "event",
-			EventUID:     result.EventUID,
-			SessionID:    result.SessionID,
-			EventKind:    result.EventKind,
-			Snippet:      dashboardSearchSnippet(result),
-			ToolName:     result.ToolName,
-			Provider:     result.Provider,
-			Model:        result.Model,
-			Score:        result.Score,
-			Timestamp:    result.Timestamp,
-			RelativeTime: views.RelativeTime(result.Timestamp),
-			SessionTitle: meta.title,
-			WorkingDir:   meta.workingDir,
-		})
+		if t := parseRange(req.Range); t != nil {
+			sq.FromTime = *t
+		}
+
+		var results []search.SearchResult
+		if req.Query == "" {
+			results, err = a.searcher.Browse(r.Context(), sq)
+		} else {
+			results, err = a.searcher.Search(r.Context(), sq)
+		}
+		if err != nil {
+			a.internalError(w, "search failed", err)
+			return
+		}
+
+		sessionMeta := a.dashboardSearchSessionMeta(r.Context(), searchResultSessionIDs(results))
+		items = make([]APIDashboardSearchResult, 0, len(results))
+		seenSessions = make(map[string]struct{}, len(results))
+		for _, result := range results {
+			if result.SessionID != "" {
+				seenSessions[result.SessionID] = struct{}{}
+			}
+			meta := sessionMeta[result.SessionID]
+			items = append(items, APIDashboardSearchResult{
+				ResultType:   "event",
+				EventUID:     result.EventUID,
+				SessionID:    result.SessionID,
+				EventKind:    result.EventKind,
+				Snippet:      dashboardSearchSnippet(result),
+				ToolName:     result.ToolName,
+				Provider:     result.Provider,
+				Model:        result.Model,
+				Score:        result.Score,
+				Timestamp:    result.Timestamp,
+				RelativeTime: views.RelativeTime(result.Timestamp),
+				SessionTitle: meta.title,
+				WorkingDir:   meta.workingDir,
+			})
+		}
 	}
 	hasMore := len(items) > req.Limit
-	if req.Query != "" && req.EventKind == "" {
+	if req.EventKind == "session" || (req.Query != "" && req.EventKind == "") {
 		sessionItems, sessionHasMore := a.dashboardSearchSessionMetadataResults(r.Context(), req.Query, req.Range, req.SessionID, req.SortBy, seenSessions, req.Limit+1)
 		if sessionHasMore {
 			hasMore = true
@@ -319,7 +323,7 @@ func dashboardSearchEventKinds(eventKind string) []string {
 	switch eventKind {
 	case models.EventKindError:
 		return []string{models.EventKindError, models.EventKindToolError}
-	case "":
+	case "", "event", "session":
 		return nil
 	default:
 		return []string{eventKind}
@@ -341,7 +345,7 @@ func dashboardSearchSnippet(result search.SearchResult) string {
 }
 
 func (a *APIHandlers) dashboardSearchSessionMetadataResults(ctx context.Context, query, rangeVal, sessionIDPrefix, sortBy string, seenSessions map[string]struct{}, limit int) ([]APIDashboardSearchResult, bool) {
-	if a.db == nil || strings.TrimSpace(query) == "" || limit <= 0 {
+	if a.db == nil || limit <= 0 {
 		return nil, false
 	}
 	fetchLimit := limit + len(seenSessions) + 1

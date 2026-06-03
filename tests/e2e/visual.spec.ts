@@ -80,7 +80,13 @@ test.describe('dashboard visual regression baselines', () => {
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
 
-    await fillDashboardSearchAndWait(page, 'dashboard payload');
+    const typeResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/search' && url.searchParams.get('event_kind') === 'event';
+    });
+    await page.locator('#dashboard-search-kind').selectOption('event');
+    await typeResponse;
+    await fillDashboardSearchAndWait(page, 'dashboard payload', (url) => url.searchParams.get('q') === 'dashboard payload' && url.searchParams.get('event_kind') === 'event');
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('.completed-table-surface')).toHaveScreenshot('dashboard-table-search.png');
 

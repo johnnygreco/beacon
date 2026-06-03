@@ -26,6 +26,25 @@ async function gotoDashboardSearch(page: Page) {
   await waitForCompletedRows(page, 30);
 }
 
+async function selectDashboardSearchType(page: Page, type: string) {
+  const current = await page.locator('#dashboard-search-kind').inputValue();
+  if (current === type) return;
+  await triggerDashboardSearchAndWait(
+    page,
+    () => page.locator('#dashboard-search-kind').selectOption(type),
+    (url) => url.searchParams.get('event_kind') === type,
+  );
+}
+
+async function fillDashboardEventSearchAndWait(page: Page, value: string, predicate?: (url: URL) => boolean) {
+  await selectDashboardSearchType(page, 'event');
+  return fillDashboardSearchAndWait(
+    page,
+    value,
+    predicate || ((url) => url.searchParams.get('q') === value && url.searchParams.get('event_kind') === 'event'),
+  );
+}
+
 async function readSearchOffsetInDashboard(page: Page) {
   return page.evaluate(() => {
     const owner = document.getElementById('dashboard-main');
@@ -118,18 +137,74 @@ test.describe('dashboard search workflows', () => {
     await expect(page.locator('#dashboard-session-search')).toBeVisible();
   });
 
+  test('loads direct dashboard URLs without search params in sessions mode', async ({ page }) => {
+    await installDashboardFixtures(page);
+    const searchRequests: string[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === '/api/dashboard/search') searchRequests.push(url.search);
+    });
+
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
+    await expect(page.locator('#completed-table-title')).toHaveText('Completed Sessions');
+    await expect(page.locator('#dashboard-search-kind')).toHaveValue('session');
+    expect(searchRequests).toEqual([]);
+  });
+
+  test('hydrates direct session search URLs as session search results', async ({ page }) => {
+    await installDashboardFixtures(page);
+    const query = 'claude-sonnet-4-super-long-model-name';
+    const searchResponse = waitForDashboardSearchResponse(page, (url) =>
+      url.searchParams.get('q') === query &&
+      url.searchParams.get('event_kind') === 'session'
+    );
+
+    await page.goto(`/?q=${encodeURIComponent(query)}&event_kind=session`, { waitUntil: 'domcontentloaded' });
+    await searchResponse;
+    await expect(page.locator('#dashboard-search-kind')).toHaveValue('session');
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'search');
+    await waitForDashboardSearchRows(page, 1);
+    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-event-kind', 'session');
+  });
+
+  test('hydrates direct query URLs as default session search results', async ({ page }) => {
+    await installDashboardFixtures(page);
+    const query = 'claude-sonnet-4-super-long-model-name';
+    const searchResponse = waitForDashboardSearchResponse(page, (url) =>
+      url.searchParams.get('q') === query &&
+      url.searchParams.get('event_kind') === 'session'
+    );
+
+    await page.goto(`/?q=${encodeURIComponent(query)}`, { waitUntil: 'domcontentloaded' });
+    await searchResponse;
+    await expect(page.locator('#dashboard-search-kind')).toHaveValue('session');
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'search');
+    await waitForDashboardSearchRows(page, 1);
+    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-event-kind', 'session');
+  });
+
   test('exercises query, filters, clearing, reset, and pagination', async ({ page }) => {
     const guards = attachPageGuards(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoDashboardSearch(page);
     await expectNoHorizontalOverflow(page);
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
+    await expect(page.getByLabel('Table type')).toHaveValue('session');
 
     await page.keyboard.press('/');
     await expect(page.locator('#dashboard-session-search')).toBeFocused();
 
-    await fillDashboardSearchAndWait(page, 'dashboard payload');
+    await fillDashboardSearchAndWait(
+      page,
+      'claude-sonnet-4-super-long-model-name',
+      (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name' && url.searchParams.get('event_kind') === 'session',
+    );
     await waitForDashboardSearchRows(page, 1);
-    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Dashboard payload search');
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'search');
+    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-event-kind', 'session');
+    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Session metadata');
     await expect(page.locator('#dashboard-search-clear')).toHaveCount(0);
 
     const escapeClearResponse = page.waitForResponse((response) => {
@@ -140,10 +215,13 @@ test.describe('dashboard search workflows', () => {
     await escapeClearResponse;
     await expect(page.locator('#dashboard-session-search')).toHaveValue('');
     await expect(page.locator('#dashboard-session-search')).toBeFocused();
+    await expect(page.locator('#dashboard-search-kind')).toHaveValue('session');
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
     await waitForCompletedRows(page, 30);
 
-    await fillDashboardSearchAndWait(page, 'search');
+    await fillDashboardEventSearchAndWait(page, 'search');
     await waitForDashboardSearchRows(page, 3);
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'search');
 
     await triggerDashboardSearchAndWait(
       page,
@@ -152,7 +230,7 @@ test.describe('dashboard search workflows', () => {
     );
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-event-kind', 'tool_call');
-    await expect(page.getByLabel('Message type')).toHaveValue('tool_call');
+    await expect(page.getByLabel('Table type')).toHaveValue('tool_call');
 
     await triggerDashboardSearchAndWait(
       page,
@@ -191,12 +269,13 @@ test.describe('dashboard search workflows', () => {
     await resetResponse;
     await expect(page.locator('#dashboard-session-search')).toHaveValue('');
     await expect(page.locator('#dashboard-search-session')).toHaveValue('');
-    await expect(page.locator('#dashboard-search-kind')).toHaveValue('');
+    await expect(page.locator('#dashboard-search-kind')).toHaveValue('session');
     await expect(page.locator('#dashboard-search-sort')).toHaveValue('relevance');
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
     await waitForCompletedRows(page, 30);
 
-    await fillDashboardSearchAndWait(page, 'many');
+    await fillDashboardEventSearchAndWait(page, 'many');
     await waitForDashboardSearchRows(page, 30);
     await expect(page.getByRole('button', { name: 'Show more' })).toBeVisible();
     await expectSearchVerticalFlow(page);
@@ -204,17 +283,23 @@ test.describe('dashboard search workflows', () => {
     await triggerDashboardSearchAndWait(
       page,
       () => page.getByRole('button', { name: 'Show more' }).click(),
-      (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('limit') === '60',
+      (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'event' && url.searchParams.get('limit') === '60',
     );
     await waitForDashboardSearchRows(page, 35);
     await expect(page.getByRole('button', { name: 'Show more' })).toHaveCount(0);
 
+    await triggerDashboardSearchAndWait(
+      page,
+      () => page.locator('#dashboard-search-kind').selectOption('session'),
+      (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'session',
+    );
     const metadataRequest = await triggerDashboardSearchAndWait(
       page,
       () => page.locator('#dashboard-session-search').fill('claude-sonnet-4-super-long-model-name'),
       (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name',
     );
     expect(metadataRequest.searchParams.get('limit')).toBe('30');
+    expect(metadataRequest.searchParams.get('event_kind')).toBe('session');
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toHaveAttribute('data-event-kind', 'session');
     await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Session metadata');
@@ -229,7 +314,7 @@ test.describe('dashboard search workflows', () => {
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
 
-    await fillDashboardSearchAndWait(page, 'fixture density');
+    await fillDashboardEventSearchAndWait(page, 'fixture density');
     await waitForDashboardSearchRows(page, 30);
     await expect(page.locator('#completed-table-title')).toHaveText('Search Results');
     await expect(page.locator('#completed-session-status')).toHaveText('Last 24 hours');
@@ -242,7 +327,7 @@ test.describe('dashboard search workflows', () => {
     await triggerDashboardSearchAndWait(
       page,
       () => page.getByRole('button', { name: 'Show more' }).click(),
-      (url) => url.searchParams.get('q') === 'fixture density' && url.searchParams.get('limit') === '60',
+      (url) => url.searchParams.get('q') === 'fixture density' && url.searchParams.get('event_kind') === 'event' && url.searchParams.get('limit') === '60',
     );
     await waitForDashboardSearchRows(page, 35);
     await expect(page.locator('#completed-session-status')).toHaveText('Last 24 hours');
@@ -289,10 +374,11 @@ test.describe('dashboard search workflows', () => {
     expect(await readDashboardChartTotal(page)).toBeGreaterThan(initialChartTotal);
     const chart7dTotal = await readDashboardChartTotal(page);
 
-    await fillDashboardSearchAndWait(page, 'many');
+    await fillDashboardEventSearchAndWait(page, 'many');
     await waitForDashboardSearchRows(page, 30);
     const search30d = waitForDashboardSearchResponse(page, (url) =>
       url.searchParams.get('q') === 'many' &&
+      url.searchParams.get('event_kind') === 'event' &&
       url.searchParams.get('completed_range') === '30d' &&
       url.searchParams.get('limit') === '30'
     );
@@ -317,13 +403,14 @@ test.describe('dashboard search workflows', () => {
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('range') === '30d');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('chart_range') === '7d');
     await page.waitForFunction(() => new URL(window.location.href).searchParams.get('q') === 'many');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('event_kind') === 'event');
     expect(await readDashboardChartTotal(page)).toBe(chart7dTotal);
 
     const pinnedActivity = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return response.ok() && url.pathname === '/api/dashboard/activity' && url.searchParams.get('activity_range') === '7d';
     });
-    await page.goto('/?range=30d&activity_range=7d&q=many&chart_range=1h', { waitUntil: 'domcontentloaded' });
+    await page.goto('/?range=30d&activity_range=7d&q=many&event_kind=event&chart_range=1h', { waitUntil: 'domcontentloaded' });
     await pinnedActivity;
     await waitForDashboardSearchRows(page, 30);
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '30d' })).toHaveAttribute('aria-pressed', 'true');
@@ -333,6 +420,7 @@ test.describe('dashboard search workflows', () => {
     await expect(page.locator('#activity-feed')).toContainText('7d range fixture');
     const pinnedTable = waitForDashboardSearchResponse(page, (url) =>
       url.searchParams.get('q') === 'many' &&
+      url.searchParams.get('event_kind') === 'event' &&
       url.searchParams.get('completed_range') === '7d'
     );
     const pinnedRequests = await collectDashboardRequestsDuring(page, async () => {
@@ -355,8 +443,8 @@ test.describe('dashboard search workflows', () => {
     await refreshCharts;
     await expectDashboardTokenChartReady(page);
 
-    const legacySearch = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('completed_range') === '7d');
-    await page.goto('/?search_range=7d&q=many', { waitUntil: 'domcontentloaded' });
+    const legacySearch = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'event' && url.searchParams.get('completed_range') === '7d');
+    await page.goto('/?search_range=7d&q=many&event_kind=event', { waitUntil: 'domcontentloaded' });
     await legacySearch;
     await waitForDashboardSearchRows(page, 30);
     await expect(page.locator('#dashboard-range-control').getByRole('button', { name: '7d' })).toHaveAttribute('aria-pressed', 'true');
@@ -376,13 +464,14 @@ test.describe('dashboard search workflows', () => {
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
     await expectNoHorizontalOverflow(page);
+    await selectDashboardSearchType(page, 'event');
 
     const baseline = await scrollDashboardMainToSearch(page);
     const input = page.locator('#dashboard-session-search');
     await input.focus();
     await expect(input).toBeFocused();
 
-    const finalResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'dashboard payload');
+    const finalResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'dashboard payload' && url.searchParams.get('event_kind') === 'event');
     for (const char of 'dashboard payload') {
       await input.pressSequentially(char);
       await page.waitForTimeout(280);
@@ -405,7 +494,11 @@ test.describe('dashboard search workflows', () => {
     await waitForCompletedRows(page, 30);
     await scrollDashboardMainToSearch(page);
 
-    await fillDashboardSearchAndWait(page, 'dashboard payload');
+    await fillDashboardSearchAndWait(
+      page,
+      'claude-sonnet-4-super-long-model-name',
+      (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name' && url.searchParams.get('event_kind') === 'session',
+    );
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#dashboard-session-search')).toBeFocused();
     const beforeEscape = await readDashboardScroll(page);
@@ -418,6 +511,8 @@ test.describe('dashboard search workflows', () => {
     await waitForCompletedRows(page, 30);
     await expect(page.locator('#dashboard-session-search')).toHaveValue('');
     await expect(page.locator('#dashboard-session-search')).toBeFocused();
+    await expect(page.locator('#dashboard-search-kind')).toHaveValue('session');
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
     await expectDashboardScrollNear(page, beforeEscape);
 
     await guards.expectClean();
@@ -431,10 +526,14 @@ test.describe('dashboard search workflows', () => {
     await waitForCompletedRows(page, 30);
     await scrollDashboardMainToSearch(page);
 
-    await fillDashboardSearchAndWait(page, 'dashboard payload');
+    await fillDashboardSearchAndWait(
+      page,
+      'claude-sonnet-4-super-long-model-name',
+      (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name' && url.searchParams.get('event_kind') === 'session',
+    );
     await waitForDashboardSearchRows(page, 1);
     await expect(page.locator('#dashboard-search-clear')).toHaveCount(0);
-    await expect(page.locator('#dashboard-session-search')).toHaveValue('dashboard payload');
+    await expect(page.locator('#dashboard-session-search')).toHaveValue('claude-sonnet-4-super-long-model-name');
 
     const beforeClear = await readDashboardScroll(page);
     await expectDashboardScrollStableDuring(page, async () => {
@@ -461,17 +560,20 @@ test.describe('dashboard search workflows', () => {
     await installDashboardFixtures(page, {
       searchDelayByQuery: {
         dash: 700,
-        'dashboard payload': 50,
+        many: 50,
       },
     });
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
+    await selectDashboardSearchType(page, 'event');
+    await fillDashboardEventSearchAndWait(page, 'many');
+    await waitForDashboardSearchRows(page, 30);
 
     const baseline = await scrollDashboardMainToSearch(page);
     const input = page.locator('#dashboard-session-search');
     await input.focus();
 
-    const staleRequest = waitForDashboardSearchRequest(page, (url) => url.searchParams.get('q') === 'dash');
+    const staleRequest = waitForDashboardSearchRequest(page, (url) => url.searchParams.get('q') === 'dash' && url.searchParams.get('event_kind') === 'event');
     await expectDashboardScrollStableDuring(page, async () => {
       await input.fill('dash');
       await input.press('Enter');
@@ -479,20 +581,20 @@ test.describe('dashboard search workflows', () => {
       await expect(page.locator('#completed-sessions')).toContainText('Searching table sessions and events');
     });
 
-    const latestResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'dashboard payload');
+    const latestResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'event');
     await expectDashboardScrollStableDuring(page, async () => {
-      await input.fill('dashboard payload');
+      await input.fill('many');
       await input.press('Enter');
       await latestResponse;
-      await waitForDashboardSearchRows(page, 1);
+      await waitForDashboardSearchRows(page, 30);
     });
-    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Dashboard payload search');
+    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Many-result fixture item 1');
     await expectDashboardScrollNear(page, baseline);
 
     const afterLatest = await readDashboardScroll(page);
     await page.waitForTimeout(800);
-    await expect(page.locator('#completed-sessions tr[data-search-row]')).toHaveCount(1);
-    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Dashboard payload search');
+    await expect(page.locator('#completed-sessions tr[data-search-row]')).toHaveCount(30);
+    await expect(page.locator('#completed-sessions tr[data-search-row]').first()).toContainText('Many-result fixture item 1');
     await expectDashboardScrollNear(page, afterLatest);
 
     await guards.expectClean();
@@ -504,9 +606,9 @@ test.describe('dashboard search workflows', () => {
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
 
-    await fillDashboardSearchAndWait(page, 'many');
+    await fillDashboardEventSearchAndWait(page, 'many');
     await waitForDashboardSearchRows(page, 30);
-    const moreResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('limit') === '60');
+    const moreResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'event' && url.searchParams.get('limit') === '60');
     await page.getByRole('button', { name: 'Show more' }).click();
     await moreResponse;
     await waitForDashboardSearchRows(page, 35);
@@ -537,7 +639,7 @@ test.describe('dashboard search workflows', () => {
 
     const bottom = await scrollDashboardMainToBottom(page);
     for (let i = 0; i < 3; i += 1) {
-      const refreshResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('limit') === '60');
+      const refreshResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'event' && url.searchParams.get('limit') === '60');
       await emitDashboardEvent(page, 'completed-sessions-update');
       await expect(page.locator('#completed-session-status')).toHaveText('Last 24 hours');
       await expect(page.locator('#completed-sessions tr[data-search-row]')).toHaveCount(35);
@@ -557,7 +659,7 @@ test.describe('dashboard search workflows', () => {
     });
     const failedRefresh = page.waitForResponse((response) => {
       const url = new URL(response.url());
-      return response.status() === 500 && url.pathname === '/api/dashboard/search' && url.searchParams.get('q') === 'many';
+      return response.status() === 500 && url.pathname === '/api/dashboard/search' && url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'event';
     });
     await emitDashboardEvent(page, 'completed-sessions-update');
     await expect(page.locator('#completed-session-status')).toHaveText('Last 24 hours');
@@ -590,12 +692,13 @@ test.describe('dashboard search workflows', () => {
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
     await scrollDashboardMainToSearch(page);
+    await selectDashboardSearchType(page, 'event');
 
     await expectDashboardScrollStableDuring(page, async () => {
       await triggerDashboardSearchAndWait(
         page,
         () => page.locator('#dashboard-session-search').fill('search'),
-        (url) => url.searchParams.get('q') === 'search',
+        (url) => url.searchParams.get('q') === 'search' && url.searchParams.get('event_kind') === 'event',
       );
       await waitForDashboardSearchRows(page, 3);
     });
@@ -664,11 +767,12 @@ test.describe('dashboard search workflows', () => {
       await chartsResponse;
     });
 
+    await selectDashboardSearchType(page, 'event');
     await expectDashboardScrollStableDuring(page, async () => {
       await triggerDashboardSearchAndWait(
         page,
         () => page.locator('#dashboard-session-search').fill('many'),
-        (url) => url.searchParams.get('q') === 'many',
+        (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'event',
       );
       await waitForDashboardSearchRows(page, 30);
     });
@@ -679,7 +783,7 @@ test.describe('dashboard search workflows', () => {
         () => page.getByRole('button', { name: 'Show more' }).evaluate((button) => {
           (button as HTMLButtonElement).click();
         }),
-        (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('limit') === '60',
+        (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'event' && url.searchParams.get('limit') === '60',
       );
       await waitForDashboardSearchRows(page, 35);
     });
@@ -696,7 +800,7 @@ test.describe('dashboard search workflows', () => {
     });
 
     await expectDashboardScrollStableDuring(page, async () => {
-      const searchResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many');
+      const searchResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'event');
       await emitDashboardEvent(page, 'completed-sessions-update');
       await searchResponse;
       await waitForDashboardSearchRows(page, 35);
@@ -835,19 +939,20 @@ test.describe('dashboard search workflows', () => {
     await installDashboardFixtures(page, { failOnce: ['search'], searchDelayMs: 500 });
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
+    const query = 'claude-sonnet-4-super-long-model-name';
 
     const failedResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
-      return url.pathname === '/api/dashboard/search' && url.searchParams.get('q') === 'dashboard payload' && response.status() === 500;
+      return url.pathname === '/api/dashboard/search' && url.searchParams.get('q') === query && url.searchParams.get('event_kind') === 'session' && response.status() === 500;
     });
-    await page.locator('#dashboard-session-search').fill('dashboard payload');
+    await page.locator('#dashboard-session-search').fill(query);
     await page.locator('#dashboard-session-search').press('Enter');
     await expect(page.locator('#completed-sessions')).toContainText('Searching table sessions and events');
     await failedResponse;
     await expect(page.locator('#completed-sessions')).toContainText('Unable to search table sessions and events');
     await expect(page.locator('#completed-session-status')).toContainText('Search failed');
 
-    const retryResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === 'dashboard payload');
+    const retryResponse = waitForDashboardSearchResponse(page, (url) => url.searchParams.get('q') === query && url.searchParams.get('event_kind') === 'session');
     await page.getByRole('button', { name: 'Retry' }).click();
     await retryResponse;
     await waitForDashboardSearchRows(page, 1);
@@ -857,7 +962,7 @@ test.describe('dashboard search workflows', () => {
     await installDashboardFixtures(page, { searchUnavailable: true });
     await gotoDashboard(page);
     await waitForCompletedRows(page, 30);
-    await fillDashboardSearchAndWait(page, 'dashboard payload');
+    await fillDashboardEventSearchAndWait(page, 'dashboard payload');
     await expect(page.locator('#completed-sessions')).toContainText('Search is not connected');
     await expect(page.locator('#completed-session-status')).toContainText('Search unavailable');
   });
@@ -873,7 +978,7 @@ test.describe('dashboard search workflows', () => {
       await page.setViewportSize(viewport);
       await gotoDashboard(page);
       await waitForCompletedRows(page, 30);
-      await fillDashboardSearchAndWait(page, 'many');
+      await fillDashboardEventSearchAndWait(page, 'many');
       await waitForDashboardSearchRows(page, 30);
       await expectNoHorizontalOverflow(page);
       await expectSearchVerticalFlow(page);

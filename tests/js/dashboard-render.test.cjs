@@ -23,7 +23,7 @@ function loadRenderSandbox() {
     },
     currentSearchSort: "relevance",
     currentSearchQuery: "",
-    currentSearchEventKind: "",
+    currentSearchEventKind: "session",
     currentSearchSessionID: "",
     currentSearchLimit: 30,
     currentCompletedRange: "24h",
@@ -279,6 +279,12 @@ test("search mode ignores completed range alone but honors search state", () => 
   assert.equal(sandbox.isSearchMode(), true);
 
   sandbox.currentSearchLimit = 30;
+  sandbox.currentSearchEventKind = "session";
+  assert.equal(sandbox.isSearchMode(), false);
+
+  sandbox.currentSearchEventKind = "event";
+  assert.equal(sandbox.isSearchMode(), true);
+
   sandbox.currentSearchEventKind = "tool_call";
   assert.equal(sandbox.isSearchMode(), true);
 });
