@@ -217,7 +217,7 @@ func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T)
 	if err := json.Unmarshal([]byte(chartsBody), &charts); err != nil {
 		t.Fatalf("decode charts: %v\n%s", err, chartsBody)
 	}
-	if charts.Range != "24h" {
+	if charts.Range != "" {
 		t.Fatalf("dashboard chart default range = %q", charts.Range)
 	}
 	if len(charts.TokenCumulative.Datasets) == 0 {

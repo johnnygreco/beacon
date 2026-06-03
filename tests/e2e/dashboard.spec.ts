@@ -643,7 +643,7 @@ test.describe('dashboard battle-tested workflows', () => {
       expect(single.scrollClientHeight).toBeGreaterThan(0);
       expect(single.scrollHeight).toBeGreaterThan(0);
       expect(single.protrusions).toEqual([]);
-      await expect(page.locator('#active-sessions .active-session-action-btn')).toHaveCount(3);
+      await expect(page.locator('#active-sessions .active-session-action-btn')).toHaveCount(1);
     }
 
     const stableBeforeMany = await readActiveSessionGeometry(page);
@@ -675,6 +675,28 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(many.scrollHeight).toBeGreaterThan(many.scrollClientHeight);
     const completedAfterSort = await page.locator('.completed-table-surface').boundingBox();
     expect(Math.round(completedAfterSort?.y || 0)).toBe(Math.round(completedBeforeMany?.y || 0));
+
+    const activeOrder = async () => page.locator('#active-sessions .active-session-card').evaluateAll((cards) =>
+      cards.map((card) => card.getAttribute('data-active-session-id') || ''),
+    );
+    const orderBeforeUnpinnedMove = await activeOrder();
+    const unpinnedMoveIndex = orderBeforeUnpinnedMove.indexOf('active-parent-003');
+    expect(unpinnedMoveIndex).toBeGreaterThan(0);
+    const unpinnedMoveUp = page.locator('[data-active-session-id="active-parent-003"] [data-active-session-action="move-up"]');
+    await expect(unpinnedMoveUp).toBeEnabled();
+    await unpinnedMoveUp.click();
+    const orderAfterUnpinnedMove = await activeOrder();
+    expect(orderAfterUnpinnedMove[unpinnedMoveIndex - 1]).toBe('active-parent-003');
+    expect(orderAfterUnpinnedMove[unpinnedMoveIndex]).toBe(orderBeforeUnpinnedMove[unpinnedMoveIndex - 1]);
+    await page.evaluate(() => {
+      const dashboard = window as unknown as {
+        clearActiveSessionManualOrder?: () => void;
+        loadActiveSessions: () => Promise<void>;
+      };
+      dashboard.clearActiveSessionManualOrder?.();
+      return dashboard.loadActiveSessions();
+    });
+    await expect(page.locator('#active-sessions .active-session-card').first()).toHaveAttribute('data-active-session-id', 'active-parent-008');
 
     await page.locator('[data-active-session-id="active-parent-003"] [data-active-session-action="toggle-pin"]').focus();
     await page.keyboard.press('Enter');

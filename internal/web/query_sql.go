@@ -107,15 +107,15 @@ func sessionProjectionSubquery(where string) string {
 func reopenedSessionIDsSubquery() string {
 	return `(SELECT session_id
 	        FROM (
-			SELECT event_uid,
-			       argMax(session_id, captured_at) AS session_id,
-			       argMax(timestamp, captured_at) AS timestamp,
-			       argMax(event_kind, captured_at) AS event_kind
-			FROM activity_events
-			PREWHERE timestamp >= ?
-			WHERE session_id != ''
-			  AND timestamp > toDateTime64(0, 3, 'UTC')
-			GROUP BY event_uid
+			SELECT ae.event_uid,
+			       argMax(ae.session_id, ae.captured_at) AS session_id,
+			       argMax(ae.timestamp, ae.captured_at) AS timestamp,
+			       argMax(ae.event_kind, ae.captured_at) AS event_kind
+			FROM activity_events AS ae
+			PREWHERE ae.timestamp >= ?
+			WHERE ae.session_id != ''
+			  AND ae.timestamp > toDateTime64(0, 3, 'UTC')
+			GROUP BY ae.event_uid
 	        )
 	        GROUP BY session_id
 	        HAVING maxIf(timestamp, event_kind != 'session_end') > maxIf(timestamp, event_kind = 'session_end'))`

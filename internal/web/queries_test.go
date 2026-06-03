@@ -117,15 +117,19 @@ func TestSQLHelperSubqueries(t *testing.T) {
 func TestReopenedSessionPredicatesUseActivityAfterLatestEnd(t *testing.T) {
 	reopened := reopenedSessionIDsSubquery()
 	for _, fragment := range []string{
-		"FROM activity_events",
-		"PREWHERE timestamp >= ?",
-		"GROUP BY event_uid",
+		"FROM activity_events AS ae",
+		"PREWHERE ae.timestamp >= ?",
+		"WHERE ae.session_id != ''",
+		"GROUP BY ae.event_uid",
 		"GROUP BY session_id",
 		"maxIf(timestamp, event_kind != 'session_end') > maxIf(timestamp, event_kind = 'session_end')",
 	} {
 		if !strings.Contains(reopened, fragment) {
 			t.Fatalf("reopened session subquery missing %q: %s", fragment, reopened)
 		}
+	}
+	if strings.Contains(reopened, "WHERE session_id != ''") || strings.Contains(reopened, "PREWHERE timestamp >= ?") {
+		t.Fatalf("reopened subquery must qualify raw columns to avoid aggregate alias resolution: %s", reopened)
 	}
 
 	active := activeSessionPredicate()
@@ -159,7 +163,7 @@ func TestCompletedSessionPredicateForQualifiesOnlyOuterColumns(t *testing.T) {
 		"COALESCE(s.has_session_end, 0) = 1",
 		"NOT (s.session_id IN",
 		"SELECT session_id",
-		"WHERE session_id != ''",
+		"WHERE ae.session_id != ''",
 	} {
 		if !strings.Contains(predicate, fragment) {
 			t.Fatalf("aliased completed predicate missing %q: %s", fragment, predicate)

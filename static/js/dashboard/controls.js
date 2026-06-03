@@ -186,8 +186,8 @@ document.addEventListener('click', function(evt) {
 		var sessionID = activeSessionAction.getAttribute('data-active-session-id') || '';
 		if (action === 'toggle-pin' && typeof toggleActiveSessionPin === 'function') {
 			toggleActiveSessionPin(sessionID);
-		} else if ((action === 'move-up' || action === 'move-down') && typeof movePinnedActiveSession === 'function') {
-			movePinnedActiveSession(sessionID, action === 'move-down' ? 'down' : 'up');
+		} else if ((action === 'move-up' || action === 'move-down') && typeof moveActiveSession === 'function') {
+			moveActiveSession(sessionID, action === 'move-down' ? 'down' : 'up');
 		}
 		if (lastActiveSessionsResponse && typeof renderActive === 'function') {
 			renderActive(lastActiveSessionsResponse);
