@@ -175,10 +175,14 @@ function readDashboardStateFromURL() {
 		: currentCompletedRange;
 	currentActiveSort = dashboardEnumParam(params, 'active_sort', currentActiveSort, dashboardActiveSorts);
 	currentSearchQuery = (params.get('q') || '').trim();
-	currentSearchEventKind = dashboardEnumParam(params, 'event_kind', currentSearchEventKind, dashboardSearchEventKinds, {'': 'event', all: 'event'});
+	currentSearchEventKind = dashboardEnumParam(params, 'event_kind', currentSearchEventKind, dashboardSearchEventKinds, {'': 'session', all: 'event'});
 	currentSearchSessionID = (params.get('session_id') || '').trim();
 	currentSearchSort = dashboardEnumParam(params, 'search_sort', currentSearchSort, dashboardSearchSorts);
 	currentSearchLimit = dashboardIntParam(params, 'search_limit', currentSearchLimit, searchLimitSteps);
+	if (currentSearchQuery === '' && currentSearchEventKind === 'session' && currentSearchSessionID === '') {
+		currentSearchSort = 'relevance';
+		currentSearchLimit = 30;
+	}
 	currentCompletedOffset = dashboardIntParam(params, 'offset', currentCompletedOffset);
 	sortColumn = dashboardEnumParam(params, 'sort', sortColumn, dashboardSortColumns);
 	var dir = dashboardEnumParam(params, 'dir', sortAsc ? 'asc' : 'desc', ['asc', 'desc']);
@@ -194,11 +198,16 @@ function dashboardStatePath() {
 	if (currentChartMetric !== 'total_tokens') params.set('chart_metric', currentChartMetric);
 	if (currentActivityRangePinned || currentActivityRange !== currentCompletedRange) params.set('activity_range', currentActivityRange === '' ? 'all' : currentActivityRange);
 	if (currentActiveSort !== 'recent') params.set('active_sort', currentActiveSort);
-	if (currentSearchQuery) params.set('q', currentSearchQuery);
-	if (currentSearchEventKind !== 'session') params.set('event_kind', currentSearchEventKind);
-	if (currentSearchSessionID) params.set('session_id', currentSearchSessionID);
-	if (currentSearchSort !== 'relevance') params.set('search_sort', currentSearchSort);
-	if (currentSearchLimit !== 30) params.set('search_limit', String(currentSearchLimit));
+	var searchActive = typeof hasDashboardSearchFilter === 'function'
+		? hasDashboardSearchFilter()
+		: (currentSearchQuery || currentSearchEventKind !== 'session' || currentSearchSessionID);
+	if (searchActive) {
+		if (currentSearchQuery) params.set('q', currentSearchQuery);
+		if (currentSearchEventKind !== 'session') params.set('event_kind', currentSearchEventKind);
+		if (currentSearchSessionID) params.set('session_id', currentSearchSessionID);
+		if (currentSearchSort !== 'relevance') params.set('search_sort', currentSearchSort);
+		if (currentSearchLimit !== 30) params.set('search_limit', String(currentSearchLimit));
+	}
 	if (currentCompletedOffset > 0) params.set('offset', String(currentCompletedOffset));
 	if (sortColumn !== 'ended' || sortAsc) {
 		params.set('sort', sortColumn);

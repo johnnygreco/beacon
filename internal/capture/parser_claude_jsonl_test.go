@@ -407,7 +407,7 @@ func TestParseClaudeJSONL_TimestamplessMetadataKeepsZeroTimestamp(t *testing.T) 
 				"lastPrompt": "ship it",
 				"leafUuid":   "leaf-1",
 			},
-			wantKind:    "session_end",
+			wantKind:    "event_msg",
 			wantPayload: "last-prompt",
 		},
 	}

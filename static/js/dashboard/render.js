@@ -167,12 +167,14 @@ function setDashboardConnection(status) {
 	}
 }
 
-function isSearchMode() {
+function hasDashboardSearchFilter() {
 	return currentSearchQuery !== '' ||
 		currentSearchEventKind !== 'session' ||
-		currentSearchSessionID !== '' ||
-		currentSearchSort !== 'relevance' ||
-		currentSearchLimit !== 30;
+		currentSearchSessionID !== '';
+}
+
+function isSearchMode() {
+	return hasDashboardSearchFilter();
 }
 
 function dashboardSearchRequestEventKind() {
@@ -755,11 +757,7 @@ function updateChartRangeCaption(state) {
 	var caption = document.getElementById('dashboard-chart-range-caption');
 	if (!caption) return;
 	var label = rangeLabel(chartRangeValue());
-	var metric = chartMetricLabel();
-	if (state === 'loading') caption.textContent = 'Loading ' + metric + ' for ' + label;
-	else if (state === 'error') caption.textContent = 'Unable to load ' + metric + ' for ' + label;
-	else if (state === 'empty') caption.textContent = label + ' · no ' + emptyChartMetricLabel() + ' data';
-	else caption.textContent = label;
+	caption.textContent = label;
 }
 
 function setAnalyticsBusy(busy) {
@@ -923,12 +921,12 @@ function updateDashboardCharts(payload) {
 
 async function loadDashboardCharts() {
 	setAnalyticsBusy(true);
-	updateChartRangeCaption('loading');
+	updateChartRangeCaption();
 	var result = await fetchDashboardJSON('charts', requestURL('/api/dashboard/charts', {chart_range: chartRangeValue()}));
 	if (!result || result.stale) return;
 	if (result.error) {
 		updateDashboardCharts({token_cumulative: {labels: [], datasets: [], summary: {}}});
-		updateChartRangeCaption('error');
+		updateChartRangeCaption();
 		return;
 	}
 	updateDashboardCharts(result.data);
@@ -991,7 +989,7 @@ async function loadCompletedSessions(offset, options) {
 	currentCompletedOffset = Math.max(0, offset || 0);
 	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 	var status = document.getElementById('completed-session-status');
-	if (status && !options.silent) setTextIfChanged(status, currentSearchQuery ? 'Searching completed sessions...' : 'Loading sessions...');
+	if (status && !options.silent) setTextIfChanged(status, rangeLabel(completedRangeValue()));
 	var result = await fetchDashboardJSON('completed', requestURL('/api/dashboard/sessions', {
 		state: 'completed',
 		limit: completedPageSize,

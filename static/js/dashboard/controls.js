@@ -78,7 +78,7 @@ function setDashboardRange(btn, value) {
 function setDashboardChartRange(btn, value) {
 	currentChartRange = value || '';
 	syncDashboardChartRangeControls();
-	updateChartRangeCaption('loading');
+	updateChartRangeCaption();
 	if (typeof scheduleDashboardStateURLWrite === 'function') scheduleDashboardStateURLWrite();
 	loadDashboardCharts();
 }

@@ -186,6 +186,25 @@ test.describe('dashboard search workflows', () => {
     expect(searchRequests).toEqual([]);
   });
 
+  test('ignores stale search sort params when no table filter is active', async ({ page }) => {
+    await installDashboardFixtures(page);
+    const searchRequests: string[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === '/api/dashboard/search') searchRequests.push(url.search);
+    });
+
+    await page.goto('/?event_kind=&search_sort=newest&search_limit=60', { waitUntil: 'domcontentloaded' });
+    await waitForCompletedRows(page, 30);
+    await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
+    await expect(page.locator('#completed-table-title')).toHaveText('Completed Sessions');
+    await expect(page.locator('#dashboard-search-kind')).toHaveValue('session');
+    await expect(page.locator('#dashboard-search-sort')).toHaveValue('relevance');
+    await expect.poll(() => new URL(page.url()).searchParams.get('search_sort')).toBeNull();
+    await expect.poll(() => new URL(page.url()).searchParams.get('search_limit')).toBeNull();
+    expect(searchRequests).toEqual([]);
+  });
+
   test('hydrates direct session search URLs as session search results', async ({ page }) => {
     await installDashboardFixtures(page);
     const query = 'claude-sonnet-4-super-long-model-name';
