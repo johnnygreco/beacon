@@ -40,6 +40,42 @@ func TestBuildSearchRowsUsesToolInputPreviewForSnippet(t *testing.T) {
 	}
 }
 
+func TestBuildSearchRowsIndexesFullPayloadContent(t *testing.T) {
+	event := models.Event{
+		EventUID:    "evt-tool-call-full",
+		SessionID:   "session-1",
+		EventKind:   "tool_call",
+		Timestamp:   time.Now().UTC(),
+		TextPreview: "Read",
+		ToolName:    "Read",
+		PayloadJSON: `{"request":"eventjsonneedle"}`,
+	}
+	payload := models.ToolPayload{
+		EventUID:   event.EventUID,
+		InputJSON:  `{"file_path":"inputjsonneedle.go"}`,
+		OutputJSON: `{"result":"outputjsonneedle"}`,
+	}
+
+	docs, postings := buildSearchRows([]models.Event{event}, []models.ToolPayload{payload})
+	if len(docs) != 1 {
+		t.Fatalf("docs = %d, want 1", len(docs))
+	}
+	for _, needle := range []string{"eventjsonneedle", "inputjsonneedle.go", "outputjsonneedle"} {
+		if !strings.Contains(docs[0].SearchableText, needle) {
+			t.Fatalf("searchable text missing %q: %q", needle, docs[0].SearchableText)
+		}
+	}
+	tokens := make(map[string]int, len(postings))
+	for _, posting := range postings {
+		tokens[posting.Token] = posting.TermFrequency
+	}
+	for _, token := range []string{"eventjsonneedle", "inputjsonneedle.go", "outputjsonneedle"} {
+		if tokens[token] != 1 {
+			t.Fatalf("posting frequency[%q] = %d, want 1; postings=%#v", token, tokens[token], postings)
+		}
+	}
+}
+
 func TestSessionEndProjectionPredicateRequiresNormalizedEventKind(t *testing.T) {
 	if sessionEndProjectionPredicate != "event_kind = 'session_end'" {
 		t.Fatalf("predicate = %q, want normalized session_end only", sessionEndProjectionPredicate)

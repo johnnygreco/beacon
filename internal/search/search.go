@@ -184,10 +184,12 @@ func (s *Searcher) postingsSearch(ctx context.Context, q SearchQuery, tokens []s
 			any(p.model) AS model,
 			any(p.provider) AS provider
 		FROM (
-			SELECT *,
-			       toFloat64(count() OVER (PARTITION BY token)) AS doc_freq
-			FROM search_postings FINAL
-			WHERE token IN (%s)
+			SELECT p.*,
+			       toFloat64(count() OVER (PARTITION BY p.token)) AS doc_freq
+			FROM (SELECT * FROM search_postings FINAL) AS p
+			INNER JOIN (SELECT event_uid, updated_at FROM search_documents FINAL) AS d ON d.event_uid = p.event_uid
+			WHERE p.token IN (%s)
+			  AND p.updated_at >= d.updated_at
 		) p
 		WHERE 1 = 1 %s
 		GROUP BY p.event_uid
