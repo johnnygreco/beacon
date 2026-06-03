@@ -13,6 +13,7 @@ function loadRenderSandbox() {
       dashboardSessionIndex: {},
       AbortController: globalThis.AbortController,
     },
+    AbortController: globalThis.AbortController,
     document: {
       getElementById() {
         return null;
@@ -241,6 +242,33 @@ test("active session sorting preserves grouping and handles metrics", () => {
   const byErrors = sandbox.sortActiveSessions(sessions);
   assert.deepEqual(byErrors.map((session) => session.id), ["active-b", "active-c", "active-a"]);
   assert.deepEqual(byErrors[2].child_sessions.map((session) => session.id), ["active-a-child"]);
+});
+
+test("dashboard fetches treat late failures from older panel requests as stale", async () => {
+  const sandbox = loadRenderSandbox();
+  let rejectFirst;
+  sandbox.fetch = (url) => {
+    if (url === "/api/dashboard/sessions?state=active&old=1") {
+      return new Promise((resolve, reject) => {
+        rejectFirst = reject;
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      async json() {
+        return { items: [{ id: "active-latest" }] };
+      },
+    });
+  };
+
+  const first = sandbox.fetchDashboardJSON("active", "/api/dashboard/sessions?state=active&old=1");
+  const second = sandbox.fetchDashboardJSON("active", "/api/dashboard/sessions?state=active");
+  rejectFirst(new Error("late failure"));
+
+  const firstResult = await first;
+  const secondResult = await second;
+  assert.equal(firstResult.stale, true);
+  assert.equal(secondResult.data.items[0].id, "active-latest");
 });
 
 test("pinned active sessions render above sorted unpinned sessions", () => {

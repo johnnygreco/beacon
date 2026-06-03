@@ -11,8 +11,10 @@ import (
 )
 
 // Updater queries fresh data and broadcasts dashboard invalidations via SSE.
-// It decouples capture from rendering via a dirty-signal channel with
-// debounce (250ms) and max-staleness (1s) guarantees.
+// It decouples capture from rendering via a dirty-signal channel. Active
+// session invalidations are sent as soon as a dirty signal is observed so the
+// live board can refetch immediately; heavier dashboard panels are still
+// coalesced with a 250ms debounce and 1s max-staleness guarantee.
 type Updater struct {
 	broker                *sse.Broker
 	logger                *slog.Logger
@@ -76,10 +78,11 @@ func (u *Updater) drainPendingSessions() []string {
 	return ids
 }
 
-// Run is the main updater loop. It coalesces dirty signals with a 250ms
-// debounce and a 1s max-staleness cap so the dashboard stays fresh without
-// rebuilding on every single flush. It also handles periodic refresh (every
-// 10s when subscribers exist) for time-based session state transitions.
+// Run is the main updater loop. It sends active-session dashboard invalidations
+// immediately on dirty flush wakeups, then coalesces completed sessions,
+// activity, charts, and transcript invalidations with a 250ms debounce and a
+// 1s max-staleness cap. It also handles periodic refresh (every 10s when
+// subscribers exist) for time-based session state transitions.
 func (u *Updater) Run(ctx context.Context) {
 	const (
 		debounceDelay    = 250 * time.Millisecond
@@ -113,18 +116,21 @@ func (u *Updater) Run(ctx context.Context) {
 			return
 		case <-u.dirty:
 			now := time.Now()
+			u.NotifyActiveDashboard()
 			if firstDirty.IsZero() {
 				firstDirty = now
 			}
 			stopDrain()
 			if now.Sub(firstDirty) >= maxStale {
-				u.NotifyChanges(u.drainPendingSessions())
+				u.NotifyDashboardPanels()
+				u.NotifySessions(u.drainPendingSessions())
 				firstDirty = time.Time{}
 			} else {
 				debounce.Reset(debounceDelay)
 			}
 		case <-debounce.C:
-			u.NotifyChanges(u.drainPendingSessions())
+			u.NotifyDashboardPanels()
+			u.NotifySessions(u.drainPendingSessions())
 			firstDirty = time.Time{}
 		case <-periodic.C:
 			if u.broker.SubscriberCount() > 0 {
@@ -142,13 +148,41 @@ func (u *Updater) NotifyChanges(sessionIDs []string) {
 	u.NotifySessions(sessionIDs)
 }
 
-// NotifyDashboard broadcasts lightweight invalidation events via SSE. The
+// NotifyDashboard broadcasts all dashboard invalidation events via SSE. The
 // dashboard fetches JSON projections on demand, so flush notifications do not
-// spend time querying or rendering server-side dashboard fragments.
+// spend time querying or rendering server-side dashboard fragments. Dirty flush
+// handling in Run intentionally sends the active-session event immediately and
+// uses NotifyDashboardPanels for the heavier debounced panels.
 func (u *Updater) NotifyDashboard() {
+	u.notifyDashboardEvents("NotifyDashboard", []string{
+		"active-sessions-update",
+		"completed-sessions-update",
+		"activity-update",
+		"dashboard-charts-update",
+	})
+}
+
+// NotifyActiveDashboard broadcasts the active-session dashboard invalidation.
+// It is kept separate from heavier dashboard panels so live sessions can appear
+// promptly after a capture flush instead of waiting for the dashboard debounce.
+func (u *Updater) NotifyActiveDashboard() {
+	u.notifyDashboardEvents("NotifyActiveDashboard", []string{"active-sessions-update"})
+}
+
+// NotifyDashboardPanels broadcasts the heavier dashboard invalidations that can
+// be safely coalesced behind the dashboard debounce.
+func (u *Updater) NotifyDashboardPanels() {
+	u.notifyDashboardEvents("NotifyDashboardPanels", []string{
+		"completed-sessions-update",
+		"activity-update",
+		"dashboard-charts-update",
+	})
+}
+
+func (u *Updater) notifyDashboardEvents(label string, events []string) {
 	start := time.Now()
 	defer func() {
-		u.logger.Debug("NotifyDashboard complete", "duration", time.Since(start))
+		u.logger.Debug(label+" complete", "duration", time.Since(start))
 	}()
 
 	if u.broker.SubscriberCount() == 0 {
@@ -156,7 +190,7 @@ func (u *Updater) NotifyDashboard() {
 	}
 
 	dirty := []byte(`{"dirty":true}`)
-	for _, event := range []string{"active-sessions-update", "completed-sessions-update", "activity-update", "dashboard-charts-update"} {
+	for _, event := range events {
 		u.broker.Broadcast("dashboard", sse.SSEMessage{
 			Event: event,
 			Data:  dirty,
