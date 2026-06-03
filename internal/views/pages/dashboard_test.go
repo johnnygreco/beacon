@@ -95,10 +95,22 @@ func TestDashboardDefaultNameUsesGenericTitleAndHeader(t *testing.T) {
 	for _, expected := range []string{
 		"<title>Dashboard | Beacon</title>",
 		`data-dashboard-default-name=""`,
-		">Beacon Realtime Dashboard</h1>",
+		`id="dashboard-heading"`,
+		`<button type="button" id="dashboard-title"`,
+		">Beacon Realtime Dashboard</button>",
+		`id="dashboard-connection-indicator"`,
 	} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("dashboard default naming missing %q", expected)
+		}
+	}
+	for _, unexpected := range []string{
+		`id="dashboard-name-edit"`,
+		`id="dashboard-last-updated"`,
+		`id="dashboard-refresh-btn"`,
+	} {
+		if strings.Contains(html, unexpected) {
+			t.Fatalf("dashboard header still renders removed chrome %q", unexpected)
 		}
 	}
 }
@@ -113,13 +125,13 @@ func TestDashboardConfiguredNameRendersSafely(t *testing.T) {
 	for _, expected := range []string{
 		"<title>Workstation &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt; | Beacon</title>",
 		`data-dashboard-default-name="Workstation &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;"`,
-		">Workstation &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;</h1>",
+		">Workstation &lt;script&gt;alert(&#34;x&#34;)&lt;/script&gt;</button>",
 	} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("dashboard configured naming missing %q in:\n%s", expected, html)
 		}
 	}
-	if strings.Contains(html, name+"</h1>") || strings.Contains(html, "<script>alert") {
+	if strings.Contains(html, name+"</button>") || strings.Contains(html, "<script>alert") {
 		t.Fatal("dashboard configured name was rendered without escaping")
 	}
 }

@@ -988,7 +988,8 @@ export async function gotoDashboard(page: Page) {
   await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: 'Beacon Realtime Dashboard' })).toBeVisible();
   await expect(page.locator('#dashboard-analytics-summary > div')).toHaveCount(4);
-  await expect(page.locator('#dashboard-last-updated')).toContainText(/Updated|Not refreshed yet/);
+  await expect(page.locator('#dashboard-last-updated')).toHaveCount(0);
+  await expect(page.locator('#dashboard-connection-label')).toContainText(/Live|Connecting|Static|Disconnected/);
 }
 
 export async function waitForCompletedRows(page: Page, count = 30) {
@@ -1276,8 +1277,8 @@ export async function expectLogAndModelControlsAligned(page: Page) {
 
 export function visualMasks(page: Page): Locator[] {
   return [
-    page.locator('#dashboard-last-updated'),
     page.locator('#dashboard-connection-label'),
+    page.locator('#dashboard-connection-indicator'),
     page.locator('#sse-indicator'),
   ];
 }

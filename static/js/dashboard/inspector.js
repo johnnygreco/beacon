@@ -199,7 +199,7 @@
 			restoreTarget = matches.map(validInspectorRestoreTarget).find(Boolean) || null;
 		}
 		if (!restoreTarget) {
-			restoreTarget = document.getElementById('dashboard-session-search') || document.getElementById('dashboard-refresh-btn');
+			restoreTarget = document.getElementById('dashboard-session-search') || document.getElementById('dashboard-title') || document.getElementById('timeline-toggle-btn');
 		}
 		inspector.classList.add('hidden');
 		selectedSessionId = '';

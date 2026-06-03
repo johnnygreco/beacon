@@ -1793,6 +1793,14 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
   min-width: 0;
 }
 
+.dashboard-brand-lockup {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.22rem;
+}
+
 .dashboard-brand-mark {
   width: 2rem;
   height: 2rem;
@@ -1800,6 +1808,41 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
   border: 1px solid var(--dash-panel-border);
   border-radius: 6px;
   background: var(--dash-control-bg);
+}
+
+.dashboard-connection-indicator {
+  position: relative;
+  display: inline-flex;
+  width: 1.35rem;
+  height: 0.2rem;
+  border-radius: 999px;
+  background: var(--dash-text-faint);
+  box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.dashboard-connection-indicator::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0.55;
+  background: currentColor;
+}
+
+.dashboard-connection-indicator[data-status="live"] {
+  color: #22c55e;
+}
+
+.dashboard-connection-indicator[data-status="connecting"] {
+  color: #94a3b8;
+}
+
+.dashboard-connection-indicator[data-status="static"] {
+  color: #64748b;
+}
+
+.dashboard-connection-indicator[data-status="disconnected"] {
+  color: #ef4444;
 }
 
 .dashboard-header-copy {
@@ -3170,12 +3213,49 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
   max-width: 100%;
 }
 
-.dashboard-title {
+.dashboard-name-heading {
   flex: 1 1 auto;
   min-width: 0;
+  margin: 0;
   overflow: hidden;
+}
+
+.dashboard-name-control.is-editing .dashboard-name-heading {
+  display: none;
+}
+
+.dashboard-title {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: -0.12rem -0.2rem;
+  border: 0;
+  border-radius: 4px;
+  appearance: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  overflow: hidden;
+  padding: 0.12rem 0.2rem;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: text;
+  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.dashboard-title:hover {
+  color: var(--dash-text);
+  background: color-mix(in srgb, var(--dash-hover) 60%, transparent);
+}
+
+.dashboard-title:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dash-accent-soft);
+}
+
+.dashboard-title:focus-visible {
+  background: color-mix(in srgb, var(--dash-hover) 70%, transparent);
 }
 
 .dashboard-name-input {
@@ -3200,37 +3280,6 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
 }
 
 .dashboard-name-input:focus {
-  border-color: var(--dash-accent);
-  box-shadow: 0 0 0 2px var(--dash-accent-soft);
-}
-
-.dashboard-name-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border: 1px solid var(--dash-border);
-  border-radius: 4px;
-  background: var(--dash-surface-soft);
-  color: var(--dash-text-muted);
-  flex: 0 0 auto;
-  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
-}
-
-.dashboard-name-btn svg {
-  width: 0.9rem;
-  height: 0.9rem;
-}
-
-.dashboard-name-btn:hover {
-  border-color: var(--dash-border-strong);
-  color: var(--dash-text);
-  background: var(--dash-hover);
-}
-
-.dashboard-name-btn:focus {
-  outline: none;
   border-color: var(--dash-accent);
   box-shadow: 0 0 0 2px var(--dash-accent-soft);
 }

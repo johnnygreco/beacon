@@ -190,41 +190,45 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.getByRole('group', { name: 'Dashboard controls' })).toBeVisible();
     await expect(page.getByRole('group', { name: 'Theme controls' })).toBeVisible();
     await expect(page.locator('#dashboard-name-clear')).toHaveCount(0);
+    await expect(page.locator('#dashboard-name-edit')).toHaveCount(0);
+    await expect(page.locator('#dashboard-refresh-btn')).toHaveCount(0);
+    await expect(page.locator('#dashboard-last-updated')).toHaveCount(0);
+    await expect(page.locator('#dashboard-connection-indicator')).toHaveAttribute('aria-label', /Dashboard connection: (Static|Connecting|Live)/);
     await expect(page.locator('[data-dashboard-name-control]')).toContainText('Beacon Realtime Dashboard');
-    const restingNameMetrics = await page.locator('#dashboard-name-edit').evaluate((edit) => {
-      const editRect = edit.getBoundingClientRect();
-      const titleRect = document.getElementById('dashboard-title')?.getBoundingClientRect();
+    await expect(page.getByRole('button', { name: 'Beacon Realtime Dashboard' })).toHaveAttribute('id', 'dashboard-title');
+    const restingNameMetrics = await page.locator('.dashboard-header').evaluate((header) => {
+      const brandRect = header.querySelector('.dashboard-brand-lockup')?.getBoundingClientRect();
+      const titleRect = header.querySelector('#dashboard-title')?.getBoundingClientRect();
       return {
-        editLeft: editRect.left,
-        editRight: editRect.right,
+        brandRight: brandRect?.right || 0,
         titleLeft: titleRect?.left || 0,
       };
     });
-    expect(restingNameMetrics.editLeft).toBeLessThan(restingNameMetrics.titleLeft);
-    expect(restingNameMetrics.editRight).toBeLessThanOrEqual(restingNameMetrics.titleLeft);
+    expect(restingNameMetrics.brandRight).toBeLessThanOrEqual(restingNameMetrics.titleLeft);
 
-    await page.locator('#dashboard-name-edit').click();
+    await page.locator('#dashboard-title').focus();
+    await expect(page.locator('#dashboard-title')).toBeFocused();
+    await page.keyboard.press('Enter');
     await expect(page.locator('#dashboard-name-input')).toBeVisible();
     await expect(page.locator('#dashboard-name-input')).toBeFocused();
-    await page.keyboard.press('Shift+Tab');
-    await expect(page.locator('#dashboard-name-edit')).toBeFocused();
-    await page.keyboard.press('Tab');
-    await expect(page.locator('#dashboard-name-input')).toBeFocused();
-    await page.keyboard.press('Shift+Tab');
-    await expect(page.locator('#dashboard-name-edit')).toBeFocused();
-    await page.keyboard.press('Shift+Tab');
+    await page.locator('#dashboard-name-input').fill('Cancelled name');
+    await page.keyboard.press('Escape');
     await expect(page.locator('#dashboard-name-input')).toBeHidden();
-    await page.locator('#dashboard-name-edit').click();
+    await expect(page.locator('#dashboard-title')).toBeFocused();
+    await expect(page.locator('#dashboard-title')).toHaveText('Beacon Realtime Dashboard');
+    expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-name'))).toBeNull();
+
+    await page.locator('#dashboard-title').click();
     await expect(page.locator('#dashboard-name-input')).toBeFocused();
-    const editingNameMetrics = await page.locator('#dashboard-name-edit').evaluate((edit) => {
-      const editRect = edit.getBoundingClientRect();
-      const inputRect = document.getElementById('dashboard-name-input')?.getBoundingClientRect();
+    const editingNameMetrics = await page.locator('.dashboard-header').evaluate((header) => {
+      const brandRect = header.querySelector('.dashboard-brand-lockup')?.getBoundingClientRect();
+      const inputRect = header.querySelector('#dashboard-name-input')?.getBoundingClientRect();
       return {
-        editRight: editRect.right,
+        brandRight: brandRect?.right || 0,
         inputLeft: inputRect?.left || 0,
       };
     });
-    expect(editingNameMetrics.editRight).toBeLessThanOrEqual(editingNameMetrics.inputLeft);
+    expect(editingNameMetrics.brandRight).toBeLessThanOrEqual(editingNameMetrics.inputLeft);
     await page.locator('#dashboard-name-input').fill('  Workstation A  ');
     await expect(page).toHaveTitle('Workstation A | Beacon');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-name'))).toBe('Workstation A');
@@ -236,7 +240,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#dashboard-title')).toHaveText('Workstation A');
     await expect(page).toHaveTitle('Workstation A | Beacon');
 
-    await page.locator('#dashboard-name-edit').click();
+    await page.locator('#dashboard-title').click();
     await page.locator('#dashboard-name-input').fill('');
     await expect(page).toHaveTitle('Dashboard | Beacon');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-name'))).toBeNull();
@@ -245,7 +249,7 @@ test.describe('dashboard battle-tested workflows', () => {
 
     await page.setViewportSize({ width: 1280, height: 800 });
     const longName = 'Beacon operations dashboard for west coast release train alpha bravo charlie';
-    await page.locator('#dashboard-name-edit').click();
+    await page.locator('#dashboard-title').click();
     await page.locator('#dashboard-name-input').fill(longName);
     await page.keyboard.press('Enter');
     await expect(page.locator('#dashboard-title')).toHaveText(longName);
@@ -294,13 +298,22 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(mobileLongNameHeaderMetrics.actionsRight).toBeLessThanOrEqual(mobileLongNameHeaderMetrics.viewportWidth);
 
     const unsafeName = '<script>window.__beaconNameExecuted = true</script>';
-    await page.locator('#dashboard-name-edit').click();
+    await page.locator('#dashboard-title').click();
     await page.locator('#dashboard-name-input').fill(unsafeName);
     await expect(page).toHaveTitle(`${unsafeName} | Beacon`);
     await page.keyboard.press('Enter');
     await expect(page.locator('#dashboard-title')).toHaveText(unsafeName);
     expect(await page.evaluate(() => (window as Window & { __beaconNameExecuted?: boolean }).__beaconNameExecuted)).toBeUndefined();
     await expect(page.locator('script', { hasText: 'window.__beaconNameExecuted' })).toHaveCount(0);
+
+    for (const status of ['Live', 'Disconnected', 'Static'] as const) {
+      await page.evaluate((nextStatus) => {
+        (window as Window & { setDashboardConnection: (status: string) => void }).setDashboardConnection(nextStatus);
+      }, status);
+      await expect(page.locator('#dashboard-connection-label')).toHaveText(status);
+      await expect(page.locator('#dashboard-connection-indicator')).toHaveAttribute('data-status', status.toLowerCase());
+      await expect(page.locator('#dashboard-connection-indicator')).toHaveAttribute('aria-label', `Dashboard connection: ${status}`);
+    }
 
     await guards.expectClean();
   });
@@ -321,8 +334,9 @@ test.describe('dashboard battle-tested workflows', () => {
             data-dashboard-default-name="Configured Station"
             data-dashboard-fallback-heading="Configured Station"
           >
-            <h1 id="dashboard-title" data-dashboard-title>Configured Station</h1>
-            <button type="button" id="dashboard-name-edit" aria-label="Edit dashboard name" aria-controls="dashboard-name-input">Edit</button>
+            <h1 id="dashboard-heading">
+              <button type="button" id="dashboard-title" data-dashboard-title aria-controls="dashboard-name-input">Configured Station</button>
+            </h1>
             <label for="dashboard-name-input">Dashboard name</label>
             <input id="dashboard-name-input" data-dashboard-name-input type="text" maxlength="80" class="hidden" />
           </div>
@@ -334,8 +348,9 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page).toHaveTitle('Configured Station | Beacon');
     await expect(page.locator('#dashboard-title')).toHaveText('Configured Station');
     await expect(page.locator('#dashboard-name-clear')).toHaveCount(0);
+    await expect(page.locator('#dashboard-name-edit')).toHaveCount(0);
 
-    await page.locator('#dashboard-name-edit').click();
+    await page.locator('#dashboard-title').click();
     await expect(page.locator('#dashboard-name-input')).toHaveValue('Configured Station');
     await expect(page.locator('#dashboard-name-clear')).toHaveCount(0);
 
@@ -350,6 +365,34 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#dashboard-title')).toHaveText('Configured Station');
     expect(await page.evaluate(() => localStorage.getItem('beacon-dashboard-name'))).toBeNull();
     await expect(page.locator('#dashboard-name-clear')).toHaveCount(0);
+
+    await guards.expectClean();
+  });
+
+  test('distinguishes reconnecting and closed dashboard event streams', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page, { mockEventSource: true });
+    await gotoDashboard(page);
+
+    await page.evaluate(() => {
+      const source = (window as unknown as {
+        __beaconEventSources: Array<{ readyState: number; onerror: ((event: Event) => void) | null }>;
+      }).__beaconEventSources[0];
+      source.readyState = 0;
+      source.onerror?.(new Event('error'));
+    });
+    await expect(page.locator('#dashboard-connection-label')).toHaveText('Connecting');
+    await expect(page.locator('#dashboard-connection-indicator')).toHaveAttribute('data-status', 'connecting');
+
+    await page.evaluate(() => {
+      const source = (window as unknown as {
+        __beaconEventSources: Array<{ readyState: number; onerror: ((event: Event) => void) | null }>;
+      }).__beaconEventSources[0];
+      source.readyState = 2;
+      source.onerror?.(new Event('error'));
+    });
+    await expect(page.locator('#dashboard-connection-label')).toHaveText('Disconnected');
+    await expect(page.locator('#dashboard-connection-indicator')).toHaveAttribute('data-status', 'disconnected');
 
     await guards.expectClean();
   });
@@ -921,19 +964,19 @@ test.describe('dashboard battle-tested workflows', () => {
       await expect(page.locator('#dashboard-search-clear')).toHaveCount(0);
       await expectNoHorizontalOverflow(page);
 
-      const metrics = await page.locator('#dashboard-refresh-btn').evaluate((el) => {
-        const refreshRect = el.getBoundingClientRect();
+      const metrics = await page.locator('#timeline-toggle-btn').evaluate((el) => {
         const timelineRect = document.getElementById('timeline-toggle-btn')?.getBoundingClientRect();
+        const titleRect = document.getElementById('dashboard-title')?.getBoundingClientRect();
         return {
-          refreshLeft: Math.floor(refreshRect.left),
-          refreshRight: Math.ceil(refreshRect.right),
+          titleLeft: Math.floor(titleRect?.left || 0),
+          titleRight: Math.ceil(titleRect?.right || 0),
           timelineLeft: Math.floor(timelineRect?.left || 0),
           timelineRight: Math.ceil(timelineRect?.right || 0),
           viewportWidth: window.innerWidth,
         };
       });
-      expect(metrics.refreshLeft).toBeGreaterThanOrEqual(0);
-      expect(metrics.refreshRight).toBeLessThanOrEqual(metrics.viewportWidth);
+      expect(metrics.titleLeft).toBeGreaterThanOrEqual(0);
+      expect(metrics.titleRight).toBeLessThanOrEqual(metrics.viewportWidth);
       expect(metrics.timelineLeft).toBeGreaterThanOrEqual(0);
       expect(metrics.timelineRight).toBeLessThanOrEqual(metrics.viewportWidth);
     }
@@ -966,10 +1009,9 @@ test.describe('dashboard battle-tested workflows', () => {
     }
 
     const expectedOrder = [
-      'dashboard-name-edit',
+      'dashboard-title',
       'dashboard-theme-select',
       'dashboard-appearance-toggle',
-      'dashboard-refresh-btn',
       'timeline-toggle-btn',
       'active-session-sort',
       'dashboard-chart-range-control:All',
@@ -1307,7 +1349,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(appearanceToggle).toBeVisible();
     await expect(page.locator('#dashboard-appearance-select')).toHaveCount(0);
     await expect(page.locator('#dashboard-theme-control')).not.toContainText('Theme');
-    await expect(page.locator('#dashboard-refresh-btn')).toHaveText('');
+    await expect(page.locator('#dashboard-refresh-btn')).toHaveCount(0);
     await expect(page.locator('#timeline-toggle-btn')).toHaveText('');
     await expect(page.locator('#timeline-toggle-btn')).toHaveAttribute('aria-controls', 'timeline-sidebar');
     await expect(page.locator('#dashboard-search-reset')).toHaveText('');
@@ -1791,7 +1833,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await waitForCompletedRows(page, 30);
     await page.locator('#activity-feed button', { hasText: 'Retry' }).click();
     await expect(page.locator('#activity-feed a[data-transcript-link]')).toHaveCount(4);
-    await page.locator('#dashboard-refresh-btn').click();
+    await page.locator('#dashboard-chart-refresh-btn').click();
     await expect(page.locator('#dashboard-analytics-summary')).toContainText('201.5K');
   });
 

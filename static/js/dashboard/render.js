@@ -144,16 +144,19 @@ function withDashboardScrollStability(mutator, options) {
 	}
 }
 
-function markDashboardUpdated() {
-	var el = document.getElementById('dashboard-last-updated');
-	if (el) el.textContent = 'Updated ' + new Date().toLocaleTimeString([], {hour: 'numeric', minute: '2-digit', second: '2-digit'});
-}
-
 function setDashboardConnection(status) {
 	var el = document.getElementById('dashboard-connection-label');
-	if (!el) return;
-	el.textContent = status;
-	el.className = status === 'Live' ? 'text-green-400' : (status === 'Disconnected' ? 'text-red-400' : 'text-gray-500');
+	var indicator = document.getElementById('dashboard-connection-indicator');
+	var normalized = ['Live', 'Connecting', 'Static', 'Disconnected'].indexOf(status) >= 0 ? status : 'Connecting';
+	var key = normalized.toLowerCase();
+	if (el) {
+		el.textContent = normalized;
+		el.className = normalized === 'Live' ? 'text-green-400' : (normalized === 'Disconnected' ? 'text-red-400' : 'text-gray-500');
+	}
+	if (indicator) {
+		indicator.setAttribute('data-status', key);
+		indicator.setAttribute('aria-label', 'Dashboard connection: ' + normalized);
+	}
 }
 
 function isSearchMode() {
@@ -202,7 +205,6 @@ async function fetchDashboardJSON(key, url) {
 		if (!res.ok) return {error: true, status: res.status};
 		var data = await res.json();
 		if (dashboardRequestSeq[key] !== seq) return {stale: true};
-		markDashboardUpdated();
 		return {data: data};
 	} catch (err) {
 		if (err && err.name === 'AbortError') return {stale: true};
