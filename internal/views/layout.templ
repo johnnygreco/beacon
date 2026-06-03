@@ -7,7 +7,7 @@ templ Layout(title string) {
 		<meta charset="UTF-8"/>
 		<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 		<title>{ title } | Beacon</title>
-		<link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/>
+		<link rel="icon" href={ AssetURL("/static/favicon.svg") } type="image/svg+xml"/>
 		<script>
 		(function() {
 			var fallbackTheme = 'codex-dark';
@@ -84,10 +84,10 @@ templ Layout(title string) {
 			window.__beaconConsoleFilterInstalled = true;
 		})();
 		</script>
-		<script src="/static/js/vendor/htmx.min.js"></script>
-		<script src="/static/js/vendor/htmx-ext-sse.js"></script>
-		<link rel="stylesheet" href="/static/css/tailwind.css"/>
-		<link rel="stylesheet" href="/static/css/custom.css"/>
+		<script src={ AssetURL("/static/js/vendor/htmx.min.js") }></script>
+		<script src={ AssetURL("/static/js/vendor/htmx-ext-sse.js") }></script>
+		<link rel="stylesheet" href={ AssetURL("/static/css/tailwind.css") }/>
+		<link rel="stylesheet" href={ AssetURL("/static/css/custom.css") }/>
 	</head>
 	<body class="bg-gray-900 text-gray-100 min-h-screen">
 		<main id="main-content" class="min-h-screen w-full p-6 overflow-y-auto">

@@ -44,9 +44,9 @@ func TestSessionDetailRendersThemedTranscriptShell(t *testing.T) {
 		`aria-pressed="true"`,
 		`/sessions/session-render-test/conversation`,
 		`hx-trigger="load, sse:conversation-update"`,
-		`/static/js/charts/core.js`,
-		`/static/js/charts/bootstrap.js`,
-		`/static/js/transcript.js`,
+		`/static/js/charts/core.js?v=`,
+		`/static/js/charts/bootstrap.js?v=`,
+		`/static/js/transcript.js?v=`,
 	} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("session detail shell missing %q", expected)

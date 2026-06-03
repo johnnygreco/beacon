@@ -46,72 +46,85 @@ func Dashboard(data views.DashboardData) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<script>\n\t\tdocument.body.setAttribute('data-page', 'dashboard');\n\t\t(function() {\n\t\t\ttry {\n\t\t\t\tif (localStorage.getItem('beacon-timeline-width') === '0') {\n\t\t\t\t\tdocument.documentElement.setAttribute('data-beacon-timeline-collapsed', 'true');\n\t\t\t\t}\n\t\t\t} catch (err) {}\n\t\t})();\n\t\t</script> <div id=\"dashboard-wrap\" class=\"dashboard-shell\"><div id=\"dashboard-main\" class=\"dashboard-main\"><header class=\"dashboard-header\" aria-labelledby=\"dashboard-heading\"><div class=\"dashboard-header-title\"><div class=\"dashboard-brand-lockup\"><img src=\"/static/favicon.svg\" class=\"dashboard-brand-mark\" alt=\"\" aria-hidden=\"true\"> <span id=\"dashboard-connection-indicator\" class=\"dashboard-connection-indicator\" data-status=\"connecting\" role=\"status\" aria-live=\"polite\" aria-label=\"Dashboard connection: Connecting\"></span></div><div class=\"dashboard-header-copy\"><div class=\"dashboard-name-control\" data-dashboard-name-control data-dashboard-default-name=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<script>\n\t\tdocument.body.setAttribute('data-page', 'dashboard');\n\t\t(function() {\n\t\t\ttry {\n\t\t\t\tif (localStorage.getItem('beacon-timeline-width') === '0') {\n\t\t\t\t\tdocument.documentElement.setAttribute('data-beacon-timeline-collapsed', 'true');\n\t\t\t\t}\n\t\t\t} catch (err) {}\n\t\t})();\n\t\t</script> <div id=\"dashboard-wrap\" class=\"dashboard-shell\"><div id=\"dashboard-main\" class=\"dashboard-main\"><header class=\"dashboard-header\" aria-labelledby=\"dashboard-heading\"><div class=\"dashboard-header-title\"><div class=\"dashboard-brand-lockup\"><img src=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var3 string
-			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(data.DashboardName)
+			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/favicon.svg"))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 32, Col: 56}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 25, Col: 55}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" data-dashboard-fallback-heading=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "\" class=\"dashboard-brand-mark\" alt=\"\" aria-hidden=\"true\"> <span id=\"dashboard-connection-indicator\" class=\"dashboard-connection-indicator\" data-status=\"connecting\" role=\"status\" aria-live=\"polite\" aria-label=\"Dashboard connection: Connecting\"></span></div><div class=\"dashboard-header-copy\"><div class=\"dashboard-name-control\" data-dashboard-name-control data-dashboard-default-name=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var4 string
-			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(data.HeaderTitle())
+			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(data.DashboardName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 33, Col: 60}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 32, Col: 56}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\"><h1 id=\"dashboard-heading\" class=\"dashboard-name-heading text-xl font-semibold text-gray-100\"><button type=\"button\" id=\"dashboard-title\" data-dashboard-title aria-describedby=\"dashboard-name-edit-hint\" aria-controls=\"dashboard-name-input\" class=\"dashboard-title\" title=\"Edit dashboard name\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" data-dashboard-fallback-heading=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var5 string
 			templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(data.HeaderTitle())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 36, Col: 226}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 33, Col: 60}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "</button></h1><span id=\"dashboard-name-edit-hint\" class=\"sr-only\">Press Enter to edit dashboard name</span> <label for=\"dashboard-name-input\" class=\"sr-only\">Dashboard name</label> <input id=\"dashboard-name-input\" data-dashboard-name-input type=\"text\" autocomplete=\"off\" maxlength=\"80\" value=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"><h1 id=\"dashboard-heading\" class=\"dashboard-name-heading text-xl font-semibold text-gray-100\"><button type=\"button\" id=\"dashboard-title\" data-dashboard-title aria-describedby=\"dashboard-name-edit-hint\" aria-controls=\"dashboard-name-input\" class=\"dashboard-title\" title=\"Edit dashboard name\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var6 string
-			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(data.DashboardName)
+			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(data.HeaderTitle())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 40, Col: 139}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 36, Col: 226}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" placeholder=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</button></h1><span id=\"dashboard-name-edit-hint\" class=\"sr-only\">Press Enter to edit dashboard name</span> <label for=\"dashboard-name-input\" class=\"sr-only\">Dashboard name</label> <input id=\"dashboard-name-input\" data-dashboard-name-input type=\"text\" autocomplete=\"off\" maxlength=\"80\" value=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			var templ_7745c5c3_Var7 string
-			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(data.HeaderTitle())
+			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(data.DashboardName)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 40, Col: 174}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 40, Col: 139}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" class=\"dashboard-name-input hidden\"></div><p class=\"dashboard-header-status text-xs text-gray-500\"><span id=\"dashboard-range-caption\">All time</span> <span class=\"mx-1 text-gray-700\" aria-hidden=\"true\">/</span> <span id=\"dashboard-connection-label\" aria-live=\"polite\">Connecting</span></p></div></div><div class=\"dashboard-header-actions\" role=\"group\" aria-label=\"Dashboard controls\"><div id=\"dashboard-theme-control\" class=\"dashboard-theme-control\" role=\"group\" aria-label=\"Theme controls\"><span id=\"dashboard-theme-swatch\" class=\"dashboard-theme-swatch\" aria-hidden=\"true\"></span> <select id=\"dashboard-theme-select\" class=\"dashboard-theme-select\" aria-label=\"Dashboard color theme\"><optgroup label=\"Light + dark\"><option value=\"absolutely\">Absolutely</option> <option value=\"catppuccin\">Catppuccin</option> <option value=\"codex\">Codex</option> <option value=\"everforest\">Everforest</option> <option value=\"github\">GitHub</option> <option value=\"gruvbox\">Gruvbox</option> <option value=\"linear\">Linear</option> <option value=\"notion\">Notion</option> <option value=\"one\">One</option> <option value=\"rose-pine\">Rose Pine</option> <option value=\"raycast\">Raycast</option> <option value=\"solarized\">Solarized</option> <option value=\"vercel\">Vercel</option> <option value=\"vs-code-plus\">VS Code Plus</option> <option value=\"xcode\">Xcode</option></optgroup> <optgroup label=\"Dark only\"><option value=\"ayu\">Ayu</option> <option value=\"dracula\">Dracula</option> <option value=\"lobster\">Lobster</option> <option value=\"material\">Material</option> <option value=\"matrix\">Matrix</option> <option value=\"monokai\">Monokai</option> <option value=\"night-owl\">Night Owl</option> <option value=\"nord\">Nord</option> <option value=\"oscurange\">Oscurange</option> <option value=\"sentry\">Sentry</option> <option value=\"temple\">Temple</option> <option value=\"tokyo-night\">Tokyo Night</option></optgroup> <optgroup label=\"Light only\"><option value=\"proof\">Proof</option></optgroup></select> <button type=\"button\" id=\"dashboard-appearance-toggle\" class=\"dashboard-appearance-toggle\" onclick=\"toggleDashboardAppearance()\" role=\"switch\" aria-label=\"Dark mode\" aria-checked=\"true\" title=\"Switch to light mode\"><svg class=\"appearance-icon appearance-icon-moon\" aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M21 12.8A8.6 8.6 0 1111.2 3a6.8 6.8 0 009.8 9.8z\"></path></svg> <svg class=\"appearance-icon appearance-icon-sun hidden\" aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"4\" stroke-width=\"2\"></circle> <path stroke-linecap=\"round\" stroke-width=\"2\" d=\"M12 2v2m0 16v2m10-10h-2M4 12H2m17.1-7.1-1.4 1.4M6.3 17.7l-1.4 1.4m14.2 0-1.4-1.4M6.3 6.3 4.9 4.9\"></path></svg></button></div><button type=\"button\" id=\"timeline-toggle-btn\" onclick=\"toggleTimelineSidebar()\" aria-controls=\"timeline-sidebar\" aria-expanded=\"true\" class=\"dashboard-icon-btn timeline-toggle-btn\" aria-label=\"Collapse activity bar\" title=\"Collapse activity bar\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><rect x=\"3\" y=\"5\" width=\"18\" height=\"14\" rx=\"2\" stroke-width=\"2\"></rect> <path stroke-linecap=\"round\" stroke-width=\"2\" d=\"M15 5v14M11 9l-3 3 3 3\"></path></svg></button></div></header>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\" placeholder=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var8 string
+			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(data.HeaderTitle())
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 40, Col: 174}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\" class=\"dashboard-name-input hidden\"></div><p class=\"dashboard-header-status text-xs text-gray-500\"><span id=\"dashboard-range-caption\">All time</span> <span class=\"mx-1 text-gray-700\" aria-hidden=\"true\">/</span> <span id=\"dashboard-connection-label\" aria-live=\"polite\">Connecting</span></p></div></div><div class=\"dashboard-header-actions\" role=\"group\" aria-label=\"Dashboard controls\"><div id=\"dashboard-theme-control\" class=\"dashboard-theme-control\" role=\"group\" aria-label=\"Theme controls\"><span id=\"dashboard-theme-swatch\" class=\"dashboard-theme-swatch\" aria-hidden=\"true\"></span> <select id=\"dashboard-theme-select\" class=\"dashboard-theme-select\" aria-label=\"Dashboard color theme\"><optgroup label=\"Light + dark\"><option value=\"absolutely\">Absolutely</option> <option value=\"catppuccin\">Catppuccin</option> <option value=\"codex\">Codex</option> <option value=\"everforest\">Everforest</option> <option value=\"github\">GitHub</option> <option value=\"gruvbox\">Gruvbox</option> <option value=\"linear\">Linear</option> <option value=\"notion\">Notion</option> <option value=\"one\">One</option> <option value=\"rose-pine\">Rose Pine</option> <option value=\"raycast\">Raycast</option> <option value=\"solarized\">Solarized</option> <option value=\"vercel\">Vercel</option> <option value=\"vs-code-plus\">VS Code Plus</option> <option value=\"xcode\">Xcode</option></optgroup> <optgroup label=\"Dark only\"><option value=\"ayu\">Ayu</option> <option value=\"dracula\">Dracula</option> <option value=\"lobster\">Lobster</option> <option value=\"material\">Material</option> <option value=\"matrix\">Matrix</option> <option value=\"monokai\">Monokai</option> <option value=\"night-owl\">Night Owl</option> <option value=\"nord\">Nord</option> <option value=\"oscurange\">Oscurange</option> <option value=\"sentry\">Sentry</option> <option value=\"temple\">Temple</option> <option value=\"tokyo-night\">Tokyo Night</option></optgroup> <optgroup label=\"Light only\"><option value=\"proof\">Proof</option></optgroup></select> <button type=\"button\" id=\"dashboard-appearance-toggle\" class=\"dashboard-appearance-toggle\" onclick=\"toggleDashboardAppearance()\" role=\"switch\" aria-label=\"Dark mode\" aria-checked=\"true\" title=\"Switch to light mode\"><svg class=\"appearance-icon appearance-icon-moon\" aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M21 12.8A8.6 8.6 0 1111.2 3a6.8 6.8 0 009.8 9.8z\"></path></svg> <svg class=\"appearance-icon appearance-icon-sun hidden\" aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"4\" stroke-width=\"2\"></circle> <path stroke-linecap=\"round\" stroke-width=\"2\" d=\"M12 2v2m0 16v2m10-10h-2M4 12H2m17.1-7.1-1.4 1.4M6.3 17.7l-1.4 1.4m14.2 0-1.4-1.4M6.3 6.3 4.9 4.9\"></path></svg></button></div><button type=\"button\" id=\"timeline-toggle-btn\" onclick=\"toggleTimelineSidebar()\" aria-controls=\"timeline-sidebar\" aria-expanded=\"true\" class=\"dashboard-icon-btn timeline-toggle-btn\" aria-label=\"Collapse activity bar\" title=\"Collapse activity bar\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><rect x=\"3\" y=\"5\" width=\"18\" height=\"14\" rx=\"2\" stroke-width=\"2\"></rect> <path stroke-linecap=\"round\" stroke-width=\"2\" d=\"M15 5v14M11 9l-3 3 3 3\"></path></svg></button></div></header>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -119,7 +132,7 @@ func Dashboard(data views.DashboardData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<div class=\"dashboard-workspace\"><section class=\"dashboard-overview-row\" aria-label=\"Dashboard overview\"><section id=\"active-sessions\" class=\"dashboard-panel dashboard-active-panel\" aria-labelledby=\"active-sessions-title\"><div class=\"active-session-heading\"><h2 id=\"active-sessions-title\" class=\"text-lg font-semibold text-gray-200 flex items-center gap-2\"><span class=\"relative flex h-2 w-2\"><span class=\"relative inline-flex rounded-full h-2 w-2 bg-gray-600\"></span></span> Active Sessions</h2><label class=\"active-session-sort\"><span class=\"sr-only\">Active session sort order</span> <select id=\"active-session-sort\" class=\"active-session-sort-select\" aria-label=\"Active session sort order\" onchange=\"setActiveSessionSort(this.value)\"><option value=\"recent\" selected>Recently updated</option> <option value=\"longest\">Longest running</option> <option value=\"tokens\">Most tokens</option> <option value=\"tools\">Most tool calls</option> <option value=\"errors\">Errors first</option></select></label></div><div class=\"active-session-board-scroll\"><div class=\"active-session-grid\"><div class=\"active-session-empty\"><p class=\"text-sm text-gray-500\">No active sessions</p></div></div></div></section><section class=\"dashboard-panel dashboard-analytics-panel\" aria-labelledby=\"dashboard-analytics-title\"><div class=\"dashboard-panel-heading dashboard-analytics-heading\"><div class=\"min-w-0\"><h2 id=\"dashboard-analytics-title\" class=\"text-sm font-medium text-gray-400 uppercase tracking-wide\">Token Analytics</h2><p id=\"dashboard-chart-range-caption\" class=\"text-xs text-gray-600 mt-1\" aria-live=\"polite\">All time</p></div><div class=\"dashboard-chart-controls\"><label class=\"dashboard-search-select-wrap dashboard-chart-metric-wrap\"><span class=\"sr-only\">Token analytics metric</span> <select id=\"dashboard-chart-metric\" class=\"dashboard-search-select dashboard-chart-metric-select\" aria-label=\"Token analytics metric\" onchange=\"setDashboardChartMetric(this.value)\"><option value=\"total_tokens\" selected>Total Tokens</option> <option value=\"input_tokens\">Input Tokens</option> <option value=\"output_tokens\">Output Tokens</option> <option value=\"cache_read_tokens\">Cache Read Tokens</option> <option value=\"tool_calls\">Tool Calls</option> <option value=\"errors\">Errors</option> <option value=\"error_rate\">Error Rate</option></select></label><div id=\"dashboard-chart-range-control\" class=\"dashboard-search-filter-group dashboard-chart-range-control\" role=\"group\" aria-label=\"Token analytics time range\"><button type=\"button\" onclick=\"setDashboardChartRange(this, '')\" aria-pressed=\"true\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors\">All</button> <button type=\"button\" onclick=\"setDashboardChartRange(this, '1h')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">1h</button> <button type=\"button\" onclick=\"setDashboardChartRange(this, '24h')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">24h</button> <button type=\"button\" onclick=\"setDashboardChartRange(this, '7d')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">7d</button> <button type=\"button\" onclick=\"setDashboardChartRange(this, '30d')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">30d</button></div><button type=\"button\" id=\"dashboard-chart-refresh-btn\" onclick=\"refreshDashboardCharts()\" class=\"dashboard-icon-btn dashboard-chart-refresh-btn\" aria-label=\"Refresh token analytics\" title=\"Refresh token analytics\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M20 11a8 8 0 10-2.3 5.7\"></path> <path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M20 4v7h-7\"></path></svg></button></div></div><div id=\"dashboard-analytics-summary\" class=\"dashboard-summary-grid\" aria-label=\"Dashboard totals\"></div><div class=\"dashboard-table-chart dashboard-analytics-chart\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "<div class=\"dashboard-workspace\"><section class=\"dashboard-overview-row\" aria-label=\"Dashboard overview\"><section id=\"active-sessions\" class=\"dashboard-panel dashboard-active-panel\" aria-labelledby=\"active-sessions-title\"><div class=\"active-session-heading\"><h2 id=\"active-sessions-title\" class=\"text-lg font-semibold text-gray-200 flex items-center gap-2\"><span class=\"relative flex h-2 w-2\"><span class=\"relative inline-flex rounded-full h-2 w-2 bg-gray-600\"></span></span> Active Sessions</h2><label class=\"active-session-sort\"><span class=\"sr-only\">Active session sort order</span> <select id=\"active-session-sort\" class=\"active-session-sort-select\" aria-label=\"Active session sort order\" onchange=\"setActiveSessionSort(this.value)\"><option value=\"recent\" selected>Recently updated</option> <option value=\"longest\">Longest running</option> <option value=\"tokens\">Most tokens</option> <option value=\"tools\">Most tool calls</option> <option value=\"errors\">Errors first</option></select></label></div><div class=\"active-session-board-scroll\"><div class=\"active-session-grid\"><div class=\"active-session-empty\"><p class=\"text-sm text-gray-500\">No active sessions</p></div></div></div></section><section class=\"dashboard-panel dashboard-analytics-panel\" aria-labelledby=\"dashboard-analytics-title\"><div class=\"dashboard-panel-heading dashboard-analytics-heading\"><div class=\"min-w-0\"><h2 id=\"dashboard-analytics-title\" class=\"text-sm font-medium text-gray-400 uppercase tracking-wide\">Token Analytics</h2><p id=\"dashboard-chart-range-caption\" class=\"text-xs text-gray-600 mt-1\" aria-live=\"polite\">All time</p></div><div class=\"dashboard-chart-controls\"><label class=\"dashboard-search-select-wrap dashboard-chart-metric-wrap\"><span class=\"sr-only\">Token analytics metric</span> <select id=\"dashboard-chart-metric\" class=\"dashboard-search-select dashboard-chart-metric-select\" aria-label=\"Token analytics metric\" onchange=\"setDashboardChartMetric(this.value)\"><option value=\"total_tokens\" selected>Total Tokens</option> <option value=\"input_tokens\">Input Tokens</option> <option value=\"output_tokens\">Output Tokens</option> <option value=\"cache_read_tokens\">Cache Read Tokens</option> <option value=\"tool_calls\">Tool Calls</option> <option value=\"errors\">Errors</option> <option value=\"error_rate\">Error Rate</option></select></label><div id=\"dashboard-chart-range-control\" class=\"dashboard-search-filter-group dashboard-chart-range-control\" role=\"group\" aria-label=\"Token analytics time range\"><button type=\"button\" onclick=\"setDashboardChartRange(this, '')\" aria-pressed=\"true\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors\">All</button> <button type=\"button\" onclick=\"setDashboardChartRange(this, '1h')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">1h</button> <button type=\"button\" onclick=\"setDashboardChartRange(this, '24h')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">24h</button> <button type=\"button\" onclick=\"setDashboardChartRange(this, '7d')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">7d</button> <button type=\"button\" onclick=\"setDashboardChartRange(this, '30d')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">30d</button></div><button type=\"button\" id=\"dashboard-chart-refresh-btn\" onclick=\"refreshDashboardCharts()\" class=\"dashboard-icon-btn dashboard-chart-refresh-btn\" aria-label=\"Refresh token analytics\" title=\"Refresh token analytics\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M20 11a8 8 0 10-2.3 5.7\"></path> <path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M20 4v7h-7\"></path></svg></button></div></div><div id=\"dashboard-analytics-summary\" class=\"dashboard-summary-grid\" aria-label=\"Dashboard totals\"></div><div class=\"dashboard-table-chart dashboard-analytics-chart\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -127,7 +140,241 @@ func Dashboard(data views.DashboardData) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</div></section></section><section class=\"completed-table-surface dashboard-panel dashboard-completed-panel\" aria-labelledby=\"completed-table-title\"><div class=\"completed-table-heading dashboard-table-top\" id=\"dashboard-search\"><div class=\"dashboard-table-title-row\"><div class=\"completed-table-title\"><h2 id=\"completed-table-title\" class=\"text-sm font-medium text-gray-400 uppercase tracking-wide\">Completed Sessions</h2><p id=\"completed-session-status\" class=\"text-xs text-gray-600 mt-1\" aria-live=\"polite\">All time</p></div></div><div class=\"dashboard-table-controls-scroll\"><div class=\"dashboard-table-left\" data-dashboard-table-toolbar><div class=\"dashboard-table-search\"><div class=\"dashboard-table-toolbar\"><label for=\"dashboard-session-search\" class=\"sr-only\">Search table sessions and events</label> <span class=\"dashboard-search-icon\" aria-hidden=\"true\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><circle cx=\"11\" cy=\"11\" r=\"7\" stroke-width=\"2\"></circle> <path stroke-linecap=\"round\" stroke-width=\"2\" d=\"M20 20l-3.5-3.5\"></path></svg></span> <input id=\"dashboard-session-search\" data-dashboard-search type=\"search\" autocomplete=\"off\" placeholder=\"Search table sessions and events\" class=\"dashboard-search-input\"></div><div class=\"dashboard-search-filters\" aria-label=\"Table filters\"><div id=\"dashboard-range-control\" class=\"dashboard-search-filter-group\" role=\"group\" aria-label=\"Completed sessions time range\"><button type=\"button\" onclick=\"setDashboardRange(this, '')\" aria-pressed=\"true\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors\">All</button> <button type=\"button\" onclick=\"setDashboardRange(this, '1h')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">1h</button> <button type=\"button\" onclick=\"setDashboardRange(this, '24h')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">24h</button> <button type=\"button\" onclick=\"setDashboardRange(this, '7d')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">7d</button> <button type=\"button\" onclick=\"setDashboardRange(this, '30d')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">30d</button></div><label class=\"dashboard-search-select-wrap dashboard-search-kind-wrap\"><span class=\"sr-only\">Table type</span> <select id=\"dashboard-search-kind\" class=\"dashboard-search-select\" aria-label=\"Table type\"><option value=\"session\">Sessions</option> <option value=\"event\">Events</option> <option value=\"message\">Messages</option> <option value=\"tool_call\">Tool calls</option> <option value=\"tool_result\">Tool results</option> <option value=\"reasoning\">Reasoning</option> <option value=\"error\">Errors</option></select></label> <label class=\"dashboard-search-session-filter\"><span class=\"sr-only\">Session ID prefix</span> <input type=\"text\" id=\"dashboard-search-session\" autocomplete=\"off\" placeholder=\"Session ID\" class=\"dashboard-search-filter-input\"></label> <label class=\"dashboard-search-select-wrap\"><span class=\"sr-only\">Sort search results</span> <select id=\"dashboard-search-sort\" class=\"dashboard-search-select\" aria-label=\"Sort search results\"><option value=\"relevance\">Relevance</option> <option value=\"newest\">Newest</option> <option value=\"oldest\">Oldest</option></select></label> <button type=\"button\" id=\"dashboard-search-reset\" class=\"dashboard-search-reset\" aria-label=\"Reset search filters\" title=\"Reset search filters\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M3 12a9 9 0 1 0 3-6.7\"></path> <path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M3 4v5h5\"></path></svg></button> <button type=\"button\" id=\"dashboard-table-refresh-btn\" class=\"dashboard-icon-btn dashboard-table-refresh-btn\" onclick=\"refreshCompletedTable()\" aria-label=\"Refresh completed sessions table\" title=\"Refresh completed sessions table\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M20 11a8 8 0 10-2.3 5.7\"></path> <path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M20 4v7h-7\"></path></svg></button></div></div></div></div></div><div class=\"dashboard-table-scroll overflow-x-auto\"><table class=\"w-full text-sm\" id=\"completed-table\" data-table-mode=\"sessions\"><thead class=\"sticky top-0 bg-gray-900/95 backdrop-blur\"><tr class=\"text-xs text-gray-500 uppercase tracking-wider border-b border-gray-700\"><th scope=\"col\" aria-sort=\"none\" class=\"text-left py-2 px-3 font-medium select-none\" data-sort-key=\"name\"><button type=\"button\" class=\"dashboard-sort-button\" onclick=\"sortCompletedTable(this, 'name')\">Name <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-left py-2 px-3 font-medium select-none\" data-sort-key=\"provider\"><button type=\"button\" class=\"dashboard-sort-button\" onclick=\"sortCompletedTable(this, 'provider')\">Provider <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-left py-2 px-3 font-medium select-none\" data-sort-key=\"model\"><button type=\"button\" class=\"dashboard-sort-button\" onclick=\"sortCompletedTable(this, 'model')\">Model <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-right py-2 px-3 font-medium select-none\" data-sort-key=\"tokens\"><button type=\"button\" class=\"dashboard-sort-button dashboard-sort-button-right\" onclick=\"sortCompletedTable(this, 'tokens')\">Tokens <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-right py-2 px-3 font-medium select-none\" data-sort-key=\"turns\"><button type=\"button\" class=\"dashboard-sort-button dashboard-sort-button-right\" onclick=\"sortCompletedTable(this, 'turns')\">Turns <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-right py-2 px-3 font-medium select-none\" data-sort-key=\"tools\"><button type=\"button\" class=\"dashboard-sort-button dashboard-sort-button-right\" onclick=\"sortCompletedTable(this, 'tools')\">Tools <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-right py-2 px-3 font-medium select-none\" data-sort-key=\"duration\"><button type=\"button\" class=\"dashboard-sort-button dashboard-sort-button-right\" onclick=\"sortCompletedTable(this, 'duration')\">Duration <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-left py-2 px-3 font-medium select-none\" data-sort-key=\"project\"><button type=\"button\" class=\"dashboard-sort-button\" onclick=\"sortCompletedTable(this, 'project')\">Project <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"descending\" class=\"text-right py-2 px-3 font-medium select-none\" data-sort-key=\"ended\"><button type=\"button\" class=\"dashboard-sort-button dashboard-sort-button-right\" onclick=\"sortCompletedTable(this, 'ended')\">Ended <span class=\"sort-arrow active\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-left py-2 px-3 font-medium select-none\" data-sort-key=\"id\"><button type=\"button\" class=\"dashboard-sort-button\" onclick=\"sortCompletedTable(this, 'id')\">Session ID <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th></tr></thead> <tbody id=\"completed-sessions\"><tr><td colspan=\"10\" class=\"text-center py-4\"><span class=\"text-sm text-gray-500\">No completed sessions</span></td></tr></tbody></table></div></section></div></div><!-- Draggable Divider --><div id=\"sidebar-divider\" class=\"sidebar-divider\" role=\"separator\" aria-label=\"Resize activity bar\" aria-orientation=\"vertical\" aria-valuemin=\"0\" aria-valuemax=\"700\" aria-valuenow=\"380\" aria-valuetext=\"Activity bar width 380 pixels\" tabindex=\"0\" title=\"Drag to resize activity bar\"><div class=\"sidebar-divider-line\"></div></div><!-- Activity Bar Sidebar --><aside id=\"timeline-sidebar\" class=\"timeline-panel activity-bar-panel flex flex-col bg-gray-800/30\" aria-labelledby=\"activity-bar-title\"><div class=\"activity-bar-header\"><h2 id=\"activity-bar-title\" class=\"activity-bar-title\">Activity Bar <span class=\"activity-bar-range\">(all)</span></h2></div><div class=\"activity-bar-filters\" role=\"group\" aria-label=\"Activity type filter\"><button type=\"button\" onclick=\"filterActivity(this, 'all')\" aria-pressed=\"true\" class=\"activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors\">All</button> <button type=\"button\" onclick=\"filterActivity(this, 'message')\" aria-pressed=\"false\" class=\"activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">Messages</button> <button type=\"button\" onclick=\"filterActivity(this, 'tool_call')\" aria-pressed=\"false\" class=\"activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">Tools</button> <button type=\"button\" onclick=\"filterActivity(this, 'error')\" aria-pressed=\"false\" class=\"activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">Errors</button></div><div id=\"activity-feed\" class=\"overflow-y-auto flex-1 min-h-0\"><p class=\"text-sm text-gray-500 text-center py-4\">Loading activity...</p></div></aside><script>\n\t\t\t(function() {\n\t\t\t\ttry {\n\t\t\t\t\tif (!document.documentElement.hasAttribute('data-beacon-timeline-collapsed')) return;\n\t\t\t\t\tvar sidebar = document.getElementById('timeline-sidebar');\n\t\t\t\t\tvar toggle = document.getElementById('timeline-toggle-btn');\n\t\t\t\t\tvar divider = document.getElementById('sidebar-divider');\n\t\t\t\t\tif (sidebar) {\n\t\t\t\t\t\tsidebar.classList.add('collapsed');\n\t\t\t\t\t\tsidebar.setAttribute('inert', '');\n\t\t\t\t\t\tsidebar.setAttribute('aria-hidden', 'true');\n\t\t\t\t\t}\n\t\t\t\t\tif (toggle) {\n\t\t\t\t\t\ttoggle.setAttribute('aria-expanded', 'false');\n\t\t\t\t\t\ttoggle.setAttribute('aria-label', 'Expand activity bar');\n\t\t\t\t\t\ttoggle.setAttribute('title', 'Expand activity bar');\n\t\t\t\t\t}\n\t\t\t\t\tif (divider) {\n\t\t\t\t\t\tvar wrap = document.getElementById('dashboard-wrap');\n\t\t\t\t\t\tvar max = 700;\n\t\t\t\t\t\tif (wrap && wrap.offsetWidth) {\n\t\t\t\t\t\t\tmax = Math.min(700, Math.max(200, Math.floor(wrap.offsetWidth * 0.5)));\n\t\t\t\t\t\t}\n\t\t\t\t\t\tdivider.setAttribute('aria-valuemax', String(max));\n\t\t\t\t\t\tdivider.setAttribute('aria-valuenow', '0');\n\t\t\t\t\t\tdivider.setAttribute('aria-valuetext', 'Activity bar collapsed');\n\t\t\t\t\t}\n\t\t\t\t} catch (err) {}\n\t\t\t})();\n\t\t\t</script><div id=\"session-inspector\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"inspector-title\" class=\"hidden fixed inset-y-0 right-0 w-full max-w-2xl bg-gray-950 border-l border-gray-700 shadow-2xl z-[60] flex flex-col\"><div class=\"flex items-center justify-between px-4 py-3 border-b border-gray-800\"><div class=\"min-w-0\"><h2 id=\"inspector-title\" class=\"text-sm font-semibold text-gray-100 truncate\">Session</h2><p id=\"inspector-subtitle\" class=\"text-xs text-gray-500 font-mono truncate\"></p></div><div class=\"flex items-center gap-2\"><a id=\"inspector-full-link\" href=\"#\" class=\"text-xs px-2 py-1 rounded border border-gray-700 text-gray-400 hover:text-gray-200\">View Transcript</a> <button type=\"button\" onclick=\"closeSessionInspector()\" class=\"text-gray-500 hover:text-gray-200\" title=\"Close\" aria-label=\"Close\">✕</button></div></div><div id=\"inspector-summary\" class=\"grid grid-cols-2 md:grid-cols-4 gap-3 p-4 border-b border-gray-800 text-sm\"></div><div id=\"inspector-events\" class=\"flex-1 overflow-y-auto p-4 space-y-2\"></div></div></div><script src=\"/static/js/vendor/chart.umd.min.js\"></script> <script src=\"/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js\"></script> <script src=\"/static/js/charts/utils.js\"></script> <script src=\"/static/js/charts/core.js\"></script> <script src=\"/static/js/charts/dashboard-models.js\"></script> <script src=\"/static/js/charts/series-dropdowns.js\"></script> <script src=\"/static/js/charts/plugins.js\"></script> <script src=\"/static/js/charts/session-models.js\"></script> <script src=\"/static/js/charts/bootstrap.js\"></script> <script src=\"/static/js/dashboard/utils.js\"></script> <script src=\"/static/js/dashboard/theme.js\"></script> <script src=\"/static/js/dashboard/inspector.js\"></script> <script src=\"/static/js/dashboard/timeline.js\"></script> <script src=\"/static/js/dashboard/state.js\"></script> <script src=\"/static/js/dashboard/name.js\"></script> <script src=\"/static/js/dashboard/table.js\"></script> <script src=\"/static/js/dashboard/render.js\"></script> <script src=\"/static/js/dashboard/controls.js\"></script>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</div></section></section><section class=\"completed-table-surface dashboard-panel dashboard-completed-panel\" aria-labelledby=\"completed-table-title\"><div class=\"completed-table-heading dashboard-table-top\" id=\"dashboard-search\"><div class=\"dashboard-table-title-row\"><div class=\"completed-table-title\"><h2 id=\"completed-table-title\" class=\"text-sm font-medium text-gray-400 uppercase tracking-wide\">Completed Sessions</h2><p id=\"completed-session-status\" class=\"text-xs text-gray-600 mt-1\" aria-live=\"polite\">All time</p></div></div><div class=\"dashboard-table-controls-scroll\"><div class=\"dashboard-table-left\" data-dashboard-table-toolbar><div class=\"dashboard-table-search\"><div class=\"dashboard-table-toolbar\"><label for=\"dashboard-session-search\" class=\"sr-only\">Search table sessions and events</label> <span class=\"dashboard-search-icon\" aria-hidden=\"true\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><circle cx=\"11\" cy=\"11\" r=\"7\" stroke-width=\"2\"></circle> <path stroke-linecap=\"round\" stroke-width=\"2\" d=\"M20 20l-3.5-3.5\"></path></svg></span> <input id=\"dashboard-session-search\" data-dashboard-search type=\"search\" autocomplete=\"off\" placeholder=\"Search table sessions and events\" class=\"dashboard-search-input\"></div><div class=\"dashboard-search-filters\" aria-label=\"Table filters\"><div id=\"dashboard-range-control\" class=\"dashboard-search-filter-group\" role=\"group\" aria-label=\"Completed sessions time range\"><button type=\"button\" onclick=\"setDashboardRange(this, '')\" aria-pressed=\"true\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors\">All</button> <button type=\"button\" onclick=\"setDashboardRange(this, '1h')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">1h</button> <button type=\"button\" onclick=\"setDashboardRange(this, '24h')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">24h</button> <button type=\"button\" onclick=\"setDashboardRange(this, '7d')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">7d</button> <button type=\"button\" onclick=\"setDashboardRange(this, '30d')\" aria-pressed=\"false\" class=\"dash-range-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">30d</button></div><label class=\"dashboard-search-select-wrap dashboard-search-kind-wrap\"><span class=\"sr-only\">Table type</span> <select id=\"dashboard-search-kind\" class=\"dashboard-search-select\" aria-label=\"Table type\"><option value=\"session\">Sessions</option> <option value=\"event\">Events</option> <option value=\"message\">Messages</option> <option value=\"tool_call\">Tool calls</option> <option value=\"tool_result\">Tool results</option> <option value=\"reasoning\">Reasoning</option> <option value=\"error\">Errors</option></select></label> <label class=\"dashboard-search-session-filter\"><span class=\"sr-only\">Session ID prefix</span> <input type=\"text\" id=\"dashboard-search-session\" autocomplete=\"off\" placeholder=\"Session ID\" class=\"dashboard-search-filter-input\"></label> <label class=\"dashboard-search-select-wrap\"><span class=\"sr-only\">Sort search results</span> <select id=\"dashboard-search-sort\" class=\"dashboard-search-select\" aria-label=\"Sort search results\"><option value=\"relevance\">Relevance</option> <option value=\"newest\">Newest</option> <option value=\"oldest\">Oldest</option></select></label> <button type=\"button\" id=\"dashboard-search-reset\" class=\"dashboard-search-reset\" aria-label=\"Reset search filters\" title=\"Reset search filters\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M3 12a9 9 0 1 0 3-6.7\"></path> <path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M3 4v5h5\"></path></svg></button> <button type=\"button\" id=\"dashboard-table-refresh-btn\" class=\"dashboard-icon-btn dashboard-table-refresh-btn\" onclick=\"refreshCompletedTable()\" aria-label=\"Refresh completed sessions table\" title=\"Refresh completed sessions table\"><svg aria-hidden=\"true\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\"><path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M20 11a8 8 0 10-2.3 5.7\"></path> <path stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"2\" d=\"M20 4v7h-7\"></path></svg></button></div></div></div></div></div><div class=\"dashboard-table-scroll overflow-x-auto\"><table class=\"w-full text-sm\" id=\"completed-table\" data-table-mode=\"sessions\"><thead class=\"sticky top-0 bg-gray-900/95 backdrop-blur\"><tr class=\"text-xs text-gray-500 uppercase tracking-wider border-b border-gray-700\"><th scope=\"col\" aria-sort=\"none\" class=\"text-left py-2 px-3 font-medium select-none\" data-sort-key=\"name\"><button type=\"button\" class=\"dashboard-sort-button\" onclick=\"sortCompletedTable(this, 'name')\">Name <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-left py-2 px-3 font-medium select-none\" data-sort-key=\"provider\"><button type=\"button\" class=\"dashboard-sort-button\" onclick=\"sortCompletedTable(this, 'provider')\">Provider <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-left py-2 px-3 font-medium select-none\" data-sort-key=\"model\"><button type=\"button\" class=\"dashboard-sort-button\" onclick=\"sortCompletedTable(this, 'model')\">Model <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-right py-2 px-3 font-medium select-none\" data-sort-key=\"tokens\"><button type=\"button\" class=\"dashboard-sort-button dashboard-sort-button-right\" onclick=\"sortCompletedTable(this, 'tokens')\">Tokens <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-right py-2 px-3 font-medium select-none\" data-sort-key=\"turns\"><button type=\"button\" class=\"dashboard-sort-button dashboard-sort-button-right\" onclick=\"sortCompletedTable(this, 'turns')\">Turns <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-right py-2 px-3 font-medium select-none\" data-sort-key=\"tools\"><button type=\"button\" class=\"dashboard-sort-button dashboard-sort-button-right\" onclick=\"sortCompletedTable(this, 'tools')\">Tools <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-right py-2 px-3 font-medium select-none\" data-sort-key=\"duration\"><button type=\"button\" class=\"dashboard-sort-button dashboard-sort-button-right\" onclick=\"sortCompletedTable(this, 'duration')\">Duration <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-left py-2 px-3 font-medium select-none\" data-sort-key=\"project\"><button type=\"button\" class=\"dashboard-sort-button\" onclick=\"sortCompletedTable(this, 'project')\">Project <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"descending\" class=\"text-right py-2 px-3 font-medium select-none\" data-sort-key=\"ended\"><button type=\"button\" class=\"dashboard-sort-button dashboard-sort-button-right\" onclick=\"sortCompletedTable(this, 'ended')\">Ended <span class=\"sort-arrow active\" aria-hidden=\"true\">▼</span></button></th><th scope=\"col\" aria-sort=\"none\" class=\"text-left py-2 px-3 font-medium select-none\" data-sort-key=\"id\"><button type=\"button\" class=\"dashboard-sort-button\" onclick=\"sortCompletedTable(this, 'id')\">Session ID <span class=\"sort-arrow\" aria-hidden=\"true\">▼</span></button></th></tr></thead> <tbody id=\"completed-sessions\"><tr><td colspan=\"10\" class=\"text-center py-4\"><span class=\"text-sm text-gray-500\">No completed sessions</span></td></tr></tbody></table></div></section></div></div><!-- Draggable Divider --><div id=\"sidebar-divider\" class=\"sidebar-divider\" role=\"separator\" aria-label=\"Resize activity bar\" aria-orientation=\"vertical\" aria-valuemin=\"0\" aria-valuemax=\"700\" aria-valuenow=\"380\" aria-valuetext=\"Activity bar width 380 pixels\" tabindex=\"0\" title=\"Drag to resize activity bar\"><div class=\"sidebar-divider-line\"></div></div><!-- Activity Bar Sidebar --><aside id=\"timeline-sidebar\" class=\"timeline-panel activity-bar-panel flex flex-col bg-gray-800/30\" aria-labelledby=\"activity-bar-title\"><div class=\"activity-bar-header\"><h2 id=\"activity-bar-title\" class=\"activity-bar-title\">Activity Bar <span class=\"activity-bar-range\">(all)</span></h2></div><div class=\"activity-bar-filters\" role=\"group\" aria-label=\"Activity type filter\"><button type=\"button\" onclick=\"filterActivity(this, 'all')\" aria-pressed=\"true\" class=\"activity-filter-btn px-2 py-1 text-xs rounded border border-blue-500/40 bg-blue-500/20 text-blue-400 transition-colors\">All</button> <button type=\"button\" onclick=\"filterActivity(this, 'message')\" aria-pressed=\"false\" class=\"activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">Messages</button> <button type=\"button\" onclick=\"filterActivity(this, 'tool_call')\" aria-pressed=\"false\" class=\"activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">Tools</button> <button type=\"button\" onclick=\"filterActivity(this, 'error')\" aria-pressed=\"false\" class=\"activity-filter-btn px-2 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors\">Errors</button></div><div id=\"activity-feed\" class=\"overflow-y-auto flex-1 min-h-0\"><p class=\"text-sm text-gray-500 text-center py-4\">Loading activity...</p></div></aside><script>\n\t\t\t(function() {\n\t\t\t\ttry {\n\t\t\t\t\tif (!document.documentElement.hasAttribute('data-beacon-timeline-collapsed')) return;\n\t\t\t\t\tvar sidebar = document.getElementById('timeline-sidebar');\n\t\t\t\t\tvar toggle = document.getElementById('timeline-toggle-btn');\n\t\t\t\t\tvar divider = document.getElementById('sidebar-divider');\n\t\t\t\t\tif (sidebar) {\n\t\t\t\t\t\tsidebar.classList.add('collapsed');\n\t\t\t\t\t\tsidebar.setAttribute('inert', '');\n\t\t\t\t\t\tsidebar.setAttribute('aria-hidden', 'true');\n\t\t\t\t\t}\n\t\t\t\t\tif (toggle) {\n\t\t\t\t\t\ttoggle.setAttribute('aria-expanded', 'false');\n\t\t\t\t\t\ttoggle.setAttribute('aria-label', 'Expand activity bar');\n\t\t\t\t\t\ttoggle.setAttribute('title', 'Expand activity bar');\n\t\t\t\t\t}\n\t\t\t\t\tif (divider) {\n\t\t\t\t\t\tvar wrap = document.getElementById('dashboard-wrap');\n\t\t\t\t\t\tvar max = 700;\n\t\t\t\t\t\tif (wrap && wrap.offsetWidth) {\n\t\t\t\t\t\t\tmax = Math.min(700, Math.max(200, Math.floor(wrap.offsetWidth * 0.5)));\n\t\t\t\t\t\t}\n\t\t\t\t\t\tdivider.setAttribute('aria-valuemax', String(max));\n\t\t\t\t\t\tdivider.setAttribute('aria-valuenow', '0');\n\t\t\t\t\t\tdivider.setAttribute('aria-valuetext', 'Activity bar collapsed');\n\t\t\t\t\t}\n\t\t\t\t} catch (err) {}\n\t\t\t})();\n\t\t\t</script><div id=\"session-inspector\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"inspector-title\" class=\"hidden fixed inset-y-0 right-0 w-full max-w-2xl bg-gray-950 border-l border-gray-700 shadow-2xl z-[60] flex flex-col\"><div class=\"flex items-center justify-between px-4 py-3 border-b border-gray-800\"><div class=\"min-w-0\"><h2 id=\"inspector-title\" class=\"text-sm font-semibold text-gray-100 truncate\">Session</h2><p id=\"inspector-subtitle\" class=\"text-xs text-gray-500 font-mono truncate\"></p></div><div class=\"flex items-center gap-2\"><a id=\"inspector-full-link\" href=\"#\" class=\"text-xs px-2 py-1 rounded border border-gray-700 text-gray-400 hover:text-gray-200\">View Transcript</a> <button type=\"button\" onclick=\"closeSessionInspector()\" class=\"text-gray-500 hover:text-gray-200\" title=\"Close\" aria-label=\"Close\">✕</button></div></div><div id=\"inspector-summary\" class=\"grid grid-cols-2 md:grid-cols-4 gap-3 p-4 border-b border-gray-800 text-sm\"></div><div id=\"inspector-events\" class=\"flex-1 overflow-y-auto p-4 space-y-2\"></div></div></div><script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var9 string
+			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/vendor/chart.umd.min.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 387, Col: 68}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var10 string
+			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 388, Col: 90}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var11 string
+			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/charts/utils.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 389, Col: 60}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var12 string
+			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/charts/core.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 390, Col: 59}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var13 string
+			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/charts/dashboard-models.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 391, Col: 71}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var14 string
+			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/charts/series-dropdowns.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 392, Col: 71}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var15 string
+			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/charts/plugins.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 393, Col: 62}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var16 string
+			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/charts/session-models.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 394, Col: 69}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var17 string
+			templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/charts/bootstrap.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 395, Col: 64}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var18 string
+			templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/dashboard/utils.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 396, Col: 63}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var19 string
+			templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/dashboard/theme.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 397, Col: 63}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var20 string
+			templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/dashboard/inspector.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 398, Col: 67}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var21 string
+			templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/dashboard/timeline.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 399, Col: 66}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var22 string
+			templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/dashboard/state.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 400, Col: 63}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var23 string
+			templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/dashboard/name.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 401, Col: 62}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var24 string
+			templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/dashboard/table.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 402, Col: 63}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var25 string
+			templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/dashboard/render.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 403, Col: 64}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "\"></script> <script src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var26 string
+			templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(views.AssetURL("/static/js/dashboard/controls.js"))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/pages/dashboard.templ`, Line: 404, Col: 66}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\"></script>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

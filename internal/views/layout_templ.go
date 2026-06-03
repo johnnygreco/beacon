@@ -42,7 +42,72 @@ func Layout(title string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " | Beacon</title><link rel=\"icon\" href=\"/static/favicon.svg\" type=\"image/svg+xml\"><script>\n\t\t(function() {\n\t\t\tvar fallbackTheme = 'codex-dark';\n\t\t\tvar support = {\n\t\t\t\t'absolutely': { light: 'absolutely-light', dark: 'absolutely-dark' },\n\t\t\t\t'catppuccin': { light: 'catppuccin-light', dark: 'catppuccin-dark' },\n\t\t\t\t'codex': { light: 'codex-light', dark: 'codex-dark' },\n\t\t\t\t'everforest': { light: 'everforest-light', dark: 'everforest-dark' },\n\t\t\t\t'github': { light: 'github-light', dark: 'github-dark' },\n\t\t\t\t'gruvbox': { light: 'gruvbox-light', dark: 'gruvbox-dark' },\n\t\t\t\t'linear': { light: 'linear-light', dark: 'linear-dark' },\n\t\t\t\t'notion': { light: 'notion-light', dark: 'notion-dark' },\n\t\t\t\t'one': { light: 'one-light', dark: 'one-dark' },\n\t\t\t\t'rose-pine': { light: 'rose-pine-light', dark: 'rose-pine-dark' },\n\t\t\t\t'raycast': { light: 'raycast-light', dark: 'raycast-dark' },\n\t\t\t\t'solarized': { light: 'solarized-light', dark: 'solarized-dark' },\n\t\t\t\t'vercel': { light: 'vercel-light', dark: 'vercel-dark' },\n\t\t\t\t'vs-code-plus': { light: 'vs-code-plus-light', dark: 'vs-code-plus-dark' },\n\t\t\t\t'xcode': { light: 'xcode-light', dark: 'xcode-dark' },\n\t\t\t\t'ayu': { dark: 'ayu-dark' },\n\t\t\t\t'dracula': { dark: 'dracula-dark' },\n\t\t\t\t'lobster': { dark: 'lobster-dark' },\n\t\t\t\t'material': { dark: 'material-dark' },\n\t\t\t\t'matrix': { dark: 'matrix-dark' },\n\t\t\t\t'monokai': { dark: 'monokai-dark' },\n\t\t\t\t'night-owl': { dark: 'night-owl-dark' },\n\t\t\t\t'nord': { dark: 'nord-dark' },\n\t\t\t\t'oscurange': { dark: 'oscurange-dark' },\n\t\t\t\t'sentry': { dark: 'sentry-dark' },\n\t\t\t\t'temple': { dark: 'temple-dark' },\n\t\t\t\t'tokyo-night': { dark: 'tokyo-night-dark' },\n\t\t\t\t'proof': { light: 'proof-light' }\n\t\t\t};\n\t\t\tvar theme = fallbackTheme;\n\t\t\ttry {\n\t\t\t\ttheme = localStorage.getItem('beacon-dashboard-resolved-theme') || theme;\n\t\t\t\tvar base = localStorage.getItem('beacon-dashboard-theme');\n\t\t\t\tvar appearance = localStorage.getItem('beacon-dashboard-preferred-appearance') || localStorage.getItem('beacon-dashboard-appearance') || 'dark';\n\t\t\t\tif (base && support[base]) {\n\t\t\t\t\ttheme = support[base][appearance] || support[base].dark || support[base].light || theme;\n\t\t\t\t}\n\t\t\t} catch (err) {}\n\t\t\tif (!/^[a-z0-9-]+$/.test(theme)) theme = fallbackTheme;\n\t\t\tdocument.documentElement.setAttribute('data-dashboard-theme', theme);\n\t\t})();\n\t\t</script><script>\n\t\t(function() {\n\t\t\tif (!window.console || typeof window.console.error !== 'function' || window.__beaconConsoleFilterInstalled) return;\n\t\t\tvar originalError = window.console.error.bind(window.console);\n\t\t\twindow.__beaconUnloading = false;\n\t\t\twindow.addEventListener('beforeunload', function() {\n\t\t\t\twindow.__beaconUnloading = true;\n\t\t\t}, {capture: true});\n\t\t\twindow.console.error = function() {\n\t\t\t\tif (window.__beaconUnloading && arguments.length === 1 && arguments[0] === '[object Event]') return;\n\t\t\t\tif (window.__beaconUnloading && arguments.length === 1 && arguments[0] && typeof arguments[0] === 'object') {\n\t\t\t\t\tvar tag = Object.prototype.toString.call(arguments[0]);\n\t\t\t\t\tif (tag === '[object Event]' || tag === '[object ErrorEvent]') return;\n\t\t\t\t}\n\t\t\t\tif (arguments.length === 1 && arguments[0] && typeof arguments[0] === 'object') {\n\t\t\t\t\tvar event = arguments[0];\n\t\t\t\t\tvar eventTag = Object.prototype.toString.call(event);\n\t\t\t\t\tvar eventTarget = event.target || event.currentTarget || event.srcElement;\n\t\t\t\t\tvar targetTag = Object.prototype.toString.call(eventTarget);\n\t\t\t\t\tvar looksLikeEventSource = eventTarget &&\n\t\t\t\t\t\t(targetTag === '[object EventSource]' ||\n\t\t\t\t\t\t\teventTarget.constructor && eventTarget.constructor.name === 'EventSource' ||\n\t\t\t\t\t\t\t(typeof eventTarget.close === 'function' && typeof eventTarget.url === 'string'));\n\t\t\t\t\tif (eventTag === '[object Event]' && event.type === 'error' && looksLikeEventSource) return;\n\t\t\t\t}\n\t\t\t\toriginalError.apply(window.console, arguments);\n\t\t\t};\n\t\t\twindow.__beaconConsoleFilterInstalled = true;\n\t\t})();\n\t\t</script><script src=\"/static/js/vendor/htmx.min.js\"></script><script src=\"/static/js/vendor/htmx-ext-sse.js\"></script><link rel=\"stylesheet\" href=\"/static/css/tailwind.css\"><link rel=\"stylesheet\" href=\"/static/css/custom.css\"></head><body class=\"bg-gray-900 text-gray-100 min-h-screen\"><main id=\"main-content\" class=\"min-h-screen w-full p-6 overflow-y-auto\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, " | Beacon</title><link rel=\"icon\" href=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var3 templ.SafeURL
+		templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinURLErrs(AssetURL("/static/favicon.svg"))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 10, Col: 57}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "\" type=\"image/svg+xml\"><script>\n\t\t(function() {\n\t\t\tvar fallbackTheme = 'codex-dark';\n\t\t\tvar support = {\n\t\t\t\t'absolutely': { light: 'absolutely-light', dark: 'absolutely-dark' },\n\t\t\t\t'catppuccin': { light: 'catppuccin-light', dark: 'catppuccin-dark' },\n\t\t\t\t'codex': { light: 'codex-light', dark: 'codex-dark' },\n\t\t\t\t'everforest': { light: 'everforest-light', dark: 'everforest-dark' },\n\t\t\t\t'github': { light: 'github-light', dark: 'github-dark' },\n\t\t\t\t'gruvbox': { light: 'gruvbox-light', dark: 'gruvbox-dark' },\n\t\t\t\t'linear': { light: 'linear-light', dark: 'linear-dark' },\n\t\t\t\t'notion': { light: 'notion-light', dark: 'notion-dark' },\n\t\t\t\t'one': { light: 'one-light', dark: 'one-dark' },\n\t\t\t\t'rose-pine': { light: 'rose-pine-light', dark: 'rose-pine-dark' },\n\t\t\t\t'raycast': { light: 'raycast-light', dark: 'raycast-dark' },\n\t\t\t\t'solarized': { light: 'solarized-light', dark: 'solarized-dark' },\n\t\t\t\t'vercel': { light: 'vercel-light', dark: 'vercel-dark' },\n\t\t\t\t'vs-code-plus': { light: 'vs-code-plus-light', dark: 'vs-code-plus-dark' },\n\t\t\t\t'xcode': { light: 'xcode-light', dark: 'xcode-dark' },\n\t\t\t\t'ayu': { dark: 'ayu-dark' },\n\t\t\t\t'dracula': { dark: 'dracula-dark' },\n\t\t\t\t'lobster': { dark: 'lobster-dark' },\n\t\t\t\t'material': { dark: 'material-dark' },\n\t\t\t\t'matrix': { dark: 'matrix-dark' },\n\t\t\t\t'monokai': { dark: 'monokai-dark' },\n\t\t\t\t'night-owl': { dark: 'night-owl-dark' },\n\t\t\t\t'nord': { dark: 'nord-dark' },\n\t\t\t\t'oscurange': { dark: 'oscurange-dark' },\n\t\t\t\t'sentry': { dark: 'sentry-dark' },\n\t\t\t\t'temple': { dark: 'temple-dark' },\n\t\t\t\t'tokyo-night': { dark: 'tokyo-night-dark' },\n\t\t\t\t'proof': { light: 'proof-light' }\n\t\t\t};\n\t\t\tvar theme = fallbackTheme;\n\t\t\ttry {\n\t\t\t\ttheme = localStorage.getItem('beacon-dashboard-resolved-theme') || theme;\n\t\t\t\tvar base = localStorage.getItem('beacon-dashboard-theme');\n\t\t\t\tvar appearance = localStorage.getItem('beacon-dashboard-preferred-appearance') || localStorage.getItem('beacon-dashboard-appearance') || 'dark';\n\t\t\t\tif (base && support[base]) {\n\t\t\t\t\ttheme = support[base][appearance] || support[base].dark || support[base].light || theme;\n\t\t\t\t}\n\t\t\t} catch (err) {}\n\t\t\tif (!/^[a-z0-9-]+$/.test(theme)) theme = fallbackTheme;\n\t\t\tdocument.documentElement.setAttribute('data-dashboard-theme', theme);\n\t\t})();\n\t\t</script><script>\n\t\t(function() {\n\t\t\tif (!window.console || typeof window.console.error !== 'function' || window.__beaconConsoleFilterInstalled) return;\n\t\t\tvar originalError = window.console.error.bind(window.console);\n\t\t\twindow.__beaconUnloading = false;\n\t\t\twindow.addEventListener('beforeunload', function() {\n\t\t\t\twindow.__beaconUnloading = true;\n\t\t\t}, {capture: true});\n\t\t\twindow.console.error = function() {\n\t\t\t\tif (window.__beaconUnloading && arguments.length === 1 && arguments[0] === '[object Event]') return;\n\t\t\t\tif (window.__beaconUnloading && arguments.length === 1 && arguments[0] && typeof arguments[0] === 'object') {\n\t\t\t\t\tvar tag = Object.prototype.toString.call(arguments[0]);\n\t\t\t\t\tif (tag === '[object Event]' || tag === '[object ErrorEvent]') return;\n\t\t\t\t}\n\t\t\t\tif (arguments.length === 1 && arguments[0] && typeof arguments[0] === 'object') {\n\t\t\t\t\tvar event = arguments[0];\n\t\t\t\t\tvar eventTag = Object.prototype.toString.call(event);\n\t\t\t\t\tvar eventTarget = event.target || event.currentTarget || event.srcElement;\n\t\t\t\t\tvar targetTag = Object.prototype.toString.call(eventTarget);\n\t\t\t\t\tvar looksLikeEventSource = eventTarget &&\n\t\t\t\t\t\t(targetTag === '[object EventSource]' ||\n\t\t\t\t\t\t\teventTarget.constructor && eventTarget.constructor.name === 'EventSource' ||\n\t\t\t\t\t\t\t(typeof eventTarget.close === 'function' && typeof eventTarget.url === 'string'));\n\t\t\t\t\tif (eventTag === '[object Event]' && event.type === 'error' && looksLikeEventSource) return;\n\t\t\t\t}\n\t\t\t\toriginalError.apply(window.console, arguments);\n\t\t\t};\n\t\t\twindow.__beaconConsoleFilterInstalled = true;\n\t\t})();\n\t\t</script><script src=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var4 string
+		templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(AssetURL("/static/js/vendor/htmx.min.js"))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 87, Col: 57}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"></script><script src=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var5 string
+		templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(AssetURL("/static/js/vendor/htmx-ext-sse.js"))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 88, Col: 61}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\"></script><link rel=\"stylesheet\" href=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var6 templ.SafeURL
+		templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinURLErrs(AssetURL("/static/css/tailwind.css"))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 89, Col: 68}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "\"><link rel=\"stylesheet\" href=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var7 templ.SafeURL
+		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinURLErrs(AssetURL("/static/css/custom.css"))
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `internal/views/layout.templ`, Line: 90, Col: 66}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\"></head><body class=\"bg-gray-900 text-gray-100 min-h-screen\"><main id=\"main-content\" class=\"min-h-screen w-full p-6 overflow-y-auto\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -50,7 +115,7 @@ func Layout(title string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</main></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</main></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

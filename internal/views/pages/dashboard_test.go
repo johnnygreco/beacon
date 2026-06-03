@@ -68,8 +68,8 @@ func TestDashboardGoToSessionUsesParsedPathname(t *testing.T) {
 		t.Fatalf("render dashboard: %v", err)
 	}
 	html := buf.String()
-	if !strings.Contains(html, `/static/js/dashboard/controls.js`) {
-		t.Fatal("dashboard page does not load split dashboard scripts")
+	if !strings.Contains(html, `/static/js/dashboard/controls.js?v=`) {
+		t.Fatal("dashboard page does not load versioned split dashboard scripts")
 	}
 	script := dashboardClientScript(t)
 	for _, expected := range []string{
