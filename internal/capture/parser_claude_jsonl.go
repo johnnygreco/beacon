@@ -73,9 +73,10 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 		events = append(events, evt)
 
 	case "last-prompt":
-		// Definitive session-end signal emitted when Claude Code exits.
+		// Claude Code writes last-prompt metadata while a session can still be
+		// live or resumable, so it must not mark the session terminal.
 		evt := base
-		evt.EventKind = models.EventKindSessionEnd
+		evt.EventKind = models.EventKindEventMsg
 		evt.PayloadType = "last-prompt"
 		evt.ActorRole = models.ActorRoleSystem
 		events = append(events, evt)

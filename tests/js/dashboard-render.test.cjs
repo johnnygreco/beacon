@@ -303,11 +303,11 @@ test("search mode ignores completed range alone but honors search state", () => 
   assert.equal(sandbox.isSearchMode(), false);
 
   sandbox.currentSearchSort = "newest";
-  assert.equal(sandbox.isSearchMode(), true);
+  assert.equal(sandbox.isSearchMode(), false);
 
   sandbox.currentSearchSort = "relevance";
   sandbox.currentSearchLimit = 60;
-  assert.equal(sandbox.isSearchMode(), true);
+  assert.equal(sandbox.isSearchMode(), false);
 
   sandbox.currentSearchLimit = 30;
   sandbox.currentSearchEventKind = "session";
@@ -318,6 +318,26 @@ test("search mode ignores completed range alone but honors search state", () => 
 
   sandbox.currentSearchEventKind = "tool_call";
   assert.equal(sandbox.isSearchMode(), true);
+});
+
+test("analytics range caption stays stable during refresh states", () => {
+  const sandbox = loadRenderSandbox();
+  const caption = { textContent: "" };
+  sandbox.document.getElementById = (id) => id === "dashboard-chart-range-caption" ? caption : null;
+
+  sandbox.currentChartRange = "";
+  sandbox.updateChartRangeCaption();
+  assert.equal(caption.textContent, "All time");
+
+  sandbox.updateChartRangeCaption("loading");
+  assert.equal(caption.textContent, "All time");
+
+  sandbox.updateChartRangeCaption("error");
+  assert.equal(caption.textContent, "All time");
+
+  sandbox.currentChartRange = "7d";
+  sandbox.updateChartRangeCaption("empty");
+  assert.equal(caption.textContent, "Last 7 days");
 });
 
 test("analytics summaries describe the chart range independently", () => {

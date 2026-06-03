@@ -1554,6 +1554,33 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('keeps token analytics range caption stable while refresh is pending', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page, { chartDelayMs: 700 });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('Last 24 hours');
+
+    const allChartsRequest = page.waitForRequest((request) => {
+      const url = new URL(request.url());
+      return url.pathname === '/api/dashboard/charts' && url.searchParams.has('chart_range') && url.searchParams.get('chart_range') === '';
+    });
+    const allChartsResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.ok() && url.pathname === '/api/dashboard/charts' && url.searchParams.has('chart_range') && url.searchParams.get('chart_range') === '';
+    });
+    await page.locator('#dashboard-chart-range-control').getByRole('button', { name: 'All' }).click();
+    await allChartsRequest;
+    await page.waitForTimeout(100);
+    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('All time');
+    await expect(page.locator('#dashboard-chart-range-caption')).not.toContainText(/loading|unable/i);
+    await allChartsResponse;
+    await expect(page.locator('#dashboard-chart-range-caption')).toHaveText('All time');
+
+    await guards.expectClean();
+  });
+
   test('restores dashboard range, pagination, and scroll from transcript breadcrumb', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);

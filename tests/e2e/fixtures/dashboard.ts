@@ -25,6 +25,7 @@ type DashboardFixtureOptions = {
   searchUnavailable?: boolean;
   searchDelayMs?: number;
   searchDelayByQuery?: Record<string, number>;
+  chartDelayMs?: number;
   disableEventSource?: boolean;
   mockEventSource?: boolean;
 };
@@ -931,6 +932,9 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
 
   await page.route('**/api/dashboard/charts**', async (route) => {
     const url = new URL(route.request().url());
+    if (options.chartDelayMs && options.chartDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, options.chartDelayMs));
+    }
     if (failures.delete('charts')) return fulfillJSON(route, { error: 'fixture failure' }, 500);
     const range = panelRange(url, ['chart_range', 'range']);
     return fulfillJSON(route, chartPayload(scenario, range), 200, 'APIDashboardCharts');
