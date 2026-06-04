@@ -17,10 +17,10 @@ Analytics metrics, and a live Activity Bar in one view.
   <img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing active sessions, Sessions-first table controls, selectable Token Analytics metrics, and Activity Bar" />
 </p>
 
-**Session transcript.** A single run with session metrics, token charts, tool usage, and the replayable conversation below.
+**Session transcript.** A single run with the replayable conversation, tool-use blocks, and subagent handoffs.
 
 <p>
-  <img src="assets/session-screenshot.png" alt="Beacon transcript replay showing session metrics, token charts, tool usage, and conversation detail" />
+  <img src="assets/session-screenshot.png" alt="Beacon transcript replay showing conversation detail, tool-use blocks, and subagent handoffs" />
 </p>
 
 ## Why Use Beacon
