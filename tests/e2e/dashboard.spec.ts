@@ -1505,10 +1505,19 @@ test.describe('dashboard battle-tested workflows', () => {
     await activeLink.focus();
     await page.keyboard.press('Enter');
     await expect(page.locator('#session-inspector')).toBeVisible();
-    await expect(page.locator('#dashboard-main')).toHaveAttribute('inert', '');
-    await expect(page.locator('#sidebar-divider')).toHaveAttribute('inert', '');
-    await expect(page.locator('#timeline-sidebar')).toHaveAttribute('aria-hidden', 'true');
+    await expect(page.locator('#session-inspector')).toHaveAttribute('aria-modal', 'false');
+    await expect(page.locator('#dashboard-main')).not.toHaveAttribute('inert', '');
+    await expect(page.locator('#sidebar-divider')).not.toHaveAttribute('inert', '');
+    await expect(page.locator('#timeline-sidebar')).not.toHaveAttribute('aria-hidden', 'true');
     await expect(page.locator('#inspector-full-link')).toHaveText('View Transcript');
+    await expect(page.locator('#inspector-description')).toContainText('Stats and recent raw messages');
+    await page.locator('#dashboard-session-search').click();
+    await expect(page.locator('#session-inspector')).toHaveClass(/hidden/);
+    await expect(page.locator('#dashboard-session-search')).toBeFocused();
+
+    await activeLink.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#session-inspector')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.locator('#session-inspector')).toHaveClass(/hidden/);
     await expect(page.locator('#dashboard-main')).not.toHaveAttribute('inert', '');
@@ -1551,16 +1560,18 @@ test.describe('dashboard battle-tested workflows', () => {
     await completedOpenButton.focus();
     await page.keyboard.press('Space');
     await expect(page.locator('#session-inspector')).toBeVisible();
-    await page.keyboard.press('Escape');
+    await page.locator('#dashboard-session-search').click();
     await expect(page.locator('#session-inspector')).toHaveClass(/hidden/);
+    await expect(page.locator('#dashboard-session-search')).toBeFocused();
 
     await page.evaluate((id) => {
       (window as unknown as { dashboardSessionIndex: Record<string, unknown>; goToSession: (url: string) => void }).dashboardSessionIndex = {};
       (window as unknown as { goToSession: (url: string) => void }).goToSession(`/sessions/${id}`);
     }, TEST_SESSION_ID);
     await expect(page.locator('#session-inspector')).toBeVisible();
+    await expect(page.locator('#inspector-title')).toHaveText('Legacy migration replay');
     await expect(page.locator('#inspector-summary')).toContainText('38m 12s');
-    await expect(page.locator('#inspector-summary')).toContainText('123456');
+    await expect(page.locator('#inspector-summary')).toContainText('123.5K');
     await expect(page.locator('#inspector-summary')).not.toContainText('Loading');
     await expect(page.locator('#session-inspector [aria-label="Close"]')).toBeFocused();
 
