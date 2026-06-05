@@ -214,125 +214,28 @@ locations, see [docs/clickhouse.md](docs/clickhouse.md).
 ## MCP Integration
 
 Beacon ships a read-only stdio MCP server so agents can search prior Beacon
-sessions without leaving their normal coding workflow. Start Beacon first so
-ClickHouse is available and migrated:
+sessions without leaving their normal coding workflow. Start Beacon first:
 
 ```bash
 beacon up
 ```
 
-For Claude Code, add Beacon as a local stdio MCP server:
+Add Beacon to Claude Code:
 
 ```bash
 claude mcp add --transport stdio beacon -- beacon mcp
 ```
 
-To make it available across all Claude Code projects, add `--scope user`:
-
-```bash
-claude mcp add --transport stdio --scope user beacon -- beacon mcp
-```
-
-To share it with a project through `.mcp.json`, use project scope:
-
-```bash
-claude mcp add --transport stdio --scope project beacon -- beacon mcp
-```
-
-Verify the Claude Code configuration with `claude mcp get beacon`, or use
-`/mcp` inside Claude Code.
-
-For Codex, add Beacon with the MCP CLI:
+Add Beacon to Codex:
 
 ```bash
 codex mcp add beacon -- beacon mcp
 ```
 
-Or configure it directly in `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.beacon]
-command = "beacon"
-args = ["mcp"]
-startup_timeout_sec = 20
-tool_timeout_sec = 60
-```
-
-If Claude Code or Codex runs on a different machine, install `beacon` on that
-machine too. The stdio MCP server is launched where the agent runs, so either
-run Beacon's local ClickHouse there or point the MCP server at a reachable
-ClickHouse TCP address. The address must be reachable from the machine running
-Claude Code or Codex; use `127.0.0.1:9000` only for local ClickHouse or an SSH
-tunnel.
-
-Claude Code:
-
-```bash
-claude mcp add --transport stdio beacon -- beacon mcp --clickhouse clickhouse.workstation.example:9440
-```
-
-Codex:
-
-```toml
-[mcp_servers.beacon]
-command = "beacon"
-args = ["mcp", "--clickhouse", "clickhouse.workstation.example:9440"]
-startup_timeout_sec = 20
-tool_timeout_sec = 60
-```
-
-`--clickhouse` overrides only the address. For a remote ClickHouse database,
-configure the database name, credentials, and TLS in Beacon's config on the
-agent machine:
-
-```toml
-[database]
-addrs = ["clickhouse.workstation.example:9440"]
-database = "beacon"
-username = "beacon_readonly"
-password = "..."
-secure = true
-```
-
-Use port `9440` for ClickHouse native TCP over TLS. Use port `9000` only for
-plaintext native TCP on a private network or through an SSH tunnel. Require
-ClickHouse authentication when exposing the database beyond the local machine.
-
-For generic MCP clients that use JSON configuration:
-
-```json
-{
-  "mcpServers": {
-    "beacon": {
-      "command": "beacon",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-If your MCP client cannot use Beacon's config file, pass ClickHouse directly:
-
-```json
-{
-  "mcpServers": {
-    "beacon": {
-      "command": "beacon",
-      "args": ["mcp", "--clickhouse", "127.0.0.1:9000"]
-    }
-  }
-}
-```
-
-Available tools:
-
-- `search_sessions` searches the precomputed activity index and returns session/event IDs.
-- `open` retrieves one event plus nearby context from the same session. Pass the `event_id` returned by `search_sessions`.
-- `list_sessions` lists recent sessions with summary stats.
-
-Beacon also returns MCP server instructions during initialization so agents can
-prefer the search-then-open workflow and treat Beacon results as historical
-context that should be verified against the current workspace before acting.
+Agents can use `search_sessions`, pass a returned `event_id` to `open`, and use
+`list_sessions` for recent activity. For Claude Code scopes, direct Codex TOML,
+remote ClickHouse, generic MCP clients, and tool argument details, see
+[docs/mcp.md](docs/mcp.md).
 
 ## Commands
 
