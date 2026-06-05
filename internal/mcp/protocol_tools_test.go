@@ -165,7 +165,7 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 
 	srv := testServer()
 	srv.db = db
-	text, err := srv.toolOpen(context.Background(), json.RawMessage(`{"id":"event:evt-target","before":1,"after":2}`))
+	text, err := srv.toolOpen(context.Background(), json.RawMessage(`{"event_id":"event:evt-target","before":1,"after":2}`))
 	if err != nil {
 		t.Fatalf("toolOpen: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 	defer stub.assertDone(t)
 	srv.db = db
 	srv.SetDefaultContextWindow(4)
-	if _, err := srv.toolOpen(context.Background(), json.RawMessage(`{"event_uid":"evt-target"}`)); err != nil {
+	if _, err := srv.toolOpen(context.Background(), json.RawMessage(`{"event_id":"event:evt-target"}`)); err != nil {
 		t.Fatalf("toolOpen with configured default context: %v", err)
 	}
 
@@ -199,14 +199,22 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 	defer db.Close()
 	defer stub.assertDone(t)
 	srv.db = db
-	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"event_uid":"missing"}`))
+	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"event_id":"event:missing"}`))
 	if err == nil || !strings.Contains(err.Error(), "event not found: missing") {
 		t.Fatalf("toolOpen missing error = %v", err)
 	}
 
 	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"before":1}`))
-	if err == nil || !strings.Contains(err.Error(), "event_uid is required") {
+	if err == nil || !strings.Contains(err.Error(), "event_id is required") {
 		t.Fatalf("toolOpen required error = %v", err)
+	}
+	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"event_uid":"evt-target"}`))
+	if err == nil || !strings.Contains(err.Error(), "event_id is required") {
+		t.Fatalf("toolOpen event_uid argument error = %v", err)
+	}
+	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"id":"event:evt-target"}`))
+	if err == nil || !strings.Contains(err.Error(), "event_id is required") {
+		t.Fatalf("toolOpen id argument error = %v", err)
 	}
 
 	db, stub = newMCPStubDB(t, []mcpStubQuery{
@@ -217,7 +225,7 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 	defer db.Close()
 	defer stub.assertDone(t)
 	srv.db = db
-	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"event_uid":"evt-target"}`))
+	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"event_id":"event:evt-target"}`))
 	if err == nil || !strings.Contains(err.Error(), "open query failed") {
 		t.Fatalf("toolOpen query error = %v", err)
 	}
@@ -233,7 +241,7 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 	defer db.Close()
 	defer stub.assertDone(t)
 	srv.db = db
-	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"event_uid":"evt-target"}`))
+	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"event_id":"event:evt-target"}`))
 	if err == nil || !strings.Contains(err.Error(), "scan context event") {
 		t.Fatalf("toolOpen scan error = %v", err)
 	}
@@ -254,7 +262,7 @@ func TestToolsCallOpenBackendErrorIsSanitized(t *testing.T) {
 		JSONRPC: "2.0",
 		ID:      json.RawMessage(`15`),
 		Method:  "tools/call",
-		Params:  json.RawMessage(`{"name":"open","arguments":{"event_uid":"evt-target"}}`),
+		Params:  json.RawMessage(`{"name":"open","arguments":{"event_id":"event:evt-target"}}`),
 	})
 	text, isError := toolText(t, resp)
 	if !isError || !strings.Contains(text, "failed to open event context") {
@@ -361,18 +369,31 @@ func TestToolDefinitionsMatchImplementedArguments(t *testing.T) {
 	assertRequired(t, searchSchema, "query")
 
 	openSchema := inputSchema(t, defs["open"])
-	assertSchemaProperties(t, openSchema, "id", "event_uid", "before", "after")
-	anyOf, ok := openSchema["anyOf"].([]map[string]any)
-	if !ok || len(anyOf) != 2 {
-		t.Fatalf("open anyOf = %#v, want id/event_uid alternatives", openSchema["anyOf"])
-	}
-	assertRequired(t, anyOf[0], "id")
-	assertRequired(t, anyOf[1], "event_uid")
+	assertSchemaProperties(t, openSchema, "event_id", "before", "after")
+	assertRequired(t, openSchema, "event_id")
 
 	listSchema := inputSchema(t, defs["list_sessions"])
 	assertSchemaProperties(t, listSchema, "limit", "since")
 	if _, ok := listSchema["required"]; ok {
 		t.Fatalf("list_sessions should not require optional args: %#v", listSchema["required"])
+	}
+}
+
+func TestToolDefinitionsAreOpenAIFunctionCompatible(t *testing.T) {
+	for _, def := range toolDefinitions() {
+		name, _ := def["name"].(string)
+		schema := inputSchema(t, def)
+		if schema["type"] != "object" {
+			t.Fatalf("%s inputSchema type = %#v, want object", name, schema["type"])
+		}
+		for _, keyword := range []string{"oneOf", "anyOf", "allOf", "enum", "not"} {
+			if _, ok := schema[keyword]; ok {
+				t.Fatalf("%s inputSchema uses top-level %s: %#v", name, keyword, schema)
+			}
+		}
+		if schema["additionalProperties"] != false {
+			t.Fatalf("%s inputSchema additionalProperties = %#v, want false", name, schema["additionalProperties"])
+		}
 	}
 }
 

@@ -213,7 +213,73 @@ locations, see [docs/clickhouse.md](docs/clickhouse.md).
 
 ## MCP Integration
 
-Run `beacon db up` first so ClickHouse is available and migrated, then add Beacon to your MCP client:
+Beacon ships a read-only stdio MCP server so agents can search prior Beacon
+sessions without leaving their normal coding workflow. Start Beacon first so
+ClickHouse is available and migrated:
+
+```bash
+beacon up
+```
+
+For Claude Code, add Beacon as a local stdio MCP server:
+
+```bash
+claude mcp add --transport stdio beacon -- beacon mcp
+```
+
+To make it available across all Claude Code projects, add `--scope user`:
+
+```bash
+claude mcp add --transport stdio --scope user beacon -- beacon mcp
+```
+
+To share it with a project through `.mcp.json`, use project scope:
+
+```bash
+claude mcp add --transport stdio --scope project beacon -- beacon mcp
+```
+
+Verify the Claude Code configuration with `claude mcp get beacon`, or use
+`/mcp` inside Claude Code.
+
+For Codex, add Beacon with the MCP CLI:
+
+```bash
+codex mcp add beacon -- beacon mcp
+```
+
+Or configure it directly in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.beacon]
+command = "beacon"
+args = ["mcp"]
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+```
+
+If Claude Code or Codex runs on a different machine, install `beacon` on that
+machine too. The stdio MCP server is launched where the agent runs, so either
+run Beacon's local ClickHouse there or point the MCP server at a reachable
+ClickHouse TCP address.
+
+Claude Code:
+
+```bash
+claude mcp add --transport stdio beacon -- beacon mcp --clickhouse 127.0.0.1:9000
+```
+
+Codex:
+
+```toml
+[mcp_servers.beacon]
+command = "beacon"
+args = ["mcp", "--clickhouse", "127.0.0.1:9000"]
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+```
+
+For generic MCP clients that use JSON configuration:
 
 ```json
 {
@@ -242,8 +308,12 @@ If your MCP client cannot use Beacon's config file, pass ClickHouse directly:
 Available tools:
 
 - `search_sessions` searches the precomputed activity index and returns session/event IDs.
-- `open` retrieves one event plus nearby context from the same session.
+- `open` retrieves one event plus nearby context from the same session. Pass the `event_id` returned by `search_sessions`.
 - `list_sessions` lists recent sessions with summary stats.
+
+Beacon also returns MCP server instructions during initialization so agents can
+prefer the search-then-open workflow and treat Beacon results as historical
+context that should be verified against the current workspace before acting.
 
 ## Commands
 

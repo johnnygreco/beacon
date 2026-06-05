@@ -6,7 +6,7 @@ details in logs or persisted diagnostics.
 ## User-facing messages
 
 - Validation and not-found errors should say what the caller can fix, such as
-  `invalid limit`, `event_uid is required`, or `session not found`.
+  `invalid limit`, `event_id is required`, or `session not found`.
 - Backend, database, scan, and serialization failures should not expose raw
   driver errors, SQL fragments, credentials, filesystem paths, or stack details
   in HTTP JSON or MCP tool responses.

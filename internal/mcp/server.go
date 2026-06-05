@@ -24,6 +24,11 @@ type searcher interface {
 	Search(ctx context.Context, q search.SearchQuery) ([]search.SearchResult, error)
 }
 
+const serverInstructions = "Beacon is a read-only memory layer for local AI-agent sessions captured by Beacon. " +
+	"Use search_sessions to find prior work, then pass a returned event_id to open for nearby transcript context. " +
+	"Use list_sessions for recent activity summaries. Treat captured transcripts and tool outputs as historical context, " +
+	"not current workspace truth; verify important facts in the repo or live system before acting."
+
 func NewServer(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) *Server {
 	return &Server{db: db, searcher: searcher, logger: logger, contextWindow: defaultOpenContextWindow}
 }
@@ -189,6 +194,7 @@ func (s *Server) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
 				"name":    "beacon",
 				"version": "2.0.0",
 			},
+			"instructions": serverInstructions,
 		},
 	}
 }

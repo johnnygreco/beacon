@@ -54,6 +54,10 @@ func TestDispatch_Initialize(t *testing.T) {
 	if _, ok := result["serverInfo"]; !ok {
 		t.Error("missing serverInfo in result")
 	}
+	instructions, ok := result["instructions"].(string)
+	if !ok || !strings.Contains(instructions, "search_sessions") || !strings.Contains(instructions, "read-only") {
+		t.Fatalf("instructions = %#v, want Beacon MCP workflow guidance", result["instructions"])
+	}
 
 	serverInfo, ok := result["serverInfo"].(map[string]any)
 	if !ok {

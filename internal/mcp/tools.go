@@ -17,6 +17,7 @@ func toolDefinitions() []map[string]any {
 		{
 			"name":        "search_sessions",
 			"description": "Search Beacon's precomputed activity index. Returns structured session and event IDs.",
+			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -25,37 +26,47 @@ func toolDefinitions() []map[string]any {
 					"session_id":  map[string]any{"type": "string", "description": "Filter to a Beacon session ID"},
 					"event_kinds": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Filter by event kinds"},
 				},
-				"required": []string{"query"},
+				"required":             []string{"query"},
+				"additionalProperties": false,
 			},
 		},
 		{
 			"name":        "open",
-			"description": "Retrieve a specific event with surrounding context from the same session. Shows events before and after the target.",
+			"description": "Retrieve a specific Beacon event with surrounding context from the same session. Pass the event_id returned by search_sessions.",
+			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"id":        map[string]any{"type": "string", "description": "Beacon event ID, e.g. event:<id>"},
-					"event_uid": map[string]any{"type": "string", "description": "Raw event UID"},
-					"before":    map[string]any{"type": "integer", "description": "Number of events before target (defaults to server context window)"},
-					"after":     map[string]any{"type": "integer", "description": "Number of events after target (defaults to server context window)"},
+					"event_id": map[string]any{"type": "string", "description": "Beacon event ID returned by search_sessions, e.g. event:<uid>"},
+					"before":   map[string]any{"type": "integer", "description": "Number of events before target (defaults to server context window)"},
+					"after":    map[string]any{"type": "integer", "description": "Number of events after target (defaults to server context window)"},
 				},
-				"anyOf": []map[string]any{
-					{"required": []string{"id"}},
-					{"required": []string{"event_uid"}},
-				},
+				"required":             []string{"event_id"},
+				"additionalProperties": false,
 			},
 		},
 		{
 			"name":        "list_sessions",
 			"description": "List recent AI agent sessions with summary statistics.",
+			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"limit": map[string]any{"type": "integer", "description": "Max sessions (default 20)"},
 					"since": map[string]any{"type": "string", "description": "Only sessions after this ISO8601 timestamp"},
 				},
+				"additionalProperties": false,
 			},
 		},
+	}
+}
+
+func readOnlyToolAnnotations() map[string]any {
+	return map[string]any{
+		"readOnlyHint":    true,
+		"destructiveHint": false,
+		"idempotentHint":  true,
+		"openWorldHint":   false,
 	}
 }
 
@@ -108,20 +119,16 @@ func (s *Server) toolSearch(ctx context.Context, args json.RawMessage) (string, 
 
 func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
-		ID       string `json:"id"`
-		EventUID string `json:"event_uid"`
-		Before   int    `json:"before"`
-		After    int    `json:"after"`
+		EventID string `json:"event_id"`
+		Before  int    `json:"before"`
+		After   int    `json:"after"`
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", userToolError("invalid arguments")
 	}
-	eventUID := params.EventUID
+	eventUID := stripBeaconPrefix(params.EventID, "event:")
 	if eventUID == "" {
-		eventUID = stripBeaconPrefix(params.ID, "event:")
-	}
-	if eventUID == "" {
-		return "", userToolError("event_uid is required")
+		return "", userToolError("event_id is required")
 	}
 	if params.Before <= 0 {
 		params.Before = s.defaultContextWindow()
