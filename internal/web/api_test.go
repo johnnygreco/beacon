@@ -417,6 +417,57 @@ func TestGetSessionsBackendErrorIsSanitized(t *testing.T) {
 	}
 }
 
+func TestDashboardDataEndpointsUnavailableDBReturnsError(t *testing.T) {
+	db := newFailingAPIDB(t)
+	handlers := &APIHandlers{db: db, logger: testLogger()}
+	tests := []struct {
+		name    string
+		handler http.HandlerFunc
+		target  string
+		want    string
+	}{
+		{
+			name:    "active sessions",
+			handler: handlers.GetDashboardSessions,
+			target:  "/api/dashboard/sessions?state=active",
+			want:    "failed to query dashboard sessions",
+		},
+		{
+			name:    "completed sessions",
+			handler: handlers.GetDashboardSessions,
+			target:  "/api/dashboard/sessions?state=completed",
+			want:    "failed to query dashboard sessions",
+		},
+		{
+			name:    "activity",
+			handler: handlers.GetActivity,
+			target:  "/api/dashboard/activity",
+			want:    "failed to query dashboard activity",
+		},
+		{
+			name:    "charts",
+			handler: handlers.GetDashboardCharts,
+			target:  "/api/dashboard/charts",
+			want:    "failed to query dashboard charts",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			tt.handler(w, newAPIRequest(t, tt.target))
+			if w.Code != http.StatusInternalServerError {
+				t.Fatalf("status = %d, want %d: %s", w.Code, http.StatusInternalServerError, w.Body.String())
+			}
+			body := w.Body.String()
+			assertAPIError(t, body, tt.want)
+			if strings.Contains(body, "raw backend") || strings.Contains(body, "session_projection") {
+				t.Fatalf("response leaked backend error: %s", body)
+			}
+		})
+	}
+}
+
 func TestContractedArrayEndpointsEncodeEmptyArrays(t *testing.T) {
 	db := newEmptyAPIDB(t)
 	handlers := &APIHandlers{db: db, logger: testLogger()}
@@ -689,6 +740,10 @@ func (failingAPIConn) Prepare(string) (driver.Stmt, error) {
 
 func (failingAPIConn) Close() error {
 	return nil
+}
+
+func (failingAPIConn) Ping(context.Context) error {
+	return errors.New(failingAPIBackendError)
 }
 
 func (failingAPIConn) Begin() (driver.Tx, error) {

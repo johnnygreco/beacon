@@ -79,6 +79,20 @@ func (a *APIHandlers) logSkippedRow(handler string, err error) {
 	a.log().Warn(handler+" row skipped", "error", err)
 }
 
+func (a *APIHandlers) requireDashboardDB(w http.ResponseWriter, r *http.Request, publicMessage string) bool {
+	if a.db == nil {
+		a.internalError(w, publicMessage, errors.New("database is not configured"))
+		return false
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	if err := a.db.PingContext(ctx); err != nil {
+		a.internalError(w, publicMessage, err)
+		return false
+	}
+	return true
+}
+
 // GetMetrics returns current dashboard metrics.
 func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 	var totalSessions, activeCount, toolCalls, mcpCalls int
@@ -152,6 +166,9 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 	req, err := parseDashboardSessionsAPIRequest(r.URL.Query())
 	if err != nil {
 		a.badRequest(w, err)
+		return
+	}
+	if !a.requireDashboardDB(w, r, "failed to query dashboard sessions") {
 		return
 	}
 
@@ -530,6 +547,9 @@ func (a *APIHandlers) GetSessionSubagents(w http.ResponseWriter, r *http.Request
 
 // GetActivity returns recent activity items as JSON for client-side rendering.
 func (a *APIHandlers) GetActivity(w http.ResponseWriter, r *http.Request) {
+	if !a.requireDashboardDB(w, r, "failed to query dashboard activity") {
+		return
+	}
 	req := parseActivityAPIRequest(r.URL.Query())
 	items := QueryRecentActivityFilteredByKind(r.Context(), a.db, req.Since, req.EventKinds)
 	result := make([]APIActivityItem, 0, len(items))
@@ -549,6 +569,9 @@ func (a *APIHandlers) GetActivity(w http.ResponseWriter, r *http.Request) {
 
 // GetDashboardCharts returns the dashboard chart payloads as JSON.
 func (a *APIHandlers) GetDashboardCharts(w http.ResponseWriter, r *http.Request) {
+	if !a.requireDashboardDB(w, r, "failed to query dashboard charts") {
+		return
+	}
 	req := parseDashboardChartsAPIRequest(r.URL.Query())
 	tokenCumulative, modelActivity := QueryDashboardModelAnalytics(r.Context(), a.db, parseRange(req.Range), req.Range)
 

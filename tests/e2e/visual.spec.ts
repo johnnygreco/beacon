@@ -74,7 +74,7 @@ test.describe('dashboard visual regression baselines', () => {
     });
   });
 
-  test('table search, chart controls, timeline states, and inspector payload', async ({ page }) => {
+  test('table search, chart controls, timeline states, and transcript inspector', async ({ page }) => {
     await installDashboardFixtures(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await gotoDashboard(page);
@@ -116,7 +116,7 @@ test.describe('dashboard visual regression baselines', () => {
       (window as unknown as { goToSession: (url: string) => void }).goToSession(`/sessions/${id}`);
     }, TEST_SESSION_ID);
     await expect(page.locator('#session-inspector')).toBeVisible();
-    await page.locator('#session-inspector .payload-btn').first().click();
+    await expect(page.locator('#session-inspector #chat-view')).toContainText('Read dashboard fixture payload');
     await expect(page.locator('#session-inspector')).toHaveScreenshot('dashboard-inspector-payload.png');
   });
 

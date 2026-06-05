@@ -1,4 +1,4 @@
-// --- JSON-first session inspector ---
+// --- Transcript quick-view session inspector ---
 (function() {
 	var sessionsStore = [];
 	var sessionsLoaded = false;
@@ -17,7 +17,6 @@
 	var inspectorLauncherSession = '';
 	var utils = window.BeaconDashboard.utils;
 	var escapeHTML = utils.escapeHTML;
-	var escapeAttr = utils.escapeAttr;
 	var cssEscape = utils.cssEscape;
 	var formatTokens = utils.formatTokens;
 	var shortID = utils.shortID;
@@ -79,33 +78,47 @@
 		};
 	}
 
-	function payloadElementID(eventUID) {
-		return 'payload-' + String(eventUID || 'event').replace(/[^A-Za-z0-9_-]/g, '-');
-	}
-
-	function eventRow(event) {
-		event = event || {};
-		var meta = [event.event_kind, event.actor_role, event.tool_name, event.model].filter(Boolean).join(' · ');
-		var eventUID = String(event.event_uid || '');
-		var payloadID = payloadElementID(eventUID);
-		var payloadLabel = 'Toggle payload for ' + (meta || eventUID || 'event');
-		var kind = event.event_kind || 'event';
-		var preview = event.text_preview || event.input_preview || event.output_preview || '';
-		var payloadButton = event.tool_name ? '<button type="button" class="payload-btn inspector-payload-btn" data-event-id="' + escapeAttr(event.event_uid) + '" aria-expanded="false" aria-controls="' + payloadID + '" aria-label="' + escapeAttr(payloadLabel) + '">Payload</button>' : '';
-		return '<article class="inspector-event" data-event="' + escapeAttr(eventUID) + '">' +
-			'<div class="inspector-event-head">' +
-			'<div class="min-w-0"><p class="inspector-event-kind">' + escapeHTML(kind) + '</p><p class="inspector-event-meta">' + escapeHTML(meta) + '</p></div>' + payloadButton +
-			'</div>' +
-			'<p class="inspector-event-text">' + escapeHTML(preview || 'No raw preview available') + '</p>' +
-			'<pre id="' + payloadID + '" class="payload-target hidden inspector-payload"></pre>' +
-			'</article>';
-	}
-
 	function abortPayloadFetches() {
 		payloadControllers.forEach(function(controller) {
 			controller.abort();
 		});
 		payloadControllers = [];
+	}
+
+	function ensureTranscriptHelpers() {
+		if (typeof window.toggleTruncation !== 'function') {
+			window.toggleTruncation = function(el) {
+				if (!el) return;
+				var toggle = el.querySelector('.truncate-toggle');
+				if (el.classList.contains('truncated')) {
+					el.classList.remove('truncated');
+					el.classList.add('expanded');
+					if (toggle) toggle.textContent = 'Show less';
+				} else {
+					el.classList.remove('expanded');
+					el.classList.add('truncated');
+					if (toggle) toggle.textContent = 'Show more';
+				}
+			};
+		}
+		if (typeof window.copyToClipboard !== 'function') {
+			window.copyToClipboard = function(btn) {
+				var container = btn && btn.closest ? btn.closest('.code-container') : null;
+				var code = container ? container.querySelector('code, pre') : null;
+				if (!code || !navigator.clipboard) return;
+				navigator.clipboard.writeText(code.textContent).then(function() {
+					var copyIcon = btn.querySelector('.copy-icon');
+					var checkIcon = btn.querySelector('.check-icon');
+					if (!copyIcon || !checkIcon) return;
+					copyIcon.classList.add('hidden');
+					checkIcon.classList.remove('hidden');
+					setTimeout(function() {
+						copyIcon.classList.remove('hidden');
+						checkIcon.classList.add('hidden');
+					}, 1500);
+				}).catch(function() {});
+			};
+		}
 	}
 
 	async function loadSessions() {
@@ -139,6 +152,12 @@
 		return normalized;
 	}
 
+	async function loadSessionTranscript(id, fetchOpts) {
+		var res = await fetch('/sessions/' + encodeURIComponent(id) + '/conversation', fetchOpts || {headers: {'Accept': 'text/html'}});
+		if (!res.ok) throw new Error('transcript failed');
+		return res.text();
+	}
+
 	async function openSessionInspector(id, launcher) {
 		var seq = ++inspectorSeq;
 		if (inspectorController) {
@@ -150,28 +169,29 @@
 		inspectorLauncher = validInspectorRestoreTarget(launcher) || validInspectorRestoreTarget(document.activeElement);
 		inspectorLauncherSession = id;
 		inspector.classList.remove('hidden');
-		// Inspector event rows are static shells built by eventRow(); all event
-		// fields are escaped before insertion and payload bodies use textContent.
-		events.innerHTML = '<div class="inspector-state">Loading raw messages...</div>';
+		// Static loading state. Transcript HTML below is server-rendered by Beacon.
+		events.innerHTML = '<div class="inspector-state">Loading transcript...</div>';
 		renderSummary(null);
 		if (closeButton) closeButton.focus({preventScroll: true});
 		try {
-			var fetchOpts = {headers: {'Accept': 'application/json'}};
-			if (inspectorController) fetchOpts.signal = inspectorController.signal;
-			var session = await loadSessionSummary(id, fetchOpts);
+			var jsonFetchOpts = {headers: {'Accept': 'application/json'}};
+			var htmlFetchOpts = {headers: {'Accept': 'text/html'}};
+			if (inspectorController) {
+				jsonFetchOpts.signal = inspectorController.signal;
+				htmlFetchOpts.signal = inspectorController.signal;
+			}
+			var session = await loadSessionSummary(id, jsonFetchOpts);
 			if (seq !== inspectorSeq) return;
 			renderSummary(session);
-			var res = await fetch('/api/sessions/' + encodeURIComponent(id) + '/events?limit=200&tail=1', fetchOpts);
-			if (!res.ok) throw new Error('events failed');
-			var items = await res.json();
+			var transcriptHTML = await loadSessionTranscript(id, htmlFetchOpts);
 			if (seq !== inspectorSeq) return;
-			// eventRow() escapes dynamic values; empty/error states are static.
-			events.innerHTML = items.length ? items.map(eventRow).join('') : '<div class="inspector-state">No raw messages or events found</div>';
+			ensureTranscriptHelpers();
+			events.innerHTML = transcriptHTML.trim() || '<div class="inspector-state">No transcript content found</div>';
 		} catch (err) {
 			if (err && err.name === 'AbortError') return;
 			if (seq !== inspectorSeq) return;
 			// Static error state.
-			events.innerHTML = '<div class="inspector-state inspector-state-error">Unable to load this quick view</div>';
+			events.innerHTML = '<div class="inspector-state inspector-state-error">Unable to load this transcript preview</div>';
 		}
 	}
 

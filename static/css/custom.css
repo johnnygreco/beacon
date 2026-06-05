@@ -2649,6 +2649,43 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
   padding-bottom: 1rem;
 }
 
+.inspector-events-list .transcript-chat-view {
+  min-width: 0;
+  padding-bottom: 1rem;
+}
+
+#session-inspector .transcript-chat-view > .space-y-4 {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+#session-inspector .transcript-chat-view .my-6 {
+  margin-bottom: 0.8rem;
+  margin-top: 0.8rem;
+}
+
+#session-inspector .transcript-chat-view .ml-8 {
+  margin-left: 1rem;
+}
+
+#session-inspector .code-container,
+#session-inspector details {
+  max-width: 100%;
+  min-width: 0;
+}
+
+#session-inspector .prose-chat pre code {
+  max-width: 100%;
+  overflow-x: auto;
+  background: var(--dash-bg-deep) !important;
+  border-color: var(--dash-border-muted) !important;
+}
+
+#session-inspector .truncatable {
+  max-width: 100%;
+}
+
 .inspector-event {
   border: 1px solid var(--dash-border-muted);
   border-radius: 6px;

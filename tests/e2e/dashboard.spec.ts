@@ -1495,7 +1495,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
-  test('opens inspector from active and completed sessions, loads older summaries, and expands payloads', async ({ page }) => {
+  test('opens inspector from active and completed sessions, loads older summaries, and shows transcript content', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);
     await gotoDashboard(page);
@@ -1510,7 +1510,10 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#sidebar-divider')).not.toHaveAttribute('inert', '');
     await expect(page.locator('#timeline-sidebar')).not.toHaveAttribute('aria-hidden', 'true');
     await expect(page.locator('#inspector-full-link')).toHaveText('View Transcript');
-    await expect(page.locator('#inspector-description')).toContainText('Stats and recent raw messages');
+    await expect(page.locator('#inspector-description')).toContainText('Stats and transcript content');
+    await expect(page.locator('#inspector-events-title')).toHaveText('Transcript');
+    await expect(page.locator('#inspector-events')).toContainText('Read dashboard fixture payload');
+    await expect(page.locator('#session-inspector #chat-view')).toBeVisible();
     await expect(page.locator('#inspector-events')).toHaveAttribute('tabindex', '0');
     await expect(page.locator('#inspector-events')).toHaveAttribute('aria-labelledby', 'inspector-events-title');
     await page.locator('#dashboard-session-search').click();
@@ -1576,11 +1579,8 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#inspector-summary')).toContainText('123.5K');
     await expect(page.locator('#inspector-summary')).not.toContainText('Loading');
     await expect(page.locator('#session-inspector [aria-label="Close"]')).toBeFocused();
-
-    await expect(page.locator('#session-inspector .payload-btn').first()).toHaveAttribute('aria-label', /Toggle payload for tool_call/);
-    await page.locator('#session-inspector .payload-btn').first().click();
-    await expect(page.locator('#session-inspector .payload-btn').first()).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.locator('#session-inspector .payload-target').first()).toContainText('internal/views/pages/dashboard.templ');
+    await expect(page.locator('#session-inspector #chat-view details')).toHaveCount(3);
+    await expect(page.locator('#session-inspector #chat-view')).toContainText('internal/views/pages/dashboard.templ');
 
     await page.locator('#inspector-full-link').click();
     await expect(page).toHaveURL(new RegExp(`/sessions/${TEST_SESSION_ID}$`));

@@ -750,6 +750,30 @@ async function fulfillJSON(route: Route, data: unknown, status = 200, contractNa
   });
 }
 
+function conversationFixtureHTML(sessionID = TEST_SESSION_ID) {
+  const eventID = sessionID === TEST_SESSION_ID ? TEST_EVENT_ID : `event-${sessionID}`;
+  const title = sessionID === ACTIVE_SESSION_ID ? 'Realtime dashboard smoke run' : 'Legacy migration replay';
+  return `
+    <div id="chat-view" class="transcript-chat-view space-y-3">
+      <details id="${eventID}" open class="rounded border border-gray-700 p-3 bg-gray-800/30">
+        <summary class="cursor-pointer">Read dashboard fixture payload</summary>
+        <p class="text-sm text-gray-300 mt-2">${title} transcript excerpt.</p>
+        <div class="code-container relative mt-3">
+          <pre><code>{"file_path":"internal/views/pages/dashboard.templ"}</code></pre>
+          <button type="button" onclick="copyToClipboard(this)" title="Copy to clipboard" aria-label="Copy to clipboard">
+            <span class="copy-icon">Copy</span><span class="check-icon hidden">Copied</span>
+          </button>
+        </div>
+      </details>
+      <details id="${eventID}-assistant" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Assistant summary</summary><p>Dashboard state summarized.</p></details>
+      <details id="${eventID}-result" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Tool result</summary><p>Payload loaded.</p></details>
+    </div>
+    <div id="timeline-view" class="transcript-timeline-view hidden rounded border border-gray-700 p-3">
+      <a href="#${eventID}" class="text-blue-400">Read dashboard fixture payload</a>
+    </div>
+  `;
+}
+
 function transcriptFixtureHTML(sessionID = TEST_SESSION_ID) {
   return `<!doctype html>
 <html lang="en" class="dark">
@@ -808,22 +832,7 @@ function transcriptFixtureHTML(sessionID = TEST_SESSION_ID) {
               <button type="button" onclick="switchView('timeline', this)" aria-pressed="false" class="px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700">Timeline</button>
             </div>
           </div>
-          <div id="chat-view" class="transcript-chat-view space-y-3">
-            <details id="${TEST_EVENT_ID}" open class="rounded border border-gray-700 p-3 bg-gray-800/30">
-              <summary class="cursor-pointer">Read dashboard fixture payload</summary>
-              <div class="code-container relative mt-3">
-                <pre><code>{"file_path":"internal/views/pages/dashboard.templ"}</code></pre>
-                <button type="button" onclick="copyToClipboard(this)" title="Copy to clipboard" aria-label="Copy to clipboard">
-                  <span class="copy-icon">Copy</span><span class="check-icon hidden">Copied</span>
-                </button>
-              </div>
-            </details>
-            <details id="event-older-002" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Assistant summary</summary><p>Dashboard state summarized.</p></details>
-            <details id="event-older-003" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Tool result</summary><p>Payload loaded.</p></details>
-          </div>
-          <div id="timeline-view" class="transcript-timeline-view hidden rounded border border-gray-700 p-3">
-            <a href="#${TEST_EVENT_ID}" class="text-blue-400">Read dashboard fixture payload</a>
-          </div>
+          ${conversationFixtureHTML(sessionID)}
         </section>
       </div>
     </main>
@@ -982,6 +991,13 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
       input_preview: 'dashboard.templ',
       output_preview: '42 lines',
     }, 200, 'APIToolPayload');
+  });
+
+  await page.route('**/sessions/*/conversation', async (route) => {
+    const url = new URL(route.request().url());
+    const match = url.pathname.match(/^\/sessions\/([^/]+)\/conversation$/);
+    const id = match ? decodeURIComponent(match[1]) : TEST_SESSION_ID;
+    return route.fulfill({ status: 200, contentType: 'text/html', body: conversationFixtureHTML(id) });
   });
 
   await page.route('**/sessions/**', async (route) => {

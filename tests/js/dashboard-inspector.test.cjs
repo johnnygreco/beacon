@@ -68,7 +68,7 @@ function fakeElement(initialClasses = []) {
   };
 }
 
-function loadInspectorSandbox(events) {
+function loadInspectorSandbox(transcriptHTML = '<div id="chat-view" class="transcript-chat-view"><p>Loaded transcript</p></div>') {
   const closeButton = fakeElement();
   const elements = {
     "session-inspector": fakeElement(["hidden"]),
@@ -86,6 +86,7 @@ function loadInspectorSandbox(events) {
     return null;
   };
   const listeners = {};
+  const fetches = [];
   const sandbox = {
     window: {
       BeaconDashboard: { utils },
@@ -120,8 +121,11 @@ function loadInspectorSandbox(events) {
       },
     },
     fetch: async (url) => {
-      assert.equal(url, "/api/sessions/session-xss/events?limit=200&tail=1");
-      return { ok: true, json: async () => events };
+      fetches.push(String(url));
+      if (url === "/sessions/session-xss/conversation") {
+        return { ok: true, text: async () => transcriptHTML };
+      }
+      throw new Error(`unexpected fetch ${url}`);
     },
     AbortController: globalThis.AbortController,
     Array,
@@ -132,7 +136,7 @@ function loadInspectorSandbox(events) {
   vm.createContext(sandbox);
   const inspectorPath = path.join(__dirname, "../../static/js/dashboard/inspector.js");
   vm.runInContext(fs.readFileSync(inspectorPath, "utf8"), sandbox, { filename: inspectorPath });
-  return { sandbox, elements, listeners, closeButton };
+  return { sandbox, elements, listeners, closeButton, fetches };
 }
 
 async function flushPromises() {
@@ -141,33 +145,20 @@ async function flushPromises() {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-test("inspector event rows escape malicious event payloads", async () => {
-  const payload = `"><img src=x onerror="alert(1)"><script>alert(1)</script>`;
-  const { sandbox, elements } = loadInspectorSandbox([{
-    event_uid: `event-${payload}`,
-    event_kind: payload,
-    actor_role: payload,
-    tool_name: payload,
-    model: payload,
-    text_preview: `preview ${payload}`,
-  }]);
+test("inspector loads transcript conversation partial", async () => {
+  const transcriptHTML = '<div id="chat-view" class="transcript-chat-view"><details open><summary>Transcript row</summary><p>Full transcript body</p></details></div>';
+  const { sandbox, elements, fetches } = loadInspectorSandbox(transcriptHTML);
 
   sandbox.window.goToSession("/sessions/session-xss", null);
   await flushPromises();
 
   const html = elements["inspector-events"].innerHTML;
-  for (const raw of ["<script", "<img", "<iframe", "<object"]) {
-    assert.equal(html.toLowerCase().includes(raw), false, `unexpected raw tag ${raw} in ${html}`);
-  }
-  for (const raw of [`onclick="alert`, `onmouseover="alert`, `onerror="alert`]) {
-    assert.equal(html.toLowerCase().includes(raw), false, `unexpected raw handler ${raw} in ${html}`);
-  }
-  assert.match(html, /preview &quot;&gt;&lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
-  assert.match(html, /data-event="event-&quot;&gt;&lt;img src=x/);
+  assert.equal(html, transcriptHTML);
+  assert.deepEqual(fetches, ["/sessions/session-xss/conversation"]);
 });
 
 test("outside inspector click closes quick view without swallowing dashboard click", async () => {
-  const { sandbox, elements, listeners } = loadInspectorSandbox([]);
+  const { sandbox, elements, listeners } = loadInspectorSandbox();
 
   sandbox.window.goToSession("/sessions/session-xss", null);
   await flushPromises();
@@ -192,7 +183,7 @@ test("outside inspector click closes quick view without swallowing dashboard cli
 });
 
 test("inspector focuses close control immediately on open", () => {
-  const { sandbox, closeButton } = loadInspectorSandbox([]);
+  const { sandbox, closeButton } = loadInspectorSandbox();
 
   sandbox.window.goToSession("/sessions/session-xss", null);
 
