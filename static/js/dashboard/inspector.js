@@ -19,6 +19,7 @@
 	var escapeHTML = utils.escapeHTML;
 	var escapeAttr = utils.escapeAttr;
 	var cssEscape = utils.cssEscape;
+	var formatTokens = utils.formatTokens;
 	var shortID = utils.shortID;
 
 	function validInspectorRestoreTarget(el) {
@@ -28,48 +29,36 @@
 		return el;
 	}
 
-	function setInspectorBackgroundInert(disabled) {
-		['dashboard-main', 'sidebar-divider', 'timeline-sidebar'].forEach(function(id) {
-			var el = document.getElementById(id);
-			if (!el) return;
-			var timelineStillCollapsed = !disabled && id === 'timeline-sidebar' && (
-				el.classList.contains('collapsed') ||
-				document.documentElement.getAttribute('data-beacon-timeline-collapsed') === 'true'
-			);
-			if (timelineStillCollapsed) {
-				el.setAttribute('inert', '');
-				el.setAttribute('aria-hidden', 'true');
-				return;
-			}
-			el.toggleAttribute('inert', disabled);
-			if (disabled) el.setAttribute('aria-hidden', 'true');
-			else el.removeAttribute('aria-hidden');
-		});
-	}
-
 	function metric(label, value) {
-		return '<div><p class="text-xs text-gray-500">' + escapeHTML(label) + '</p><p class="text-gray-200 font-medium">' + escapeHTML(value) + '</p></div>';
+		var display = value === undefined || value === null || value === '' ? '-' : value;
+		return '<div class="inspector-stat"><p>' + escapeHTML(label) + '</p><strong>' + escapeHTML(display) + '</strong></div>';
 	}
 
 	function renderSummary(session) {
-		title.textContent = session ? shortID(session.id) : 'Session';
-		subtitle.textContent = session ? session.id : selectedSessionId;
+		if (session) {
+			var displayTitle = session.title || session.id || shortID(session.id);
+			title.textContent = displayTitle || 'Session quick view';
+			subtitle.textContent = session.title ? session.id : '';
+		} else {
+			title.textContent = 'Session quick view';
+			subtitle.textContent = selectedSessionId;
+		}
 		fullLink.href = '/sessions/' + encodeURIComponent(selectedSessionId);
 		if (!session) {
 			// Summary markup is static; values go through metric(), which escapes text.
-			summary.innerHTML = metric('Status', 'Loading');
+			summary.innerHTML = metric('Status', 'Loading') + metric('Events', 'Loading');
 			return;
 		}
 		// Summary markup is static; values go through metric(), which escapes text.
 		summary.innerHTML = [
 			metric('Duration', session.duration || ''),
-			metric('Tokens', session.total_tokens || 0),
+			metric('Tokens', formatTokens(session.total_tokens || 0)),
 			metric('Turns', session.turn_count || 0),
 			metric('Tools', session.tool_call_count || 0),
 			metric('Source', session.source || ''),
 			metric('Model', session.last_model || ''),
-			metric('Input', session.input_tokens || 0),
-			metric('Output', session.output_tokens || 0)
+			metric('Input', formatTokens(session.input_tokens || 0)),
+			metric('Output', formatTokens(session.output_tokens || 0))
 		].join('');
 	}
 
@@ -78,6 +67,7 @@
 		if (!session) return null;
 		return {
 			id: session.id || '',
+			title: session.title || '',
 			duration: session.duration || '',
 			total_tokens: session.total_tokens || 0,
 			turn_count: session.turn_count || 0,
@@ -99,14 +89,16 @@
 		var eventUID = String(event.event_uid || '');
 		var payloadID = payloadElementID(eventUID);
 		var payloadLabel = 'Toggle payload for ' + (meta || eventUID || 'event');
-		var payloadButton = event.tool_name ? '<button type="button" class="payload-btn text-xs text-blue-400 hover:text-blue-300" data-event-id="' + escapeAttr(event.event_uid) + '" aria-expanded="false" aria-controls="' + payloadID + '" aria-label="' + escapeAttr(payloadLabel) + '">Payload</button>' : '';
-		return '<div class="rounded border border-gray-800 bg-gray-900/60 p-3" data-event="' + escapeAttr(eventUID) + '">' +
-			'<div class="flex items-center justify-between gap-3 mb-1">' +
-			'<p class="text-xs text-gray-500 truncate">' + escapeHTML(meta) + '</p>' + payloadButton +
+		var kind = event.event_kind || 'event';
+		var preview = event.text_preview || event.input_preview || event.output_preview || '';
+		var payloadButton = event.tool_name ? '<button type="button" class="payload-btn inspector-payload-btn" data-event-id="' + escapeAttr(event.event_uid) + '" aria-expanded="false" aria-controls="' + payloadID + '" aria-label="' + escapeAttr(payloadLabel) + '">Payload</button>' : '';
+		return '<article class="inspector-event" data-event="' + escapeAttr(eventUID) + '">' +
+			'<div class="inspector-event-head">' +
+			'<div class="min-w-0"><p class="inspector-event-kind">' + escapeHTML(kind) + '</p><p class="inspector-event-meta">' + escapeHTML(meta) + '</p></div>' + payloadButton +
 			'</div>' +
-			'<p class="text-sm text-gray-300 whitespace-pre-wrap break-words">' + escapeHTML(event.text_preview || event.input_preview || event.output_preview || '') + '</p>' +
-			'<pre id="' + payloadID + '" class="payload-target hidden mt-3 p-3 rounded bg-black/40 text-xs text-gray-300 overflow-x-auto"></pre>' +
-			'</div>';
+			'<p class="inspector-event-text">' + escapeHTML(preview || 'No raw preview available') + '</p>' +
+			'<pre id="' + payloadID + '" class="payload-target hidden inspector-payload"></pre>' +
+			'</article>';
 	}
 
 	function abortPayloadFetches() {
@@ -158,53 +150,55 @@
 		inspectorLauncher = validInspectorRestoreTarget(launcher) || validInspectorRestoreTarget(document.activeElement);
 		inspectorLauncherSession = id;
 		inspector.classList.remove('hidden');
-		setInspectorBackgroundInert(true);
 		// Inspector event rows are static shells built by eventRow(); all event
 		// fields are escaped before insertion and payload bodies use textContent.
-		events.innerHTML = '<div class="text-sm text-gray-500">Loading events...</div>';
+		events.innerHTML = '<div class="inspector-state">Loading raw messages...</div>';
 		renderSummary(null);
+		if (closeButton) closeButton.focus({preventScroll: true});
 		try {
 			var fetchOpts = {headers: {'Accept': 'application/json'}};
 			if (inspectorController) fetchOpts.signal = inspectorController.signal;
 			var session = await loadSessionSummary(id, fetchOpts);
 			if (seq !== inspectorSeq) return;
 			renderSummary(session);
-			if (closeButton) closeButton.focus({preventScroll: true});
-			var res = await fetch('/api/sessions/' + encodeURIComponent(id) + '/events?limit=200', fetchOpts);
+			var res = await fetch('/api/sessions/' + encodeURIComponent(id) + '/events?limit=200&tail=1', fetchOpts);
 			if (!res.ok) throw new Error('events failed');
 			var items = await res.json();
 			if (seq !== inspectorSeq) return;
 			// eventRow() escapes dynamic values; empty/error states are static.
-			events.innerHTML = items.length ? items.map(eventRow).join('') : '<div class="text-sm text-gray-500">No events</div>';
+			events.innerHTML = items.length ? items.map(eventRow).join('') : '<div class="inspector-state">No raw messages or events found</div>';
 		} catch (err) {
 			if (err && err.name === 'AbortError') return;
 			if (seq !== inspectorSeq) return;
 			// Static error state.
-			events.innerHTML = '<div class="text-sm text-red-400">Unable to load session</div>';
+			events.innerHTML = '<div class="inspector-state inspector-state-error">Unable to load this quick view</div>';
 		}
 	}
 
-	window.closeSessionInspector = function() {
+	window.closeSessionInspector = function(options) {
+		options = options || {};
+		var restoreFocus = options.restoreFocus !== false;
 		inspectorSeq++;
 		if (inspectorController) {
 			inspectorController.abort();
 			inspectorController = null;
 		}
 		abortPayloadFetches();
-		setInspectorBackgroundInert(false);
-		var restoreTarget = validInspectorRestoreTarget(inspectorLauncher);
-		if (!restoreTarget && inspectorLauncherSession) {
-			var sessionURL = '/sessions/' + encodeURIComponent(inspectorLauncherSession);
-			var matches = Array.from(document.querySelectorAll('.session-row-open[data-session-link="' + cssEscape(sessionURL) + '"], a[href="' + cssEscape(sessionURL) + '"]'));
-			restoreTarget = matches.map(validInspectorRestoreTarget).find(Boolean) || null;
-		}
-		if (!restoreTarget) {
-			restoreTarget = document.getElementById('dashboard-session-search') || document.getElementById('dashboard-title') || document.getElementById('timeline-toggle-btn');
-		}
 		inspector.classList.add('hidden');
 		selectedSessionId = '';
-		if (restoreTarget && typeof restoreTarget.focus === 'function') {
-			restoreTarget.focus({preventScroll: true});
+		if (restoreFocus) {
+			var restoreTarget = validInspectorRestoreTarget(inspectorLauncher);
+			if (!restoreTarget && inspectorLauncherSession) {
+				var sessionURL = '/sessions/' + encodeURIComponent(inspectorLauncherSession);
+				var matches = Array.from(document.querySelectorAll('.session-row-open[data-session-link="' + cssEscape(sessionURL) + '"], a[href="' + cssEscape(sessionURL) + '"]'));
+				restoreTarget = matches.map(validInspectorRestoreTarget).find(Boolean) || null;
+			}
+			if (!restoreTarget) {
+				restoreTarget = document.getElementById('dashboard-session-search') || document.getElementById('dashboard-title') || document.getElementById('timeline-toggle-btn');
+			}
+			if (restoreTarget && typeof restoreTarget.focus === 'function') {
+				restoreTarget.focus({preventScroll: true});
+			}
 		}
 		inspectorLauncher = null;
 		inspectorLauncherSession = '';
@@ -225,9 +219,7 @@
 
 	document.addEventListener('click', function(evt) {
 		if (inspector && !inspector.classList.contains('hidden') && !inspector.contains(evt.target)) {
-			evt.preventDefault();
-			evt.stopPropagation();
-			return;
+			window.closeSessionInspector({restoreFocus: false});
 		}
 		var link = evt.target.closest && evt.target.closest('a[href^="/sessions/"]');
 		if (link && link.id !== 'inspector-full-link' && !link.closest('#activity-feed') && !link.closest('[data-transcript-link]')) {
@@ -280,21 +272,6 @@
 			evt.preventDefault();
 			window.closeSessionInspector();
 			return;
-		}
-		if (evt.key === 'Tab' && !inspector.classList.contains('hidden')) {
-			var focusables = Array.from(inspector.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])')).filter(function(el) {
-				return el.offsetParent !== null;
-			});
-			if (!focusables.length) return;
-			var first = focusables[0];
-			var last = focusables[focusables.length - 1];
-			if (evt.shiftKey && document.activeElement === first) {
-				evt.preventDefault();
-				last.focus();
-			} else if (!evt.shiftKey && document.activeElement === last) {
-				evt.preventDefault();
-				first.focus();
-			}
 		}
 	});
 })();

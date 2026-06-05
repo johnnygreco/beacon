@@ -584,6 +584,10 @@ func (a *APIHandlers) GetSessionEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	eventOrder := "timestamp, event_uid"
+	if req.Tail {
+		eventOrder = "timestamp DESC, event_uid DESC"
+	}
 	rows, err := a.db.QueryContext(r.Context(),
 		`WITH session_events AS (
 			SELECT event_uid, session_id, event_kind, payload_type, actor_role,
@@ -606,7 +610,7 @@ func (a *APIHandlers) GetSessionEvents(w http.ResponseWriter, r *http.Request) {
 				WHERE ae.session_id = ?
 				GROUP BY event_uid
 			)
-			ORDER BY timestamp, event_uid
+			ORDER BY `+eventOrder+`
 			LIMIT ? OFFSET ?
 		 ),
 		 payload_previews AS (

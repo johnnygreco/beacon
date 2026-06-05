@@ -347,6 +347,18 @@ func TestAPIRequestParsingNormalizesFilters(t *testing.T) {
 	if invalidCharts.Range != "" {
 		t.Fatalf("invalid chart range = %q, want default all time", invalidCharts.Range)
 	}
+
+	sessionEvents, err := parseSessionEventsAPIRequest(url.Values{
+		"limit":  {"999"},
+		"offset": {"2"},
+		"tail":   {"1"},
+	})
+	if err != nil {
+		t.Fatalf("parseSessionEventsAPIRequest tail error: %v", err)
+	}
+	if sessionEvents.Limit != maxSessionEventsAPILimit || sessionEvents.Offset != 2 || !sessionEvents.Tail {
+		t.Fatalf("session events request = %#v, want clamped tail request", sessionEvents)
+	}
 }
 
 func TestDashboardSearchInvalidLimitReturnsBadRequest(t *testing.T) {
