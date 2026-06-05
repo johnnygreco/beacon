@@ -22,11 +22,11 @@ func toolDefinitions() []map[string]any {
 				"type": "object",
 				"properties": map[string]any{
 					"query":       map[string]any{"type": "string", "description": "Search query text"},
-					"limit":       map[string]any{"type": "integer", "description": "Max results (default 25)"},
-					"session_id":  map[string]any{"type": "string", "description": "Filter to a Beacon session ID"},
-					"event_kinds": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Filter by event kinds"},
+					"limit":       nullableType("integer", "Max results (default 25)"),
+					"session_id":  nullableType("string", "Filter to a Beacon session ID"),
+					"event_kinds": map[string]any{"type": []string{"array", "null"}, "items": map[string]any{"type": "string"}, "description": "Filter by event kinds"},
 				},
-				"required":             []string{"query"},
+				"required":             []string{"query", "limit", "session_id", "event_kinds"},
 				"additionalProperties": false,
 			},
 		},
@@ -38,10 +38,10 @@ func toolDefinitions() []map[string]any {
 				"type": "object",
 				"properties": map[string]any{
 					"event_id": map[string]any{"type": "string", "description": "Beacon event ID returned by search_sessions, e.g. event:<uid>"},
-					"before":   map[string]any{"type": "integer", "description": "Number of events before target (defaults to server context window)"},
-					"after":    map[string]any{"type": "integer", "description": "Number of events after target (defaults to server context window)"},
+					"before":   nullableType("integer", "Number of events before target (defaults to server context window)"),
+					"after":    nullableType("integer", "Number of events after target (defaults to server context window)"),
 				},
-				"required":             []string{"event_id"},
+				"required":             []string{"event_id", "before", "after"},
 				"additionalProperties": false,
 			},
 		},
@@ -52,13 +52,18 @@ func toolDefinitions() []map[string]any {
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"limit": map[string]any{"type": "integer", "description": "Max sessions (default 20)"},
-					"since": map[string]any{"type": "string", "description": "Only sessions after this ISO8601 timestamp"},
+					"limit": nullableType("integer", "Max sessions (default 20)"),
+					"since": nullableType("string", "Only sessions after this ISO8601 timestamp"),
 				},
+				"required":             []string{"limit", "since"},
 				"additionalProperties": false,
 			},
 		},
 	}
+}
+
+func nullableType(schemaType, description string) map[string]any {
+	return map[string]any{"type": []string{schemaType, "null"}, "description": description}
 }
 
 func readOnlyToolAnnotations() map[string]any {
@@ -109,6 +114,7 @@ func (s *Server) toolSearch(ctx context.Context, args json.RawMessage) (string, 
 		SessionID:      stripBeaconPrefix(params.SessionID, "session:"),
 		EventKinds:     params.EventKinds,
 		ExcludeMCPSelf: true,
+		SkipQueryLog:   true,
 	})
 	if err != nil {
 		return "", internalToolError("search failed", err)

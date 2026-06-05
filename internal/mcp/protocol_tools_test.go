@@ -84,7 +84,7 @@ func TestToolsCallSearchSessionsSuccessAndError(t *testing.T) {
 	if resp == nil || resp.Error != nil {
 		t.Fatalf("search_sessions response = %+v", resp)
 	}
-	if fake.query.Query != "needle" || fake.query.Limit != 2 || fake.query.SessionID != "session-search" || !fake.query.ExcludeMCPSelf {
+	if fake.query.Query != "needle" || fake.query.Limit != 2 || fake.query.SessionID != "session-search" || !fake.query.ExcludeMCPSelf || !fake.query.SkipQueryLog {
 		t.Fatalf("search query = %#v", fake.query)
 	}
 	if !reflect.DeepEqual(fake.query.EventKinds, []string{"message"}) {
@@ -366,17 +366,15 @@ func TestToolDefinitionsMatchImplementedArguments(t *testing.T) {
 
 	searchSchema := inputSchema(t, defs["search_sessions"])
 	assertSchemaProperties(t, searchSchema, "query", "limit", "session_id", "event_kinds")
-	assertRequired(t, searchSchema, "query")
+	assertRequired(t, searchSchema, "query", "limit", "session_id", "event_kinds")
 
 	openSchema := inputSchema(t, defs["open"])
 	assertSchemaProperties(t, openSchema, "event_id", "before", "after")
-	assertRequired(t, openSchema, "event_id")
+	assertRequired(t, openSchema, "event_id", "before", "after")
 
 	listSchema := inputSchema(t, defs["list_sessions"])
 	assertSchemaProperties(t, listSchema, "limit", "since")
-	if _, ok := listSchema["required"]; ok {
-		t.Fatalf("list_sessions should not require optional args: %#v", listSchema["required"])
-	}
+	assertRequired(t, listSchema, "limit", "since")
 }
 
 func TestToolDefinitionsAreOpenAIFunctionCompatible(t *testing.T) {
@@ -394,6 +392,7 @@ func TestToolDefinitionsAreOpenAIFunctionCompatible(t *testing.T) {
 		if schema["additionalProperties"] != false {
 			t.Fatalf("%s inputSchema additionalProperties = %#v, want false", name, schema["additionalProperties"])
 		}
+		assertRequiredCoversAllProperties(t, name, schema)
 	}
 }
 
@@ -502,6 +501,30 @@ func assertRequired(t *testing.T, schema map[string]any, names ...string) {
 	}
 	if !reflect.DeepEqual(required, names) {
 		t.Fatalf("required = %#v, want %#v", required, names)
+	}
+}
+
+func assertRequiredCoversAllProperties(t *testing.T, toolName string, schema map[string]any) {
+	t.Helper()
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("%s properties = %T", toolName, schema["properties"])
+	}
+	required, ok := schema["required"].([]string)
+	if !ok {
+		t.Fatalf("%s required = %#v, want []string", toolName, schema["required"])
+	}
+	requiredSet := make(map[string]bool, len(required))
+	for _, name := range required {
+		requiredSet[name] = true
+	}
+	for name := range properties {
+		if !requiredSet[name] {
+			t.Fatalf("%s property %q is not required: %#v", toolName, name, required)
+		}
+	}
+	if len(requiredSet) != len(properties) {
+		t.Fatalf("%s required = %#v, properties = %#v", toolName, required, properties)
 	}
 }
 

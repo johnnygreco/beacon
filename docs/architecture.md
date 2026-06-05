@@ -229,8 +229,8 @@ The advertised schema should stay simple and match the IDs returned by Beacon
 tools.
 
 The MCP server uses the same database tables as the web UI. It does not run
-capture, migrations, or writes, except for search query logging performed by the
-shared searcher when available.
+capture, migrations, or writes. MCP searches skip query logging so the tool
+surface remains read-only.
 
 ## Ownership boundaries
 

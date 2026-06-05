@@ -261,12 +261,14 @@ tool_timeout_sec = 60
 If Claude Code or Codex runs on a different machine, install `beacon` on that
 machine too. The stdio MCP server is launched where the agent runs, so either
 run Beacon's local ClickHouse there or point the MCP server at a reachable
-ClickHouse TCP address.
+ClickHouse TCP address. The address must be reachable from the machine running
+Claude Code or Codex; use `127.0.0.1:9000` only for local ClickHouse or an SSH
+tunnel.
 
 Claude Code:
 
 ```bash
-claude mcp add --transport stdio beacon -- beacon mcp --clickhouse 127.0.0.1:9000
+claude mcp add --transport stdio beacon -- beacon mcp --clickhouse clickhouse.workstation.example:9000
 ```
 
 Codex:
@@ -274,10 +276,26 @@ Codex:
 ```toml
 [mcp_servers.beacon]
 command = "beacon"
-args = ["mcp", "--clickhouse", "127.0.0.1:9000"]
+args = ["mcp", "--clickhouse", "clickhouse.workstation.example:9000"]
 startup_timeout_sec = 20
 tool_timeout_sec = 60
 ```
+
+`--clickhouse` overrides only the address. For a remote ClickHouse database,
+configure the database name, credentials, and TLS in Beacon's config on the
+agent machine:
+
+```toml
+[database]
+addrs = ["clickhouse.workstation.example:9000"]
+database = "beacon"
+username = "beacon_readonly"
+password = "..."
+secure = true
+```
+
+Use private networking or an SSH tunnel, and require ClickHouse authentication
+when exposing the database beyond the local machine.
 
 For generic MCP clients that use JSON configuration:
 
