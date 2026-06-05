@@ -268,7 +268,7 @@ tunnel.
 Claude Code:
 
 ```bash
-claude mcp add --transport stdio beacon -- beacon mcp --clickhouse clickhouse.workstation.example:9000
+claude mcp add --transport stdio beacon -- beacon mcp --clickhouse clickhouse.workstation.example:9440
 ```
 
 Codex:
@@ -276,7 +276,7 @@ Codex:
 ```toml
 [mcp_servers.beacon]
 command = "beacon"
-args = ["mcp", "--clickhouse", "clickhouse.workstation.example:9000"]
+args = ["mcp", "--clickhouse", "clickhouse.workstation.example:9440"]
 startup_timeout_sec = 20
 tool_timeout_sec = 60
 ```
@@ -287,15 +287,16 @@ agent machine:
 
 ```toml
 [database]
-addrs = ["clickhouse.workstation.example:9000"]
+addrs = ["clickhouse.workstation.example:9440"]
 database = "beacon"
 username = "beacon_readonly"
 password = "..."
 secure = true
 ```
 
-Use private networking or an SSH tunnel, and require ClickHouse authentication
-when exposing the database beyond the local machine.
+Use port `9440` for ClickHouse native TCP over TLS. Use port `9000` only for
+plaintext native TCP on a private network or through an SSH tunnel. Require
+ClickHouse authentication when exposing the database beyond the local machine.
 
 For generic MCP clients that use JSON configuration:
 

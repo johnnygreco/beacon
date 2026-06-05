@@ -97,6 +97,19 @@ func TestToolsCallSearchSessionsSuccessAndError(t *testing.T) {
 
 	resp = srv.dispatch(context.Background(), &jsonRPCRequest{
 		JSONRPC: "2.0",
+		ID:      json.RawMessage(`101`),
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"search_sessions","arguments":{"query":"needle","limit":null,"session_id":null,"event_kinds":null}}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("search_sessions null-default response = %+v", resp)
+	}
+	if fake.query.Query != "needle" || fake.query.Limit != 25 || fake.query.SessionID != "" || fake.query.EventKinds != nil || !fake.query.SkipQueryLog {
+		t.Fatalf("null-default search query = %#v", fake.query)
+	}
+
+	resp = srv.dispatch(context.Background(), &jsonRPCRequest{
+		JSONRPC: "2.0",
 		ID:      json.RawMessage(`11`),
 		Method:  "tools/call",
 		Params:  json.RawMessage(`{"name":"search_sessions","arguments":{"limit":2}}`),
@@ -187,7 +200,7 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 	defer stub.assertDone(t)
 	srv.db = db
 	srv.SetDefaultContextWindow(4)
-	if _, err := srv.toolOpen(context.Background(), json.RawMessage(`{"event_id":"event:evt-target"}`)); err != nil {
+	if _, err := srv.toolOpen(context.Background(), json.RawMessage(`{"event_id":"event:evt-target","before":null,"after":null}`)); err != nil {
 		t.Fatalf("toolOpen with configured default context: %v", err)
 	}
 
@@ -367,14 +380,23 @@ func TestToolDefinitionsMatchImplementedArguments(t *testing.T) {
 	searchSchema := inputSchema(t, defs["search_sessions"])
 	assertSchemaProperties(t, searchSchema, "query", "limit", "session_id", "event_kinds")
 	assertRequired(t, searchSchema, "query", "limit", "session_id", "event_kinds")
+	assertPropertyType(t, searchSchema, "query", "string")
+	assertPropertyNullableType(t, searchSchema, "limit", "integer")
+	assertPropertyNullableType(t, searchSchema, "session_id", "string")
+	assertPropertyNullableType(t, searchSchema, "event_kinds", "array")
 
 	openSchema := inputSchema(t, defs["open"])
 	assertSchemaProperties(t, openSchema, "event_id", "before", "after")
 	assertRequired(t, openSchema, "event_id", "before", "after")
+	assertPropertyType(t, openSchema, "event_id", "string")
+	assertPropertyNullableType(t, openSchema, "before", "integer")
+	assertPropertyNullableType(t, openSchema, "after", "integer")
 
 	listSchema := inputSchema(t, defs["list_sessions"])
 	assertSchemaProperties(t, listSchema, "limit", "since")
 	assertRequired(t, listSchema, "limit", "since")
+	assertPropertyNullableType(t, listSchema, "limit", "integer")
+	assertPropertyNullableType(t, listSchema, "since", "string")
 }
 
 func TestToolDefinitionsAreOpenAIFunctionCompatible(t *testing.T) {
@@ -502,6 +524,36 @@ func assertRequired(t *testing.T, schema map[string]any, names ...string) {
 	if !reflect.DeepEqual(required, names) {
 		t.Fatalf("required = %#v, want %#v", required, names)
 	}
+}
+
+func assertPropertyType(t *testing.T, schema map[string]any, name, wantType string) {
+	t.Helper()
+	property := schemaProperty(t, schema, name)
+	if property["type"] != wantType {
+		t.Fatalf("%s type = %#v, want %q", name, property["type"], wantType)
+	}
+}
+
+func assertPropertyNullableType(t *testing.T, schema map[string]any, name, wantType string) {
+	t.Helper()
+	property := schemaProperty(t, schema, name)
+	want := []string{wantType, "null"}
+	if !reflect.DeepEqual(property["type"], want) {
+		t.Fatalf("%s type = %#v, want %#v", name, property["type"], want)
+	}
+}
+
+func schemaProperty(t *testing.T, schema map[string]any, name string) map[string]any {
+	t.Helper()
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("properties = %T", schema["properties"])
+	}
+	property, ok := properties[name].(map[string]any)
+	if !ok {
+		t.Fatalf("property %q = %T", name, properties[name])
+	}
+	return property
 }
 
 func assertRequiredCoversAllProperties(t *testing.T, toolName string, schema map[string]any) {
