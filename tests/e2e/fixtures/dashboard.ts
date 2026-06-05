@@ -752,12 +752,10 @@ async function fulfillJSON(route: Route, data: unknown, status = 200, contractNa
 
 function conversationFixtureHTML(sessionID = TEST_SESSION_ID) {
   const eventID = sessionID === TEST_SESSION_ID ? TEST_EVENT_ID : `event-${sessionID}`;
-  const title = sessionID === ACTIVE_SESSION_ID ? 'Realtime dashboard smoke run' : 'Legacy migration replay';
   return `
     <div id="chat-view" class="transcript-chat-view space-y-3">
       <details id="${eventID}" open class="rounded border border-gray-700 p-3 bg-gray-800/30">
         <summary class="cursor-pointer">Read dashboard fixture payload</summary>
-        <p class="text-sm text-gray-300 mt-2">${title} transcript excerpt.</p>
         <div class="code-container relative mt-3">
           <pre><code>{"file_path":"internal/views/pages/dashboard.templ"}</code></pre>
           <button type="button" onclick="copyToClipboard(this)" title="Copy to clipboard" aria-label="Copy to clipboard">
