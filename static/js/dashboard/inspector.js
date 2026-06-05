@@ -154,14 +154,14 @@
 		// fields are escaped before insertion and payload bodies use textContent.
 		events.innerHTML = '<div class="inspector-state">Loading raw messages...</div>';
 		renderSummary(null);
+		if (closeButton) closeButton.focus({preventScroll: true});
 		try {
 			var fetchOpts = {headers: {'Accept': 'application/json'}};
 			if (inspectorController) fetchOpts.signal = inspectorController.signal;
 			var session = await loadSessionSummary(id, fetchOpts);
 			if (seq !== inspectorSeq) return;
 			renderSummary(session);
-			if (closeButton) closeButton.focus({preventScroll: true});
-			var res = await fetch('/api/sessions/' + encodeURIComponent(id) + '/events?limit=200', fetchOpts);
+			var res = await fetch('/api/sessions/' + encodeURIComponent(id) + '/events?limit=200&tail=1', fetchOpts);
 			if (!res.ok) throw new Error('events failed');
 			var items = await res.json();
 			if (seq !== inspectorSeq) return;

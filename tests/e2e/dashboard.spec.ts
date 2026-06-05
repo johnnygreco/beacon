@@ -1511,6 +1511,8 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#timeline-sidebar')).not.toHaveAttribute('aria-hidden', 'true');
     await expect(page.locator('#inspector-full-link')).toHaveText('View Transcript');
     await expect(page.locator('#inspector-description')).toContainText('Stats and recent raw messages');
+    await expect(page.locator('#inspector-events')).toHaveAttribute('tabindex', '0');
+    await expect(page.locator('#inspector-events')).toHaveAttribute('aria-labelledby', 'inspector-events-title');
     await page.locator('#dashboard-session-search').click();
     await expect(page.locator('#session-inspector')).toHaveClass(/hidden/);
     await expect(page.locator('#dashboard-session-search')).toBeFocused();
@@ -1583,6 +1585,37 @@ test.describe('dashboard battle-tested workflows', () => {
     await page.locator('#inspector-full-link').click();
     await expect(page).toHaveURL(new RegExp(`/sessions/${TEST_SESSION_ID}$`));
     await expect(page.locator('#btn-collapse-all')).toBeVisible();
+
+    await guards.expectClean();
+  });
+
+  test('keeps the quick-view inspector dismissible on narrow viewports', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await gotoDashboard(page);
+
+    await page.evaluate((id) => {
+      (window as unknown as { goToSession: (url: string) => void }).goToSession(`/sessions/${id}`);
+    }, TEST_SESSION_ID);
+    await expect(page.locator('#session-inspector')).toBeVisible();
+
+    const inspectorBounds = await page.locator('#session-inspector').evaluate((el) => {
+      const rect = el.getBoundingClientRect();
+      return {
+        left: Math.round(rect.left),
+        right: Math.round(rect.right),
+        width: Math.round(rect.width),
+        viewportWidth: window.innerWidth,
+      };
+    });
+    expect(inspectorBounds.left).toBeGreaterThan(0);
+    expect(inspectorBounds.right).toBe(inspectorBounds.viewportWidth);
+    expect(inspectorBounds.width).toBeLessThan(inspectorBounds.viewportWidth);
+
+    await page.mouse.click(4, 80);
+    await expect(page.locator('#session-inspector')).toHaveClass(/hidden/);
+    await expect(page.locator('#dashboard-main')).not.toHaveAttribute('inert', '');
 
     await guards.expectClean();
   });

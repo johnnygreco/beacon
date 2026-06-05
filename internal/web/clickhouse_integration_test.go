@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -134,6 +135,56 @@ func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 	}
 	if full.EventUID != eventID || !strings.Contains(full.InputJSON, fullMarker) || !strings.Contains(full.OutputJSON, fullMarker) {
 		t.Fatalf("unexpected full tool payload: %#v", full)
+	}
+}
+
+func TestAPISessionEventsTailReturnsLatestBoundedSliceChronologically(t *testing.T) {
+	ch := setupLiveWebStore(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	api := NewAPIHandlers(ch.DB, nil, logger)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	sessionID := "api-tail-session"
+	events := make([]models.Event, 0, 205)
+	for i := 0; i < 205; i++ {
+		uid := fmt.Sprintf("tail-event-%03d", i)
+		event := liveEvent(uid, sessionID, "message", "assistant", now.Add(time.Duration(i)*time.Second), "openai", "gpt-5", "", 1, 1, 0)
+		event.SourceLineNo = i + 1
+		event.SourceOffset = int64(i)
+		events = append(events, event)
+	}
+	batch := store.RowBatch{ActivityEvents: events}
+	for _, event := range events {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	body := recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+sessionID+"/events?limit=200&tail=1", "id", sessionID)
+	var got []APISessionEvent
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("decode session events: %v\n%s", err, body)
+	}
+	if len(got) != 200 {
+		t.Fatalf("tail event count = %d, want 200", len(got))
+	}
+	if got[0].EventUID != "tail-event-005" || got[len(got)-1].EventUID != "tail-event-204" {
+		t.Fatalf("tail events returned wrong chronological slice: first=%s last=%s", got[0].EventUID, got[len(got)-1].EventUID)
+	}
+	for _, event := range got {
+		if event.EventUID == "tail-event-000" {
+			t.Fatalf("tail events included oldest event outside latest slice")
+		}
+	}
+
+	body = recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+sessionID+"/events?limit=3", "id", sessionID)
+	got = nil
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("decode default session events: %v\n%s", err, body)
+	}
+	if len(got) != 3 || got[0].EventUID != "tail-event-000" || got[2].EventUID != "tail-event-002" {
+		t.Fatalf("default events should remain oldest-first paginated, got %#v", got)
 	}
 }
 

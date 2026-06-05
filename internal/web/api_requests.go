@@ -202,6 +202,7 @@ func parseDashboardChartsAPIRequest(values url.Values) dashboardChartsAPIRequest
 type sessionEventsAPIRequest struct {
 	Limit  int
 	Offset int
+	Tail   bool
 }
 
 func parseSessionEventsAPIRequest(values url.Values) (sessionEventsAPIRequest, error) {
@@ -218,7 +219,9 @@ func parseSessionEventsAPIRequest(values url.Values) (sessionEventsAPIRequest, e
 	if err != nil {
 		return sessionEventsAPIRequest{}, err
 	}
-	return sessionEventsAPIRequest{Limit: limit, Offset: offset}, nil
+	tailValue := values.Get("tail")
+	tail := tailValue == "1" || strings.EqualFold(tailValue, "true")
+	return sessionEventsAPIRequest{Limit: limit, Offset: offset, Tail: tail}, nil
 }
 
 type searchEventsAPIRequest struct {

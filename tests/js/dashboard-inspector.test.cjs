@@ -35,6 +35,7 @@ function fakeElement(initialClasses = []) {
     classList: fakeClassList(initialClasses),
     style: {},
     attributes: {},
+    focusCalls: 0,
     textContent: "",
     innerHTML: "",
     href: "",
@@ -54,7 +55,9 @@ function fakeElement(initialClasses = []) {
     closest() {
       return null;
     },
-    focus() {},
+    focus() {
+      this.focusCalls += 1;
+    },
     querySelector(selector) {
       if (selector === "[aria-label=\"Close\"]") return fakeElement();
       return null;
@@ -66,6 +69,7 @@ function fakeElement(initialClasses = []) {
 }
 
 function loadInspectorSandbox(events) {
+  const closeButton = fakeElement();
   const elements = {
     "session-inspector": fakeElement(["hidden"]),
     "inspector-title": fakeElement(),
@@ -76,6 +80,10 @@ function loadInspectorSandbox(events) {
     "dashboard-main": fakeElement(),
     "sidebar-divider": fakeElement(),
     "timeline-sidebar": fakeElement(),
+  };
+  elements["session-inspector"].querySelector = (selector) => {
+    if (selector === "[aria-label=\"Close\"]") return closeButton;
+    return null;
   };
   const listeners = {};
   const sandbox = {
@@ -112,7 +120,7 @@ function loadInspectorSandbox(events) {
       },
     },
     fetch: async (url) => {
-      assert.equal(url, "/api/sessions/session-xss/events?limit=200");
+      assert.equal(url, "/api/sessions/session-xss/events?limit=200&tail=1");
       return { ok: true, json: async () => events };
     },
     AbortController: globalThis.AbortController,
@@ -124,7 +132,7 @@ function loadInspectorSandbox(events) {
   vm.createContext(sandbox);
   const inspectorPath = path.join(__dirname, "../../static/js/dashboard/inspector.js");
   vm.runInContext(fs.readFileSync(inspectorPath, "utf8"), sandbox, { filename: inspectorPath });
-  return { sandbox, elements, listeners };
+  return { sandbox, elements, listeners, closeButton };
 }
 
 async function flushPromises() {
@@ -181,4 +189,12 @@ test("outside inspector click closes quick view without swallowing dashboard cli
   assert.equal(elements["session-inspector"].classList.contains("hidden"), true);
   assert.equal(prevented, false);
   assert.equal(stopped, false);
+});
+
+test("inspector focuses close control immediately on open", () => {
+  const { sandbox, closeButton } = loadInspectorSandbox([]);
+
+  sandbox.window.goToSession("/sessions/session-xss", null);
+
+  assert.equal(closeButton.focusCalls, 1);
 });

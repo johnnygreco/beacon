@@ -2491,6 +2491,7 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
 
 #session-inspector {
   box-shadow: -18px 0 48px color-mix(in srgb, var(--dash-bg-deep) 44%, transparent);
+  width: min(42rem, calc(100vw - 1rem));
 }
 
 .inspector-header {
@@ -3637,7 +3638,8 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
 #dashboard-wrap .active-session-sort-select:focus-visible,
 #dashboard-wrap .model-dropdown-trigger:focus-visible,
 #session-inspector button:focus-visible,
-#session-inspector a:focus-visible {
+#session-inspector a:focus-visible,
+#session-inspector [tabindex]:focus-visible {
   outline: 2px solid var(--dash-accent);
   outline-offset: 2px;
 }
