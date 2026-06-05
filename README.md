@@ -213,37 +213,29 @@ locations, see [docs/clickhouse.md](docs/clickhouse.md).
 
 ## MCP Integration
 
-Run `beacon db up` first so ClickHouse is available and migrated, then add Beacon to your MCP client:
+Beacon ships a read-only stdio MCP server so agents can search prior Beacon
+sessions without leaving their normal coding workflow. Start Beacon first:
 
-```json
-{
-  "mcpServers": {
-    "beacon": {
-      "command": "beacon",
-      "args": ["mcp"]
-    }
-  }
-}
+```bash
+beacon up
 ```
 
-If your MCP client cannot use Beacon's config file, pass ClickHouse directly:
+Add Beacon to Claude Code:
 
-```json
-{
-  "mcpServers": {
-    "beacon": {
-      "command": "beacon",
-      "args": ["mcp", "--clickhouse", "127.0.0.1:9000"]
-    }
-  }
-}
+```bash
+claude mcp add --transport stdio beacon -- beacon mcp
 ```
 
-Available tools:
+Add Beacon to Codex:
 
-- `search_sessions` searches the precomputed activity index and returns session/event IDs.
-- `open` retrieves one event plus nearby context from the same session.
-- `list_sessions` lists recent sessions with summary stats.
+```bash
+codex mcp add beacon -- beacon mcp
+```
+
+Agents can use `search_sessions`, pass a returned `event_id` to `open`, and use
+`list_sessions` for recent activity. For Claude Code scopes, direct Codex TOML,
+remote ClickHouse, generic MCP clients, and tool argument details, see
+[docs/mcp.md](docs/mcp.md).
 
 ## Commands
 

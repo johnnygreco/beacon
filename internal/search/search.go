@@ -22,6 +22,7 @@ type SearchQuery struct {
 	FromTime       time.Time
 	ToTime         time.Time
 	ExcludeMCPSelf bool
+	SkipQueryLog   bool
 	SortBy         string // "relevance" (default), "newest", "oldest"
 }
 
@@ -118,7 +119,9 @@ func (s *Searcher) Search(ctx context.Context, q SearchQuery) ([]SearchResult, e
 		return nil, err
 	}
 
-	s.logQuery(q.Query, tokens, len(results), time.Since(start))
+	if !q.SkipQueryLog {
+		s.logQuery(q.Query, tokens, len(results), time.Since(start))
+	}
 
 	s.logger.Debug("search complete", "query", q.Query, "tokens", tokens, "results", len(results), "duration", time.Since(start))
 	return results, nil

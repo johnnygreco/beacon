@@ -320,6 +320,40 @@ func TestSearchIgnoresQueryLogInsertFailure(t *testing.T) {
 	}
 }
 
+func TestSearchCanSkipQueryLogging(t *testing.T) {
+	rowTime := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+	db, stub := newSearchStubDB(t, []stubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertSQLContains(t, query, "FROM search_documents FINAL")
+			return newDriverRows([]string{"documents", "avg_doc_len"}, []driver.Value{int64(1), float64(5)}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertSQLContains(t, query, "FROM search_postings FINAL", "p.updated_at >= d.updated_at")
+			assertNamedValues(t, args, []any{float64(1), float64(5), "alpha", 0.0, 5})
+			return searchResultDriverRows([]SearchResult{
+				{EventUID: "evt-alpha", SessionID: "session-alpha", EventKind: "message", Score: 1.25, Timestamp: rowTime},
+			}), nil
+		},
+	}, nil)
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	s := NewSearcher(db, discardLogger, 25, 0)
+	for i := 0; i < cap(s.logSem); i++ {
+		s.logSem <- struct{}{}
+	}
+	results, err := s.Search(context.Background(), SearchQuery{Query: "alpha", Limit: 5, SkipQueryLog: true})
+	if err != nil {
+		t.Fatalf("Search error = %v", err)
+	}
+	if len(results) != 1 || results[0].EventUID != "evt-alpha" {
+		t.Fatalf("results = %#v, want search result", results)
+	}
+	if dropped := s.DroppedQueryLogCount(); dropped != 0 {
+		t.Fatalf("DroppedQueryLogCount = %d, want 0", dropped)
+	}
+}
+
 func TestSearchCountsDroppedQueryLogsWhenLoggerQueueIsFull(t *testing.T) {
 	db, stub := newSearchStubDB(t, nil, nil)
 	defer db.Close()

@@ -211,17 +211,26 @@ Live update paths use explicit buffering rules:
 ### 7. MCP read path
 
 `beacon mcp` opens ClickHouse in read-only mode and starts `internal/mcp.Server`
-over stdin/stdout JSON-RPC. It exposes:
+over stdin/stdout JSON-RPC. The server returns MCP initialization instructions
+that tell clients to search first, open returned event IDs for transcript
+context, and treat captured data as historical context rather than current
+workspace truth. It exposes:
 
 - `search_sessions`, backed by `internal/search.Searcher` and the precomputed
   search tables
-- `open`, backed by a window query over `activity_events` for one event plus
-  surrounding session context
+- `open`, backed by a window query over `activity_events` for one returned
+  `event_id` plus surrounding session context
 - `list_sessions`, backed by `session_projection`
 
+Tool input schemas are kept compatible with OpenAI's MCP/function import path:
+the top-level schema is always an object and does not use top-level union or
+composition keywords such as `anyOf`, `oneOf`, `allOf`, `enum`, or `not`.
+The advertised schema should stay simple and match the IDs returned by Beacon
+tools.
+
 The MCP server uses the same database tables as the web UI. It does not run
-capture, migrations, or writes, except for search query logging performed by the
-shared searcher when available.
+capture, migrations, or writes. MCP searches skip query logging so the tool
+surface remains read-only.
 
 ## Ownership boundaries
 
