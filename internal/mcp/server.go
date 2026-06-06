@@ -267,17 +267,6 @@ func (s *Server) handleToolsCall(ctx context.Context, req *jsonRPCRequest) *json
 	}
 }
 
-func writeJSONRPC(w *bufio.Writer, resp *jsonRPCResponse) error {
-	data, err := marshalJSONRPC(resp)
-	if err != nil {
-		return err
-	}
-	if _, err := w.Write(data); err != nil {
-		return err
-	}
-	return w.Flush()
-}
-
 func marshalJSONRPC(resp *jsonRPCResponse) ([]byte, error) {
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -285,15 +274,4 @@ func marshalJSONRPC(resp *jsonRPCResponse) ([]byte, error) {
 	}
 	data = append(data, '\n')
 	return data, nil
-}
-
-func (s *Server) writeError(w *bufio.Writer, id json.RawMessage, code int, msg string) error {
-	if id == nil {
-		id = json.RawMessage("null")
-	}
-	return writeJSONRPC(w, &jsonRPCResponse{
-		JSONRPC: "2.0",
-		ID:      id,
-		Error:   &jsonRPCError{Code: code, Message: msg},
-	})
 }
