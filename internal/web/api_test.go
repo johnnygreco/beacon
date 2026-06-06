@@ -81,6 +81,9 @@ func TestDashboardSearch_TextQueryUsesSearchAndFormatsResults(t *testing.T) {
 	if fake.query.Query != "dashboard" || fake.query.Limit != 2 || fake.query.SessionID != "session" || fake.query.SortBy != "newest" {
 		t.Fatalf("unexpected query: %#v", fake.query)
 	}
+	if !fake.query.SkipQueryLog {
+		t.Fatal("dashboard search should skip persisted query logging")
+	}
 	if len(fake.query.EventKinds) != 1 || fake.query.EventKinds[0] != "tool_call" {
 		t.Fatalf("event kinds = %#v, want tool_call", fake.query.EventKinds)
 	}
@@ -162,6 +165,9 @@ func TestDashboardSearchSessionKindUsesEventSearcherForMatchingSessionIDs(t *tes
 	}
 	if fake.query.Query != "dashboard" || fake.query.Limit != completedSessionEventSearchLimit {
 		t.Fatalf("event session query = %#v, want dashboard query with completed session search limit", fake.query)
+	}
+	if !fake.query.SkipQueryLog {
+		t.Fatal("dashboard session search should skip persisted query logging")
 	}
 
 	var got APIDashboardSearchResponse
@@ -608,6 +614,9 @@ func TestCompletedSessionEventSearchSessionIDs_UsesSearchForMultiTokenQuery(t *t
 	}
 	if fake.query.Limit != completedSessionEventSearchLimit {
 		t.Fatalf("search limit = %d, want %d", fake.query.Limit, completedSessionEventSearchLimit)
+	}
+	if !fake.query.SkipQueryLog {
+		t.Fatal("completed session content search should skip persisted query logging")
 	}
 	expected := []string{"session-older-001", "session-completed-002"}
 	if fmt.Sprint(ids) != fmt.Sprint(expected) {
