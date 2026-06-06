@@ -108,8 +108,26 @@ func TestValidateLabPlanRejectsExternalLiveBenchmarks(t *testing.T) {
 		Database:     "beacon_perf_lab",
 		LiveDatabase: "beacon_perf_lab_bench",
 	})
-	if err == nil || !strings.Contains(err.Error(), "--base-url") {
+	if err == nil || !strings.Contains(err.Error(), "external") {
 		t.Fatalf("validateLabPlan error = %v, want external live refusal", err)
+	}
+}
+
+func TestValidateLabPlanRejectsSkipServeLiveBenchmarks(t *testing.T) {
+	err := validateLabPlan(labConfig{
+		SkipServe:    true,
+		Database:     "beacon_perf_lab",
+		LiveDatabase: "beacon_perf_lab_bench",
+	})
+	if err == nil || !strings.Contains(err.Error(), "--skip-serve") {
+		t.Fatalf("validateLabPlan error = %v, want skip-serve live refusal", err)
+	}
+}
+
+func TestExternalDatasetReportMarksDatabaseUnknown(t *testing.T) {
+	got := externalDatasetReport("small")
+	if got.Size != "small" || got.Database != "unknown" || got.Seeded {
+		t.Fatalf("externalDatasetReport = %#v, want unseeded unknown database", got)
 	}
 }
 

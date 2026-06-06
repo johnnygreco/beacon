@@ -184,18 +184,20 @@ func run(ctx context.Context, cfg labConfig) error {
 		GitRevision: gitOutput("rev-parse", "--short", "HEAD"),
 		GitBranch:   gitOutput("rev-parse", "--abbrev-ref", "HEAD"),
 		Environment: collectEnvironment(ctx),
-		Dataset: datasetReport{
-			Size:     cfg.Size,
-			Database: cfg.Database,
-		},
+		Dataset:     datasetReport{Size: cfg.Size, Database: cfg.Database},
 		Artifacts: map[string]string{
 			"json":     jsonPath,
 			"markdown": mdPath,
 			"browser":  browserPath,
 		},
 	}
-	if cfg.BaseURL != "" {
-		report.Server = serverReport{BaseURL: cfg.BaseURL, ExternalMode: true}
+	if cfg.BaseURL != "" || cfg.SkipServe {
+		baseURL := cfg.BaseURL
+		if baseURL == "" {
+			baseURL = fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)
+		}
+		report.Server = serverReport{BaseURL: baseURL, ExternalMode: true}
+		report.Dataset = externalDatasetReport(cfg.Size)
 	}
 
 	if err := validateLabPlan(cfg); err != nil {
@@ -228,6 +230,7 @@ func run(ctx context.Context, cfg labConfig) error {
 			cfg.BaseURL = fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)
 		}
 		report.Server = serverReport{BaseURL: cfg.BaseURL, ExternalMode: true}
+		report.Dataset = externalDatasetReport(cfg.Size)
 		if !cfg.SkipServe {
 			if err := waitForHTTP(ctx, cfg.BaseURL+"/health", 30*time.Second); err != nil {
 				report.Status = "fail"
@@ -301,8 +304,8 @@ func validateLabPlan(cfg labConfig) error {
 	if cfg.SkipLive {
 		return nil
 	}
-	if cfg.BaseURL != "" {
-		return errors.New("live benchmarks are disabled for --base-url runs; use --skip-live because the external server database cannot be verified")
+	if cfg.BaseURL != "" || cfg.SkipServe {
+		return errors.New("live benchmarks are disabled for external or --skip-serve runs; use --skip-live because the served database cannot be verified")
 	}
 	if err := validateLiveBenchmarkDatabaseName(cfg.LiveDatabase); err != nil {
 		return fmt.Errorf("live benchmark database: %w", err)
@@ -311,6 +314,10 @@ func validateLabPlan(cfg labConfig) error {
 		return fmt.Errorf("live benchmark database %q must differ from served database; use --live-database %s or --skip-live", cfg.LiveDatabase, defaultLiveBenchmarkDatabase(cfg.Database))
 	}
 	return nil
+}
+
+func externalDatasetReport(size string) datasetReport {
+	return datasetReport{Size: size, Database: "unknown"}
 }
 
 type commandRun struct {
