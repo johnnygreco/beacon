@@ -1,12 +1,28 @@
 # Performance baselines and query-plan review
 
 This page records the initial Beacon ClickHouse performance baseline for issue
-`#68` and documents the local regression process for query-heavy changes.
+`#68` and documents the local regression process for backend, browser, and
+query-heavy changes.
 
 Perf runs use the disposable `beacon_perf` database. Do not point
 `BEACON_TEST_CLICKHOUSE` at a database that contains user data.
 
 ## Repeatable process
+
+Run the fast non-ClickHouse backend benchmark suite:
+
+```bash
+make perf-fast
+```
+
+`make perf-fast` covers capture parsing and event normalization, batch row
+construction, search tokenization and index row construction, MCP formatting and
+fake dispatch, API model shaping and JSON serialization, and dashboard/chat view
+rendering. Filter by component with `PERF_FAST_BENCH`, for example:
+
+```bash
+PERF_FAST_BENCH='Benchmark(Capture|MCP)' make perf-fast
+```
 
 Start local ClickHouse once:
 
@@ -19,6 +35,10 @@ Capture benchmark timings:
 ```bash
 BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 PERF_SIZE=medium make perf-bench
 ```
+
+`make perf-bench` runs the live ClickHouse query/API suite, including MCP
+`search_sessions`, `open`, and `list_sessions` tool flows through JSON-RPC
+dispatch.
 
 Capture ClickHouse plans for representative dashboard, search, transcript, and
 MCP queries:

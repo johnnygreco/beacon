@@ -1,15 +1,19 @@
 package perf_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/johnnygreco/beacon/internal/mcp"
 	"github.com/johnnygreco/beacon/internal/perf"
 	"github.com/johnnygreco/beacon/internal/search"
 	"github.com/johnnygreco/beacon/internal/store"
@@ -222,5 +226,93 @@ func BenchmarkAPIDashboardJSON(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+func BenchmarkMCPToolSearchSessions(b *testing.B) {
+	ch := requirePerfStore(b)
+	ctx := context.Background()
+	searcher := search.NewSearcher(ch.DB, benchLogger, 25, 0)
+	searcher.MonitorIndex(ctx)
+	srv := mcp.NewServer(ch.DB, searcher, benchLogger)
+	request := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_sessions","arguments":{"query":"binary search","limit":25,"session_id":null,"event_kinds":null}}}` + "\n"
+
+	assertMCPBenchResponse(b, ctx, srv, request, "beacon.mcp.search_sessions.v1")
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := runMCPBenchRequest(ctx, srv, request); err != nil {
+			b.Fatalf("mcp search_sessions: %v", err)
+		}
+	}
+}
+
+func BenchmarkMCPToolOpen(b *testing.B) {
+	ch := requirePerfStore(b)
+	ctx := context.Background()
+	searcher := search.NewSearcher(ch.DB, benchLogger, 25, 0)
+	srv := mcp.NewServer(ch.DB, searcher, benchLogger)
+	eventID := "event:" + perf.EventUIDForBench(0, 8)
+	request := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"open","arguments":{"event_id":%q,"before":3,"after":3}}}`+"\n", eventID)
+
+	assertMCPBenchResponse(b, ctx, srv, request, "beacon.mcp.open.v1")
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := runMCPBenchRequest(ctx, srv, request); err != nil {
+			b.Fatalf("mcp open: %v", err)
+		}
+	}
+}
+
+func BenchmarkMCPToolListSessions(b *testing.B) {
+	ch := requirePerfStore(b)
+	ctx := context.Background()
+	searcher := search.NewSearcher(ch.DB, benchLogger, 25, 0)
+	srv := mcp.NewServer(ch.DB, searcher, benchLogger)
+	since := time.Now().Add(-7 * 24 * time.Hour).Format(time.RFC3339)
+	request := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_sessions","arguments":{"limit":20,"since":%q}}}`+"\n", since)
+
+	assertMCPBenchResponse(b, ctx, srv, request, "beacon.mcp.list_sessions.v1")
+	b.ResetTimer()
+	for b.Loop() {
+		if _, err := runMCPBenchRequest(ctx, srv, request); err != nil {
+			b.Fatalf("mcp list_sessions: %v", err)
+		}
+	}
+}
+
+func runMCPBenchRequest(ctx context.Context, srv *mcp.Server, request string) ([]byte, error) {
+	return srv.HandleJSONRPC(ctx, []byte(request))
+}
+
+func assertMCPBenchResponse(b *testing.B, ctx context.Context, srv *mcp.Server, request, schema string) {
+	b.Helper()
+	body, err := runMCPBenchRequest(ctx, srv, request)
+	if err != nil {
+		b.Fatalf("mcp request failed: %v", err)
+	}
+	var resp struct {
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+		Result struct {
+			Content []struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"content"`
+			IsError bool `json:"isError"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(bytes.TrimSpace(body), &resp); err != nil {
+		b.Fatalf("decode mcp response %q: %v", string(body), err)
+	}
+	if resp.Error != nil {
+		b.Fatalf("mcp json-rpc error: %+v", resp.Error)
+	}
+	if resp.Result.IsError {
+		b.Fatalf("mcp tool returned error: %s", string(body))
+	}
+	if len(resp.Result.Content) != 1 || resp.Result.Content[0].Type != "text" || !strings.Contains(resp.Result.Content[0].Text, schema) {
+		b.Fatalf("mcp response missing schema %q: %s", schema, string(body))
 	}
 }

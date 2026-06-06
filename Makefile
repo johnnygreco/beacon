@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build install-local run generate generate-check clean clean-local clean-deps simulator publish test test-race test-cover perf-bench perf-explain perf-browser fmt fmt-check lint
+.PHONY: help build install-local run generate generate-check clean clean-local clean-deps simulator publish test test-race test-cover perf-fast perf-bench perf-explain perf-browser fmt fmt-check lint
 
 GO_PACKAGE_DIRS = $(shell go list -f '{{.Dir}}' ./... | grep -v '/node_modules/')
 GO_PACKAGES = $(patsubst $(CURDIR)%,.%,$(GO_PACKAGE_DIRS))
@@ -56,6 +56,14 @@ test-cover: generate ## Run tests with coverage report and threshold checks
 	go test -race -coverprofile=coverage.txt $(GO_PACKAGES)
 	go tool cover -func=coverage.txt | tail -1
 	./scripts/check-coverage.sh coverage.txt
+
+perf-fast: ## Run fast non-ClickHouse backend benchmarks
+	@PERF_FAST_BENCH=$${PERF_FAST_BENCH:-.} && \
+	PERF_FAST_BENCHTIME=$${PERF_FAST_BENCHTIME:-1s} && \
+	PERF_FAST_COUNT=$${PERF_FAST_COUNT:-1} && \
+	echo "=== Beacon Fast Perf Bench (bench=$$PERF_FAST_BENCH, benchtime=$$PERF_FAST_BENCHTIME, count=$$PERF_FAST_COUNT, rev=$$(git rev-parse --short HEAD)) ===" && \
+	go test -run '^$$' -bench=$$PERF_FAST_BENCH -benchtime=$$PERF_FAST_BENCHTIME -benchmem -count=$$PERF_FAST_COUNT -timeout=10m \
+		./internal/capture ./internal/store ./internal/textindex ./internal/mcp ./internal/web ./internal/views/pages ./internal/views/components
 
 perf-bench: ## Run perf benchmarks (PERF_SIZE=small|medium|large)
 	@PERF_SIZE=$${PERF_SIZE:-medium} && \
