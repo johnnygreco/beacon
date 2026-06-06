@@ -102,6 +102,17 @@ func TestValidateLabPlanRejectsSharedLiveDatabase(t *testing.T) {
 	}
 }
 
+func TestValidateLabPlanRejectsExternalLiveBenchmarks(t *testing.T) {
+	err := validateLabPlan(labConfig{
+		BaseURL:      "http://127.0.0.1:4600",
+		Database:     "beacon_perf_lab",
+		LiveDatabase: "beacon_perf_lab_bench",
+	})
+	if err == nil || !strings.Contains(err.Error(), "--base-url") {
+		t.Fatalf("validateLabPlan error = %v, want external live refusal", err)
+	}
+}
+
 func TestLabServerEnvIsolatesHome(t *testing.T) {
 	got := labServerEnv([]string{
 		"PATH=/bin",
@@ -119,6 +130,21 @@ func TestLabServerEnvIsolatesHome(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("labServerEnv missing %q in %#v", want, got)
 		}
+	}
+}
+
+func TestSeedPerfDatabaseOmitsLiveDatabaseWhenSkipped(t *testing.T) {
+	report, err := seedPerfDatabase(context.Background(), labConfig{
+		Database:   "beacon",
+		Size:       "small",
+		ClickHouse: "127.0.0.1:1",
+		SkipLive:   true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "refusing to reset database") {
+		t.Fatalf("seedPerfDatabase error = %v, want unsafe reset refusal", err)
+	}
+	if report.LiveBenchDatabase != "" {
+		t.Fatalf("LiveBenchDatabase = %q, want empty when live is skipped", report.LiveBenchDatabase)
 	}
 }
 

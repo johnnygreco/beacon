@@ -185,15 +185,17 @@ func run(ctx context.Context, cfg labConfig) error {
 		GitBranch:   gitOutput("rev-parse", "--abbrev-ref", "HEAD"),
 		Environment: collectEnvironment(ctx),
 		Dataset: datasetReport{
-			Size:              cfg.Size,
-			Database:          cfg.Database,
-			LiveBenchDatabase: cfg.LiveDatabase,
+			Size:     cfg.Size,
+			Database: cfg.Database,
 		},
 		Artifacts: map[string]string{
 			"json":     jsonPath,
 			"markdown": mdPath,
 			"browser":  browserPath,
 		},
+	}
+	if cfg.BaseURL != "" {
+		report.Server = serverReport{BaseURL: cfg.BaseURL, ExternalMode: true}
 	}
 
 	if err := validateLabPlan(cfg); err != nil {
@@ -299,6 +301,9 @@ func validateLabPlan(cfg labConfig) error {
 	if cfg.SkipLive {
 		return nil
 	}
+	if cfg.BaseURL != "" {
+		return errors.New("live benchmarks are disabled for --base-url runs; use --skip-live because the external server database cannot be verified")
+	}
 	if err := validateLiveBenchmarkDatabaseName(cfg.LiveDatabase); err != nil {
 		return fmt.Errorf("live benchmark database: %w", err)
 	}
@@ -374,7 +379,10 @@ func fastBenchmarkPackages() []string {
 }
 
 func seedPerfDatabase(ctx context.Context, cfg labConfig) (datasetReport, error) {
-	report := datasetReport{Size: cfg.Size, Database: cfg.Database, LiveBenchDatabase: cfg.LiveDatabase}
+	report := datasetReport{Size: cfg.Size, Database: cfg.Database}
+	if !cfg.SkipLive {
+		report.LiveBenchDatabase = cfg.LiveDatabase
+	}
 	if err := validateLabDatabaseName(cfg.Database, cfg.AllowUnsafeReset); err != nil {
 		return report, err
 	}
