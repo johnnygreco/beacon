@@ -276,6 +276,7 @@ make test           # generate templates and run Go tests
 make test-race      # run Go tests with the race detector
 make test-cover     # run Go tests with race, coverage, and coverage floors
 make perf-bench     # run perf benchmarks; set PERF_SIZE=small|medium|large
+make perf-browser   # run browser perf measurements; set BEACON_BROWSER_PERF_* as needed
 make clean          # remove build/test outputs such as bin, dist, coverage, and reports
 make clean-local    # also remove ignored repo-local scratch/agent dirs and local DB files
 make clean-deps     # remove node_modules
@@ -283,6 +284,7 @@ npm install         # install Playwright and asset-vendoring dependencies
 npm run vendor       # refresh vendored frontend assets
 npm run vendor:check # verify vendored frontend assets and notices are current
 npm run test:frontend # JS lint and unit tests
+npm run test:perf:browser # browser page-load, search, and responsiveness measurements
 npm run test:e2e    # dashboard and integrated search Playwright tests
 npm run test:e2e:search # focused dashboard search Playwright tests
 npm run test:a11y   # accessibility tests
