@@ -14,6 +14,7 @@ var currentSearchSessionID = '';
 var currentSearchSort = 'relevance';
 var currentSearchLimit = 30;
 var dashboardSearchTimer = 0;
+var dashboardSearchDebounceDelayMS = 100;
 var completedPageSize = 30;
 var sortColumn = 'ended';
 var sortAsc = false;

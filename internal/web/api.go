@@ -214,9 +214,10 @@ func (a *APIHandlers) completedSessionContentSearchSessionIDs(ctx context.Contex
 	var firstErr error
 	if a.searcher != nil {
 		sq := search.SearchQuery{
-			Query:     query,
-			Limit:     completedSessionEventSearchLimit,
-			SessionID: sessionIDPrefix,
+			Query:        query,
+			Limit:        completedSessionEventSearchLimit,
+			SessionID:    sessionIDPrefix,
+			SkipQueryLog: true,
 		}
 		if t := parseRange(rangeVal); t != nil {
 			sq.FromTime = *t
@@ -309,11 +310,12 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 	seenSessions := make(map[string]struct{})
 	if req.EventKind != "session" {
 		sq := search.SearchQuery{
-			Query:      req.Query,
-			Limit:      req.Limit + 1,
-			SessionID:  req.SessionID,
-			EventKinds: dashboardSearchEventKinds(req.EventKind),
-			SortBy:     req.SortBy,
+			Query:        req.Query,
+			Limit:        req.Limit + 1,
+			SessionID:    req.SessionID,
+			EventKinds:   dashboardSearchEventKinds(req.EventKind),
+			SortBy:       req.SortBy,
+			SkipQueryLog: true,
 		}
 		if t := parseRange(req.Range); t != nil {
 			sq.FromTime = *t

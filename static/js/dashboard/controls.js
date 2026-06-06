@@ -256,7 +256,7 @@ document.addEventListener('click', function(evt) {
 		dashboardSearchTimer = setTimeout(function() {
 			dashboardSearchTimer = 0;
 			loadCompletedSessions(0);
-		}, 250);
+		}, dashboardSearchDebounceDelayMS);
 	}
 	function syncSearchControls() {
 		if (searchInput && searchInput.value.trim() !== currentSearchQuery) searchInput.value = currentSearchQuery;
