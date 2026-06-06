@@ -2,12 +2,24 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestMain(m *testing.M) {
+	if os.Getenv("BEACON_PERFLAB_LONG_OUTPUT_HELPER") == "1" {
+		fmt.Println("pkg: github.com/johnnygreco/beacon/cmd/perflab")
+		fmt.Println("BenchmarkEarlyRecord-10    \t       1\t         1.0 ns/op\t       0 B/op\t       0 allocs/op")
+		fmt.Print(strings.Repeat("x", 21000))
+		os.Exit(0)
+	}
+	os.Exit(m.Run())
+}
 
 func TestParseBenchmarks(t *testing.T) {
 	output := strings.Join([]string{
@@ -30,6 +42,20 @@ func TestParseBenchmarks(t *testing.T) {
 	}
 }
 
+func TestRunCommandKeepsRawOutputForParsing(t *testing.T) {
+	result := runCommand(context.Background(), "long-output", os.Args[0], nil, []string{"BEACON_PERFLAB_LONG_OUTPUT_HELPER=1"})
+	if result.Err != nil {
+		t.Fatalf("runCommand error = %v", result.Err)
+	}
+	if strings.Contains(result.Command.OutputTail, "BenchmarkEarlyRecord") {
+		t.Fatalf("OutputTail unexpectedly retained early benchmark line")
+	}
+	got := parseBenchmarks(result.Output, "fast")
+	if len(got) != 1 || got[0].Name != "BenchmarkEarlyRecord" {
+		t.Fatalf("parse raw output = %#v, want BenchmarkEarlyRecord", got)
+	}
+}
+
 func TestSeedPerfDatabaseRefusesUnsafeDatabaseName(t *testing.T) {
 	_, err := seedPerfDatabase(context.Background(), labConfig{
 		Database:   "beacon",
@@ -38,6 +64,31 @@ func TestSeedPerfDatabaseRefusesUnsafeDatabaseName(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "refusing to reset database") {
 		t.Fatalf("seedPerfDatabase error = %v, want unsafe reset refusal", err)
+	}
+}
+
+func TestDefaultLiveBenchmarkDatabase(t *testing.T) {
+	tests := []struct {
+		name     string
+		database string
+		want     string
+	}{
+		{name: "safe lab database", database: "beacon_perf_lab", want: "beacon_perf_lab_bench"},
+		{name: "unsafe explicit app database", database: "custom_lab", want: "beacon_perf_lab_bench"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := defaultLiveBenchmarkDatabase(tt.database); got != tt.want {
+				t.Fatalf("defaultLiveBenchmarkDatabase(%q) = %q, want %q", tt.database, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestValidateLiveBenchmarkDatabaseNameRequiresSafePrefix(t *testing.T) {
+	err := validateLiveBenchmarkDatabaseName("custom_lab")
+	if err == nil || !strings.Contains(err.Error(), "live benchmark database") {
+		t.Fatalf("validateLiveBenchmarkDatabaseName error = %v, want live database refusal", err)
 	}
 }
 
@@ -70,13 +121,14 @@ func TestMarkdownReportIncludesCoreSections(t *testing.T) {
 		GitRevision: "abc123",
 		GitBranch:   "main",
 		Dataset: datasetReport{
-			Size:     "small",
-			Database: "beacon_perf_lab",
-			Seeded:   true,
-			Sessions: 250,
-			Events:   22954,
-			Payloads: 14784,
-			Duration: "500ms",
+			Size:              "small",
+			Database:          "beacon_perf_lab",
+			LiveBenchDatabase: "beacon_perf_lab_bench",
+			Seeded:            true,
+			Sessions:          250,
+			Events:            22954,
+			Payloads:          14784,
+			Duration:          "500ms",
 		},
 		Server: serverReport{BaseURL: "http://127.0.0.1:4611", Started: true},
 		Commands: []commandReport{{
@@ -104,7 +156,7 @@ func TestMarkdownReportIncludesCoreSections(t *testing.T) {
 	}
 
 	got := markdownReport(report)
-	for _, want := range []string{"# Beacon Performance Lab", "## Commands", "## Go Benchmarks", "## Browser Summary", "Iterations", "Samples", "beacon_perf_lab"} {
+	for _, want := range []string{"# Beacon Performance Lab", "## Commands", "## Go Benchmarks", "## Browser Summary", "Iterations", "Samples", "beacon_perf_lab", "beacon_perf_lab_bench"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("markdown report missing %q:\n%s", want, got)
 		}

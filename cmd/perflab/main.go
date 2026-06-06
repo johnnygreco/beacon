@@ -32,6 +32,7 @@ type labConfig struct {
 	Port             int
 	BaseURL          string
 	BeaconBin        string
+	LiveDatabase     string
 	FastBench        string
 	FastBenchtime    string
 	LiveBench        string
@@ -69,14 +70,15 @@ type environmentReport struct {
 }
 
 type datasetReport struct {
-	Size      string `json:"size"`
-	Database  string `json:"database"`
-	Sessions  int    `json:"sessions,omitempty"`
-	Events    int    `json:"events,omitempty"`
-	Payloads  int    `json:"payloads,omitempty"`
-	Duration  string `json:"duration,omitempty"`
-	Seeded    bool   `json:"seeded"`
-	SeedError string `json:"seed_error,omitempty"`
+	Size              string `json:"size"`
+	Database          string `json:"database"`
+	LiveBenchDatabase string `json:"live_benchmark_database,omitempty"`
+	Sessions          int    `json:"sessions,omitempty"`
+	Events            int    `json:"events,omitempty"`
+	Payloads          int    `json:"payloads,omitempty"`
+	Duration          string `json:"duration,omitempty"`
+	Seeded            bool   `json:"seeded"`
+	SeedError         string `json:"seed_error,omitempty"`
 }
 
 type serverReport struct {
@@ -146,7 +148,8 @@ func parseFlags() labConfig {
 	flag.StringVar(&cfg.Database, "database", envString("PERF_LAB_DATABASE", "beacon_perf_lab"), "Disposable ClickHouse database for the served lab app")
 	flag.IntVar(&cfg.Port, "port", envInt("PERF_LAB_PORT", 4611), "Port for a lab-started Beacon server")
 	flag.StringVar(&cfg.BaseURL, "base-url", os.Getenv("PERF_LAB_BASE_URL"), "Already-running Beacon base URL; skips local serve when set")
-	flag.StringVar(&cfg.BeaconBin, "beacon-bin", os.Getenv("PERF_LAB_BEACON_BIN"), "Beacon binary used for local serve; defaults to go run ./cmd/beacon")
+	flag.StringVar(&cfg.BeaconBin, "beacon-bin", os.Getenv("PERF_LAB_BEACON_BIN"), "Beacon binary used for local serve; defaults to a temporary workspace build")
+	flag.StringVar(&cfg.LiveDatabase, "live-database", os.Getenv("PERF_LAB_LIVE_DATABASE"), "Disposable ClickHouse database for live benchmarks")
 	flag.StringVar(&cfg.FastBench, "fast-bench", envString("PERF_LAB_FAST_BENCH", "."), "Regex for fast non-ClickHouse Go benchmarks")
 	flag.StringVar(&cfg.FastBenchtime, "fast-benchtime", envString("PERF_LAB_FAST_BENCHTIME", "100ms"), "Benchtime for fast Go benchmarks")
 	flag.StringVar(&cfg.LiveBench, "live-bench", envString("PERF_LAB_LIVE_BENCH", "Benchmark(SearchBM25|SearchKeyword|SearchBrowse|MCPTool)"), "Regex for live ClickHouse benchmarks")
@@ -158,10 +161,11 @@ func parseFlags() labConfig {
 	flag.BoolVar(&cfg.SkipServe, "skip-serve", envBool("PERF_LAB_SKIP_SERVE", false), "Skip seeding and starting a local Beacon server")
 	flag.BoolVar(&cfg.AllowUnsafeReset, "allow-unsafe-database-reset", false, "Allow resetting a database not prefixed with beacon_perf")
 	flag.Parse()
-	return cfg
+	return normalizeLabConfig(cfg)
 }
 
 func run(ctx context.Context, cfg labConfig) error {
+	cfg = normalizeLabConfig(cfg)
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Minute)
 	defer cancel()
 
@@ -180,8 +184,9 @@ func run(ctx context.Context, cfg labConfig) error {
 		GitBranch:   gitOutput("rev-parse", "--abbrev-ref", "HEAD"),
 		Environment: collectEnvironment(ctx),
 		Dataset: datasetReport{
-			Size:     cfg.Size,
-			Database: cfg.Database,
+			Size:              cfg.Size,
+			Database:          cfg.Database,
+			LiveBenchDatabase: cfg.LiveDatabase,
 		},
 		Artifacts: map[string]string{
 			"json":     jsonPath,
@@ -228,17 +233,21 @@ func run(ctx context.Context, cfg labConfig) error {
 	if !cfg.SkipFast {
 		result := runGoBenchmarks(ctx, "fast-go-benchmarks", cfg.FastBench, cfg.FastBenchtime, fastBenchmarkPackages(), nil)
 		report.Commands = append(report.Commands, result.Command)
-		report.GoBenchmarks = append(report.GoBenchmarks, parseBenchmarks(result.Command.OutputTail, "fast")...)
+		report.GoBenchmarks = append(report.GoBenchmarks, parseBenchmarks(result.Output, "fast")...)
 		if result.Err != nil {
 			report.Status = "fail"
 		}
 	}
 
 	if !cfg.SkipLive {
-		env := []string{"BEACON_TEST_CLICKHOUSE=" + cfg.ClickHouse, "BEACON_PERF_DATABASE=" + cfg.Database, "PERF_SIZE=" + cfg.Size}
+		if err := validateLiveBenchmarkDatabaseName(cfg.LiveDatabase); err != nil {
+			report.Status = "fail"
+			return writeReportAndError(report, jsonPath, mdPath, fmt.Errorf("live benchmark database: %w", err))
+		}
+		env := []string{"BEACON_TEST_CLICKHOUSE=" + cfg.ClickHouse, "BEACON_PERF_DATABASE=" + cfg.LiveDatabase, "PERF_SIZE=" + cfg.Size}
 		result := runGoBenchmarks(ctx, "live-clickhouse-benchmarks", cfg.LiveBench, cfg.LiveBenchtime, []string{"./internal/perf"}, env)
 		report.Commands = append(report.Commands, result.Command)
-		report.GoBenchmarks = append(report.GoBenchmarks, parseBenchmarks(result.Command.OutputTail, "live")...)
+		report.GoBenchmarks = append(report.GoBenchmarks, parseBenchmarks(result.Output, "live")...)
 		if result.Err != nil {
 			report.Status = "fail"
 		}
@@ -276,8 +285,17 @@ func run(ctx context.Context, cfg labConfig) error {
 	return nil
 }
 
+func normalizeLabConfig(cfg labConfig) labConfig {
+	cfg.LiveDatabase = strings.TrimSpace(cfg.LiveDatabase)
+	if cfg.LiveDatabase == "" {
+		cfg.LiveDatabase = defaultLiveBenchmarkDatabase(cfg.Database)
+	}
+	return cfg
+}
+
 type commandRun struct {
 	Command commandReport
+	Output  string
 	Err     error
 }
 
@@ -323,7 +341,8 @@ func runCommand(ctx context.Context, name, executable string, args, extraEnv []s
 			ExitCode:   exitCode,
 			OutputTail: tailString(string(out), 20000),
 		},
-		Err: err,
+		Output: string(out),
+		Err:    err,
 	}
 }
 
@@ -340,7 +359,7 @@ func fastBenchmarkPackages() []string {
 }
 
 func seedPerfDatabase(ctx context.Context, cfg labConfig) (datasetReport, error) {
-	report := datasetReport{Size: cfg.Size, Database: cfg.Database}
+	report := datasetReport{Size: cfg.Size, Database: cfg.Database, LiveBenchDatabase: cfg.LiveDatabase}
 	if err := validateLabDatabaseName(cfg.Database, cfg.AllowUnsafeReset); err != nil {
 		return report, err
 	}
@@ -391,7 +410,10 @@ func startLabServer(ctx context.Context, cfg labConfig) (serverReport, *labServe
 		return serverReport{BaseURL: baseURL, ConfigPath: configPath, LogPath: logPath}, nil, err
 	}
 
-	cmd, commandText := beaconServerCommand(cfg.BeaconBin, configPath)
+	cmd, commandText, err := beaconServerCommand(ctx, cfg, configPath)
+	if err != nil {
+		return serverReport{BaseURL: baseURL, ConfigPath: configPath, LogPath: logPath}, nil, err
+	}
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		return serverReport{BaseURL: baseURL, ConfigPath: configPath, LogPath: logPath}, nil, err
@@ -418,13 +440,30 @@ func startLabServer(ctx context.Context, cfg labConfig) (serverReport, *labServe
 	return report, proc, nil
 }
 
-func beaconServerCommand(beaconBin, configPath string) (*exec.Cmd, string) {
-	if strings.TrimSpace(beaconBin) != "" {
+func beaconServerCommand(ctx context.Context, cfg labConfig, configPath string) (*exec.Cmd, string, error) {
+	if beaconBin := strings.TrimSpace(cfg.BeaconBin); beaconBin != "" {
 		args := []string{"--config", configPath, "up"}
-		return exec.Command(beaconBin, args...), shellCommand(beaconBin, args)
+		return exec.Command(beaconBin, args...), shellCommand(beaconBin, args), nil
 	}
-	args := []string{"run", "./cmd/beacon", "--config", configPath, "up"}
-	return exec.Command("go", args...), shellCommand("go", args)
+	beaconBin, err := buildLabBeaconBinary(ctx, cfg.OutputDir)
+	if err != nil {
+		return nil, "", err
+	}
+	args := []string{"--config", configPath, "up"}
+	return exec.Command(beaconBin, args...), shellCommand(beaconBin, args), nil
+}
+
+func buildLabBeaconBinary(ctx context.Context, outputDir string) (string, error) {
+	beaconBin := filepath.Join(outputDir, "beacon-perf-lab-server")
+	if runtime.GOOS == "windows" {
+		beaconBin += ".exe"
+	}
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", beaconBin, "./cmd/beacon")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("build lab beacon binary: %w\n%s", err, tailString(string(out), 4000))
+	}
+	return beaconBin, nil
 }
 
 func writeLabConfig(path string, cfg labConfig) error {
@@ -533,12 +572,29 @@ func labServerExitedError(err error) error {
 var validLabDatabase = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var safeLabDatabase = regexp.MustCompile(`^beacon_perf[A-Za-z0-9_]*$`)
 
+func defaultLiveBenchmarkDatabase(database string) string {
+	if safeLabDatabase.MatchString(database) {
+		return database + "_bench"
+	}
+	return "beacon_perf_lab_bench"
+}
+
 func validateLabDatabaseName(database string, allowUnsafe bool) error {
 	if !validLabDatabase.MatchString(database) {
 		return fmt.Errorf("refusing to reset invalid database name %q; use an identifier containing only letters, numbers, and underscores", database)
 	}
 	if !allowUnsafe && !safeLabDatabase.MatchString(database) {
 		return fmt.Errorf("refusing to reset database %q; use a beacon_perf* database or --allow-unsafe-database-reset", database)
+	}
+	return nil
+}
+
+func validateLiveBenchmarkDatabaseName(database string) error {
+	if !validLabDatabase.MatchString(database) {
+		return fmt.Errorf("refusing to reset invalid database name %q; use an identifier containing only letters, numbers, and underscores", database)
+	}
+	if !safeLabDatabase.MatchString(database) {
+		return fmt.Errorf("refusing to reset live benchmark database %q; use a beacon_perf* database or --skip-live", database)
 	}
 	return nil
 }
@@ -662,6 +718,9 @@ func markdownReport(report labReport) string {
 		fmt.Fprintf(&b, " (%d sessions, %d events, %d payloads, seed %s)", report.Dataset.Sessions, report.Dataset.Events, report.Dataset.Payloads, report.Dataset.Duration)
 	}
 	fmt.Fprintf(&b, "\n")
+	if report.Dataset.LiveBenchDatabase != "" {
+		fmt.Fprintf(&b, "- Live benchmark database: `%s`\n", report.Dataset.LiveBenchDatabase)
+	}
 	fmt.Fprintf(&b, "- Server: %s", report.Server.BaseURL)
 	if report.Server.Started {
 		fmt.Fprintf(&b, " (started locally)")

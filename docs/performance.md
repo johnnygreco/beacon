@@ -46,7 +46,9 @@ ClickHouse with `go run ./cmd/beacon db up`, or point the lab at an existing
 instance with `PERF_LAB_CLICKHOUSE` / `--clickhouse`. The runner refuses invalid
 database identifiers and refuses to reset databases whose names do not start
 with `beacon_perf` unless `--allow-unsafe-database-reset` is passed. Keep the
-default database for PR smoke runs.
+default database for PR smoke runs. Live benchmarks use a separate disposable
+database by default (`<served-database>_bench`) so they can reset and seed
+without disturbing the dashboard server.
 
 Useful lab controls:
 
@@ -54,7 +56,8 @@ Useful lab controls:
 | --- | --- | --- |
 | `PERF_LAB_SIZE`, `--size` | `small` | Synthetic dataset size for the served lab app and live benchmarks. |
 | `PERF_LAB_CLICKHOUSE`, `--clickhouse` | `127.0.0.1:9000` | ClickHouse address used for seeding and live benchmarks. |
-| `PERF_LAB_DATABASE`, `--database` | `beacon_perf_lab` | Disposable ClickHouse database for the lab app and live benchmarks. |
+| `PERF_LAB_DATABASE`, `--database` | `beacon_perf_lab` | Disposable ClickHouse database for the served lab app. |
+| `PERF_LAB_LIVE_DATABASE`, `--live-database` | `<database>_bench` | Disposable ClickHouse database reset by live benchmarks. Must use a `beacon_perf*` name. |
 | `PERF_LAB_OUTPUT_DIR`, `--output-dir` | `test-results/perf/lab/latest` | Report directory. |
 | `PERF_LAB_BASE_URL`, `--base-url` | unset | Use an already-running Beacon server instead of starting one. |
 | `PERF_LAB_ARGS` | unset | Extra arguments passed by `make perf-lab-smoke` or `make perf-lab`. |

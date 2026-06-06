@@ -341,7 +341,8 @@ the workspace binary, seeds a disposable `beacon_perf_lab` ClickHouse database,
 serves Beacon locally, runs fast/live backend benchmark slices, drives browser
 performance against the served dashboard, and writes reports under
 `test-results/perf/lab/latest/`. Start ClickHouse first with `beacon db up`, or
-set `PERF_LAB_CLICKHOUSE` / `--clickhouse` for another address. Set
+set `PERF_LAB_CLICKHOUSE` / `--clickhouse` for another address. Live benchmarks
+reset a separate disposable `beacon_perf_lab_bench` database by default. Set
 `PERF_LAB_ARGS` for options such as `--base-url`, `--skip-browser`, or
 `--output-dir`.
 
