@@ -108,6 +108,16 @@ func changedSessionIDs(events []NormalizedEvent) []string {
 func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 	start := time.Now()
 
+	batch := buildInsertRowBatch(events, b.defaultInput, b.defaultOutput)
+
+	if err := b.store.Flush(ctx, batch); err != nil {
+		b.logger.Error("clickhouse flush failed", "error", err, "rows", len(events))
+		return
+	}
+	b.logger.Debug("flushInserts complete", "rows", len(events), "duration", time.Since(start))
+}
+
+func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput float64) store.RowBatch {
 	var batch store.RowBatch
 	eventOrdinals := make(map[string]int, len(events))
 
@@ -117,15 +127,12 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 		eventOrdinals[ordinalKey] = ordinal + 1
 		uid := eventUID(evt.SourceFile, evt.SourceLineNo, evt.SourceOffset, evt.SourceGeneration, evt.RawPayload, ordinal)
 
-		// Calculate cost if not provided
 		cost := evt.CostUSD
 		if cost == 0 && (evt.InputTokens > 0 || evt.OutputTokens > 0) {
-			cost = CalcCost(evt.Model, evt.InputTokens, evt.OutputTokens, b.defaultInput, b.defaultOutput)
+			cost = CalcCost(evt.Model, evt.InputTokens, evt.OutputTokens, defaultInput, defaultOutput)
 		}
 
-		// Build text preview
 		preview := truncate(evt.TextContent, previewMaxLen)
-
 		event := &models.Event{
 			EventUID:          uid,
 			SessionID:         evt.SessionID,
@@ -163,7 +170,6 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(*event))
 		batch.ActivityEvents = append(batch.ActivityEvents, *event)
 
-		// Insert event links if parent UUID exists
 		if evt.ParentUUID != "" {
 			batch.EventLinks = append(batch.EventLinks, models.EventLink{
 				EventUID:       uid,
@@ -172,7 +178,6 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 			})
 		}
 
-		// Insert tool payload for tool_call/tool_result
 		if evt.ToolPhase != "" && (evt.ToolInput != "" || evt.ToolOutput != "") {
 			payload := models.ToolPayload{
 				EventUID:      uid,
@@ -186,12 +191,7 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
 			batch.ToolPayloads = append(batch.ToolPayloads, payload)
 		}
 	}
-
-	if err := b.store.Flush(ctx, batch); err != nil {
-		b.logger.Error("clickhouse flush failed", "error", err, "rows", len(events))
-		return
-	}
-	b.logger.Debug("flushInserts complete", "rows", len(events), "duration", time.Since(start))
+	return batch
 }
 
 // eventUID generates a deterministic UID for idempotent replay.

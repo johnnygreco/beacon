@@ -275,6 +275,7 @@ make fmt-check      # verify tracked Go files are gofmt formatted
 make test           # generate templates and run Go tests
 make test-race      # run Go tests with the race detector
 make test-cover     # run Go tests with race, coverage, and coverage floors
+make perf-fast      # run fast non-ClickHouse backend benchmarks
 make perf-bench     # run perf benchmarks; set PERF_SIZE=small|medium|large
 make perf-browser   # run browser perf measurements; set BEACON_BROWSER_PERF_* as needed
 make clean          # remove build/test outputs such as bin, dist, coverage, and reports
@@ -329,6 +330,10 @@ beacon db up
 BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/store ./internal/search ./internal/web
 BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/perf -bench . -run '^$'
 ```
+
+Use `make perf-fast` for deterministic backend benchmarks that do not require
+ClickHouse. It covers parser/normalizer, batch row building, search indexing,
+MCP formatting/dispatch, API serialization, and view rendering paths.
 
 Playwright tests require Node dependencies from `npm install` and a Chromium
 browser installed by Playwright. They start their own e2e server by default. To
