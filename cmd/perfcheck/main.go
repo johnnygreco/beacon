@@ -11,6 +11,8 @@ import (
 	"strings"
 )
 
+const reportSchema = "beacon.performance_lab.v1"
+
 type config struct {
 	reportPath         string
 	baselinePath       string
@@ -102,10 +104,7 @@ func run(cfg config) error {
 		return err
 	}
 
-	var results []checkResult
-	if report.Status != "pass" {
-		results = append(results, failf("report status is %q, want pass", report.Status))
-	}
+	results := validateLabReport("report", report)
 	results = append(results, checkBrowserBudgets(report, cfg.failOnMissing)...)
 	results = append(results, checkGoBudgets(report, cfg.failOnMissing)...)
 
@@ -114,6 +113,7 @@ func run(cfg config) error {
 		if err != nil {
 			return fmt.Errorf("read baseline: %w", err)
 		}
+		results = append(results, validateLabReport("baseline", baseline)...)
 		results = append(results, compareReports(report, baseline, cfg)...)
 	}
 
@@ -134,6 +134,17 @@ func readReport(path string) (*labReport, error) {
 		return nil, fmt.Errorf("parse report %s: %w", path, err)
 	}
 	return &report, nil
+}
+
+func validateLabReport(label string, report *labReport) []checkResult {
+	var results []checkResult
+	if report.Schema != reportSchema {
+		results = append(results, failf("%s schema is %q, want %q", label, report.Schema, reportSchema))
+	}
+	if report.Status != "pass" {
+		results = append(results, failf("%s status is %q, want pass", label, report.Status))
+	}
+	return results
 }
 
 func printResults(cfg config, report *labReport, results []checkResult) int {
@@ -201,7 +212,7 @@ func compareReports(current, baseline *labReport, cfg config) []checkResult {
 	results = append(results, compareBrowser(current, baseline, cfg)...)
 	results = append(results, compareGo(current, baseline, cfg)...)
 	if len(results) == 0 {
-		return []checkResult{warnf("comparison found no overlapping metrics")}
+		return []checkResult{failf("comparison found no overlapping metrics")}
 	}
 	return results
 }
@@ -383,10 +394,6 @@ func passf(format string, args ...any) checkResult {
 
 func failf(format string, args ...any) checkResult {
 	return checkResult{Status: "FAIL", Text: fmt.Sprintf(format, args...)}
-}
-
-func warnf(format string, args ...any) checkResult {
-	return checkResult{Status: "WARN", Text: fmt.Sprintf(format, args...)}
 }
 
 func unitSuffix(unit string) string {

@@ -105,10 +105,12 @@ make perf-compare
 ```
 
 `make perf-compare` checks the current report against budgets and flags material
-regressions for overlapping metrics. By default, a comparison must exceed both a
-25% ratio increase and the minimum absolute delta (`5ms` for browser millisecond
-metrics, `0.05ms/op` for Go benchmarks, `0.02` for layout-shift score, and `1`
-for counts). Tune with `PERF_CHECK_ARGS`, for example:
+regressions for overlapping metrics. Both reports must be passing perf lab JSON
+reports, and at least one metric must overlap. By default, a comparison must
+exceed both a 25% ratio increase and the minimum absolute delta (`5ms` for
+browser millisecond metrics, `0.05ms/op` for Go benchmarks, `0.02` for
+layout-shift score, and `1` for counts). Tune with `PERF_CHECK_ARGS`, for
+example:
 
 ```bash
 PERF_CHECK_ARGS='--max-regression-ratio=1.15 --min-browser-regression=10' make perf-compare

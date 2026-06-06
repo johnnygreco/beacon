@@ -50,6 +50,70 @@ func TestRunDetectsComparisonRegression(t *testing.T) {
 	}
 }
 
+func TestRunFailsFailedBaselineReport(t *testing.T) {
+	baseline := passingReport()
+	baseline.Status = "fail"
+	current := passingReport()
+
+	baselinePath := writeReport(t, baseline)
+	currentPath := writeReport(t, current)
+
+	err := run(config{
+		reportPath:         currentPath,
+		baselinePath:       baselinePath,
+		maxRegressionRatio: 1.25,
+		minBrowserDelta:    5,
+		minGoDeltaMS:       0.05,
+		failOnMissing:      true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "performance check") {
+		t.Fatalf("run() error = %v, want failed baseline failure", err)
+	}
+}
+
+func TestRunFailsInvalidBaselineSchema(t *testing.T) {
+	baseline := passingReport()
+	baseline.Schema = "beacon.browser_performance.v1"
+	current := passingReport()
+
+	baselinePath := writeReport(t, baseline)
+	currentPath := writeReport(t, current)
+
+	err := run(config{
+		reportPath:         currentPath,
+		baselinePath:       baselinePath,
+		maxRegressionRatio: 1.25,
+		minBrowserDelta:    5,
+		minGoDeltaMS:       0.05,
+		failOnMissing:      true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "performance check") {
+		t.Fatalf("run() error = %v, want invalid baseline schema failure", err)
+	}
+}
+
+func TestRunFailsNoOverlappingBaselineMetrics(t *testing.T) {
+	baseline := passingReport()
+	baseline.Browser.Summary = nil
+	baseline.GoBenchmarks = nil
+	current := passingReport()
+
+	baselinePath := writeReport(t, baseline)
+	currentPath := writeReport(t, current)
+
+	err := run(config{
+		reportPath:         currentPath,
+		baselinePath:       baselinePath,
+		maxRegressionRatio: 1.25,
+		minBrowserDelta:    5,
+		minGoDeltaMS:       0.05,
+		failOnMissing:      true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "performance check") {
+		t.Fatalf("run() error = %v, want no-overlap comparison failure", err)
+	}
+}
+
 func TestEnvFloatHelpers(t *testing.T) {
 	t.Setenv("PERF_RATIO", "0")
 	t.Setenv("PERF_DELTA", "0")
@@ -68,7 +132,7 @@ func TestEnvFloatHelpers(t *testing.T) {
 
 func passingReport() labReport {
 	report := labReport{
-		Schema:      "beacon.performance_lab.v1",
+		Schema:      reportSchema,
 		Status:      "pass",
 		GitRevision: "testrev",
 		GitBranch:   "test",
