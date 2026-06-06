@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseBenchmarks(t *testing.T) {
@@ -38,6 +41,28 @@ func TestSeedPerfDatabaseRefusesUnsafeDatabaseName(t *testing.T) {
 	}
 }
 
+func TestValidateLabDatabaseNameRefusesInvalidPerfPrefix(t *testing.T) {
+	err := validateLabDatabaseName("beacon_perf-lab", false)
+	if err == nil || !strings.Contains(err.Error(), "invalid database name") {
+		t.Fatalf("validateLabDatabaseName error = %v, want invalid database refusal", err)
+	}
+
+	err = validateLabDatabaseName("beacon_perf-lab", true)
+	if err == nil || !strings.Contains(err.Error(), "invalid database name") {
+		t.Fatalf("validateLabDatabaseName unsafe error = %v, want invalid database refusal", err)
+	}
+}
+
+func TestWaitForHTTPRejectsNotFound(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+
+	err := waitForHTTP(context.Background(), server.URL, 10*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "status 404") {
+		t.Fatalf("waitForHTTP error = %v, want 404 readiness failure", err)
+	}
+}
+
 func TestMarkdownReportIncludesCoreSections(t *testing.T) {
 	report := labReport{
 		Schema:      reportSchema,
@@ -62,6 +87,7 @@ func TestMarkdownReportIncludesCoreSections(t *testing.T) {
 		GoBenchmarks: []benchmarkReport{{
 			Source:       "fast",
 			Name:         "BenchmarkMCPDispatchSearchWithFakeResults",
+			Iterations:   89844,
 			Milliseconds: 0.013,
 			BytesPerOp:   31595,
 			AllocsPerOp:  117,
@@ -70,6 +96,7 @@ func TestMarkdownReportIncludesCoreSections(t *testing.T) {
 			Name:     "dashboard.cold_load.ready",
 			Viewport: "desktop",
 			Unit:     "ms",
+			Samples:  1,
 			Median:   120,
 			P95:      140,
 			Max:      140,
@@ -77,7 +104,7 @@ func TestMarkdownReportIncludesCoreSections(t *testing.T) {
 	}
 
 	got := markdownReport(report)
-	for _, want := range []string{"# Beacon Performance Lab", "## Commands", "## Go Benchmarks", "## Browser Summary", "beacon_perf_lab"} {
+	for _, want := range []string{"# Beacon Performance Lab", "## Commands", "## Go Benchmarks", "## Browser Summary", "Iterations", "Samples", "beacon_perf_lab"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("markdown report missing %q:\n%s", want, got)
 		}

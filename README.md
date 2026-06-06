@@ -340,8 +340,10 @@ Use `make perf-lab-smoke` for a cohesive local performance lab run. It installs
 the workspace binary, seeds a disposable `beacon_perf_lab` ClickHouse database,
 serves Beacon locally, runs fast/live backend benchmark slices, drives browser
 performance against the served dashboard, and writes reports under
-`test-results/perf/lab/latest/`. Set `PERF_LAB_ARGS` for options such as
-`--base-url`, `--skip-browser`, or `--output-dir`.
+`test-results/perf/lab/latest/`. Start ClickHouse first with `beacon db up`, or
+set `PERF_LAB_CLICKHOUSE` / `--clickhouse` for another address. Set
+`PERF_LAB_ARGS` for options such as `--base-url`, `--skip-browser`, or
+`--output-dir`.
 
 Playwright tests require Node dependencies from `npm install` and a Chromium
 browser installed by Playwright. They start their own e2e server by default. To

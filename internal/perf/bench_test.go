@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,8 @@ var (
 	sharedStore *store.Store
 	benchLogger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 )
+
+var safeBenchmarkDatabase = regexp.MustCompile(`^beacon_perf[A-Za-z0-9_]*$`)
 
 func requirePerfStore(b *testing.B) *store.Store {
 	b.Helper()
@@ -47,8 +50,16 @@ func TestMain(m *testing.M) {
 		sizeStr = "small"
 	}
 	seedSize := perf.ParseSeedSize(sizeStr)
+	database := strings.TrimSpace(os.Getenv("BEACON_PERF_DATABASE"))
+	if database == "" {
+		database = "beacon_perf"
+	}
+	if !safeBenchmarkDatabase.MatchString(database) {
+		fmt.Fprintf(os.Stderr, "refusing to reset perf database %q; use a beacon_perf* database name containing only letters, numbers, and underscores\n", database)
+		os.Exit(1)
+	}
 
-	storeOpts := store.Options{Addrs: []string{addr}, Database: "beacon_perf", ReadPoolSize: 4}
+	storeOpts := store.Options{Addrs: []string{addr}, Database: database, ReadPoolSize: 4}
 	resetter, err := store.OpenForReset(ctx, storeOpts)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to open reset store: %v\n", err)

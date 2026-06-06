@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -234,7 +235,7 @@ func run(ctx context.Context, cfg labConfig) error {
 	}
 
 	if !cfg.SkipLive {
-		env := []string{"BEACON_TEST_CLICKHOUSE=" + cfg.ClickHouse, "PERF_SIZE=" + cfg.Size}
+		env := []string{"BEACON_TEST_CLICKHOUSE=" + cfg.ClickHouse, "BEACON_PERF_DATABASE=" + cfg.Database, "PERF_SIZE=" + cfg.Size}
 		result := runGoBenchmarks(ctx, "live-clickhouse-benchmarks", cfg.LiveBench, cfg.LiveBenchtime, []string{"./internal/perf"}, env)
 		report.Commands = append(report.Commands, result.Command)
 		report.GoBenchmarks = append(report.GoBenchmarks, parseBenchmarks(result.Command.OutputTail, "live")...)
@@ -244,17 +245,24 @@ func run(ctx context.Context, cfg labConfig) error {
 	}
 
 	if !cfg.SkipBrowser {
-		result := runBrowserPerf(ctx, cfg, browserPath)
-		report.Commands = append(report.Commands, result.Command)
-		browser, err := readBrowserReport(browserPath)
-		if err != nil {
+		if err := removeStaleBrowserReport(browserPath); err != nil {
 			report.Status = "fail"
-			report.Notes = append(report.Notes, "browser report was not readable: "+err.Error())
+			report.Notes = append(report.Notes, "browser report could not be prepared: "+err.Error())
 		} else {
-			report.Browser = browser
-		}
-		if result.Err != nil {
-			report.Status = "fail"
+			result := runBrowserPerf(ctx, cfg, browserPath)
+			report.Commands = append(report.Commands, result.Command)
+			if result.Err != nil {
+				report.Status = "fail"
+				report.Notes = append(report.Notes, "browser command failed; browser metrics omitted")
+			} else {
+				browser, err := readBrowserReport(browserPath)
+				if err != nil {
+					report.Status = "fail"
+					report.Notes = append(report.Notes, "browser report was not readable: "+err.Error())
+				} else {
+					report.Browser = browser
+				}
+			}
 		}
 	}
 
@@ -333,8 +341,8 @@ func fastBenchmarkPackages() []string {
 
 func seedPerfDatabase(ctx context.Context, cfg labConfig) (datasetReport, error) {
 	report := datasetReport{Size: cfg.Size, Database: cfg.Database}
-	if !cfg.AllowUnsafeReset && !strings.HasPrefix(cfg.Database, "beacon_perf") {
-		return report, fmt.Errorf("refusing to reset database %q; use a beacon_perf* database or --allow-unsafe-database-reset", cfg.Database)
+	if err := validateLabDatabaseName(cfg.Database, cfg.AllowUnsafeReset); err != nil {
+		return report, err
 	}
 
 	start := time.Now()
@@ -368,13 +376,17 @@ func seedPerfDatabase(ctx context.Context, cfg labConfig) (datasetReport, error)
 
 type labServerProcess struct {
 	cmd  *exec.Cmd
-	done chan error
+	done chan struct{}
+	err  error
 }
 
 func startLabServer(ctx context.Context, cfg labConfig) (serverReport, *labServerProcess, error) {
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)
 	configPath := filepath.Join(cfg.OutputDir, "beacon-perf-lab.toml")
 	logPath := filepath.Join(cfg.OutputDir, "beacon-server.log")
+	if err := ensurePortAvailable(cfg.Port); err != nil {
+		return serverReport{BaseURL: baseURL, ConfigPath: configPath, LogPath: logPath}, nil, err
+	}
 	if err := writeLabConfig(configPath, cfg); err != nil {
 		return serverReport{BaseURL: baseURL, ConfigPath: configPath, LogPath: logPath}, nil, err
 	}
@@ -390,14 +402,15 @@ func startLabServer(ctx context.Context, cfg labConfig) (serverReport, *labServe
 		logFile.Close()
 		return serverReport{BaseURL: baseURL, ConfigPath: configPath, LogPath: logPath, Command: commandText}, nil, err
 	}
-	proc := &labServerProcess{cmd: cmd, done: make(chan error, 1)}
+	proc := &labServerProcess{cmd: cmd, done: make(chan struct{})}
 	go func() {
-		proc.done <- cmd.Wait()
+		proc.err = cmd.Wait()
 		_ = logFile.Close()
+		close(proc.done)
 	}()
 
 	report := serverReport{BaseURL: baseURL, Started: true, Command: commandText, ConfigPath: configPath, LogPath: logPath}
-	if err := waitForHTTP(ctx, baseURL+"/health", 45*time.Second); err != nil {
+	if err := waitForLabServerReady(ctx, baseURL+"/health", 45*time.Second, proc); err != nil {
 		report.ReadyError = err.Error()
 		return report, proc, err
 	}
@@ -451,10 +464,23 @@ func stopServer(proc *labServerProcess) {
 }
 
 func waitForHTTP(ctx context.Context, url string, timeout time.Duration) error {
+	return waitForHTTPReady(ctx, url, timeout, nil)
+}
+
+func waitForLabServerReady(ctx context.Context, url string, timeout time.Duration, proc *labServerProcess) error {
+	return waitForHTTPReady(ctx, url, timeout, proc)
+}
+
+func waitForHTTPReady(ctx context.Context, url string, timeout time.Duration, proc *labServerProcess) error {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 	client := http.Client{Timeout: 750 * time.Millisecond}
 	for time.Now().Before(deadline) {
+		if proc != nil {
+			if err, exited := proc.exited(); exited {
+				return labServerExitedError(err)
+			}
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return err
@@ -462,7 +488,17 @@ func waitForHTTP(ctx context.Context, url string, timeout time.Duration) error {
 		resp, err := client.Do(req)
 		if err == nil {
 			resp.Body.Close()
-			if resp.StatusCode >= 200 && resp.StatusCode < 500 {
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+				if proc != nil {
+					select {
+					case <-proc.done:
+						return labServerExitedError(proc.err)
+					case <-time.After(100 * time.Millisecond):
+					}
+					if err, exited := proc.exited(); exited {
+						return labServerExitedError(err)
+					}
+				}
 				return nil
 			}
 			lastErr = fmt.Errorf("status %d", resp.StatusCode)
@@ -476,6 +512,46 @@ func waitForHTTP(ctx context.Context, url string, timeout time.Duration) error {
 		}
 	}
 	return fmt.Errorf("%s did not become ready within %s: %w", url, timeout, lastErr)
+}
+
+func (proc *labServerProcess) exited() (error, bool) {
+	select {
+	case <-proc.done:
+		return proc.err, true
+	default:
+		return nil, false
+	}
+}
+
+func labServerExitedError(err error) error {
+	if err == nil {
+		return errors.New("lab server exited before readiness")
+	}
+	return fmt.Errorf("lab server exited before readiness: %w", err)
+}
+
+var validLabDatabase = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var safeLabDatabase = regexp.MustCompile(`^beacon_perf[A-Za-z0-9_]*$`)
+
+func validateLabDatabaseName(database string, allowUnsafe bool) error {
+	if !validLabDatabase.MatchString(database) {
+		return fmt.Errorf("refusing to reset invalid database name %q; use an identifier containing only letters, numbers, and underscores", database)
+	}
+	if !allowUnsafe && !safeLabDatabase.MatchString(database) {
+		return fmt.Errorf("refusing to reset database %q; use a beacon_perf* database or --allow-unsafe-database-reset", database)
+	}
+	return nil
+}
+
+func ensurePortAvailable(port int) error {
+	if port <= 0 || port > 65535 {
+		return fmt.Errorf("lab port %d is invalid", port)
+	}
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+	if err != nil {
+		return fmt.Errorf("lab port %d is not available; stop the process using it or pass --base-url for an existing Beacon server: %w", port, err)
+	}
+	return ln.Close()
 }
 
 var benchmarkLinePattern = regexp.MustCompile(`^(Benchmark\S+)\s+(\d+)\s+([0-9.]+) ns/op(?:\s+([0-9]+) B/op)?(?:\s+([0-9]+) allocs/op)?`)
@@ -550,6 +626,13 @@ func readBrowserReport(path string) (*browserLabReport, error) {
 	}, nil
 }
 
+func removeStaleBrowserReport(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 func writeReportAndError(report labReport, jsonPath, mdPath string, err error) error {
 	if writeErr := writeReport(report, jsonPath, mdPath); writeErr != nil {
 		return writeErr
@@ -595,17 +678,17 @@ func markdownReport(report labReport) string {
 
 	if len(report.GoBenchmarks) > 0 {
 		fmt.Fprintf(&b, "\n## Go Benchmarks\n\n")
-		fmt.Fprintf(&b, "| Source | Benchmark | ms/op | B/op | allocs/op |\n| --- | --- | ---: | ---: | ---: |\n")
+		fmt.Fprintf(&b, "| Source | Benchmark | Iterations | ms/op | B/op | allocs/op |\n| --- | --- | ---: | ---: | ---: | ---: |\n")
 		for _, bm := range report.GoBenchmarks {
-			fmt.Fprintf(&b, "| %s | `%s` | %.3f | %d | %d |\n", bm.Source, bm.Name, bm.Milliseconds, bm.BytesPerOp, bm.AllocsPerOp)
+			fmt.Fprintf(&b, "| %s | `%s` | %d | %.3f | %d | %d |\n", bm.Source, bm.Name, bm.Iterations, bm.Milliseconds, bm.BytesPerOp, bm.AllocsPerOp)
 		}
 	}
 
 	if report.Browser != nil && len(report.Browser.Summary) > 0 {
 		fmt.Fprintf(&b, "\n## Browser Summary\n\n")
-		fmt.Fprintf(&b, "| Metric | Viewport | Median | P95 | Max | Unit |\n| --- | --- | ---: | ---: | ---: | --- |\n")
+		fmt.Fprintf(&b, "| Metric | Viewport | Samples | Median | P95 | Max | Unit |\n| --- | --- | ---: | ---: | ---: | ---: | --- |\n")
 		for _, metric := range report.Browser.Summary {
-			fmt.Fprintf(&b, "| `%s` | %s | %.2f | %.2f | %.2f | %s |\n", metric.Name, metric.Viewport, metric.Median, metric.P95, metric.Max, metric.Unit)
+			fmt.Fprintf(&b, "| `%s` | %s | %d | %.2f | %.2f | %.2f | %s |\n", metric.Name, metric.Viewport, metric.Samples, metric.Median, metric.P95, metric.Max, metric.Unit)
 		}
 	}
 
