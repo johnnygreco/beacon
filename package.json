@@ -11,6 +11,7 @@
     "test:frontend": "npm run lint:js && npm run test:unit",
     "test:e2e": "playwright test tests/e2e/dashboard.spec.ts tests/e2e/dashboard-search.spec.ts",
     "test:e2e:search": "playwright test tests/e2e/dashboard-search.spec.ts",
+    "test:perf:browser": "playwright test tests/e2e/performance.spec.ts --reporter=line",
     "test:search": "npm run test:e2e:search",
     "test:a11y": "playwright test tests/e2e/a11y.spec.ts",
     "test:visual": "playwright test tests/e2e/visual.spec.ts"

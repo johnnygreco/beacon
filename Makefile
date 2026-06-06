@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build install-local run generate generate-check clean clean-local clean-deps simulator publish test test-race test-cover perf-bench perf-explain fmt fmt-check lint
+.PHONY: help build install-local run generate generate-check clean clean-local clean-deps simulator publish test test-race test-cover perf-bench perf-explain perf-browser fmt fmt-check lint
 
 GO_PACKAGE_DIRS = $(shell go list -f '{{.Dir}}' ./... | grep -v '/node_modules/')
 GO_PACKAGES = $(patsubst $(CURDIR)%,.%,$(GO_PACKAGE_DIRS))
@@ -69,6 +69,9 @@ perf-explain: ## Print ClickHouse plans for representative perf queries
 	@PERF_SIZE=$${PERF_SIZE:-medium} && \
 	echo "=== Beacon Perf Explain (size=$$PERF_SIZE, rev=$$(git rev-parse --short HEAD)) ===" && \
 	BEACON_PERF_EXPLAIN=1 PERF_SIZE=$$PERF_SIZE go test -run TestExplainQueryPlans -count=1 -timeout=10m -v ./internal/perf/
+
+perf-browser: ## Run browser performance measurements
+	npm run test:perf:browser
 
 fmt: ## Format tracked Go files
 	git ls-files '*.go' | xargs gofmt -w

@@ -27,7 +27,8 @@ MCP queries:
 BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 PERF_SIZE=medium make perf-explain
 ```
 
-Use `PERF_SIZE=small|medium|large` for fixture scale. For PRs that touch
+For `make perf-bench` and `make perf-explain`, use
+`PERF_SIZE=small|medium|large` for fixture scale. For PRs that touch
 `internal/web/queries.go`, `internal/search/search.go`, `internal/mcp/tools.go`,
 or ClickHouse schema/projection code, run at least `medium`; run `large` when
 the change alters query shape, table order keys, projections, or search index
@@ -39,6 +40,42 @@ BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 PERF_SIZE=medium PERF_BENCHTIME=3s PERF_CO
 
 Compare the same benchmark names against `main` on the same machine and
 ClickHouse version. Re-run outliers before treating them as regressions.
+
+Capture browser page-load, search, and responsiveness timings with deterministic
+Playwright fixtures:
+
+```bash
+npm run test:perf:browser
+```
+
+The browser run writes `test-results/perf/browser-performance.json` and prints a
+compact per-viewport median/p95/max summary. It records desktop and mobile
+viewport timings for dashboard cold load, warm reload, session search, event
+search, chart range changes, active-session sorting, fixture-driven active SSE
+refresh rendering, quick-view inspector open, API resource summaries, per-request
+API waterfall entries, long tasks, and layout shifts.
+
+To measure the actual local review server instead of fixture-routed responses,
+start Beacon and point Playwright at it:
+
+```bash
+BEACON_BROWSER_PERF_FIXTURES=0 \
+BEACON_E2E_BASE_URL=http://localhost:4600 \
+npm run test:perf:browser
+```
+
+External live-server mode does not synthesize SSE events, so it omits the
+fixture-only `interaction.active_sse_to_paint` metric unless future tooling adds
+a deterministic live update trigger.
+
+Useful browser perf controls:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `BEACON_BROWSER_PERF_REPEATS` | `3` | Repeats per viewport. |
+| `BEACON_BROWSER_PERF_OUTPUT` | `test-results/perf/browser-performance.json` | JSON report path. |
+| `BEACON_BROWSER_PERF_SEARCH_QUERY` | fixture mode: `dashboard payload`; live mode: `beacon` | Session-search query. |
+| `BEACON_BROWSER_PERF_EVENT_QUERY` | fixture mode: `many`; live mode: search query | Event-search query. |
 
 ## Baseline environment
 
