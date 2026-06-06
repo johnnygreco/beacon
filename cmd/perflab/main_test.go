@@ -92,6 +92,36 @@ func TestValidateLiveBenchmarkDatabaseNameRequiresSafePrefix(t *testing.T) {
 	}
 }
 
+func TestValidateLabPlanRejectsSharedLiveDatabase(t *testing.T) {
+	err := validateLabPlan(labConfig{
+		Database:     "beacon_perf_lab",
+		LiveDatabase: "beacon_perf_lab",
+	})
+	if err == nil || !strings.Contains(err.Error(), "must differ from served database") {
+		t.Fatalf("validateLabPlan error = %v, want shared database refusal", err)
+	}
+}
+
+func TestLabServerEnvIsolatesHome(t *testing.T) {
+	got := labServerEnv([]string{
+		"PATH=/bin",
+		"HOME=/real-home",
+		"USERPROFILE=C:\\Users\\real",
+		"BEACON_TEST=value",
+	}, "/tmp/lab-home")
+	joined := strings.Join(got, "\n")
+	for _, unexpected := range []string{"HOME=/real-home", "USERPROFILE=C:\\Users\\real"} {
+		if strings.Contains(joined, unexpected) {
+			t.Fatalf("labServerEnv retained %q in %#v", unexpected, got)
+		}
+	}
+	for _, want := range []string{"PATH=/bin", "BEACON_TEST=value", "HOME=/tmp/lab-home", "USERPROFILE=/tmp/lab-home"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("labServerEnv missing %q in %#v", want, got)
+		}
+	}
+}
+
 func TestValidateLabDatabaseNameRefusesInvalidPerfPrefix(t *testing.T) {
 	err := validateLabDatabaseName("beacon_perf-lab", false)
 	if err == nil || !strings.Contains(err.Error(), "invalid database name") {

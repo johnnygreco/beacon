@@ -87,6 +87,7 @@ type serverReport struct {
 	Command      string `json:"command,omitempty"`
 	ConfigPath   string `json:"config_path,omitempty"`
 	LogPath      string `json:"log_path,omitempty"`
+	HomePath     string `json:"home_path,omitempty"`
 	Ready        bool   `json:"ready"`
 	ReadyError   string `json:"ready_error,omitempty"`
 	ExternalMode bool   `json:"external_mode"`
@@ -195,6 +196,11 @@ func run(ctx context.Context, cfg labConfig) error {
 		},
 	}
 
+	if err := validateLabPlan(cfg); err != nil {
+		report.Status = "fail"
+		return writeReportAndError(report, jsonPath, mdPath, err)
+	}
+
 	serverProcess := (*labServerProcess)(nil)
 	if cfg.BaseURL == "" && !cfg.SkipServe {
 		seed, err := seedPerfDatabase(ctx, cfg)
@@ -240,10 +246,6 @@ func run(ctx context.Context, cfg labConfig) error {
 	}
 
 	if !cfg.SkipLive {
-		if err := validateLiveBenchmarkDatabaseName(cfg.LiveDatabase); err != nil {
-			report.Status = "fail"
-			return writeReportAndError(report, jsonPath, mdPath, fmt.Errorf("live benchmark database: %w", err))
-		}
 		env := []string{"BEACON_TEST_CLICKHOUSE=" + cfg.ClickHouse, "BEACON_PERF_DATABASE=" + cfg.LiveDatabase, "PERF_SIZE=" + cfg.Size}
 		result := runGoBenchmarks(ctx, "live-clickhouse-benchmarks", cfg.LiveBench, cfg.LiveBenchtime, []string{"./internal/perf"}, env)
 		report.Commands = append(report.Commands, result.Command)
@@ -291,6 +293,19 @@ func normalizeLabConfig(cfg labConfig) labConfig {
 		cfg.LiveDatabase = defaultLiveBenchmarkDatabase(cfg.Database)
 	}
 	return cfg
+}
+
+func validateLabPlan(cfg labConfig) error {
+	if cfg.SkipLive {
+		return nil
+	}
+	if err := validateLiveBenchmarkDatabaseName(cfg.LiveDatabase); err != nil {
+		return fmt.Errorf("live benchmark database: %w", err)
+	}
+	if cfg.LiveDatabase == cfg.Database {
+		return fmt.Errorf("live benchmark database %q must differ from served database; use --live-database %s or --skip-live", cfg.LiveDatabase, defaultLiveBenchmarkDatabase(cfg.Database))
+	}
+	return nil
 }
 
 type commandRun struct {
@@ -414,15 +429,20 @@ func startLabServer(ctx context.Context, cfg labConfig) (serverReport, *labServe
 	if err != nil {
 		return serverReport{BaseURL: baseURL, ConfigPath: configPath, LogPath: logPath}, nil, err
 	}
-	logFile, err := os.Create(logPath)
+	homePath, err := prepareLabServerHome(cfg.OutputDir)
 	if err != nil {
 		return serverReport{BaseURL: baseURL, ConfigPath: configPath, LogPath: logPath}, nil, err
+	}
+	cmd.Env = labServerEnv(os.Environ(), homePath)
+	logFile, err := os.Create(logPath)
+	if err != nil {
+		return serverReport{BaseURL: baseURL, ConfigPath: configPath, LogPath: logPath, HomePath: homePath}, nil, err
 	}
 	cmd.Stdout = logFile
 	cmd.Stderr = logFile
 	if err := cmd.Start(); err != nil {
 		logFile.Close()
-		return serverReport{BaseURL: baseURL, ConfigPath: configPath, LogPath: logPath, Command: commandText}, nil, err
+		return serverReport{BaseURL: baseURL, ConfigPath: configPath, LogPath: logPath, HomePath: homePath, Command: commandText}, nil, err
 	}
 	proc := &labServerProcess{cmd: cmd, done: make(chan struct{})}
 	go func() {
@@ -431,7 +451,7 @@ func startLabServer(ctx context.Context, cfg labConfig) (serverReport, *labServe
 		close(proc.done)
 	}()
 
-	report := serverReport{BaseURL: baseURL, Started: true, Command: commandText, ConfigPath: configPath, LogPath: logPath}
+	report := serverReport{BaseURL: baseURL, Started: true, Command: commandText, ConfigPath: configPath, LogPath: logPath, HomePath: homePath}
 	if err := waitForLabServerReady(ctx, baseURL+"/health", 45*time.Second, proc); err != nil {
 		report.ReadyError = err.Error()
 		return report, proc, err
@@ -464,6 +484,26 @@ func buildLabBeaconBinary(ctx context.Context, outputDir string) (string, error)
 		return "", fmt.Errorf("build lab beacon binary: %w\n%s", err, tailString(string(out), 4000))
 	}
 	return beaconBin, nil
+}
+
+func prepareLabServerHome(outputDir string) (string, error) {
+	homePath := filepath.Join(outputDir, "beacon-home")
+	if err := os.MkdirAll(filepath.Join(homePath, ".beacon"), 0755); err != nil {
+		return "", fmt.Errorf("prepare lab server home: %w", err)
+	}
+	return homePath, nil
+}
+
+func labServerEnv(base []string, homePath string) []string {
+	env := make([]string, 0, len(base)+2)
+	for _, entry := range base {
+		if strings.HasPrefix(entry, "HOME=") || strings.HasPrefix(entry, "USERPROFILE=") {
+			continue
+		}
+		env = append(env, entry)
+	}
+	env = append(env, "HOME="+homePath, "USERPROFILE="+homePath)
+	return env
 }
 
 func writeLabConfig(path string, cfg labConfig) error {
