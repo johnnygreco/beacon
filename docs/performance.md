@@ -81,6 +81,70 @@ comparisons, raise `--fast-benchtime`, `--live-benchtime`, and
 `--browser-repeats`, and compare reports from the same machine and ClickHouse
 version.
 
+Check the latest lab report against Beacon's built-in smoke budgets:
+
+```bash
+make perf-budget
+```
+
+`make perf-budget` reads `test-results/perf/lab/latest/perf-lab-report.json` by
+default. Override the report path with `PERF_REPORT`, and pass checker flags with
+`PERF_CHECK_ARGS`. Budget failures print the exact metric, observed value, and
+limit. Missing budgeted metrics fail by default because a full smoke report
+should include browser, fast Go, and live ClickHouse slices.
+
+Compare two saved lab reports:
+
+```bash
+PERF_LAB_OUTPUT_DIR=test-results/perf/lab/main make perf-lab-smoke
+git switch feature-branch
+PERF_LAB_OUTPUT_DIR=test-results/perf/lab/feature make perf-lab-smoke
+PERF_BASELINE=test-results/perf/lab/main/perf-lab-report.json \
+PERF_REPORT=test-results/perf/lab/feature/perf-lab-report.json \
+make perf-compare
+```
+
+`make perf-compare` checks the current report against budgets and flags material
+regressions for overlapping metrics. Both reports must be passing perf lab JSON
+reports, and at least one metric must overlap. By default, a comparison must
+exceed both a 25% ratio increase and the minimum absolute delta (`5ms` for
+browser millisecond metrics, `0.05ms/op` for Go benchmarks, `0.02` for
+layout-shift score, and `1` for counts). Tune with `PERF_CHECK_ARGS`, for
+example:
+
+```bash
+PERF_CHECK_ARGS='--max-regression-ratio=1.15 --min-browser-regression=10' make perf-compare
+```
+
+Smoke budgets intentionally cover the highest-signal local review paths:
+
+| Area | Budgeted metrics | Smoke limit |
+| --- | --- | ---: |
+| Dashboard load | `dashboard.cold_load.ready` p95 | desktop `600ms`, mobile `700ms` |
+| API waterfall | `dashboard.cold_load.api_max` p95 | desktop `250ms`, mobile `300ms` |
+| Warm reload | `dashboard.warm_reload.ready` p95 | desktop `300ms`, mobile `350ms` |
+| Dashboard search | `search.session.input_to_rows`, `search.event.input_to_rows` p95 | sessions `700/800ms`, events `800/900ms` desktop/mobile |
+| Interactions | chart range, active sort, inspector open p95 | `150ms`-`400ms` depending on flow and viewport |
+| Responsiveness | `browser.long_tasks.max`, `browser.layout_shift.cumulative` max | `50ms` long task, CLS `0.10` desktop / `0.15` mobile |
+| Live ClickHouse search | `BenchmarkSearchBM25`, `BenchmarkSearchKeyword`, `BenchmarkSearchBrowse` | `30ms`, `25ms`, `8ms` per op |
+| MCP tools | `BenchmarkMCPToolSearchSessions`, `BenchmarkMCPToolOpen`, `BenchmarkMCPToolListSessions` | `30ms`, `25ms`, `8ms` per op |
+| Fast Go families | capture parse/batch, search indexing, API shaping, MCP formatting, dashboard/chat rendering | exact per-benchmark limits in `cmd/perfcheck` |
+
+The smoke budgets are local-review gates, not release claims. Treat one-sample
+browser p95s as a regression signal that needs rerunning with higher
+`--browser-repeats`; do not treat them as a statistically stable percentile.
+For release or optimization decisions, compare repeated reports from the same
+machine and ClickHouse version.
+
+Recommended change-type validation:
+
+| Change type | Required performance command |
+| --- | --- |
+| Parser, indexing, MCP formatting, API shaping, or view rendering hot paths | `make perf-fast` and `make perf-budget` if a lab report is generated |
+| Dashboard JS, browser behavior, or user-facing workflow timing | `npm run test:perf:browser` or `make perf-lab-smoke`, then `make perf-budget` |
+| ClickHouse query shape, projections, search, MCP live tools, or perf seed data | `go run ./cmd/beacon db up`, `PERF_SIZE=medium make perf-bench`, `PERF_SIZE=medium make perf-explain`, and `make perf-lab-smoke` |
+| PRs intended to prove no end-to-end regression | `make perf-lab-smoke`, `make perf-budget`, and `make perf-compare` against a same-machine baseline |
+
 Start local ClickHouse once:
 
 ```bash
