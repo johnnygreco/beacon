@@ -279,6 +279,8 @@ make perf-fast      # run fast non-ClickHouse backend benchmarks
 make perf-bench     # run perf benchmarks; set PERF_SIZE=small|medium|large
 make perf-browser   # run browser perf measurements; set BEACON_BROWSER_PERF_* as needed
 make perf-lab-smoke # seed/serve/run a local perf lab and write JSON/Markdown reports
+make perf-budget    # check a perf lab report against built-in smoke budgets
+make perf-compare   # compare PERF_REPORT against PERF_BASELINE
 make clean          # remove build/test outputs such as bin, dist, coverage, and reports
 make clean-local    # also remove ignored repo-local scratch/agent dirs and local DB files
 make clean-deps     # remove node_modules
@@ -345,6 +347,10 @@ set `PERF_LAB_CLICKHOUSE` / `--clickhouse` for another address. Live benchmarks
 reset a separate disposable `beacon_perf_lab_bench` database by default. Set
 `PERF_LAB_ARGS` for options such as `--base-url`, `--skip-browser`, or
 `--output-dir`.
+
+After a lab run, use `make perf-budget` to check the latest report against smoke
+budgets. Compare branch reports with `PERF_BASELINE=... PERF_REPORT=... make
+perf-compare`.
 
 Playwright tests require Node dependencies from `npm install` and a Chromium
 browser installed by Playwright. They start their own e2e server by default. To

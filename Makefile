@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build install-local run generate generate-check clean clean-local clean-deps simulator publish test test-race test-cover perf-fast perf-bench perf-explain perf-browser perf-lab-smoke perf-lab fmt fmt-check lint
+.PHONY: help build install-local run generate generate-check clean clean-local clean-deps simulator publish test test-race test-cover perf-fast perf-bench perf-explain perf-browser perf-lab-smoke perf-lab perf-budget perf-compare fmt fmt-check lint
 
 GO_PACKAGE_DIRS = $(shell go list -f '{{.Dir}}' ./... | grep -v '/node_modules/')
 GO_PACKAGES = $(patsubst $(CURDIR)%,.%,$(GO_PACKAGE_DIRS))
@@ -91,6 +91,14 @@ perf-lab-smoke: install-local ## Run local perf lab smoke report
 
 perf-lab: install-local ## Run configurable local perf lab (set PERF_LAB_ARGS)
 	PERF_LAB_BEACON_BIN="$(INSTALL_DIR)/beacon" go run ./cmd/perflab $${PERF_LAB_ARGS:-}
+
+perf-budget: ## Check a perf lab report against built-in smoke budgets
+	go run ./cmd/perfcheck --report "$${PERF_REPORT:-test-results/perf/lab/latest/perf-lab-report.json}" $${PERF_CHECK_ARGS:-}
+
+perf-compare: ## Compare PERF_REPORT against PERF_BASELINE perf lab reports
+	@PERF_BASELINE=$${PERF_BASELINE:?Set PERF_BASELINE=path/to/baseline/perf-lab-report.json} && \
+	PERF_REPORT=$${PERF_REPORT:-test-results/perf/lab/latest/perf-lab-report.json} && \
+	go run ./cmd/perfcheck --report "$$PERF_REPORT" --baseline "$$PERF_BASELINE" $${PERF_CHECK_ARGS:-}
 
 fmt: ## Format tracked Go files
 	git ls-files '*.go' | xargs gofmt -w
