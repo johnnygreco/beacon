@@ -278,6 +278,7 @@ make test-cover     # run Go tests with race, coverage, and coverage floors
 make perf-fast      # run fast non-ClickHouse backend benchmarks
 make perf-bench     # run perf benchmarks; set PERF_SIZE=small|medium|large
 make perf-browser   # run browser perf measurements; set BEACON_BROWSER_PERF_* as needed
+make perf-lab-smoke # seed/serve/run a local perf lab and write JSON/Markdown reports
 make clean          # remove build/test outputs such as bin, dist, coverage, and reports
 make clean-local    # also remove ignored repo-local scratch/agent dirs and local DB files
 make clean-deps     # remove node_modules
@@ -334,6 +335,16 @@ BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/perf -bench . -run '^$'
 Use `make perf-fast` for deterministic backend benchmarks that do not require
 ClickHouse. It covers parser/normalizer, batch row building, search indexing,
 MCP formatting/dispatch, API serialization, and view rendering paths.
+
+Use `make perf-lab-smoke` for a cohesive local performance lab run. It installs
+the workspace binary, seeds a disposable `beacon_perf_lab` ClickHouse database,
+serves Beacon locally, runs fast/live backend benchmark slices, drives browser
+performance against the served dashboard, and writes reports under
+`test-results/perf/lab/latest/`. Start ClickHouse first with `beacon db up`, or
+set `PERF_LAB_CLICKHOUSE` / `--clickhouse` for another address. Live benchmarks
+reset a separate disposable `beacon_perf_lab_bench` database by default. Set
+`PERF_LAB_ARGS` for options such as `--base-url`, `--skip-browser`, or
+`--output-dir`.
 
 Playwright tests require Node dependencies from `npm install` and a Chromium
 browser installed by Playwright. They start their own e2e server by default. To

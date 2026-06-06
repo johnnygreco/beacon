@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build install-local run generate generate-check clean clean-local clean-deps simulator publish test test-race test-cover perf-fast perf-bench perf-explain perf-browser fmt fmt-check lint
+.PHONY: help build install-local run generate generate-check clean clean-local clean-deps simulator publish test test-race test-cover perf-fast perf-bench perf-explain perf-browser perf-lab-smoke perf-lab fmt fmt-check lint
 
 GO_PACKAGE_DIRS = $(shell go list -f '{{.Dir}}' ./... | grep -v '/node_modules/')
 GO_PACKAGES = $(patsubst $(CURDIR)%,.%,$(GO_PACKAGE_DIRS))
@@ -80,6 +80,17 @@ perf-explain: ## Print ClickHouse plans for representative perf queries
 
 perf-browser: ## Run browser performance measurements
 	npm run test:perf:browser
+
+perf-lab-smoke: install-local ## Run local perf lab smoke report
+	PERF_LAB_BEACON_BIN="$(INSTALL_DIR)/beacon" \
+	PERF_LAB_SIZE=$${PERF_LAB_SIZE:-small} \
+	PERF_LAB_FAST_BENCHTIME=$${PERF_LAB_FAST_BENCHTIME:-100ms} \
+	PERF_LAB_LIVE_BENCHTIME=$${PERF_LAB_LIVE_BENCHTIME:-100ms} \
+	PERF_LAB_BROWSER_REPEATS=$${PERF_LAB_BROWSER_REPEATS:-1} \
+	go run ./cmd/perflab $${PERF_LAB_ARGS:-}
+
+perf-lab: install-local ## Run configurable local perf lab (set PERF_LAB_ARGS)
+	PERF_LAB_BEACON_BIN="$(INSTALL_DIR)/beacon" go run ./cmd/perflab $${PERF_LAB_ARGS:-}
 
 fmt: ## Format tracked Go files
 	git ls-files '*.go' | xargs gofmt -w

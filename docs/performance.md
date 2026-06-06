@@ -24,6 +24,63 @@ rendering. Filter by component with `PERF_FAST_BENCH`, for example:
 PERF_FAST_BENCH='Benchmark(Capture|MCP)' make perf-fast
 ```
 
+Run a local end-to-end performance lab smoke report:
+
+```bash
+make perf-lab-smoke
+```
+
+The smoke lab installs the current workspace binary, resets and seeds the
+disposable `beacon_perf_lab` ClickHouse database, starts Beacon on a lab port
+with capture disabled, runs short fast Go benchmarks, runs selected live
+ClickHouse search/MCP benchmarks, drives browser performance against the served
+dashboard, and writes:
+
+- `test-results/perf/lab/latest/perf-lab-report.json`
+- `test-results/perf/lab/latest/perf-lab-report.md`
+- `test-results/perf/lab/latest/browser-performance.json`
+- `test-results/perf/lab/latest/beacon-server.log`
+
+The lab requires ClickHouse to be reachable before seeding. Start local
+ClickHouse with `go run ./cmd/beacon db up`, or point the lab at an existing
+instance with `PERF_LAB_CLICKHOUSE` / `--clickhouse`. The runner refuses invalid
+database identifiers and refuses to reset databases whose names do not start
+with `beacon_perf` unless `--allow-unsafe-database-reset` is passed. Keep the
+default database for PR smoke runs. Live benchmarks use a separate disposable
+database by default (`<served-database>_bench`) so they can reset and seed
+without disturbing the dashboard server.
+
+Useful lab controls:
+
+| Variable / argument | Default | Purpose |
+| --- | --- | --- |
+| `PERF_LAB_SIZE`, `--size` | `small` | Synthetic dataset size for the served lab app and live benchmarks. |
+| `PERF_LAB_CLICKHOUSE`, `--clickhouse` | `127.0.0.1:9000` | ClickHouse address used for seeding and live benchmarks. |
+| `PERF_LAB_DATABASE`, `--database` | `beacon_perf_lab` | Disposable ClickHouse database for the served lab app. |
+| `PERF_LAB_LIVE_DATABASE`, `--live-database` | `<database>_bench` | Disposable ClickHouse database reset by live benchmarks. Must use a `beacon_perf*` name. |
+| `PERF_LAB_OUTPUT_DIR`, `--output-dir` | `test-results/perf/lab/latest` | Report directory. |
+| `PERF_LAB_BASE_URL`, `--base-url` | unset | Use an already-running Beacon server instead of starting one. |
+| `PERF_LAB_ARGS` | unset | Extra arguments passed by `make perf-lab-smoke` or `make perf-lab`. |
+| `--skip-fast`, `--skip-live`, `--skip-browser` | false | Disable specific layers for focused local runs. |
+| `--fast-benchtime`, `--live-benchtime` | smoke target: `100ms` | Go benchmark duration knobs. |
+| `--browser-repeats` | smoke target: `1` | Browser repeats per viewport. |
+
+To compare branches, run the same command with different output directories:
+
+```bash
+PERF_LAB_OUTPUT_DIR=test-results/perf/lab/main make perf-lab-smoke
+git switch feature-branch
+PERF_LAB_OUTPUT_DIR=test-results/perf/lab/feature make perf-lab-smoke
+```
+
+Compare the Markdown summaries first, then inspect the JSON reports for exact
+benchmark records and browser metric percentiles.
+
+The smoke defaults are quick signal, not a statistical baseline. For branch
+comparisons, raise `--fast-benchtime`, `--live-benchtime`, and
+`--browser-repeats`, and compare reports from the same machine and ClickHouse
+version.
+
 Start local ClickHouse once:
 
 ```bash
