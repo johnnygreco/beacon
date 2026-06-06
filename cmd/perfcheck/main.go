@@ -14,12 +14,13 @@ import (
 const reportSchema = "beacon.performance_lab.v1"
 
 type config struct {
-	reportPath         string
-	baselinePath       string
-	maxRegressionRatio float64
-	minBrowserDelta    float64
-	minGoDeltaMS       float64
-	failOnMissing      bool
+	reportPath           string
+	baselinePath         string
+	maxRegressionRatio   float64
+	minBrowserDelta      float64
+	minGoDeltaMS         float64
+	failOnMissing        bool
+	allowDatasetMismatch bool
 }
 
 type labReport struct {
@@ -94,6 +95,7 @@ func parseFlags() config {
 	flag.Float64Var(&cfg.minBrowserDelta, "min-browser-regression", envNonNegativeFloat("PERF_MIN_BROWSER_REGRESSION", 5), "Minimum browser metric delta before comparison fails")
 	flag.Float64Var(&cfg.minGoDeltaMS, "min-go-regression-ms", envNonNegativeFloat("PERF_MIN_GO_REGRESSION_MS", 0.05), "Minimum Go benchmark ms/op delta before comparison fails")
 	flag.BoolVar(&cfg.failOnMissing, "fail-on-missing", envBool("PERF_FAIL_ON_MISSING", true), "Fail when budgeted metrics are missing")
+	flag.BoolVar(&cfg.allowDatasetMismatch, "allow-dataset-mismatch", envBool("PERF_ALLOW_DATASET_MISMATCH", false), "Allow comparing reports generated with different dataset sizes")
 	flag.Parse()
 	return cfg
 }
@@ -208,6 +210,18 @@ func checkGoBudgets(report *labReport, failOnMissing bool) []checkResult {
 }
 
 func compareReports(current, baseline *labReport, cfg config) []checkResult {
+	if result, ok := datasetComparisonResult(current, baseline, cfg.allowDatasetMismatch); ok {
+		if result.Status == "FAIL" {
+			return []checkResult{result}
+		}
+		results := []checkResult{result}
+		results = append(results, compareBrowser(current, baseline, cfg)...)
+		results = append(results, compareGo(current, baseline, cfg)...)
+		if len(results) == 1 {
+			return []checkResult{result, failf("comparison found no overlapping metrics")}
+		}
+		return results
+	}
 	var results []checkResult
 	results = append(results, compareBrowser(current, baseline, cfg)...)
 	results = append(results, compareGo(current, baseline, cfg)...)
@@ -215,6 +229,26 @@ func compareReports(current, baseline *labReport, cfg config) []checkResult {
 		return []checkResult{failf("comparison found no overlapping metrics")}
 	}
 	return results
+}
+
+func datasetComparisonResult(current, baseline *labReport, allowMismatch bool) (checkResult, bool) {
+	currentSize := normalizedDatasetSize(current.Dataset.Size)
+	baselineSize := normalizedDatasetSize(baseline.Dataset.Size)
+	if currentSize == baselineSize {
+		return checkResult{}, false
+	}
+	text := fmt.Sprintf("comparison dataset size mismatch: report %q vs baseline %q", currentSize, baselineSize)
+	if allowMismatch {
+		return checkResult{Status: "WARN", Text: text + " (--allow-dataset-mismatch set)"}, true
+	}
+	return failf("%s; rerun with matching PERF_LAB_SIZE or pass --allow-dataset-mismatch", text), true
+}
+
+func normalizedDatasetSize(size string) string {
+	if size = strings.ToLower(strings.TrimSpace(size)); size != "" {
+		return size
+	}
+	return "unknown"
 }
 
 func compareBrowser(current, baseline *labReport, cfg config) []checkResult {

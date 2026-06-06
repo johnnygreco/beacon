@@ -290,6 +290,9 @@ async function waitForDashboardReady(page: Page, expectRows: boolean) {
   await page.locator('#dashboard-session-search').waitFor({ state: 'visible' });
   await page.locator('#active-sessions').waitFor({ state: 'visible' });
   await page.locator('#completed-sessions').waitFor({ state: 'visible' });
+  await page.waitForFunction(() => {
+    return (window as Window & { __beaconDashboardInitialLoadSettled?: boolean }).__beaconDashboardInitialLoadSettled === true;
+  }, undefined, { timeout: 10_000 });
   if (expectRows) {
     await page.waitForFunction(() => document.querySelectorAll('#dashboard-analytics-summary > div').length >= 4);
     await page.waitForFunction(() => document.querySelectorAll('#completed-sessions tr[data-session-link]').length > 0);
@@ -300,7 +303,7 @@ async function waitForDashboardReady(page: Page, expectRows: boolean) {
       const rows = document.getElementById('completed-sessions');
       const tableReady = rows ? !/Loading/i.test(rows.textContent || '') : false;
       return /Live|Static|Disconnected/.test(label) && (summaryReady || tableReady);
-    }, undefined, { timeout: 3_000 }).catch(() => undefined);
+    }, undefined, { timeout: 10_000 });
   }
   await afterNextPaint(page);
 }

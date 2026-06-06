@@ -94,6 +94,7 @@ func TestValidateLiveBenchmarkDatabaseNameRequiresSafePrefix(t *testing.T) {
 
 func TestValidateLabPlanRejectsSharedLiveDatabase(t *testing.T) {
 	err := validateLabPlan(labConfig{
+		Size:         "small",
 		Database:     "beacon_perf_lab",
 		LiveDatabase: "beacon_perf_lab",
 	})
@@ -104,6 +105,7 @@ func TestValidateLabPlanRejectsSharedLiveDatabase(t *testing.T) {
 
 func TestValidateLabPlanRejectsExternalLiveBenchmarks(t *testing.T) {
 	err := validateLabPlan(labConfig{
+		Size:         "small",
 		BaseURL:      "http://127.0.0.1:4600",
 		Database:     "beacon_perf_lab",
 		LiveDatabase: "beacon_perf_lab_bench",
@@ -115,12 +117,34 @@ func TestValidateLabPlanRejectsExternalLiveBenchmarks(t *testing.T) {
 
 func TestValidateLabPlanRejectsSkipServeLiveBenchmarks(t *testing.T) {
 	err := validateLabPlan(labConfig{
+		Size:         "small",
 		SkipServe:    true,
 		Database:     "beacon_perf_lab",
 		LiveDatabase: "beacon_perf_lab_bench",
 	})
 	if err == nil || !strings.Contains(err.Error(), "--skip-serve") {
 		t.Fatalf("validateLabPlan error = %v, want skip-serve live refusal", err)
+	}
+}
+
+func TestNormalizeLabConfigCanonicalizesSize(t *testing.T) {
+	got := normalizeLabConfig(labConfig{
+		Size:         " Medium ",
+		Database:     "beacon_perf_lab",
+		LiveDatabase: " beacon_perf_custom ",
+	})
+	if got.Size != "medium" || got.LiveDatabase != "beacon_perf_custom" {
+		t.Fatalf("normalizeLabConfig = %#v, want canonical size and trimmed live database", got)
+	}
+}
+
+func TestValidateLabPlanRejectsInvalidSize(t *testing.T) {
+	err := validateLabPlan(labConfig{
+		Size:     "medum",
+		SkipLive: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid lab dataset size") {
+		t.Fatalf("validateLabPlan error = %v, want invalid size refusal", err)
 	}
 }
 
