@@ -293,6 +293,7 @@ func run(ctx context.Context, cfg labConfig) error {
 }
 
 func normalizeLabConfig(cfg labConfig) labConfig {
+	cfg.Size = strings.ToLower(strings.TrimSpace(cfg.Size))
 	cfg.LiveDatabase = strings.TrimSpace(cfg.LiveDatabase)
 	if cfg.LiveDatabase == "" {
 		cfg.LiveDatabase = defaultLiveBenchmarkDatabase(cfg.Database)
@@ -301,6 +302,9 @@ func normalizeLabConfig(cfg labConfig) labConfig {
 }
 
 func validateLabPlan(cfg labConfig) error {
+	if err := validateLabSize(cfg.Size); err != nil {
+		return err
+	}
 	if cfg.SkipLive {
 		return nil
 	}
@@ -314,6 +318,15 @@ func validateLabPlan(cfg labConfig) error {
 		return fmt.Errorf("live benchmark database %q must differ from served database; use --live-database %s or --skip-live", cfg.LiveDatabase, defaultLiveBenchmarkDatabase(cfg.Database))
 	}
 	return nil
+}
+
+func validateLabSize(size string) error {
+	switch size {
+	case string(perf.SizeSmall), string(perf.SizeMedium), string(perf.SizeLarge):
+		return nil
+	default:
+		return fmt.Errorf("invalid lab dataset size %q; use small, medium, or large", size)
+	}
 }
 
 func externalDatasetReport(size string) datasetReport {

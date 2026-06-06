@@ -59,7 +59,7 @@ Useful lab controls:
 | `PERF_LAB_DATABASE`, `--database` | `beacon_perf_lab` | Disposable ClickHouse database for the served lab app. |
 | `PERF_LAB_LIVE_DATABASE`, `--live-database` | `<database>_bench` | Disposable ClickHouse database reset by live benchmarks. Must use a `beacon_perf*` name. |
 | `PERF_LAB_OUTPUT_DIR`, `--output-dir` | `test-results/perf/lab/latest` | Report directory. |
-| `PERF_LAB_BASE_URL`, `--base-url` | unset | Use an already-running Beacon server instead of starting one. |
+| `PERF_LAB_BASE_URL`, `--base-url` | unset | Use an already-running Beacon server instead of starting one; also pass `--skip-live` because the lab cannot verify or reset the external server's database. |
 | `PERF_LAB_ARGS` | unset | Extra arguments passed by `make perf-lab-smoke` or `make perf-lab`. |
 | `--skip-fast`, `--skip-live`, `--skip-browser` | false | Disable specific layers for focused local runs. |
 | `--fast-benchtime`, `--live-benchtime` | smoke target: `100ms` | Go benchmark duration knobs. |
@@ -208,6 +208,14 @@ npm run test:perf:browser
 External live-server mode does not synthesize SSE events, so it omits the
 fixture-only `interaction.active_sse_to_paint` metric unless future tooling adds
 a deterministic live update trigger.
+
+To run the integrated lab against an already-running Beacon server, skip live
+ClickHouse benchmarks in that lab invocation and run `make perf-bench`
+separately against a known disposable database:
+
+```bash
+PERF_LAB_ARGS='--base-url http://localhost:4600 --skip-live' make perf-lab
+```
 
 Useful browser perf controls:
 

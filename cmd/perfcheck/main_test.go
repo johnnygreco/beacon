@@ -92,6 +92,49 @@ func TestRunFailsInvalidBaselineSchema(t *testing.T) {
 	}
 }
 
+func TestRunFailsMismatchedDatasetSize(t *testing.T) {
+	baseline := passingReport()
+	baseline.Dataset.Size = "medium"
+	current := passingReport()
+
+	baselinePath := writeReport(t, baseline)
+	currentPath := writeReport(t, current)
+
+	err := run(config{
+		reportPath:         currentPath,
+		baselinePath:       baselinePath,
+		maxRegressionRatio: 1.25,
+		minBrowserDelta:    5,
+		minGoDeltaMS:       0.05,
+		failOnMissing:      true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "performance check") {
+		t.Fatalf("run() error = %v, want dataset mismatch failure", err)
+	}
+}
+
+func TestRunAllowsMismatchedDatasetSizeWithOverride(t *testing.T) {
+	baseline := passingReport()
+	baseline.Dataset.Size = "medium"
+	current := passingReport()
+
+	baselinePath := writeReport(t, baseline)
+	currentPath := writeReport(t, current)
+
+	err := run(config{
+		reportPath:           currentPath,
+		baselinePath:         baselinePath,
+		maxRegressionRatio:   1.25,
+		minBrowserDelta:      5,
+		minGoDeltaMS:         0.05,
+		failOnMissing:        true,
+		allowDatasetMismatch: true,
+	})
+	if err != nil {
+		t.Fatalf("run() error = %v, want override to allow mismatched dataset comparison", err)
+	}
+}
+
 func TestRunFailsNoOverlappingBaselineMetrics(t *testing.T) {
 	baseline := passingReport()
 	baseline.Browser.Summary = nil

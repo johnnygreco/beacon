@@ -385,6 +385,7 @@ document.addEventListener('click', function(evt) {
 	syncSearchControls();
 	updateRangeCaption();
 	updateChartRangeCaption();
+	window.__beaconDashboardInitialLoadSettled = false;
 	var initialLoads = [
 		loadActiveSessions(),
 		loadCompletedSessions(currentCompletedOffset),
@@ -392,6 +393,10 @@ document.addEventListener('click', function(evt) {
 		loadDashboardCharts()
 	];
 	Promise.allSettled(initialLoads).then(function() {
+		window.__beaconDashboardInitialLoadSettled = true;
+		try {
+			window.dispatchEvent(new CustomEvent('beacon:dashboard-initial-load-settled'));
+		} catch (err) {}
 		if (typeof restoreDashboardReturnScrollIfNeeded === 'function') restoreDashboardReturnScrollIfNeeded();
 	});
 })();
