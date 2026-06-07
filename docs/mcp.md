@@ -192,8 +192,9 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocol
 ```
 
 The output should be one JSON-RPC response. If data-backed tool calls return an
-error such as `Beacon database is not available at 127.0.0.1:9000`, start the
-local Beacon services:
+error such as `Beacon database is not available at 127.0.0.1:9000`, the MCP
+server has initialized but ClickHouse is not reachable for tool execution. In a
+local setup, start the local Beacon services:
 
 ```bash
 beacon up
@@ -255,6 +256,10 @@ defaulted arguments nullable; send `null` when you want Beacon's default.
 `list_sessions` responses include `metadata.result_count`,
 `metadata.total_matching_count`, `metadata.result_complete`, and
 `metadata.next_cursor`; pass `next_cursor` back as `cursor` to continue paging.
+`since` and `until` filter session `started_at`; `active_during_since` and
+`active_during_until` use overlap semantics across `started_at` and `ended_at`.
+`source_name`, `model`, `provider`, and `working_dir` are exact filters. `limit`
+defaults to Beacon's MCP max-result setting and is capped server-side.
 
 `usage_summary`:
 
@@ -273,5 +278,80 @@ defaulted arguments nullable; send `null` when you want Beacon's default.
 }
 ```
 
+`usage_summary` arguments:
+
+- `since` and `until` accept RFC3339 timestamps, `now`, or `now-<duration>` such
+  as `now-24h`. Defaults to the last 24 hours ending at `now`.
+- `window_mode` currently supports `event_timestamp`.
+- `token_mode` defaults to `io_only`, where selected totals are
+  `input_tokens + output_tokens`; use `include_cache` to include
+  `cache_read_tokens + cache_create_tokens` in the selected total.
+- `source_name`, `model`, `provider`, and `working_dir` are exact filters.
+- `group_by` accepts `source_name`, `provider`, `model`, `session_id`, and
+  `working_dir`; grouped rows are ordered by selected total and then event
+  count.
+- `limit` defaults to `10` and is capped server-side.
+
+The response includes `total_definition` and `selected_total_definition` so
+agents can state token semantics precisely. Use `beacon usage` for the same
+summary from a shell; see [usage summaries](usage.md).
+
 `open` accepts only `event_id`. Use the ID returned by `search_sessions`; do not
 pass legacy `id` or `event_uid` arguments.
+
+## Safe ClickHouse Escape Hatches
+
+Prefer MCP tools for agent workflows. If you need to debug the database directly,
+keep queries read-only and dedupe `activity_events` by `event_uid` before
+summing token fields.
+
+Reachability check:
+
+```bash
+clickhouse-client --database beacon --query "SELECT count() FROM activity_events"
+```
+
+Exact last-24-hour I/O totals by source:
+
+```bash
+clickhouse-client --database beacon --query "
+WITH latest_events AS (
+  SELECT
+    event_uid,
+    argMax(session_id, captured_at) AS session_id,
+    argMax(source_name, captured_at) AS source_name,
+    argMax(timestamp, captured_at) AS timestamp,
+    argMax(input_tokens, captured_at) AS input_tokens,
+    argMax(output_tokens, captured_at) AS output_tokens
+  FROM activity_events
+  GROUP BY event_uid
+)
+SELECT
+  source_name,
+  uniqExact(session_id) AS sessions,
+  count() AS events,
+  sum(input_tokens + output_tokens) AS io_tokens
+FROM latest_events
+WHERE timestamp >= now() - INTERVAL 24 HOUR
+  AND session_id != ''
+GROUP BY source_name
+ORDER BY io_tokens DESC
+LIMIT 20
+"
+```
+
+Recent sessions:
+
+```bash
+clickhouse-client --database beacon --query "
+SELECT
+  session_id,
+  source_name,
+  started_at,
+  ended_at,
+  total_tokens AS io_tokens
+FROM session_projection FINAL
+ORDER BY ended_at DESC
+LIMIT 20
+"
+```
