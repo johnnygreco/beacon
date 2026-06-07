@@ -375,6 +375,81 @@ func TestToolsCallListSessionsBackendErrorIsSanitized(t *testing.T) {
 	}
 }
 
+func TestToolUsageSummarySuccessAndErrors(t *testing.T) {
+	since := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	until := since.Add(24 * time.Hour)
+	db, stub := newMCPStubDB(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH latest_events AS", "GROUP BY event_uid", "e.timestamp >= ?", "e.timestamp <= ?", "e.source_name = ?", "AS selected_total_tokens")
+			assertMCPNamedValues(t, args, []any{since, until, "codex"})
+			return mcpRows(
+				[]string{"session_count", "event_count", "input_tokens", "output_tokens", "total_tokens", "cache_read_tokens", "cache_create_tokens", "selected_total_tokens"},
+				[]driver.Value{int64(2), int64(5), int64(100), int64(50), int64(150), int64(20), int64(5), int64(175)},
+			), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "SELECT count()", "GROUP BY e.session_id")
+			assertMCPNamedValues(t, args, []any{since, until, "codex"})
+			return mcpRows([]string{"count"}, []driver.Value{int64(2)}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "e.session_id AS session_id", "GROUP BY e.session_id", "ORDER BY selected_total_tokens DESC", "LIMIT ?")
+			assertMCPNamedValues(t, args, []any{since, until, "codex", 1})
+			return mcpRows(
+				[]string{"session_id", "session_count", "event_count", "input_tokens", "output_tokens", "total_tokens", "cache_read_tokens", "cache_create_tokens", "selected_total_tokens"},
+				[]driver.Value{"session-a", int64(1), int64(3), int64(70), int64(30), int64(100), int64(10), int64(5), int64(115)},
+			), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	text, err := srv.toolUsageSummary(context.Background(), json.RawMessage(fmt.Sprintf(`{
+		"since":%q,
+		"until":%q,
+		"window_mode":"event_timestamp",
+		"token_mode":"include_cache",
+		"source_name":"codex",
+		"model":null,
+		"provider":null,
+		"working_dir":null,
+		"group_by":["session_id"],
+		"limit":1
+	}`, since.Format(time.RFC3339), until.Format(time.RFC3339))))
+	if err != nil {
+		t.Fatalf("toolUsageSummary: %v", err)
+	}
+	for _, want := range []string{
+		`"schema":"beacon.mcp.usage_summary.v1"`,
+		`"token_mode":"include_cache"`,
+		`"total_definition":"input_tokens + output_tokens"`,
+		`"selected_total_definition":"input_tokens + output_tokens + cache_read_tokens + cache_create_tokens"`,
+		`"selected_total_tokens":175`,
+		`"total_matching_count":2`,
+		`"result_complete":false`,
+		`"session_id":"session-a"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("usage output missing %q:\n%s", want, text)
+		}
+	}
+
+	_, err = srv.toolUsageSummary(context.Background(), json.RawMessage(`{"since":"now-24h","until":"now","window_mode":"bad"}`))
+	if err == nil || !strings.Contains(err.Error(), "unsupported window_mode") {
+		t.Fatalf("invalid window_mode error = %v", err)
+	}
+	_, err = srv.toolUsageSummary(context.Background(), json.RawMessage(`{"since":"now-24h","until":"now","group_by":["source_name; DROP TABLE activity_events"]}`))
+	if err == nil || !strings.Contains(err.Error(), "unsupported group_by field") {
+		t.Fatalf("invalid group_by error = %v", err)
+	}
+	_, err = srv.toolUsageSummary(context.Background(), json.RawMessage(`{"since":"not-time"}`))
+	if err == nil || !strings.Contains(err.Error(), "invalid since timestamp") {
+		t.Fatalf("invalid since error = %v", err)
+	}
+}
+
 func TestDataBackedToolsReturnDatabaseUnavailableToolErrors(t *testing.T) {
 	srv := NewServerWithBackend(failingBackendProvider{
 		err: databaseUnavailableError(store.Options{
@@ -398,6 +473,10 @@ func TestDataBackedToolsReturnDatabaseUnavailableToolErrors(t *testing.T) {
 		{
 			name: "list_sessions",
 			args: `{"name":"list_sessions","arguments":{"limit":5,"since":null}}`,
+		},
+		{
+			name: "usage_summary",
+			args: `{"name":"usage_summary","arguments":{"since":"now-24h","until":"now","window_mode":null,"token_mode":null,"source_name":null,"model":null,"provider":null,"working_dir":null,"group_by":null,"limit":null}}`,
 		},
 	}
 
@@ -482,6 +561,15 @@ func TestToolDefinitionsMatchImplementedArguments(t *testing.T) {
 	assertRequired(t, listSchema, "limit", "since")
 	assertPropertyNullableType(t, listSchema, "limit", "integer")
 	assertPropertyNullableType(t, listSchema, "since", "string")
+
+	usageSchema := inputSchema(t, defs["usage_summary"])
+	assertSchemaProperties(t, usageSchema, "since", "until", "window_mode", "token_mode", "source_name", "model", "provider", "working_dir", "group_by", "limit")
+	assertRequired(t, usageSchema, "since", "until", "window_mode", "token_mode", "source_name", "model", "provider", "working_dir", "group_by", "limit")
+	for _, name := range []string{"since", "until", "window_mode", "token_mode", "source_name", "model", "provider", "working_dir"} {
+		assertPropertyNullableType(t, usageSchema, name, "string")
+	}
+	assertPropertyNullableType(t, usageSchema, "group_by", "array")
+	assertPropertyNullableType(t, usageSchema, "limit", "integer")
 }
 
 type failingBackendProvider struct {
@@ -578,7 +666,7 @@ func toolDefinitionsByName(t *testing.T) map[string]map[string]any {
 		name, _ := def["name"].(string)
 		defs[name] = def
 	}
-	for _, name := range []string{"search_sessions", "open", "list_sessions"} {
+	for _, name := range []string{"search_sessions", "open", "list_sessions", "usage_summary"} {
 		if defs[name] == nil {
 			t.Fatalf("missing tool definition %q", name)
 		}

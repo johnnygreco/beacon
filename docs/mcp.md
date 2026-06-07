@@ -12,13 +12,15 @@ temporarily unavailable. Data-backed tool calls open Beacon's ClickHouse
 database lazily and return a normal MCP tool error when the database cannot be
 reached.
 
-Beacon exposes three tools:
+Beacon exposes four tools:
 
 - `search_sessions` searches the precomputed activity index and returns session
   and event IDs.
 - `open` retrieves one event plus nearby context from the same session. Pass the
   `event_id` returned by `search_sessions`.
 - `list_sessions` lists recent sessions with summary stats.
+- `usage_summary` aggregates event-level token usage for exact windows and
+  optional top-contributor groupings.
 
 The server does not run capture, migrations, or writes. MCP searches also skip
 Beacon's query log, so the tool surface remains read-only. Beacon returns MCP
@@ -239,6 +241,23 @@ defaulted arguments nullable; send `null` when you want Beacon's default.
 {
   "limit": null,
   "since": null
+}
+```
+
+`usage_summary`:
+
+```json
+{
+  "since": "now-24h",
+  "until": "now",
+  "window_mode": "event_timestamp",
+  "token_mode": "io_only",
+  "source_name": "codex",
+  "model": null,
+  "provider": null,
+  "working_dir": null,
+  "group_by": ["session_id"],
+  "limit": 10
 }
 ```
 
