@@ -68,6 +68,9 @@ func runUsage(cmd *cobra.Command, opts usageCLIOptions) error {
 	if err != nil {
 		return err
 	}
+	if err := usage.Validate(req, now); err != nil {
+		return err
+	}
 
 	cfg, err := config.Load(cfgFile)
 	if err != nil {

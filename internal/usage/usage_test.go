@@ -48,6 +48,7 @@ func TestNormalizeRejectsInvalidInputs(t *testing.T) {
 		{name: "since", req: Request{Since: "yesterday"}, want: "invalid since timestamp"},
 		{name: "until", req: Request{Until: "tomorrow"}, want: "invalid until timestamp"},
 		{name: "inverted window", req: Request{Since: "2026-06-08T00:00:00Z", Until: "2026-06-07T00:00:00Z"}, want: "since must be before"},
+		{name: "empty window", req: Request{Since: "2026-06-07T00:00:00Z", Until: "2026-06-07T00:00:00Z"}, want: "since must be before"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -80,6 +81,7 @@ func TestUsageGroupSQLUsesWhitelistedExpressions(t *testing.T) {
 		"GROUP BY event_uid",
 		"session_working_dirs AS",
 		"argMaxIf(cwd, timestamp, cwd != '') AS working_dir",
+		"e.timestamp >= ? AND e.timestamp < ?",
 		"COALESCE(e.session_working_dir, '') = ?",
 		"COALESCE(NULLIF(e.model, ''), 'unknown') AS model",
 		"e.session_id AS session_id",

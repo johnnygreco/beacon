@@ -145,6 +145,10 @@ func TestUsageCommandRejectsInvalidArgumentsBeforeOpeningStore(t *testing.T) {
 		{name: "today conflicts with since", args: []string{"usage", "--today", "--timezone", "UTC", "--since", "now-1h"}, want: "cannot combine --today with --since or --until"},
 		{name: "timezone requires today", args: []string{"usage", "--timezone", "UTC"}, want: "--timezone requires --today"},
 		{name: "limit positive", args: []string{"usage", "--limit", "0"}, want: "--limit must be positive"},
+		{name: "invalid since", args: []string{"usage", "--since", "bad-time"}, want: "invalid since timestamp"},
+		{name: "invalid until", args: []string{"usage", "--until", "bad-time"}, want: "invalid until timestamp"},
+		{name: "inverted window", args: []string{"usage", "--since", "2026-06-08T00:00:00Z", "--until", "2026-06-07T00:00:00Z"}, want: "since must be before until"},
+		{name: "bad group field", args: []string{"usage", "--group-by", "session_id;DROP TABLE activity_events"}, want: "unsupported group_by field"},
 	}
 
 	for _, tt := range tests {

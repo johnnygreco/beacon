@@ -46,7 +46,8 @@ beacon usage --clickhouse clickhouse.workstation.example:9440 --since now-24h
 
 `--since` and `--until` accept RFC3339 timestamps, `now`, or `now-<duration>`
 values such as `now-24h` and `now-168h`. When omitted, Beacon reports the last
-24 hours ending at `now`.
+24 hours ending at `now`. Usage windows are half-open: `since` is inclusive and
+`until` is exclusive.
 
 `--today` resolves a calendar-day window in the timezone you provide with
 `--timezone`, then prints the absolute UTC window it queried. `--today` cannot
@@ -163,6 +164,7 @@ SELECT
   sum(input_tokens + output_tokens) AS io_tokens
 FROM latest_events
 WHERE timestamp >= now() - INTERVAL 24 HOUR
+  AND timestamp < now()
   AND session_id != ''
 GROUP BY source_name
 ORDER BY io_tokens DESC

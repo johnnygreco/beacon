@@ -259,7 +259,7 @@ defaulted arguments nullable; send `null` when you want Beacon's default.
 `since` and `until` filter session `started_at`; `active_during_since` and
 `active_during_until` use overlap semantics across `started_at` and `ended_at`.
 `source_name`, `model`, `provider`, and `working_dir` are exact filters. `limit`
-defaults to Beacon's MCP max-result setting and is capped server-side.
+defaults to `20` and is capped at `100`.
 
 `usage_summary`:
 
@@ -281,7 +281,8 @@ defaults to Beacon's MCP max-result setting and is capped server-side.
 `usage_summary` arguments:
 
 - `since` and `until` accept RFC3339 timestamps, `now`, or `now-<duration>` such
-  as `now-24h`. Defaults to the last 24 hours ending at `now`.
+  as `now-24h`. Defaults to the last 24 hours ending at `now`. Usage windows are
+  half-open: `since` is inclusive and `until` is exclusive.
 - `window_mode` currently supports `event_timestamp`.
 - `token_mode` defaults to `io_only`, where selected totals are
   `input_tokens + output_tokens`; use `include_cache` to include
@@ -333,6 +334,7 @@ SELECT
   sum(input_tokens + output_tokens) AS io_tokens
 FROM latest_events
 WHERE timestamp >= now() - INTERVAL 24 HOUR
+  AND timestamp < now()
   AND session_id != ''
 GROUP BY source_name
 ORDER BY io_tokens DESC
