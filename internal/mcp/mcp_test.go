@@ -330,6 +330,7 @@ func TestFormatSessionList_WithSessions(t *testing.T) {
 		{
 			SessionID:     "sess-abcdef123456",
 			SourceName:    "claude-code",
+			Provider:      "anthropic",
 			StartedAt:     time.Date(2025, 1, 15, 10, 0, 0, 0, time.UTC),
 			EndedAt:       time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
 			EventCount:    42,
@@ -339,11 +340,12 @@ func TestFormatSessionList_WithSessions(t *testing.T) {
 			MCPCallCount:  2,
 			ErrorCount:    1,
 			LastModel:     "gpt-4",
+			WorkingDir:    "/work/beacon",
 		},
 	}
 
-	output := FormatSessionList(sessions)
-	for _, expected := range []string{`"session_id":"session:sess-abcdef123456"`, `"source_name":"claude-code"`, `"event_count":42`, `"turn_count":10`, `"total_tokens":5000`, `"tool_call_count":8`, `"mcp_call_count":2`, `"error_count":1`, `"last_model":"gpt-4"`} {
+	output := FormatSessionList(sessions, sessionListMetadata{ResultCount: 1, TotalMatchingCount: 3, Limit: 1, ResultComplete: false, NextCursor: "offset:1"})
+	for _, expected := range []string{`"session_id":"session:sess-abcdef123456"`, `"source_name":"claude-code"`, `"provider":"anthropic"`, `"event_count":42`, `"turn_count":10`, `"total_tokens":5000`, `"tool_call_count":8`, `"mcp_call_count":2`, `"error_count":1`, `"last_model":"gpt-4"`, `"working_dir":"/work/beacon"`, `"total_matching_count":3`, `"next_cursor":"offset:1"`} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected %q in output", expected)
 		}

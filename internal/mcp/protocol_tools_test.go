@@ -293,11 +293,16 @@ func TestToolListSessionsSuccessAndErrors(t *testing.T) {
 	since := started.Add(-time.Hour)
 	db, stub := newMCPStubDB(t, []mcpStubQuery{
 		func(query string, args []driver.NamedValue) (driver.Rows, error) {
-			assertMCPQueryContains(t, query, "FROM (SELECT", "WHERE sp.started_at >= ?", "ORDER BY started_at DESC LIMIT ?")
-			assertMCPNamedValues(t, args, []any{since, 5})
+			assertMCPQueryContains(t, query, "SELECT count()", "FROM (SELECT", "started_at >= ?")
+			assertMCPNamedValues(t, args, []any{since})
+			return mcpRows([]string{"count"}, []driver.Value{int64(2)}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "FROM (SELECT", "started_at >= ?", "ORDER BY started_at DESC, session_id DESC LIMIT ? OFFSET ?")
+			assertMCPNamedValues(t, args, []any{since, 5, 0})
 			return mcpRows(
-				[]string{"session_id", "source_name", "started_at", "ended_at", "event_count", "turn_count", "total_tokens", "tool_call_count", "mcp_call_count", "error_count", "last_model"},
-				[]driver.Value{"session-1", "codex", started, ended, int64(4), int64(2), int64(30), int64(1), int64(1), int64(0), "gpt-5.4"},
+				[]string{"session_id", "source_name", "provider", "started_at", "ended_at", "event_count", "turn_count", "total_tokens", "tool_call_count", "mcp_call_count", "error_count", "last_model", "working_dir"},
+				[]driver.Value{"session-1", "codex", "openai", started, ended, int64(4), int64(2), int64(30), int64(1), int64(1), int64(0), "gpt-5.4", "/work/beacon"},
 			), nil
 		},
 	})
@@ -310,16 +315,75 @@ func TestToolListSessionsSuccessAndErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolListSessions: %v", err)
 	}
-	if !strings.Contains(text, `"schema":"beacon.mcp.list_sessions.v1"`) || !strings.Contains(text, `"session_id":"session:session-1"`) || !strings.Contains(text, `"total_tokens":30`) {
-		t.Fatalf("list output = %s", text)
+	for _, want := range []string{
+		`"schema":"beacon.mcp.list_sessions.v1"`,
+		`"session_id":"session:session-1"`,
+		`"provider":"openai"`,
+		`"working_dir":"/work/beacon"`,
+		`"total_tokens":30`,
+		`"result_count":1`,
+		`"total_matching_count":2`,
+		`"result_complete":false`,
+		`"next_cursor":"offset:1"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("list output missing %q:\n%s", want, text)
+		}
+	}
+
+	_, err = srv.toolListSessions(context.Background(), json.RawMessage(`{"cursor":"bad"}`))
+	if err == nil || !strings.Contains(err.Error(), "invalid cursor") {
+		t.Fatalf("invalid cursor error = %v", err)
+	}
+
+	where, values, offset, err := listSessionsFilterSQL(listSessionsParams{
+		Until:             ended.Format(time.RFC3339),
+		SourceName:        " codex ",
+		Model:             "gpt-5.4",
+		Provider:          "openai",
+		WorkingDir:        "/work/beacon",
+		ActiveDuringSince: started.Format(time.RFC3339),
+		ActiveDuringUntil: ended.Format(time.RFC3339),
+		Cursor:            "offset:25",
+	})
+	if err != nil {
+		t.Fatalf("listSessionsFilterSQL: %v", err)
+	}
+	for _, want := range []string{"started_at <= ?", "source_name = ?", "last_model = ?", "provider = ?", "working_dir = ?", "ended_at >= ?"} {
+		if !strings.Contains(where, want) {
+			t.Fatalf("where missing %q: %s", want, where)
+		}
+	}
+	if offset != 25 || len(values) != 7 {
+		t.Fatalf("offset/values = %d/%#v", offset, values)
 	}
 
 	_, err = srv.toolListSessions(context.Background(), json.RawMessage(`{"since":"not-a-time"}`))
 	if err == nil || !strings.Contains(err.Error(), "invalid since timestamp") {
 		t.Fatalf("invalid since error = %v", err)
 	}
+	_, err = srv.toolListSessions(context.Background(), json.RawMessage(`{"active_during_until":"not-a-time"}`))
+	if err == nil || !strings.Contains(err.Error(), "invalid active_during_until timestamp") {
+		t.Fatalf("invalid active_during_until error = %v", err)
+	}
 
 	db, stub = newMCPStubDB(t, []mcpStubQuery{
+		func(string, []driver.NamedValue) (driver.Rows, error) {
+			return nil, errors.New("list query failed")
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+	srv.db = db
+	_, err = srv.toolListSessions(context.Background(), json.RawMessage(`{"limit":1}`))
+	if err == nil || !strings.Contains(err.Error(), "list query failed") {
+		t.Fatalf("list count error = %v", err)
+	}
+
+	db, stub = newMCPStubDB(t, []mcpStubQuery{
+		func(string, []driver.NamedValue) (driver.Rows, error) {
+			return mcpRows([]string{"count"}, []driver.Value{int64(1)}), nil
+		},
 		func(string, []driver.NamedValue) (driver.Rows, error) {
 			return nil, errors.New("list query failed")
 		},
@@ -334,9 +398,12 @@ func TestToolListSessionsSuccessAndErrors(t *testing.T) {
 
 	db, stub = newMCPStubDB(t, []mcpStubQuery{
 		func(string, []driver.NamedValue) (driver.Rows, error) {
+			return mcpRows([]string{"count"}, []driver.Value{int64(1)}), nil
+		},
+		func(string, []driver.NamedValue) (driver.Rows, error) {
 			return mcpRows(
-				[]string{"session_id", "source_name", "started_at", "ended_at", "event_count", "turn_count", "total_tokens", "tool_call_count", "mcp_call_count", "error_count", "last_model"},
-				[]driver.Value{"session-1", "codex", "not-a-time", ended, int64(4), int64(2), int64(30), int64(1), int64(1), int64(0), "gpt-5.4"},
+				[]string{"session_id", "source_name", "provider", "started_at", "ended_at", "event_count", "turn_count", "total_tokens", "tool_call_count", "mcp_call_count", "error_count", "last_model", "working_dir"},
+				[]driver.Value{"session-1", "codex", "openai", "not-a-time", ended, int64(4), int64(2), int64(30), int64(1), int64(1), int64(0), "gpt-5.4", "/work/beacon"},
 			), nil
 		},
 	})
@@ -346,6 +413,38 @@ func TestToolListSessionsSuccessAndErrors(t *testing.T) {
 	_, err = srv.toolListSessions(context.Background(), json.RawMessage(`{"limit":1}`))
 	if err == nil || !strings.Contains(err.Error(), "scan session") {
 		t.Fatalf("list scan error = %v", err)
+	}
+}
+
+func TestToolListSessionsFilterSQLRejectsInvalidTimestamp(t *testing.T) {
+	_, _, _, err := listSessionsFilterSQL(listSessionsParams{Until: "bad"})
+	if err == nil || !strings.Contains(err.Error(), "invalid until timestamp") {
+		t.Fatalf("invalid until error = %v", err)
+	}
+}
+
+func TestToolListSessionsLimitIsCapped(t *testing.T) {
+	db, stub := newMCPStubDB(t, []mcpStubQuery{
+		func(_ string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPNamedValues(t, args, []any{})
+			return mcpRows([]string{"count"}, []driver.Value{int64(0)}), nil
+		},
+		func(_ string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPNamedValues(t, args, []any{maxListSessionsLimit, 0})
+			return mcpRows([]string{"session_id", "source_name", "provider", "started_at", "ended_at", "event_count", "turn_count", "total_tokens", "tool_call_count", "mcp_call_count", "error_count", "last_model", "working_dir"}), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	text, err := srv.toolListSessions(context.Background(), json.RawMessage(`{"limit":999}`))
+	if err != nil {
+		t.Fatalf("toolListSessions: %v", err)
+	}
+	if !strings.Contains(text, `"limit":100`) || !strings.Contains(text, `"result_complete":true`) {
+		t.Fatalf("list output = %s", text)
 	}
 }
 
@@ -557,10 +656,12 @@ func TestToolDefinitionsMatchImplementedArguments(t *testing.T) {
 	assertPropertyNullableType(t, openSchema, "after", "integer")
 
 	listSchema := inputSchema(t, defs["list_sessions"])
-	assertSchemaProperties(t, listSchema, "limit", "since")
-	assertRequired(t, listSchema, "limit", "since")
+	assertSchemaProperties(t, listSchema, "limit", "since", "until", "source_name", "model", "provider", "working_dir", "active_during_since", "active_during_until", "cursor")
+	assertRequired(t, listSchema, "limit", "since", "until", "source_name", "model", "provider", "working_dir", "active_during_since", "active_during_until", "cursor")
 	assertPropertyNullableType(t, listSchema, "limit", "integer")
-	assertPropertyNullableType(t, listSchema, "since", "string")
+	for _, name := range []string{"since", "until", "source_name", "model", "provider", "working_dir", "active_during_since", "active_during_until", "cursor"} {
+		assertPropertyNullableType(t, listSchema, name, "string")
+	}
 
 	usageSchema := inputSchema(t, defs["usage_summary"])
 	assertSchemaProperties(t, usageSchema, "since", "until", "window_mode", "token_mode", "source_name", "model", "provider", "working_dir", "group_by", "limit")
