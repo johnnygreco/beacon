@@ -214,7 +214,8 @@ locations, see [docs/clickhouse.md](docs/clickhouse.md).
 ## MCP Integration
 
 Beacon ships a read-only stdio MCP server so agents can search prior Beacon
-sessions without leaving their normal coding workflow. Start Beacon first:
+sessions without leaving their normal coding workflow. Start Beacon before using
+data-backed MCP tools:
 
 ```bash
 beacon up
@@ -236,6 +237,10 @@ Agents can use `search_sessions`, pass a returned `event_id` to `open`, and use
 `list_sessions` for recent activity. For Claude Code scopes, direct Codex TOML,
 remote ClickHouse, generic MCP clients, and tool argument details, see
 [docs/mcp.md](docs/mcp.md).
+
+If ClickHouse is down, `beacon mcp` still initializes, but tool calls will return
+an MCP error telling you to run `beacon up` or configure a reachable ClickHouse
+address.
 
 ## Commands
 

@@ -105,10 +105,14 @@ func (s *Server) toolSearch(ctx context.Context, args json.RawMessage) (string, 
 		params.Limit = 25
 	}
 
-	if s.searcher == nil {
+	backend, err := s.toolBackend(ctx)
+	if err != nil {
+		return "", err
+	}
+	if backend.Searcher == nil {
 		return "", internalToolError("search unavailable", fmt.Errorf("search backend is not configured"))
 	}
-	results, err := s.searcher.Search(ctx, search.SearchQuery{
+	results, err := backend.Searcher.Search(ctx, search.SearchQuery{
 		Query:          params.Query,
 		Limit:          params.Limit,
 		SessionID:      stripBeaconPrefix(params.SessionID, "session:"),
@@ -143,9 +147,17 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 		params.After = s.defaultContextWindow()
 	}
 
+	backend, err := s.toolBackend(ctx)
+	if err != nil {
+		return "", err
+	}
+	if backend.DB == nil {
+		return "", internalToolError("database unavailable", fmt.Errorf("database backend is not configured"))
+	}
+
 	// Use a window query to fetch only the target event and its surrounding context,
 	// avoiding a full session scan for sessions with thousands of events.
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := backend.DB.QueryContext(ctx,
 		`WITH target AS (
 		    SELECT event_uid,
 		           argMax(session_id, captured_at) AS target_session_id,
@@ -225,21 +237,28 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 		params.Limit = 20
 	}
 
+	backend, err := s.toolBackend(ctx)
+	if err != nil {
+		return "", err
+	}
+	if backend.DB == nil {
+		return "", internalToolError("database unavailable", fmt.Errorf("database backend is not configured"))
+	}
+
 	var rows *sql.Rows
-	var err error
 
 	if params.Since != "" {
 		since, parseErr := time.Parse(time.RFC3339, params.Since)
 		if parseErr != nil {
 			return "", userToolError("invalid since timestamp")
 		}
-		rows, err = s.db.QueryContext(ctx,
+		rows, err = backend.DB.QueryContext(ctx,
 			`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
 			        event_count, turn_count, total_tokens, tool_call_count, mcp_call_count, error_count, COALESCE(last_model, '')
 			 FROM `+mcpSessionProjectionSubquery("sp.started_at >= ?")+`
 			 ORDER BY started_at DESC LIMIT ?`, since, params.Limit)
 	} else {
-		rows, err = s.db.QueryContext(ctx,
+		rows, err = backend.DB.QueryContext(ctx,
 			`SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
 			        event_count, turn_count, total_tokens, tool_call_count, mcp_call_count, error_count, COALESCE(last_model, '')
 			 FROM `+mcpSessionProjectionSQL+`

@@ -6,8 +6,13 @@ stay inside their normal coding workflow.
 
 ## How it works
 
-`beacon mcp` is launched by the MCP client over stdin/stdout JSON-RPC. It reads
-Beacon's ClickHouse database and exposes three tools:
+`beacon mcp` is launched by the MCP client over stdin/stdout JSON-RPC. It can
+initialize, answer `ping`, and list its tools even when ClickHouse is
+temporarily unavailable. Data-backed tool calls open Beacon's ClickHouse
+database lazily and return a normal MCP tool error when the database cannot be
+reached.
+
+Beacon exposes three tools:
 
 - `search_sessions` searches the precomputed activity index and returns session
   and event IDs.
@@ -23,8 +28,8 @@ verified against the current workspace before acting.
 
 ## Start Beacon
 
-Start Beacon before connecting an MCP client so local ClickHouse is available
-and migrated:
+Start Beacon before using MCP tools so local ClickHouse is available and
+migrated:
 
 ```bash
 beacon up
@@ -32,6 +37,10 @@ beacon up
 
 The MCP client launches `beacon mcp`, so `beacon` must be installed on the
 machine where Claude Code, Codex, or the other MCP client runs.
+
+If an MCP client starts first, the connection should still initialize. Tool
+calls that need captured data will report that Beacon's database is unavailable
+and suggest starting Beacon with `beacon up`.
 
 ## Claude Code
 
@@ -168,6 +177,30 @@ With an address override:
     }
   }
 }
+```
+
+## Troubleshooting
+
+If a client reports an MCP startup or handshake warning, first verify that the
+installed `beacon mcp` can answer `initialize` without printing diagnostics to
+stdout:
+
+```bash
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}' | beacon mcp
+```
+
+The output should be one JSON-RPC response. If data-backed tool calls return an
+error such as `Beacon database is not available at 127.0.0.1:9000`, start the
+local Beacon services:
+
+```bash
+beacon up
+```
+
+For remote ClickHouse, check the configured address or pass an address override:
+
+```bash
+beacon mcp --clickhouse clickhouse.workstation.example:9440
 ```
 
 ## Tool arguments
