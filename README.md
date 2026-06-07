@@ -234,8 +234,9 @@ codex mcp add beacon -- beacon mcp
 ```
 
 Agents can use `search_sessions`, pass a returned `event_id` to `open`, and use
-`list_sessions` for recent activity. For Claude Code scopes, direct Codex TOML,
-remote ClickHouse, generic MCP clients, and tool argument details, see
+`list_sessions` for recent activity. Use `usage_summary` for exact event-window
+token totals. For Claude Code scopes, direct Codex TOML, remote ClickHouse,
+generic MCP clients, and tool argument details, see
 [docs/mcp.md](docs/mcp.md).
 
 If ClickHouse is down, `beacon mcp` still initializes, but tool calls will return

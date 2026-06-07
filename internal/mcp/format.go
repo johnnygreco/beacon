@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/search"
+	"github.com/johnnygreco/beacon/internal/usage"
 )
 
 func FormatSearchResults(results []search.SearchResult) string {
@@ -153,6 +154,19 @@ func FormatSessionList(sessions []sessionInfo) string {
 			ErrorCount:    s.ErrorCount,
 			LastModel:     s.LastModel,
 		})
+	}
+	return mustJSON(payload)
+}
+
+func FormatUsageSummary(result usage.Result) string {
+	payload := struct {
+		Schema string `json:"schema"`
+		Tool   string `json:"tool"`
+		usage.Result
+	}{
+		Schema: "beacon.mcp.usage_summary.v1",
+		Tool:   "usage_summary",
+		Result: result,
 	}
 	return mustJSON(payload)
 }

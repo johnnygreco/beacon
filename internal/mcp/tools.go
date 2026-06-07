@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/search"
+	"github.com/johnnygreco/beacon/internal/usage"
 )
 
 const defaultOpenContextWindow = 3
@@ -59,6 +60,28 @@ func toolDefinitions() []map[string]any {
 				"additionalProperties": false,
 			},
 		},
+		{
+			"name":        "usage_summary",
+			"description": "Summarize Beacon token usage with event-level time-window accounting.",
+			"annotations": readOnlyToolAnnotations(),
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"since":       nullableType("string", "Start of the usage window as RFC3339, now, or now-duration such as now-24h (default now-24h)"),
+					"until":       nullableType("string", "End of the usage window as RFC3339 or now (default now)"),
+					"window_mode": nullableType("string", "Usage window mode (default event_timestamp)"),
+					"token_mode":  nullableType("string", "Selected total mode: io_only or include_cache (default io_only)"),
+					"source_name": nullableType("string", "Filter by Beacon capture source, such as codex or claude"),
+					"model":       nullableType("string", "Filter by model"),
+					"provider":    nullableType("string", "Filter by provider"),
+					"working_dir": nullableType("string", "Filter by working directory"),
+					"group_by":    map[string]any{"type": []string{"array", "null"}, "items": map[string]any{"type": "string"}, "description": "Group results by source_name, provider, model, session_id, or working_dir"},
+					"limit":       nullableType("integer", "Max grouped results (default 10, max 100)"),
+				},
+				"required":             []string{"since", "until", "window_mode", "token_mode", "source_name", "model", "provider", "working_dir", "group_by", "limit"},
+				"additionalProperties": false,
+			},
+		},
 	}
 }
 
@@ -83,6 +106,8 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		return s.toolOpen(ctx, args)
 	case "list_sessions":
 		return s.toolListSessions(ctx, args)
+	case "usage_summary":
+		return s.toolUsageSummary(ctx, args)
 	default:
 		return "", userToolError("unknown tool: %s", name)
 	}
@@ -283,6 +308,54 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 	}
 
 	return FormatSessionList(sessions), nil
+}
+
+func (s *Server) toolUsageSummary(ctx context.Context, args json.RawMessage) (string, error) {
+	var params struct {
+		Since      string   `json:"since"`
+		Until      string   `json:"until"`
+		WindowMode string   `json:"window_mode"`
+		TokenMode  string   `json:"token_mode"`
+		SourceName string   `json:"source_name"`
+		Model      string   `json:"model"`
+		Provider   string   `json:"provider"`
+		WorkingDir string   `json:"working_dir"`
+		GroupBy    []string `json:"group_by"`
+		Limit      int      `json:"limit"`
+	}
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &params); err != nil {
+			return "", userToolError("invalid arguments")
+		}
+	}
+
+	backend, err := s.toolBackend(ctx)
+	if err != nil {
+		return "", err
+	}
+	if backend.DB == nil {
+		return "", internalToolError("database unavailable", fmt.Errorf("database backend is not configured"))
+	}
+
+	result, err := usage.Summarize(ctx, backend.DB, usage.Request{
+		Since:      params.Since,
+		Until:      params.Until,
+		WindowMode: params.WindowMode,
+		TokenMode:  params.TokenMode,
+		SourceName: params.SourceName,
+		Model:      params.Model,
+		Provider:   params.Provider,
+		WorkingDir: params.WorkingDir,
+		GroupBy:    params.GroupBy,
+		Limit:      params.Limit,
+	}, time.Now())
+	if err != nil {
+		if usage.IsUserError(err) {
+			return "", userToolError("%s", err.Error())
+		}
+		return "", internalToolError("failed to summarize usage", err)
+	}
+	return FormatUsageSummary(result), nil
 }
 
 var mcpSessionProjectionSQL = mcpSessionProjectionSubquery("")
