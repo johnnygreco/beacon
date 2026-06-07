@@ -240,9 +240,21 @@ defaulted arguments nullable; send `null` when you want Beacon's default.
 ```json
 {
   "limit": null,
-  "since": null
+  "since": null,
+  "until": null,
+  "source_name": null,
+  "model": null,
+  "provider": null,
+  "working_dir": null,
+  "active_during_since": null,
+  "active_during_until": null,
+  "cursor": null
 }
 ```
+
+`list_sessions` responses include `metadata.result_count`,
+`metadata.total_matching_count`, `metadata.result_complete`, and
+`metadata.next_cursor`; pass `next_cursor` back as `cursor` to continue paging.
 
 `usage_summary`:
 

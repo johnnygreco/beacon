@@ -104,6 +104,7 @@ func FormatOpenContext(events []contextEvent, targetIdx int) string {
 type sessionInfo struct {
 	SessionID     string
 	SourceName    string
+	Provider      string
 	StartedAt     time.Time
 	EndedAt       time.Time
 	EventCount    int64
@@ -113,12 +114,23 @@ type sessionInfo struct {
 	MCPCallCount  int64
 	ErrorCount    int64
 	LastModel     string
+	WorkingDir    string
 }
 
-func FormatSessionList(sessions []sessionInfo) string {
+type sessionListMetadata struct {
+	ResultCount        int
+	TotalMatchingCount int64
+	Limit              int
+	Cursor             string
+	ResultComplete     bool
+	NextCursor         string
+}
+
+func FormatSessionList(sessions []sessionInfo, metadataOpt ...sessionListMetadata) string {
 	type session struct {
 		SessionID     string    `json:"session_id"`
 		SourceName    string    `json:"source_name"`
+		Provider      string    `json:"provider,omitempty"`
 		StartedAt     time.Time `json:"started_at"`
 		EndedAt       time.Time `json:"ended_at"`
 		EventCount    int64     `json:"event_count"`
@@ -128,22 +140,43 @@ func FormatSessionList(sessions []sessionInfo) string {
 		MCPCallCount  int64     `json:"mcp_call_count"`
 		ErrorCount    int64     `json:"error_count"`
 		LastModel     string    `json:"last_model,omitempty"`
+		WorkingDir    string    `json:"working_dir,omitempty"`
+	}
+	type metadata struct {
+		ResultCount        int    `json:"result_count"`
+		TotalMatchingCount int64  `json:"total_matching_count"`
+		Limit              int    `json:"limit"`
+		Cursor             string `json:"cursor,omitempty"`
+		ResultComplete     bool   `json:"result_complete"`
+		NextCursor         string `json:"next_cursor"`
+	}
+	meta := sessionListMetadata{
+		ResultCount:        len(sessions),
+		TotalMatchingCount: int64(len(sessions)),
+		Limit:              len(sessions),
+		ResultComplete:     true,
+	}
+	if len(metadataOpt) > 0 {
+		meta = metadataOpt[0]
 	}
 	payload := struct {
 		Schema   string    `json:"schema"`
 		Tool     string    `json:"tool"`
 		Results  []session `json:"results"`
+		Metadata metadata  `json:"metadata"`
 		Warnings []string  `json:"warnings"`
 	}{
 		Schema:   "beacon.mcp.list_sessions.v1",
 		Tool:     "list_sessions",
 		Results:  []session{},
+		Metadata: metadata(meta),
 		Warnings: []string{},
 	}
 	for _, s := range sessions {
 		payload.Results = append(payload.Results, session{
 			SessionID:     "session:" + s.SessionID,
 			SourceName:    s.SourceName,
+			Provider:      s.Provider,
 			StartedAt:     s.StartedAt,
 			EndedAt:       s.EndedAt,
 			EventCount:    s.EventCount,
@@ -153,6 +186,7 @@ func FormatSessionList(sessions []sessionInfo) string {
 			MCPCallCount:  s.MCPCallCount,
 			ErrorCount:    s.ErrorCount,
 			LastModel:     s.LastModel,
+			WorkingDir:    s.WorkingDir,
 		})
 	}
 	return mustJSON(payload)
