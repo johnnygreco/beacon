@@ -479,7 +479,7 @@ func TestToolUsageSummarySuccessAndErrors(t *testing.T) {
 	until := since.Add(24 * time.Hour)
 	db, stub := newMCPStubDB(t, []mcpStubQuery{
 		func(query string, args []driver.NamedValue) (driver.Rows, error) {
-			assertMCPQueryContains(t, query, "WITH latest_events AS", "GROUP BY event_uid", "e.timestamp >= ?", "e.timestamp <= ?", "e.source_name = ?", "AS selected_total_tokens")
+			assertMCPQueryContains(t, query, "WITH latest_events AS", "GROUP BY event_uid", "e.timestamp >= ?", "e.timestamp < ?", "e.source_name = ?", "AS selected_total_tokens")
 			assertMCPNamedValues(t, args, []any{since, until, "codex"})
 			return mcpRows(
 				[]string{"session_count", "event_count", "input_tokens", "output_tokens", "total_tokens", "cache_read_tokens", "cache_create_tokens", "selected_total_tokens"},

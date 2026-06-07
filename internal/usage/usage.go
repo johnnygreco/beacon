@@ -98,6 +98,11 @@ func IsUserError(err error) bool {
 	return errors.As(err, &userErr)
 }
 
+func Validate(req Request, now time.Time) error {
+	_, err := normalize(req, now)
+	return err
+}
+
 func Summarize(ctx context.Context, db *sql.DB, req Request, now time.Time) (Result, error) {
 	if db == nil {
 		return Result{}, fmt.Errorf("database is not configured")
@@ -219,8 +224,8 @@ func resolveWindow(sinceRaw, untilRaw string, now time.Time) (Window, error) {
 			return Window{}, UserError{message: "invalid since timestamp"}
 		}
 	}
-	if !since.Before(until) && !since.Equal(until) {
-		return Window{}, UserError{message: "since must be before or equal to until"}
+	if !since.Before(until) {
+		return Window{}, UserError{message: "since must be before until"}
 	}
 	return Window{Since: since.UTC(), Until: until.UTC(), Mode: DefaultWindowMode}, nil
 }
@@ -392,7 +397,7 @@ func usageGroupSQL(req normalizedRequest) (string, []any) {
 func usageWhereSQL(req normalizedRequest) (string, []any) {
 	clauses := []string{
 		"e.timestamp >= ?",
-		"e.timestamp <= ?",
+		"e.timestamp < ?",
 		"e.session_id != ''",
 	}
 	args := []any{req.Window.Since, req.Window.Until}

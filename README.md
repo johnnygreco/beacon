@@ -178,6 +178,7 @@ If `[database].addrs` points to a remote ClickHouse host, Beacon will not start 
 - [Architecture and data flow](docs/architecture.md)
 - [Privacy, retention, and local data boundaries](docs/privacy.md)
 - [Pricing estimate data and fallback behavior](docs/pricing.md)
+- [Usage summaries and safe accounting](docs/usage.md)
 - [Performance baselines and query-plan review](docs/performance.md)
 - [ClickHouse schema, migration, and reset policy](docs/clickhouse.md)
 - [Errors and observability](docs/errors.md)
@@ -211,6 +212,23 @@ Native ClickHouse data lives under `~/.beacon/clickhouse`. Docker mode uses the 
 For schema ownership, migration behavior, reset policy, and local data
 locations, see [docs/clickhouse.md](docs/clickhouse.md).
 
+## Usage Summaries
+
+Use `beacon usage` when you want exact event-window token accounting without
+writing ClickHouse SQL:
+
+```bash
+beacon usage --source codex --since now-24h
+beacon usage --today --timezone UTC
+beacon usage --source claude --group-by model --limit 10 --json
+```
+
+The default selected total is input plus output tokens. Pass `--include-cache`
+when you want cache-read and cache-create tokens included in the selected total;
+the output still reports cache categories separately. See
+[docs/usage.md](docs/usage.md) for filters, calendar windows, JSON output, and
+safe ClickHouse fallback queries.
+
 ## MCP Integration
 
 Beacon ships a read-only stdio MCP server so agents can search prior Beacon
@@ -241,7 +259,11 @@ generic MCP clients, and tool argument details, see
 
 If ClickHouse is down, `beacon mcp` still initializes, but tool calls will return
 an MCP error telling you to run `beacon up` or configure a reachable ClickHouse
-address.
+address. In the common local setup, the practical fix is:
+
+```bash
+beacon up
+```
 
 ## Commands
 
@@ -251,6 +273,7 @@ address.
 | `beacon down` | Stop the running Beacon web server |
 | `beacon watch` | Capture sessions without the web dashboard |
 | `beacon mcp` | Start the MCP server over stdin/stdout JSON-RPC |
+| `beacon usage` | Summarize captured token usage by window and filters |
 | `beacon status` | Show server, database, session, and search-index status |
 | `beacon --version` | Show the Beacon CLI version |
 | `beacon db up` | Start local ClickHouse and migrate tables |
