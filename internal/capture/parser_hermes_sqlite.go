@@ -28,6 +28,13 @@ type hermesSessionRow struct {
 	title             string
 }
 
+type hermesMessageReasoning struct {
+	reasoningContent    string
+	reasoning           string
+	reasoningDetails    string
+	codexReasoningItems string
+}
+
 // ParseHermesSQLite parses Hermes Agent's SQLite state store.
 //
 // Current Hermes stores normal CLI/gateway sessions in ~/.hermes/state.db.
@@ -194,19 +201,22 @@ func hermesSessionEvents(file string, sess hermesSessionRow) []NormalizedEvent {
 }
 
 func loadHermesMessages(db *sql.DB, file string, sessions map[string]hermesSessionRow) ([]NormalizedEvent, error) {
-	reasoningExpr := hermesReasoningSelectExpr(db)
+	reasoningExprs := hermesReasoningSelectExprs(db)
 	activeFilter := hermesMessagesActiveFilter(db)
 	rows, err := db.Query(fmt.Sprintf(`SELECT id, session_id, role, %s, %s, %s,
-	       %s, timestamp, %s, %s
+	       %s, timestamp, %s, %s, %s, %s, %s
 		FROM messages
 		%s
-		ORDER BY session_id, timestamp, id`,
+		ORDER BY session_id, id`,
 		hermesOptionalColumnSelectExpr(db, "messages", "content"),
 		hermesOptionalColumnSelectExpr(db, "messages", "tool_call_id"),
 		hermesOptionalColumnSelectExpr(db, "messages", "tool_calls"),
 		hermesOptionalColumnSelectExpr(db, "messages", "tool_name"),
 		hermesOptionalColumnSelectExpr(db, "messages", "finish_reason"),
-		reasoningExpr,
+		reasoningExprs[0],
+		reasoningExprs[1],
+		reasoningExprs[2],
+		reasoningExprs[3],
 		activeFilter,
 	))
 	if err != nil {
@@ -215,10 +225,12 @@ func loadHermesMessages(db *sql.DB, file string, sessions map[string]hermesSessi
 	defer rows.Close()
 
 	var events []NormalizedEvent
+	lastTimestampBySession := make(map[string]float64)
 	for rows.Next() {
 		var id int64
 		var sessionID, role string
-		var content, toolCallID, toolCalls, toolName, finishReason, reasoningContent sql.NullString
+		var content, toolCallID, toolCalls, toolName, finishReason sql.NullString
+		var reasoningContent, reasoning, reasoningDetails, codexReasoningItems sql.NullString
 		var ts sql.NullFloat64
 		if err := rows.Scan(
 			&id,
@@ -231,18 +243,28 @@ func loadHermesMessages(db *sql.DB, file string, sessions map[string]hermesSessi
 			&ts,
 			&finishReason,
 			&reasoningContent,
+			&reasoning,
+			&reasoningDetails,
+			&codexReasoningItems,
 		); err != nil {
 			return nil, err
 		}
 
 		sess := sessions[sessionID]
+		timestampValue := ts.Float64
+		if ts.Valid && timestampValue > 0 {
+			if last := lastTimestampBySession[sessionID]; last > 0 && timestampValue <= last {
+				timestampValue = last + 0.001
+			}
+			lastTimestampBySession[sessionID] = timestampValue
+		}
 		base := NormalizedEvent{
 			SessionID:       sessionID,
 			SourceName:      "hermes",
 			Runtime:         models.RuntimeHermesAgent,
 			Provider:        firstNonEmpty(sess.billingProvider, models.ProviderMulti),
 			Format:          models.FormatSQLite,
-			Timestamp:       timeFromUnixSeconds(ts.Float64),
+			Timestamp:       timeFromUnixSeconds(timestampValue),
 			Model:           sess.model,
 			ParentSessionID: sess.parentSessionID,
 			CWD:             sess.cwd,
@@ -252,7 +274,13 @@ func loadHermesMessages(db *sql.DB, file string, sessions map[string]hermesSessi
 			MessageUUID:     fmt.Sprint(id),
 		}
 
-		rowEvents := hermesMessageEvents(base, id, role, content.String, toolCallID.String, toolCalls.String, toolName.String, finishReason.String, reasoningContent.String)
+		reasoningFields := hermesMessageReasoning{
+			reasoningContent:    reasoningContent.String,
+			reasoning:           reasoning.String,
+			reasoningDetails:    reasoningDetails.String,
+			codexReasoningItems: codexReasoningItems.String,
+		}
+		rowEvents := hermesMessageEvents(base, id, role, content.String, toolCallID.String, toolCalls.String, toolName.String, finishReason.String, reasoningFields)
 		events = append(events, rowEvents...)
 	}
 	return events, rows.Err()
@@ -285,7 +313,7 @@ func hermesFirstOptionalColumnSelectExpr(db *sql.DB, table string, columns []str
 	return "COALESCE(" + strings.Join(append(expressions, fallback), ", ") + ")"
 }
 
-func hermesReasoningSelectExpr(db *sql.DB) string {
+func hermesReasoningSelectExprs(db *sql.DB) []string {
 	candidates := []string{
 		"reasoning_content",
 		"reasoning",
@@ -294,29 +322,25 @@ func hermesReasoningSelectExpr(db *sql.DB) string {
 	}
 	expressions := make([]string, 0, len(candidates))
 	for _, column := range candidates {
-		if sqliteHasColumn(db, "messages", column) {
-			expressions = append(expressions, fmt.Sprintf(`NULLIF(%s, '')`, hermesQuotedIdentifier(column)))
-		}
+		expressions = append(expressions, hermesOptionalColumnSelectExpr(db, "messages", column))
 	}
-	if len(expressions) == 0 {
-		return `''`
-	}
-	return "COALESCE(" + strings.Join(expressions, ", ") + ", '')"
+	return expressions
 }
 
 func hermesQuotedIdentifier(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
-func hermesMessageEvents(base NormalizedEvent, rowID int64, role, rawContent, toolCallID, toolCalls, toolName, finishReason, reasoningContent string) []NormalizedEvent {
+func hermesMessageEvents(base NormalizedEvent, rowID int64, role, rawContent, toolCallID, toolCalls, toolName, finishReason string, reasoning hermesMessageReasoning) []NormalizedEvent {
 	rowKey := fmt.Sprint(rowID)
 	var events []NormalizedEvent
 	content := textFromHarnessContent(decodeHarnessJSON(rawContent))
 
-	if reasoningText := textFromHarnessContent(decodeHarnessJSON(reasoningContent)); reasoningText != "" {
+	if reasoningText, payloadType := hermesReasoningText(reasoning); reasoningText != "" || payloadType != "" {
 		evt := base
 		evt.EventKind = models.EventKindReasoning
 		evt.ActorRole = models.ActorRoleAssistant
+		evt.PayloadType = payloadType
 		evt.TextContent = reasoningText
 		evt.SourceOffset = stableOffset("hermes", "messages", rowKey, "reasoning")
 		evt.RawPayload = sqliteStableRaw("hermes", "messages", rowKey, "reasoning")
@@ -393,6 +417,73 @@ func hermesMessageEvents(base NormalizedEvent, rowID int64, role, rawContent, to
 	}
 
 	return events
+}
+
+func hermesReasoningText(reasoning hermesMessageReasoning) (string, string) {
+	for _, raw := range []string{
+		reasoning.reasoningContent,
+		reasoning.reasoning,
+		reasoning.reasoningDetails,
+	} {
+		if text := textFromHarnessContent(decodeHarnessJSON(raw)); text != "" {
+			return text, ""
+		}
+	}
+	return hermesCodexReasoningText(reasoning.codexReasoningItems)
+}
+
+func hermesCodexReasoningText(raw string) (string, string) {
+	decoded := decodeHarnessJSON(raw)
+	if text := hermesCodexReasoningTextFromAny(decoded); text != "" {
+		return text, ""
+	}
+	if hermesHasEncryptedReasoning(decoded) {
+		return "", "encrypted"
+	}
+	return "", ""
+}
+
+func hermesCodexReasoningTextFromAny(v any) string {
+	switch c := v.(type) {
+	case []any:
+		var texts []string
+		for _, item := range c {
+			if text := hermesCodexReasoningTextFromAny(item); text != "" {
+				texts = append(texts, text)
+			}
+		}
+		return strings.Join(texts, "")
+	case map[string]any:
+		if summary := stringFromAny(c["summary"]); summary != "" {
+			return summary
+		}
+		var texts []string
+		for _, item := range arrayFromAny(c["summary"]) {
+			if text := stringField(objectFromAny(item), "text"); text != "" {
+				texts = append(texts, text)
+			}
+		}
+		if len(texts) > 0 {
+			return strings.Join(texts, "")
+		}
+	}
+	return textFromHarnessContent(v)
+}
+
+func hermesHasEncryptedReasoning(v any) bool {
+	switch c := v.(type) {
+	case []any:
+		for _, item := range c {
+			if hermesHasEncryptedReasoning(item) {
+				return true
+			}
+		}
+	case map[string]any:
+		if _, ok := c["encrypted_content"]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 type hermesToolCall struct {
