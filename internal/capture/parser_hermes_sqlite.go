@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/johnnygreco/beacon/internal/models"
 )
@@ -21,6 +22,7 @@ type hermesSessionRow struct {
 	cacheReadTokens   int64
 	cacheCreateTokens int64
 	reasoningTokens   int64
+	cwd               string
 	billingProvider   string
 	costUSD           float64
 	title             string
@@ -42,9 +44,6 @@ func ParseHermesSQLite(file string) ([]NormalizedEvent, error) {
 	if !sqliteHasTable(db, "sessions") || !sqliteHasTable(db, "messages") {
 		return nil, fmt.Errorf("hermes state database missing sessions/messages tables")
 	}
-	if !sqliteHasColumn(db, "messages", "reasoning_content") {
-		return nil, fmt.Errorf("unsupported Hermes state schema: messages.reasoning_content column is required")
-	}
 
 	sessions, err := loadHermesSessions(db)
 	if err != nil {
@@ -65,12 +64,28 @@ func ParseHermesSQLite(file string) ([]NormalizedEvent, error) {
 }
 
 func loadHermesSessions(db *sql.DB) (map[string]hermesSessionRow, error) {
-	rows, err := db.Query(`SELECT id, source, model, parent_session_id, started_at, ended_at,
-	       end_reason, input_tokens, output_tokens, cache_read_tokens,
-	       cache_write_tokens, reasoning_tokens, billing_provider,
-	       COALESCE(actual_cost_usd, estimated_cost_usd, 0), title
+	costExpr := hermesFirstOptionalColumnSelectExpr(db, "sessions", []string{"actual_cost_usd", "estimated_cost_usd"}, "0")
+	rows, err := db.Query(fmt.Sprintf(`SELECT id, %s, %s, %s, started_at, %s,
+	       %s, %s, %s, %s,
+	       %s, %s, %s, %s,
+	       %s, %s
 		FROM sessions
-		ORDER BY started_at, id`)
+		ORDER BY started_at, id`,
+		hermesOptionalColumnSelectExpr(db, "sessions", "source"),
+		hermesOptionalColumnSelectExpr(db, "sessions", "model"),
+		hermesOptionalColumnSelectExpr(db, "sessions", "parent_session_id"),
+		hermesOptionalColumnSelectExpr(db, "sessions", "ended_at"),
+		hermesOptionalColumnSelectExpr(db, "sessions", "end_reason"),
+		hermesOptionalColumnSelectExpr(db, "sessions", "input_tokens"),
+		hermesOptionalColumnSelectExpr(db, "sessions", "output_tokens"),
+		hermesOptionalColumnSelectExpr(db, "sessions", "cache_read_tokens"),
+		hermesOptionalColumnSelectExpr(db, "sessions", "cache_write_tokens"),
+		hermesOptionalColumnSelectExpr(db, "sessions", "reasoning_tokens"),
+		hermesOptionalColumnSelectExpr(db, "sessions", "cwd"),
+		hermesOptionalColumnSelectExpr(db, "sessions", "billing_provider"),
+		costExpr,
+		hermesOptionalColumnSelectExpr(db, "sessions", "title"),
+	))
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +94,7 @@ func loadHermesSessions(db *sql.DB) (map[string]hermesSessionRow, error) {
 	result := make(map[string]hermesSessionRow)
 	for rows.Next() {
 		var row hermesSessionRow
-		var source, model, parent, endReason, provider, title sql.NullString
+		var source, model, parent, endReason, cwd, provider, title sql.NullString
 		var started, ended, cost sql.NullFloat64
 		var input, output, cacheRead, cacheWrite, reasoning sql.NullInt64
 		if err := rows.Scan(
@@ -95,6 +110,7 @@ func loadHermesSessions(db *sql.DB) (map[string]hermesSessionRow, error) {
 			&cacheRead,
 			&cacheWrite,
 			&reasoning,
+			&cwd,
 			&provider,
 			&cost,
 			&title,
@@ -112,6 +128,7 @@ func loadHermesSessions(db *sql.DB) (map[string]hermesSessionRow, error) {
 		row.cacheReadTokens = cacheRead.Int64
 		row.cacheCreateTokens = cacheWrite.Int64
 		row.reasoningTokens = reasoning.Int64
+		row.cwd = cwd.String
 		row.billingProvider = provider.String
 		row.costUSD = cost.Float64
 		row.title = title.String
@@ -130,6 +147,7 @@ func hermesSessionEvents(file string, sess hermesSessionRow) []NormalizedEvent {
 		Timestamp:       timeFromUnixSeconds(sess.startedAt),
 		Model:           sess.model,
 		ParentSessionID: sess.parentSessionID,
+		CWD:             sess.cwd,
 		SourceFile:      file,
 		SourceLineNo:    stableLineNo("hermes", "sessions", sess.id),
 		SourceOffset:    stableOffset("hermes", "sessions", sess.id),
@@ -176,10 +194,21 @@ func hermesSessionEvents(file string, sess hermesSessionRow) []NormalizedEvent {
 }
 
 func loadHermesMessages(db *sql.DB, file string, sessions map[string]hermesSessionRow) ([]NormalizedEvent, error) {
-	rows, err := db.Query(`SELECT id, session_id, role, content, tool_call_id, tool_calls,
-	       tool_name, timestamp, finish_reason, reasoning_content
+	reasoningExpr := hermesReasoningSelectExpr(db)
+	activeFilter := hermesMessagesActiveFilter(db)
+	rows, err := db.Query(fmt.Sprintf(`SELECT id, session_id, role, %s, %s, %s,
+	       %s, timestamp, %s, %s
 		FROM messages
-		ORDER BY session_id, timestamp, id`)
+		%s
+		ORDER BY session_id, timestamp, id`,
+		hermesOptionalColumnSelectExpr(db, "messages", "content"),
+		hermesOptionalColumnSelectExpr(db, "messages", "tool_call_id"),
+		hermesOptionalColumnSelectExpr(db, "messages", "tool_calls"),
+		hermesOptionalColumnSelectExpr(db, "messages", "tool_name"),
+		hermesOptionalColumnSelectExpr(db, "messages", "finish_reason"),
+		reasoningExpr,
+		activeFilter,
+	))
 	if err != nil {
 		return nil, err
 	}
@@ -216,6 +245,7 @@ func loadHermesMessages(db *sql.DB, file string, sessions map[string]hermesSessi
 			Timestamp:       timeFromUnixSeconds(ts.Float64),
 			Model:           sess.model,
 			ParentSessionID: sess.parentSessionID,
+			CWD:             sess.cwd,
 			SourceFile:      file,
 			SourceLineNo:    stableLineNo("hermes", "messages", fmt.Sprint(id)),
 			SourceOffset:    stableOffset("hermes", "messages", fmt.Sprint(id)),
@@ -226,6 +256,56 @@ func loadHermesMessages(db *sql.DB, file string, sessions map[string]hermesSessi
 		events = append(events, rowEvents...)
 	}
 	return events, rows.Err()
+}
+
+func hermesMessagesActiveFilter(db *sql.DB) string {
+	if !sqliteHasColumn(db, "messages", "active") {
+		return ""
+	}
+	return "WHERE COALESCE(active, 1) != 0"
+}
+
+func hermesOptionalColumnSelectExpr(db *sql.DB, table, column string) string {
+	if !sqliteHasColumn(db, table, column) {
+		return "NULL"
+	}
+	return hermesQuotedIdentifier(column)
+}
+
+func hermesFirstOptionalColumnSelectExpr(db *sql.DB, table string, columns []string, fallback string) string {
+	expressions := make([]string, 0, len(columns))
+	for _, column := range columns {
+		if sqliteHasColumn(db, table, column) {
+			expressions = append(expressions, hermesQuotedIdentifier(column))
+		}
+	}
+	if len(expressions) == 0 {
+		return fallback
+	}
+	return "COALESCE(" + strings.Join(append(expressions, fallback), ", ") + ")"
+}
+
+func hermesReasoningSelectExpr(db *sql.DB) string {
+	candidates := []string{
+		"reasoning_content",
+		"reasoning",
+		"reasoning_details",
+		"codex_reasoning_items",
+	}
+	expressions := make([]string, 0, len(candidates))
+	for _, column := range candidates {
+		if sqliteHasColumn(db, "messages", column) {
+			expressions = append(expressions, fmt.Sprintf(`NULLIF(%s, '')`, hermesQuotedIdentifier(column)))
+		}
+	}
+	if len(expressions) == 0 {
+		return `''`
+	}
+	return "COALESCE(" + strings.Join(expressions, ", ") + ", '')"
+}
+
+func hermesQuotedIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
 func hermesMessageEvents(base NormalizedEvent, rowID int64, role, rawContent, toolCallID, toolCalls, toolName, finishReason, reasoningContent string) []NormalizedEvent {

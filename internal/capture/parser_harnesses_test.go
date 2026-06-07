@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -43,9 +42,27 @@ func TestParseHermesSQLite_MockStateDB(t *testing.T) {
 	}
 }
 
-func TestParseHermesSQLite_UnsupportedSchemaRequiresReasoningContent(t *testing.T) {
+func TestParseHermesSQLite_CurrentReasoningSchema(t *testing.T) {
 	dbPath := createSQLiteFixtureFromSQL(t, `
-CREATE TABLE sessions (id TEXT PRIMARY KEY);
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  model TEXT,
+  parent_session_id TEXT,
+  started_at REAL NOT NULL,
+  ended_at REAL,
+  end_reason TEXT,
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  cache_read_tokens INTEGER DEFAULT 0,
+  cache_write_tokens INTEGER DEFAULT 0,
+  reasoning_tokens INTEGER DEFAULT 0,
+  cwd TEXT,
+  billing_provider TEXT,
+  estimated_cost_usd REAL,
+  actual_cost_usd REAL,
+  title TEXT
+);
 CREATE TABLE messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id TEXT NOT NULL,
@@ -53,17 +70,80 @@ CREATE TABLE messages (
   content TEXT,
   timestamp REAL NOT NULL,
   reasoning TEXT,
-  reasoning_details TEXT
+  reasoning_details TEXT,
+  active INTEGER NOT NULL DEFAULT 1
 );
+INSERT INTO sessions (id, source, model, started_at, cwd, title)
+VALUES ('hermes-current-1', 'cli', 'openai/gpt-5.5', 1764590500.000, '/work/hermes-current', 'Current Hermes schema');
+INSERT INTO messages (session_id, role, content, timestamp, reasoning, reasoning_details, active)
+VALUES (
+  'hermes-current-1',
+  'assistant',
+  'I found the updated schema.',
+  1764590501.000,
+  'Use the current reasoning column.',
+  '[{"type":"reasoning","text":"Fallback reasoning details."}]',
+  1
+);
+INSERT INTO messages (session_id, role, content, timestamp, active)
+VALUES ('hermes-current-1', 'assistant', 'This rewound message should stay hidden.', 1764590502.000, 0);
 `)
 
-	_, err := ParseHermesSQLite(dbPath)
-	if err == nil {
-		t.Fatal("expected unsupported schema error")
+	events, err := ParseHermesSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "messages.reasoning_content column is required") {
-		t.Fatalf("error = %q, want reasoning_content requirement", err)
+	meta := assertEvent(t, events, "session_meta", "system", "Current Hermes schema")
+	if meta.CWD != "/work/hermes-current" {
+		t.Fatalf("hermes cwd = %q", meta.CWD)
 	}
+	assertEvent(t, events, "reasoning", "assistant", "Use the current reasoning column.")
+	assertEvent(t, events, "message", "assistant", "I found the updated schema.")
+	for _, evt := range events {
+		if evt.TextContent == "This rewound message should stay hidden." {
+			t.Fatalf("inactive Hermes message was parsed: %#v", evt)
+		}
+	}
+}
+
+func TestParseHermesSQLite_NoReasoningColumnsStillParsesMessages(t *testing.T) {
+	dbPath := createSQLiteFixtureFromSQL(t, `
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  model TEXT,
+  parent_session_id TEXT,
+  started_at REAL NOT NULL,
+  ended_at REAL,
+  end_reason TEXT,
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  cache_read_tokens INTEGER DEFAULT 0,
+  cache_write_tokens INTEGER DEFAULT 0,
+  reasoning_tokens INTEGER DEFAULT 0,
+  billing_provider TEXT,
+  estimated_cost_usd REAL,
+  actual_cost_usd REAL,
+  title TEXT
+);
+CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT,
+  timestamp REAL NOT NULL
+);
+INSERT INTO sessions (id, source, model, started_at, title)
+VALUES ('hermes-minimal-1', 'cli', 'anthropic/claude-sonnet', 1764590600.000, 'Minimal Hermes schema');
+INSERT INTO messages (session_id, role, content, timestamp)
+VALUES ('hermes-minimal-1', 'user', 'Please keep parsing messages.', 1764590601.000);
+`)
+
+	events, err := ParseHermesSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEvent(t, events, "message", "user", "Please keep parsing messages.")
 }
 
 func TestParseOpenCodeSQLite_MockStateDB(t *testing.T) {
