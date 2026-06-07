@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -43,9 +42,27 @@ func TestParseHermesSQLite_MockStateDB(t *testing.T) {
 	}
 }
 
-func TestParseHermesSQLite_UnsupportedSchemaRequiresReasoningContent(t *testing.T) {
+func TestParseHermesSQLite_CurrentReasoningSchema(t *testing.T) {
 	dbPath := createSQLiteFixtureFromSQL(t, `
-CREATE TABLE sessions (id TEXT PRIMARY KEY);
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  model TEXT,
+  parent_session_id TEXT,
+  started_at REAL NOT NULL,
+  ended_at REAL,
+  end_reason TEXT,
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  cache_read_tokens INTEGER DEFAULT 0,
+  cache_write_tokens INTEGER DEFAULT 0,
+  reasoning_tokens INTEGER DEFAULT 0,
+  cwd TEXT,
+  billing_provider TEXT,
+  estimated_cost_usd REAL,
+  actual_cost_usd REAL,
+  title TEXT
+);
 CREATE TABLE messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id TEXT NOT NULL,
@@ -53,16 +70,198 @@ CREATE TABLE messages (
   content TEXT,
   timestamp REAL NOT NULL,
   reasoning TEXT,
-  reasoning_details TEXT
+  reasoning_details TEXT,
+  active INTEGER NOT NULL DEFAULT 1
+);
+INSERT INTO sessions (id, source, model, started_at, cwd, title)
+VALUES ('hermes-current-1', 'cli', 'openai/gpt-5.5', 1764590500.000, '/work/hermes-current', 'Current Hermes schema');
+INSERT INTO messages (session_id, role, content, timestamp, reasoning, reasoning_details, active)
+VALUES (
+  'hermes-current-1',
+  'assistant',
+  'I found the updated schema.',
+  1764590501.000,
+  'Use the current reasoning column.',
+  '[{"type":"reasoning","text":"Fallback reasoning details."}]',
+  1
+);
+INSERT INTO messages (session_id, role, content, timestamp, active)
+VALUES ('hermes-current-1', 'assistant', 'This rewound message should stay hidden.', 1764590502.000, 0);
+`)
+
+	events, err := ParseHermesSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta := assertEvent(t, events, "session_meta", "system", "Current Hermes schema")
+	if meta.CWD != "/work/hermes-current" {
+		t.Fatalf("hermes cwd = %q", meta.CWD)
+	}
+	assertEvent(t, events, "reasoning", "assistant", "Use the current reasoning column.")
+	assertEvent(t, events, "message", "assistant", "I found the updated schema.")
+	for _, evt := range events {
+		if evt.TextContent == "This rewound message should stay hidden." {
+			t.Fatalf("inactive Hermes message was parsed: %#v", evt)
+		}
+	}
+}
+
+func TestParseHermesSQLite_NoReasoningColumnsStillParsesMessages(t *testing.T) {
+	dbPath := createSQLiteFixtureFromSQL(t, `
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  model TEXT,
+  parent_session_id TEXT,
+  started_at REAL NOT NULL,
+  ended_at REAL,
+  end_reason TEXT,
+  input_tokens INTEGER DEFAULT 0,
+  output_tokens INTEGER DEFAULT 0,
+  cache_read_tokens INTEGER DEFAULT 0,
+  cache_write_tokens INTEGER DEFAULT 0,
+  reasoning_tokens INTEGER DEFAULT 0,
+  billing_provider TEXT,
+  estimated_cost_usd REAL,
+  actual_cost_usd REAL,
+  title TEXT
+);
+CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT,
+  timestamp REAL NOT NULL
+);
+INSERT INTO sessions (id, source, model, started_at, title)
+VALUES ('hermes-minimal-1', 'cli', 'anthropic/claude-sonnet', 1764590600.000, 'Minimal Hermes schema');
+INSERT INTO messages (session_id, role, content, timestamp)
+VALUES ('hermes-minimal-1', 'user', 'Please keep parsing messages.', 1764590601.000);
+`)
+
+	events, err := ParseHermesSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEvent(t, events, "message", "user", "Please keep parsing messages.")
+}
+
+func TestParseHermesSQLite_ReasoningFallsThroughToFirstParsedText(t *testing.T) {
+	dbPath := createSQLiteFixtureFromSQL(t, `
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  model TEXT,
+  started_at REAL NOT NULL,
+  title TEXT
+);
+CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT,
+  timestamp REAL NOT NULL,
+  reasoning_content TEXT,
+  reasoning TEXT,
+  reasoning_details TEXT,
+  codex_reasoning_items TEXT
+);
+INSERT INTO sessions (id, source, model, started_at, title)
+VALUES ('hermes-reasoning-fallback', 'cli', 'openai/gpt-5.5', 1764590700.000, 'Reasoning fallback schema');
+INSERT INTO messages (session_id, role, content, timestamp, reasoning_content, reasoning)
+VALUES ('hermes-reasoning-fallback', 'assistant', 'First response.', 1764590701.000, '[]', 'Fallback raw reasoning.');
+INSERT INTO messages (session_id, role, content, timestamp, reasoning_details)
+VALUES (
+  'hermes-reasoning-fallback',
+  'assistant',
+  'Second response.',
+  1764590702.000,
+  '[{"type":"reasoning","text":"Structured details reasoning."}]'
+);
+INSERT INTO messages (session_id, role, content, timestamp, codex_reasoning_items)
+VALUES (
+  'hermes-reasoning-fallback',
+  'assistant',
+  'Third response.',
+  1764590703.000,
+  '[{"type":"reasoning","summary":[{"type":"summary_text","text":"Analyzing Hermes. "},{"type":"summary_text","text":"Found the issue."}]}]'
+);
+INSERT INTO messages (session_id, role, content, timestamp, codex_reasoning_items)
+VALUES (
+  'hermes-reasoning-fallback',
+  'assistant',
+  'Fourth response.',
+  1764590704.000,
+  '[{"type":"reasoning","summary":[],"encrypted_content":"gAAAAABpscDl"}]'
 );
 `)
 
-	_, err := ParseHermesSQLite(dbPath)
-	if err == nil {
-		t.Fatal("expected unsupported schema error")
+	events, err := ParseHermesSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "messages.reasoning_content column is required") {
-		t.Fatalf("error = %q, want reasoning_content requirement", err)
+	assertEvent(t, events, "reasoning", "assistant", "Fallback raw reasoning.")
+	assertEvent(t, events, "reasoning", "assistant", "Structured details reasoning.")
+	assertEvent(t, events, "reasoning", "assistant", "Analyzing Hermes. Found the issue.")
+	foundEncrypted := false
+	for _, evt := range events {
+		if evt.EventKind == "reasoning" && evt.PayloadType == "encrypted" {
+			foundEncrypted = true
+			break
+		}
+	}
+	if !foundEncrypted {
+		t.Fatalf("missing encrypted Hermes codex reasoning event in %#v", events)
+	}
+}
+
+func TestParseHermesSQLite_MessageOrderFollowsRowIDWhenTimestampsRegress(t *testing.T) {
+	dbPath := createSQLiteFixtureFromSQL(t, `
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY,
+  source TEXT NOT NULL,
+  model TEXT,
+  started_at REAL NOT NULL,
+  title TEXT
+);
+CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  content TEXT,
+  timestamp REAL NOT NULL
+);
+INSERT INTO sessions (id, source, model, started_at, title)
+VALUES ('hermes-regressed-clock', 'cli', 'openai/gpt-5.5', 1764590800.000, 'Regressed clock');
+INSERT INTO messages (id, session_id, role, content, timestamp)
+VALUES (1, 'hermes-regressed-clock', 'user', 'First by row id.', 1764590803.000);
+INSERT INTO messages (id, session_id, role, content, timestamp)
+VALUES (2, 'hermes-regressed-clock', 'assistant', 'Second by row id.', 1764590801.000);
+INSERT INTO messages (id, session_id, role, content, timestamp)
+VALUES (3, 'hermes-regressed-clock', 'assistant', 'Third by row id.', 1764590801.000);
+`)
+
+	events, err := ParseHermesSQLite(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var messages []NormalizedEvent
+	for _, evt := range events {
+		if evt.EventKind == "message" {
+			messages = append(messages, evt)
+		}
+	}
+	if got, want := len(messages), 3; got != want {
+		t.Fatalf("message events = %d, want %d: %#v", got, want, events)
+	}
+	for i, want := range []string{"First by row id.", "Second by row id.", "Third by row id."} {
+		if messages[i].TextContent != want {
+			t.Fatalf("message[%d] = %q, want %q; events=%#v", i, messages[i].TextContent, want, messages)
+		}
+		if i > 0 && !messages[i].Timestamp.After(messages[i-1].Timestamp) {
+			t.Fatalf("message[%d] timestamp %s should be after previous %s", i, messages[i].Timestamp, messages[i-1].Timestamp)
+		}
 	}
 }
 
