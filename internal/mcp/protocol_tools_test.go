@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/search"
+	"github.com/johnnygreco/beacon/internal/store"
 )
 
 func TestRunStreamsJSONRPCRequestsAndResponses(t *testing.T) {
@@ -374,6 +375,90 @@ func TestToolsCallListSessionsBackendErrorIsSanitized(t *testing.T) {
 	}
 }
 
+func TestDataBackedToolsReturnDatabaseUnavailableToolErrors(t *testing.T) {
+	srv := NewServerWithBackend(failingBackendProvider{
+		err: databaseUnavailableError(store.Options{
+			Addrs:    []string{"127.0.0.1:9000"},
+			Database: "beacon",
+		}, errors.New("connect clickhouse: secret dsn")),
+	}, nil)
+
+	tests := []struct {
+		name string
+		args string
+	}{
+		{
+			name: "search_sessions",
+			args: `{"name":"search_sessions","arguments":{"query":"needle","limit":1,"session_id":null,"event_kinds":null}}`,
+		},
+		{
+			name: "open",
+			args: `{"name":"open","arguments":{"event_id":"event:evt-target","before":null,"after":null}}`,
+		},
+		{
+			name: "list_sessions",
+			args: `{"name":"list_sessions","arguments":{"limit":5,"since":null}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := srv.dispatch(context.Background(), &jsonRPCRequest{
+				JSONRPC: "2.0",
+				ID:      json.RawMessage(`17`),
+				Method:  "tools/call",
+				Params:  json.RawMessage(tt.args),
+			})
+			text, isError := toolText(t, resp)
+			if !isError || !strings.Contains(text, "Beacon database is not available at 127.0.0.1:9000") || !strings.Contains(text, "beacon up") {
+				t.Fatalf("%s unavailable text/isError = %q/%v", tt.name, text, isError)
+			}
+			if strings.Contains(text, "secret dsn") || strings.Contains(text, "connect clickhouse") {
+				t.Fatalf("%s leaked internal backend error: %q", tt.name, text)
+			}
+		})
+	}
+}
+
+func TestClickHouseBackendRetriesAfterFailureAndCachesSuccess(t *testing.T) {
+	db, stub := newMCPStubDB(t, nil)
+	defer stub.assertDone(t)
+
+	var calls int
+	backend := &ClickHouseBackend{
+		opts: store.Options{
+			Addrs:    []string{"127.0.0.1:9000"},
+			Database: "beacon",
+		},
+		open: func(context.Context, store.Options) (*store.Store, error) {
+			calls++
+			if calls == 1 {
+				return nil, errors.New("dial tcp secret")
+			}
+			return &store.Store{DB: db}, nil
+		},
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+
+	if _, err := backend.Backend(context.Background()); err == nil || !strings.Contains(publicToolErrorMessage(err), "Beacon database is not available at 127.0.0.1:9000") {
+		t.Fatalf("first backend error = %v", err)
+	}
+	got, err := backend.Backend(context.Background())
+	if err != nil {
+		t.Fatalf("second backend open: %v", err)
+	}
+	if got.DB != db || got.Searcher == nil {
+		t.Fatalf("backend = %#v, want cached db and searcher", got)
+	}
+	got, err = backend.Backend(context.Background())
+	if err != nil {
+		t.Fatalf("cached backend: %v", err)
+	}
+	if got.DB != db || calls != 2 {
+		t.Fatalf("cached backend db/calls = %p/%d, want %p/2", got.DB, calls, db)
+	}
+}
+
 func TestToolDefinitionsMatchImplementedArguments(t *testing.T) {
 	defs := toolDefinitionsByName(t)
 
@@ -397,6 +482,14 @@ func TestToolDefinitionsMatchImplementedArguments(t *testing.T) {
 	assertRequired(t, listSchema, "limit", "since")
 	assertPropertyNullableType(t, listSchema, "limit", "integer")
 	assertPropertyNullableType(t, listSchema, "since", "string")
+}
+
+type failingBackendProvider struct {
+	err error
+}
+
+func (p failingBackendProvider) Backend(context.Context) (Backend, error) {
+	return Backend{}, p.err
 }
 
 func TestToolDefinitionsAreOpenAIFunctionCompatible(t *testing.T) {

@@ -10,8 +10,6 @@ import (
 
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/mcp"
-	"github.com/johnnygreco/beacon/internal/search"
-	"github.com/johnnygreco/beacon/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -40,21 +38,16 @@ func runMCP(cmd *cobra.Command, args []string) error {
 	if mcpClickHouseAddr != "" {
 		opts.Addrs = []string{mcpClickHouseAddr}
 	}
-	ch, err := store.OpenReadOnly(context.Background(), opts)
-	if err != nil {
-		return fmt.Errorf("opening read-only clickhouse store: %w", err)
-	}
-	defer ch.Close()
 
 	maxResults := cfg.MCP.MaxResults
 	if maxResults <= 0 {
 		maxResults = 25
 	}
 
-	searcher := search.NewSearcher(ch.DB, logger, maxResults, 0)
-	searcher.ProbeIndex()
+	backend := mcp.NewClickHouseBackend(opts, logger, maxResults)
+	defer backend.Close()
 
-	server := mcp.NewServer(ch.DB, searcher, logger)
+	server := mcp.NewServerWithBackend(backend, logger)
 	server.SetDefaultContextWindow(cfg.MCP.ContextWindow)
 
 	ctx, cancel := context.WithCancel(context.Background())

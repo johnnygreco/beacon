@@ -16,6 +16,7 @@ import (
 type Server struct {
 	db            *sql.DB
 	searcher      searcher
+	backend       BackendProvider
 	logger        *slog.Logger
 	contextWindow int
 }
@@ -30,7 +31,11 @@ const serverInstructions = "Beacon is a read-only memory layer for local AI-agen
 	"not current workspace truth; verify important facts in the repo or live system before acting."
 
 func NewServer(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) *Server {
-	return &Server{db: db, searcher: searcher, logger: logger, contextWindow: defaultOpenContextWindow}
+	return NewServerWithBackend(staticBackendProvider{backend: Backend{DB: db, Searcher: searcher}}, logger)
+}
+
+func NewServerWithBackend(provider BackendProvider, logger *slog.Logger) *Server {
+	return &Server{backend: provider, logger: logger, contextWindow: defaultOpenContextWindow}
 }
 
 func (s *Server) SetDefaultContextWindow(events int) {
@@ -55,6 +60,16 @@ func (s *Server) defaultContextWindow() int {
 		return defaultOpenContextWindow
 	}
 	return s.contextWindow
+}
+
+func (s *Server) toolBackend(ctx context.Context) (Backend, error) {
+	if s != nil && s.backend != nil {
+		return s.backend.Backend(ctx)
+	}
+	if s != nil {
+		return Backend{DB: s.db, Searcher: s.searcher}, nil
+	}
+	return Backend{}, internalToolError("Beacon database backend is not configured", fmt.Errorf("missing server"))
 }
 
 type jsonRPCRequest struct {
