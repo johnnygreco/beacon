@@ -42,6 +42,13 @@ Remote ClickHouse address override:
 beacon usage --clickhouse clickhouse.workstation.example:9440 --since now-24h
 ```
 
+`--clickhouse` overrides only the ClickHouse address. Configure the database
+name, credentials, and TLS in Beacon's `[database]` config, and run
+`beacon db migrate` from a trusted machine before reading from a remote Beacon
+database. Use `secure = true` for ClickHouse native TCP over TLS on port `9440`;
+use port `9000` only for plaintext native TCP on a private network or through an
+SSH tunnel.
+
 ## Windows
 
 `--since` and `--until` accept RFC3339 timestamps, `now`, or `now-<duration>`
