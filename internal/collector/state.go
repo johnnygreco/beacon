@@ -15,6 +15,7 @@ type StateStore struct {
 	path               string
 	mu                 sync.Mutex
 	loaded             bool
+	ControlPlaneEpoch  string                       `json:"control_plane_epoch,omitempty"`
 	NextSequence       uint64                       `json:"next_sequence"`
 	AckedNextSequence  uint64                       `json:"acked_next_sequence"`
 	Checkpoints        map[string]models.Checkpoint `json:"checkpoints"`
@@ -22,6 +23,7 @@ type StateStore struct {
 }
 
 type stateStoreData struct {
+	ControlPlaneEpoch  string                       `json:"control_plane_epoch,omitempty"`
 	NextSequence       uint64                       `json:"next_sequence"`
 	AckedNextSequence  uint64                       `json:"acked_next_sequence"`
 	Checkpoints        map[string]models.Checkpoint `json:"checkpoints"`
@@ -66,6 +68,52 @@ func (s *StateStore) AckedNext() uint64 {
 	return normalizedSequence(s.AckedNextSequence)
 }
 
+func (s *StateStore) Epoch() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ControlPlaneEpoch
+}
+
+func (s *StateStore) NeedsEpochReset(epoch string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.needsEpochResetLocked(epoch)
+}
+
+func (s *StateStore) EnsureEpoch(epoch string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if epoch == "" || s.ControlPlaneEpoch == epoch {
+		return false, nil
+	}
+	if !s.needsEpochResetLocked(epoch) {
+		if err := s.saveDataLocked(epoch, normalizedSequence(s.NextSequence), normalizedSequence(s.AckedNextSequence), s.Checkpoints, s.SpooledCheckpoints); err != nil {
+			return false, err
+		}
+		s.ControlPlaneEpoch = epoch
+		return false, nil
+	}
+	if err := s.saveDataLocked(epoch, 1, 1, nil, nil); err != nil {
+		return false, err
+	}
+	s.ControlPlaneEpoch = epoch
+	s.NextSequence = 1
+	s.AckedNextSequence = 1
+	s.Checkpoints = make(map[string]models.Checkpoint)
+	s.SpooledCheckpoints = make(map[string]models.Checkpoint)
+	return true, nil
+}
+
+func (s *StateStore) needsEpochResetLocked(epoch string) bool {
+	if epoch == "" || s.ControlPlaneEpoch == epoch {
+		return false
+	}
+	return !(s.ControlPlaneEpoch == "" &&
+		len(s.Checkpoints) == 0 &&
+		len(s.SpooledCheckpoints) == 0 &&
+		normalizedSequence(s.AckedNextSequence) == 1)
+}
+
 func (s *StateStore) MarkSpooled(nextSequence uint64, checkpoints []models.Checkpoint) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -83,7 +131,7 @@ func (s *StateStore) MarkSpooled(nextSequence uint64, checkpoints []models.Check
 		}
 		spooled[checkpointKey(checkpoint.SourceName, checkpoint.SourceFile)] = checkpoint
 	}
-	if err := s.saveDataLocked(next, ackedNext, acked, spooled); err != nil {
+	if err := s.saveDataLocked(s.ControlPlaneEpoch, next, ackedNext, acked, spooled); err != nil {
 		return err
 	}
 	s.NextSequence = next
@@ -120,7 +168,7 @@ func (s *StateStore) MarkAcked(nextSequence uint64, checkpoints []models.Checkpo
 	if len(spooled) == 0 {
 		next = ackedNext
 	}
-	if err := s.saveDataLocked(next, ackedNext, acked, spooled); err != nil {
+	if err := s.saveDataLocked(s.ControlPlaneEpoch, next, ackedNext, acked, spooled); err != nil {
 		return err
 	}
 	s.NextSequence = next
@@ -146,7 +194,7 @@ func (s *StateStore) ReplaceSpooled(nextSequence uint64, checkpoints []models.Ch
 		}
 		spooled[checkpointKey(checkpoint.SourceName, checkpoint.SourceFile)] = checkpoint
 	}
-	if err := s.saveDataLocked(next, ackedNext, acked, spooled); err != nil {
+	if err := s.saveDataLocked(s.ControlPlaneEpoch, next, ackedNext, acked, spooled); err != nil {
 		return err
 	}
 	s.NextSequence = next
@@ -234,10 +282,10 @@ func (s *StateStore) saveLocked() error {
 	if s.SpooledCheckpoints == nil {
 		s.SpooledCheckpoints = make(map[string]models.Checkpoint)
 	}
-	return s.saveDataLocked(s.NextSequence, s.AckedNextSequence, s.Checkpoints, s.SpooledCheckpoints)
+	return s.saveDataLocked(s.ControlPlaneEpoch, s.NextSequence, s.AckedNextSequence, s.Checkpoints, s.SpooledCheckpoints)
 }
 
-func (s *StateStore) saveDataLocked(nextSequence, ackedNextSequence uint64, checkpoints, spooledCheckpoints map[string]models.Checkpoint) error {
+func (s *StateStore) saveDataLocked(controlPlaneEpoch string, nextSequence, ackedNextSequence uint64, checkpoints, spooledCheckpoints map[string]models.Checkpoint) error {
 	if nextSequence == 0 {
 		nextSequence = 1
 	}
@@ -254,6 +302,7 @@ func (s *StateStore) saveDataLocked(nextSequence, ackedNextSequence uint64, chec
 		spooledCheckpoints = make(map[string]models.Checkpoint)
 	}
 	data, err := json.MarshalIndent(stateStoreData{
+		ControlPlaneEpoch:  controlPlaneEpoch,
 		NextSequence:       nextSequence,
 		AckedNextSequence:  ackedNextSequence,
 		Checkpoints:        checkpoints,

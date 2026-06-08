@@ -115,13 +115,13 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 		h.authError(w, err)
 		return
 	}
-	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
-		h.internalError(w, "retire older ingest tokens", err)
-		return
-	}
 	snapshot, err := h.control.Snapshot(r.Context())
 	if err != nil {
 		h.internalError(w, "read control-plane metadata", err)
+		return
+	}
+	if snapshot.ResetPending {
+		h.jsonError(w, "control-plane reset pending", http.StatusServiceUnavailable)
 		return
 	}
 	if req.ControlPlaneEpoch != snapshot.SchemaEpoch {
@@ -145,6 +145,10 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := validateBatchEvents(req.Events, sourceByName); err != nil {
 		h.jsonError(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
+		h.internalError(w, "retire older ingest tokens", err)
 		return
 	}
 
@@ -219,6 +223,10 @@ func (h *IngestHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 	snapshot, err := h.control.Snapshot(r.Context())
 	if err != nil {
 		h.internalError(w, "read control-plane metadata", err)
+		return
+	}
+	if snapshot.ResetPending {
+		h.jsonError(w, "control-plane reset pending", http.StatusServiceUnavailable)
 		return
 	}
 	if req.ControlPlaneEpoch != snapshot.SchemaEpoch {

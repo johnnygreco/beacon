@@ -451,6 +451,200 @@ func TestServiceRetryableOutageContinuesSpoolingFromSpooledCheckpoint(t *testing
 	}
 }
 
+func TestServiceResetPendingPausesScanAndResumesAfterAck(t *testing.T) {
+	var resetPending atomic.Bool
+	resetPending.Store(true)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if resetPending.Load() {
+			http.Error(w, `{"error":"control-plane reset pending"}`, http.StatusServiceUnavailable)
+			return
+		}
+		req := decodeGzipBatch(t, r)
+		_ = json.NewEncoder(w).Encode(ingest.BatchAck{
+			Status:            ingest.StatusCommitted,
+			BatchID:           req.BatchID,
+			PayloadDigest:     req.PayloadDigest,
+			EventsWritten:     len(req.Events),
+			RawRecordsWritten: len(req.Events),
+			NextSequence:      req.Sequence + 1,
+			ControlPlaneEpoch: req.ControlPlaneEpoch,
+		})
+	}))
+	defer server.Close()
+	service, state, file := newTestService(t, server.URL, 1<<20)
+
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("initial ScanOnce: %v", err)
+	}
+	appendSourceLine(t, file, `{"msg":"api_key=second"}`)
+	if err := service.SendPending(context.Background()); !errors.Is(err, ErrResetPending) {
+		t.Fatalf("SendPending during reset = %v, want ErrResetPending", err)
+	}
+	status := service.Status()
+	if !status.BlockedResetPending || status.BlockedEpochMismatch {
+		t.Fatalf("status during reset = %#v, want reset-pending block only", status)
+	}
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("ScanOnce during reset: %v", err)
+	}
+	pending, err := service.cfg.Spool.Pending()
+	if err != nil {
+		t.Fatalf("Pending during reset: %v", err)
+	}
+	if len(pending) != 1 || pending[0].Request.Sequence != 1 {
+		t.Fatalf("pending during reset = %#v, want original sequence 1 only", pending)
+	}
+
+	resetPending.Store(false)
+	if err := service.SendPending(context.Background()); err != nil {
+		t.Fatalf("SendPending after reset cleared: %v", err)
+	}
+	if status := service.Status(); status.BlockedResetPending {
+		t.Fatalf("status after ack = %#v, want reset-pending cleared", status)
+	}
+	if cp := state.Checkpoint("codex", file); cp == nil || cp.LastLineNo != 1 {
+		t.Fatalf("acked checkpoint after reset cleared = %#v, want line 1", cp)
+	}
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("ScanOnce after reset cleared: %v", err)
+	}
+	pending, err = service.cfg.Spool.Pending()
+	if err != nil {
+		t.Fatalf("Pending after reset cleared: %v", err)
+	}
+	if len(pending) != 1 || len(pending[0].Request.Events) != 1 || pending[0].Request.Events[0].SourceLineNo != 2 {
+		t.Fatalf("pending after reset cleared = %#v, want replay from line 2", pending)
+	}
+}
+
+func TestServiceEpochMismatchBlocksScanUntilReenrollment(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"control_plane_epoch mismatch"}`, http.StatusConflict)
+	}))
+	defer server.Close()
+	service, _, file := newTestService(t, server.URL, 1<<20)
+
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("initial ScanOnce: %v", err)
+	}
+	appendSourceLine(t, file, `{"msg":"api_key=second"}`)
+	if err := service.SendPending(context.Background()); !errors.Is(err, ErrEpochMismatch) {
+		t.Fatalf("SendPending epoch mismatch = %v, want ErrEpochMismatch", err)
+	}
+	status := service.Status()
+	if !status.BlockedEpochMismatch || status.BlockedResetPending {
+		t.Fatalf("status after epoch mismatch = %#v, want epoch block only", status)
+	}
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("ScanOnce while epoch blocked: %v", err)
+	}
+	pending, err := service.cfg.Spool.Pending()
+	if err != nil {
+		t.Fatalf("Pending while epoch blocked: %v", err)
+	}
+	if len(pending) != 1 || pending[0].Request.Sequence != 1 {
+		t.Fatalf("pending while epoch blocked = %#v, want original stale batch only", pending)
+	}
+}
+
+func TestServiceNewEpochClearsStaleSpoolAndReplaysFileBackedSource(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "session.jsonl")
+	if err := os.WriteFile(file, []byte(strings.Join([]string{
+		`{"msg":"api_key=first"}`,
+		`{"msg":"api_key=second"}`,
+	}, "\n")+"\n"), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	spool, err := OpenSpool(filepath.Join(dir, "spool"), 1<<20)
+	if err != nil {
+		t.Fatalf("OpenSpool: %v", err)
+	}
+	state, err := OpenStateStore(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatalf("OpenStateStore: %v", err)
+	}
+	if _, err := state.EnsureEpoch("1"); err != nil {
+		t.Fatalf("EnsureEpoch old: %v", err)
+	}
+	staleCheckpoint := models.Checkpoint{
+		NodeID:      "node-test",
+		CollectorID: "collector-test",
+		SourceID:    "source-test",
+		SourceName:  "codex",
+		SourceFile:  file,
+		LastOffset:  24,
+		LastLineNo:  1,
+	}
+	if err := state.MarkSpooled(2, []models.Checkpoint{staleCheckpoint}); err != nil {
+		t.Fatalf("MarkSpooled old: %v", err)
+	}
+	oldReq := testBatchRequest(t, 1, "batch-old-epoch")
+	oldReq.ControlPlaneEpoch = "1"
+	oldReq.Checkpoints = []models.Checkpoint{staleCheckpoint}
+	if _, err := spool.WritePending(context.Background(), oldReq); err != nil {
+		t.Fatalf("WritePending old: %v", err)
+	}
+	client, err := NewClient("http://127.0.0.1:1", "token", time.Second)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	service, err := NewService(ServiceConfig{
+		Sources: []capture.WatchSource{jsonlTestSource("codex", file)},
+		Identity: capture.FleetIdentity{
+			NodeID:            "node-test",
+			CollectorID:       "collector-test",
+			ControlPlaneEpoch: "2",
+			Sources: map[string]capture.FleetSourceIdentity{
+				"codex": {SourceID: "source-test"},
+			},
+		},
+		Spool:             spool,
+		State:             state,
+		Client:            client,
+		BatchSize:         500,
+		ScanInterval:      time.Hour,
+		RetryMin:          time.Millisecond,
+		RetryMax:          time.Millisecond,
+		HeartbeatInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	stats, err := service.cfg.Spool.Stats()
+	if err != nil {
+		t.Fatalf("Stats after NewService: %v", err)
+	}
+	if stats.PendingCount != 0 || stats.InflightCount != 0 {
+		t.Fatalf("active spool after epoch reset = %#v, want empty", stats)
+	}
+	if state.Epoch() != "2" || state.Next() != 1 || state.AckedNext() != 1 {
+		t.Fatalf("state after epoch reset = epoch %q next %d acked %d, want epoch 2 sequence 1/1", state.Epoch(), state.Next(), state.AckedNext())
+	}
+	if cp := state.SpooledCheckpoint("codex", file); cp != nil {
+		t.Fatalf("stale spooled checkpoint survived epoch reset: %#v", cp)
+	}
+
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("ScanOnce after epoch reset: %v", err)
+	}
+	pending, err := service.cfg.Spool.Pending()
+	if err != nil {
+		t.Fatalf("Pending after epoch reset: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending after epoch reset = %d, want one replay batch", len(pending))
+	}
+	req := pending[0].Request
+	if req.ControlPlaneEpoch != "2" || req.Sequence != 1 {
+		t.Fatalf("replay request epoch/sequence = %q/%d, want 2/1", req.ControlPlaneEpoch, req.Sequence)
+	}
+	if len(req.Events) != 2 || req.Events[0].SourceLineNo != 1 || req.Events[1].SourceLineNo != 2 {
+		t.Fatalf("replay events = %#v, want both source lines from the beginning", req.Events)
+	}
+}
+
 func TestServiceRunCancelsDuringRetryBackoff(t *testing.T) {
 	service, _, _ := newTestService(t, "http://127.0.0.1:1", 1<<20)
 	service.cfg.RetryMin = time.Hour
@@ -538,30 +732,7 @@ func newTestServiceWithLines(t *testing.T, serverURL string, spoolMax int64, bat
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	source := capture.WatchSource{
-		Name:     "codex",
-		Runtime:  models.RuntimeCodex,
-		Provider: models.ProviderOpenAI,
-		Format:   models.FormatJSONL,
-		Globs:    []string{file},
-		Parser: func(line []byte, file string, lineNo int, offset int64) ([]capture.NormalizedEvent, error) {
-			return []capture.NormalizedEvent{{
-				SessionID:    "session-test",
-				SourceName:   "codex",
-				Runtime:      models.RuntimeCodex,
-				Provider:     models.ProviderOpenAI,
-				Format:       models.FormatJSONL,
-				EventKind:    models.EventKindMessage,
-				ActorRole:    models.ActorRoleAssistant,
-				Timestamp:    time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC),
-				TextContent:  string(line),
-				RawPayload:   string(line),
-				SourceFile:   file,
-				SourceLineNo: lineNo,
-				SourceOffset: offset,
-			}}, nil
-		},
-	}
+	source := jsonlTestSource("codex", file)
 	service, err := NewService(ServiceConfig{
 		Sources: []capture.WatchSource{source},
 		Identity: capture.FleetIdentity{
@@ -585,6 +756,48 @@ func newTestServiceWithLines(t *testing.T, serverURL string, spoolMax int64, bat
 		t.Fatalf("NewService: %v", err)
 	}
 	return service, state, file
+}
+
+func appendSourceLine(t *testing.T, file, line string) {
+	t.Helper()
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatalf("open source append: %v", err)
+	}
+	if _, err := f.WriteString(line + "\n"); err != nil {
+		_ = f.Close()
+		t.Fatalf("append source: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close source append: %v", err)
+	}
+}
+
+func jsonlTestSource(name, file string) capture.WatchSource {
+	return capture.WatchSource{
+		Name:     name,
+		Runtime:  models.RuntimeCodex,
+		Provider: models.ProviderOpenAI,
+		Format:   models.FormatJSONL,
+		Globs:    []string{file},
+		Parser: func(line []byte, file string, lineNo int, offset int64) ([]capture.NormalizedEvent, error) {
+			return []capture.NormalizedEvent{{
+				SessionID:    "session-test",
+				SourceName:   name,
+				Runtime:      models.RuntimeCodex,
+				Provider:     models.ProviderOpenAI,
+				Format:       models.FormatJSONL,
+				EventKind:    models.EventKindMessage,
+				ActorRole:    models.ActorRoleAssistant,
+				Timestamp:    time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC),
+				TextContent:  string(line),
+				RawPayload:   string(line),
+				SourceFile:   file,
+				SourceLineNo: lineNo,
+				SourceOffset: offset,
+			}}, nil
+		},
+	}
 }
 
 func decodeGzipBatch(t *testing.T, r *http.Request) ingest.BatchRequest {

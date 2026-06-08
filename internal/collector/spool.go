@@ -174,6 +174,40 @@ func (s *Spool) Discard(batch SpoolBatch) error {
 	return syncDir(filepath.Dir(batch.Path))
 }
 
+func (s *Spool) DiscardActive() error {
+	active, err := s.Active()
+	if err != nil {
+		return err
+	}
+	synced := map[string]struct{}{}
+	for _, batch := range active {
+		dir := filepath.Dir(batch.Path)
+		if err := os.Remove(batch.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		synced[dir] = struct{}{}
+	}
+	for dir := range synced {
+		if err := syncDir(dir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Spool) HasActiveEpochMismatch(epoch string) (bool, error) {
+	active, err := s.Active()
+	if err != nil {
+		return false, err
+	}
+	for _, batch := range active {
+		if batch.Request.ControlPlaneEpoch != epoch {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *Spool) Stats() (SpoolStats, error) {
 	pendingCount, pendingBytes, err := s.countState(spoolPending)
 	if err != nil {

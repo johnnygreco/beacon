@@ -23,9 +23,11 @@ type Client struct {
 }
 
 type SendError struct {
-	StatusCode int
-	Retryable  bool
-	Message    string
+	StatusCode    int
+	Retryable     bool
+	ResetPending  bool
+	EpochMismatch bool
+	Message       string
 }
 
 func (e *SendError) Error() string {
@@ -129,10 +131,13 @@ func (c *Client) post(ctx context.Context, path string, payload any, out any) er
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		message := strings.TrimSpace(string(data))
 		return &SendError{
-			StatusCode: resp.StatusCode,
-			Retryable:  resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500,
-			Message:    strings.TrimSpace(string(data)),
+			StatusCode:    resp.StatusCode,
+			Retryable:     resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500,
+			ResetPending:  resp.StatusCode == http.StatusServiceUnavailable && strings.Contains(message, "reset pending"),
+			EpochMismatch: resp.StatusCode == http.StatusConflict && strings.Contains(message, "control_plane_epoch mismatch"),
+			Message:       message,
 		}
 	}
 	if out == nil {

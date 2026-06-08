@@ -211,6 +211,14 @@ func runDBReset(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+	if cfg.Fleet.Role == config.FleetRoleCollector {
+		return fmt.Errorf("fleet.role %q cannot reset control-plane ClickHouse data; run beacon db reset on the control-plane machine", config.FleetRoleCollector)
+	}
+	controlStore, _, err := initializeControlPlane(context.Background(), cfg, nil)
+	if err != nil {
+		return fmt.Errorf("initializing control-plane metadata: %w", err)
+	}
+	defer controlStore.Close()
 
 	opts := storeOptionsFromConfig(cfg)
 	ch, err := dbResetOpenStore(context.Background(), opts)
@@ -219,11 +227,19 @@ func runDBReset(cmd *cobra.Command, args []string) error {
 	}
 	defer ch.Close()
 
+	pending, err := controlStore.BeginReset(context.Background())
+	if err != nil {
+		return fmt.Errorf("begin reset coordination: %w", err)
+	}
 	if err := dbResetStore(context.Background(), ch.DB, ch.Database()); err != nil {
-		return fmt.Errorf("reset failed: %w", err)
+		return fmt.Errorf("reset failed; control-plane reset_pending remains active at schema_epoch %s: %w", pending.SchemaEpoch, err)
+	}
+	completed, err := controlStore.CompleteReset(context.Background())
+	if err != nil {
+		return fmt.Errorf("complete reset coordination: %w", err)
 	}
 
-	fmt.Println("Database reset complete.")
+	fmt.Printf("Database reset complete. Control-plane schema_epoch advanced from %s to %s.\n", pending.SchemaEpoch, completed.SchemaEpoch)
 	return nil
 }
 

@@ -130,6 +130,49 @@ func TestIngestBatchRejectsBindingEpochAndDigestConflicts(t *testing.T) {
 	}
 }
 
+func TestIngestBatchRejectsResetPendingBeforeCommit(t *testing.T) {
+	control, token, sourceID := testIngestControlPlane(t)
+	if _, err := control.BeginReset(context.Background()); err != nil {
+		t.Fatalf("BeginReset: %v", err)
+	}
+	committer := &fakeIngestCommitter{}
+	handler := NewIngestHandlers(control, committer, 0, 0, nil, nil)
+	req := testIngestBatchRequest(t, sourceID)
+
+	rec := postIngestJSON(t, handler.Batch, req, token)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d body=%s, want 503", rec.Code, rec.Body.String())
+	}
+	if committer.calls != 0 {
+		t.Fatalf("committer calls = %d, want no commit during reset", committer.calls)
+	}
+}
+
+func TestIngestBatchRejectsOldEpochAfterResetCompletion(t *testing.T) {
+	control, token, sourceID := testIngestControlPlane(t)
+	if _, err := control.BeginReset(context.Background()); err != nil {
+		t.Fatalf("BeginReset: %v", err)
+	}
+	completed, err := control.CompleteReset(context.Background())
+	if err != nil {
+		t.Fatalf("CompleteReset: %v", err)
+	}
+	if completed.SchemaEpoch == controlplane.InitialSchemaEpoch {
+		t.Fatalf("schema epoch did not advance after reset: %#v", completed)
+	}
+	committer := &fakeIngestCommitter{}
+	handler := NewIngestHandlers(control, committer, 0, 0, nil, nil)
+	req := testIngestBatchRequest(t, sourceID)
+
+	rec := postIngestJSON(t, handler.Batch, req, token)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	if committer.calls != 0 {
+		t.Fatalf("committer calls = %d, want no commit for old epoch", committer.calls)
+	}
+}
+
 func TestIngestEnrollCompletesRemoteEnrollment(t *testing.T) {
 	control, enrollToken := testEnrollControlPlane(t)
 	committer := &fakeIngestCommitter{}
@@ -403,6 +446,30 @@ func TestIngestHeartbeatAuthenticatesAndPersists(t *testing.T) {
 		row.SourceName != "codex" || row.Status != "degraded" || row.QueueDepth != 3 || row.SpoolBytes != 2048 ||
 		row.ActiveFiles != 2 || row.ErrorCount != 1 {
 		t.Fatalf("heartbeat row = %#v", row)
+	}
+}
+
+func TestIngestHeartbeatRejectsResetPending(t *testing.T) {
+	control, token, sourceID := testIngestControlPlane(t)
+	if _, err := control.BeginReset(context.Background()); err != nil {
+		t.Fatalf("BeginReset: %v", err)
+	}
+	committer := &fakeIngestCommitter{}
+	handler := NewIngestHandlers(control, committer, 0, 0, nil, nil)
+	req := ingest.HeartbeatRequest{
+		Schema:            ingest.SchemaV1,
+		CollectorID:       "collector-web",
+		NodeID:            "node-web",
+		ControlPlaneEpoch: controlplane.InitialSchemaEpoch,
+		Sources:           []ingest.HeartbeatSource{{SourceID: sourceID, Status: "healthy"}},
+	}
+
+	rec := postIngestJSON(t, handler.Heartbeat, req, token)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d body=%s, want 503", rec.Code, rec.Body.String())
+	}
+	if len(committer.heartbeats) != 0 {
+		t.Fatalf("heartbeats = %#v, want none during reset", committer.heartbeats)
 	}
 }
 
