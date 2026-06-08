@@ -405,14 +405,14 @@ function fleetNodeMatchesScope(node: {
 }
 
 function chartPayload(scenario: Scenario, range = '24h', url?: URL) {
-	const errorHeavy = scenario === 'error-heavy';
-	const empty = scenario === 'empty';
-	const factor = chartRangeFactor(range);
+  const errorHeavy = scenario === 'error-heavy';
+  const empty = scenario === 'empty';
+  const factor = chartRangeFactor(range);
   const datasets = empty ? [] : [
     {
       label: 'generic-model-a',
       provider: 'provider-a',
-      provider_label: 'Claude Code',
+      provider_label: 'Provider A',
       model: 'generic-model-a',
       values: [1000, 3800, 7200, 14000, 30000, 36000, 32000].map((value) => Math.round(value * factor)),
       total_tokens: Math.round(124000 * factor),
@@ -423,7 +423,7 @@ function chartPayload(scenario: Scenario, range = '24h', url?: URL) {
     {
       label: 'generic-model-b',
       provider: 'provider-b',
-      provider_label: 'Codex',
+      provider_label: 'Provider B',
       model: 'generic-model-b',
       values: [800, 2400, 5800, 9000, 12000, 13000, 18000].map((value) => Math.round(value * factor)),
       total_tokens: Math.round(61000 * factor),
@@ -434,7 +434,7 @@ function chartPayload(scenario: Scenario, range = '24h', url?: URL) {
     {
       label: 'generic-model-c',
       provider: 'provider-a',
-      provider_label: 'Claude Code',
+      provider_label: 'Provider A',
       model: 'generic-model-c',
       values: [400, 700, 1200, 2800, 3900, 4000, 3500].map((value) => Math.round(value * factor)),
       total_tokens: Math.round(16500 * factor),
