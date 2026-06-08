@@ -260,6 +260,30 @@ func TestBuildInsertRowBatchResolvesKnownRawParent(t *testing.T) {
 	}
 }
 
+func TestBatcherRawEventCacheIsBounded(t *testing.T) {
+	b := &Batcher{rawEventCache: map[string]string{}}
+	b.rememberRawEvents(map[string]string{
+		"first":  "event-1",
+		"second": "event-2",
+		"third":  "event-3",
+	})
+	if len(b.rawEventCache) != 3 || len(b.rawCacheOrder) != 3 {
+		t.Fatalf("raw event cache = %#v order=%#v, want three entries", b.rawEventCache, b.rawCacheOrder)
+	}
+
+	b.trimRawEventCache(2)
+
+	if len(b.rawEventCache) != 2 || len(b.rawCacheOrder) != 2 {
+		t.Fatalf("raw event cache = %#v order=%#v, want two entries", b.rawEventCache, b.rawCacheOrder)
+	}
+	if _, ok := b.rawEventCache[b.rawCacheOrder[0]]; !ok {
+		t.Fatalf("cache order references missing key: %#v in %#v", b.rawCacheOrder, b.rawEventCache)
+	}
+	if _, ok := b.rawEventCache[b.rawCacheOrder[1]]; !ok {
+		t.Fatalf("cache order references missing key: %#v in %#v", b.rawCacheOrder, b.rawEventCache)
+	}
+}
+
 func TestBuildInsertRowBatchSourceEventIndexIgnoresMutableClassification(t *testing.T) {
 	base := NormalizedEvent{
 		SessionID:    "raw-session",

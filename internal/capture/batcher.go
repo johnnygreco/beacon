@@ -15,7 +15,10 @@ import (
 	"github.com/johnnygreco/beacon/internal/store"
 )
 
-const previewMaxLen = 320
+const (
+	previewMaxLen           = 320
+	rawEventCacheMaxEntries = 100000
+)
 
 // Batcher accumulates events and flushes them to ClickHouse in table batches.
 // Its input channel is sized to twice the configured batch size and applies
@@ -33,6 +36,7 @@ type Batcher struct {
 	defaultOutput float64
 	identity      FleetIdentity
 	rawEventCache map[string]string
+	rawCacheOrder []string
 }
 
 type FleetIdentity struct {
@@ -158,13 +162,39 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) []
 		b.logger.Error("clickhouse flush failed", "error", err, "rows", len(events))
 		return nil
 	}
-	for key, uid := range rawEvents {
-		if _, ok := b.rawEventCache[key]; !ok {
-			b.rawEventCache[key] = uid
-		}
-	}
+	b.rememberRawEvents(rawEvents)
 	b.logger.Debug("flushInserts complete", "rows", len(events), "duration", time.Since(start))
 	return sessionIDsFromEvents(batch.ActivityEvents)
+}
+
+func (b *Batcher) rememberRawEvents(rawEvents map[string]string) {
+	for key, uid := range rawEvents {
+		if key == "" || uid == "" {
+			continue
+		}
+		if _, ok := b.rawEventCache[key]; ok {
+			continue
+		}
+		b.rawEventCache[key] = uid
+		b.rawCacheOrder = append(b.rawCacheOrder, key)
+	}
+	b.trimRawEventCache(rawEventCacheMaxEntries)
+}
+
+func (b *Batcher) trimRawEventCache(maxEntries int) {
+	if maxEntries <= 0 {
+		clear(b.rawEventCache)
+		b.rawCacheOrder = nil
+		return
+	}
+	if len(b.rawCacheOrder) <= maxEntries {
+		return
+	}
+	evictCount := len(b.rawCacheOrder) - maxEntries
+	for _, key := range b.rawCacheOrder[:evictCount] {
+		delete(b.rawEventCache, key)
+	}
+	b.rawCacheOrder = append([]string(nil), b.rawCacheOrder[evictCount:]...)
 }
 
 func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput float64, identity FleetIdentity) store.RowBatch {
