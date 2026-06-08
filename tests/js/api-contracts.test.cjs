@@ -10,6 +10,10 @@ test("shared API contracts reject drifted fixture payloads", () => {
     range: "24h",
     offset: 0,
     limit: 30,
+    scope: {
+      auth_scope_applied: false,
+      filters: {},
+    },
     has_more: false,
     items: [{
       id: "session-1",

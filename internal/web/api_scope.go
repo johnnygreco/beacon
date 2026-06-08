@@ -64,14 +64,6 @@ func (s APIScopeFilters) sqlAndClause(alias string) (string, []any) {
 	return " AND " + strings.Join(predicates, " AND "), args
 }
 
-func (s APIScopeFilters) sqlWhereClause(alias string) (string, []any) {
-	predicates, args := s.sqlPredicates(alias)
-	if len(predicates) == 0 {
-		return "", nil
-	}
-	return strings.Join(predicates, " AND "), args
-}
-
 func (s APIScopeFilters) sqlPredicates(alias string) ([]string, []any) {
 	prefix := ""
 	if strings.TrimSpace(alias) != "" {
