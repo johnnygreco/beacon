@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -148,10 +149,23 @@ func TestValidateLabPlanRejectsInvalidSize(t *testing.T) {
 	}
 }
 
+func TestValidateLabPlanAcceptsFleetSize(t *testing.T) {
+	err := validateLabPlan(labConfig{
+		Size:     "fleet",
+		SkipLive: true,
+	})
+	if err != nil {
+		t.Fatalf("validateLabPlan fleet error = %v", err)
+	}
+}
+
 func TestExternalDatasetReportMarksDatabaseUnknown(t *testing.T) {
 	got := externalDatasetReport("small")
 	if got.Size != "small" || got.Database != "unknown" || got.Seeded {
 		t.Fatalf("externalDatasetReport = %#v, want unseeded unknown database", got)
+	}
+	if got.Collectors != 25 || got.Runtimes != 5 || got.CommonSearchToken == "" {
+		t.Fatalf("externalDatasetReport metadata = %#v, want fleet profile metadata", got)
 	}
 }
 
@@ -172,6 +186,37 @@ func TestLabServerEnvIsolatesHome(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("labServerEnv missing %q in %#v", want, got)
 		}
+	}
+}
+
+func TestWriteLabConfigUsesAbsoluteFleetMetadataPath(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "beacon-perf-lab.toml")
+	if err := writeLabConfig(path, labConfig{
+		OutputDir:  dir,
+		Port:       4611,
+		ClickHouse: "127.0.0.1:9000",
+		Database:   "beacon_perf_lab",
+	}); err != nil {
+		t.Fatalf("writeLabConfig: %v", err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read lab config: %v", err)
+	}
+	got := string(body)
+	for _, want := range []string{"[fleet]", `role = "control-plane"`, "metadata_path = ", "ingest_token_file = ", "spool_dir = "} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("lab config missing %q:\n%s", want, got)
+		}
+	}
+	for _, relative := range []string{`metadata_path = "~`, `metadata_path = "beacon-home`, `ingest_token_file = "~`, `ingest_token_file = "beacon-home`, `spool_dir = "~`, `spool_dir = "beacon-home`} {
+		if strings.Contains(got, relative) {
+			t.Fatalf("lab config contains relative fleet path %q:\n%s", relative, got)
+		}
+	}
+	if !strings.Contains(got, dir) {
+		t.Fatalf("lab config missing fleet metadata path:\n%s", got)
 	}
 }
 
@@ -226,6 +271,18 @@ func TestMarkdownReportIncludesCoreSections(t *testing.T) {
 			Sessions:          250,
 			Events:            22954,
 			Payloads:          14784,
+			SearchPostings:    120000,
+			Nodes:             25,
+			Collectors:        25,
+			Sources:           125,
+			Runtimes:          5,
+			Projects:          25,
+			ActiveSessions:    25,
+			IdleSessions:      50,
+			TargetEvents:      22954,
+			TargetPayloads:    7651,
+			TargetPostings:    160678,
+			CommonSearchToken: "fleetcommon",
 			Duration:          "500ms",
 		},
 		Server: serverReport{BaseURL: "http://127.0.0.1:4611", Started: true},
@@ -254,7 +311,7 @@ func TestMarkdownReportIncludesCoreSections(t *testing.T) {
 	}
 
 	got := markdownReport(report)
-	for _, want := range []string{"# Beacon Performance Lab", "## Commands", "## Go Benchmarks", "## Browser Summary", "Iterations", "Samples", "beacon_perf_lab", "beacon_perf_lab_bench"} {
+	for _, want := range []string{"# Beacon Performance Lab", "## Commands", "## Go Benchmarks", "## Browser Summary", "Iterations", "Samples", "beacon_perf_lab", "beacon_perf_lab_bench", "25 collectors", "fleetcommon"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("markdown report missing %q:\n%s", want, got)
 		}

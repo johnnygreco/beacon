@@ -20,35 +20,70 @@ const (
 	SizeSmall  SeedSize = "small"
 	SizeMedium SeedSize = "medium"
 	SizeLarge  SeedSize = "large"
+	SizeFleet  SeedSize = "fleet"
 )
 
 // ParseSeedSize converts a string to SeedSize, defaulting to SizeSmall.
 func ParseSeedSize(s string) SeedSize {
-	switch strings.ToLower(s) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "medium":
 		return SizeMedium
 	case "large":
 		return SizeLarge
+	case "fleet":
+		return SizeFleet
 	default:
 		return SizeSmall
 	}
 }
 
+// Profile describes the intended shape of a synthetic performance dataset.
+type Profile struct {
+	Size                 SeedSize
+	Description          string
+	Heavy                bool
+	Nodes                int
+	Collectors           int
+	Sources              int
+	Runtimes             int
+	Projects             int
+	Sessions             int
+	ActiveSessions       int
+	IdleSessions         int
+	TargetEvents         int
+	TargetPayloads       int
+	TargetSearchPostings int
+	CommonSearchToken    string
+	ScopedCollectorID    string
+	ScopedSourceID       string
+	ScopedProjectKey     string
+}
+
 // Stats holds seeding statistics.
 type Stats struct {
-	Sessions int
-	Events   int
-	Payloads int
-	Duration time.Duration
+	Sessions       int
+	Events         int
+	Payloads       int
+	SearchPostings int
+	Nodes          int
+	Collectors     int
+	Sources        int
+	Runtimes       int
+	Projects       int
+	ActiveSessions int
+	IdleSessions   int
+	Duration       time.Duration
 }
 
 func (s Stats) String() string {
-	return fmt.Sprintf("sessions=%d events=%d payloads=%d duration=%s",
-		s.Sessions, s.Events, s.Payloads, s.Duration.Truncate(time.Millisecond))
+	return fmt.Sprintf("sessions=%d events=%d payloads=%d search_postings=%d collectors=%d runtimes=%d active=%d idle=%d duration=%s",
+		s.Sessions, s.Events, s.Payloads, s.SearchPostings, s.Collectors, s.Runtimes, s.ActiveSessions, s.IdleSessions, s.Duration.Truncate(time.Millisecond))
 }
 
 type seedConfig struct {
 	sessions       int
+	activeSessions int
+	idleSessions   int
 	normalMin      int
 	normalMax      int
 	largeCount     int
@@ -58,31 +93,88 @@ type seedConfig struct {
 	veryLargeMin   int
 	veryLargeMax   int
 	subagentFrac   float64
+	nodeCount      int
+	collectorCount int
+	projectCount   int
+	heavy          bool
 }
 
 func configFor(size SeedSize) seedConfig {
 	switch size {
 	case SizeMedium:
 		return seedConfig{
-			sessions: 2500, normalMin: 40, normalMax: 120,
+			sessions: 2500, activeSessions: 250, idleSessions: 500, normalMin: 40, normalMax: 120,
 			largeCount: 50, largeMin: 500, largeMax: 1200,
 			veryLargeCount: 10, veryLargeMin: 2000, veryLargeMax: 3000,
-			subagentFrac: 0.1,
+			subagentFrac: 0.1, nodeCount: 25, collectorCount: 25, projectCount: 50,
 		}
 	case SizeLarge:
 		return seedConfig{
-			sessions: 10000, normalMin: 40, normalMax: 120,
+			sessions: 10000, activeSessions: 750, idleSessions: 1500, normalMin: 40, normalMax: 120,
 			largeCount: 50, largeMin: 500, largeMax: 1500,
 			veryLargeCount: 20, veryLargeMin: 2000, veryLargeMax: 4000,
-			subagentFrac: 0.1,
+			subagentFrac: 0.1, nodeCount: 25, collectorCount: 25, projectCount: 100,
+		}
+	case SizeFleet:
+		return seedConfig{
+			sessions: 100000, activeSessions: 2500, idleSessions: 2500, normalMin: 110, normalMax: 160,
+			largeCount: 500, largeMin: 1000, largeMax: 2000,
+			veryLargeCount: 100, veryLargeMin: 5000, veryLargeMax: 7000,
+			subagentFrac: 0.1, nodeCount: 25, collectorCount: 25, projectCount: 250, heavy: true,
 		}
 	default: // SizeSmall
 		return seedConfig{
-			sessions: 250, normalMin: 40, normalMax: 120,
+			sessions: 250, activeSessions: 25, idleSessions: 50, normalMin: 40, normalMax: 120,
 			largeCount: 5, largeMin: 500, largeMax: 800,
-			subagentFrac: 0.1,
+			subagentFrac: 0.1, nodeCount: 25, collectorCount: 25, projectCount: 25,
 		}
 	}
+}
+
+const commonSearchToken = "fleetcommon"
+
+// ProfileFor returns the declared fleet shape for a seed size.
+func ProfileFor(size SeedSize) Profile {
+	cfg := configFor(size)
+	profile := Profile{
+		Size:                 size,
+		Description:          "generic multi-machine, multi-runtime fleet profile",
+		Heavy:                cfg.heavy,
+		Nodes:                cfg.nodeCount,
+		Collectors:           cfg.collectorCount,
+		Sources:              cfg.collectorCount * len(seedRuntimeProfiles),
+		Runtimes:             len(seedRuntimeProfiles),
+		Projects:             cfg.projectCount,
+		Sessions:             cfg.sessions,
+		ActiveSessions:       cfg.activeSessions,
+		IdleSessions:         cfg.idleSessions,
+		TargetEvents:         estimateTargetEvents(cfg),
+		TargetPayloads:       estimateTargetPayloads(cfg),
+		TargetSearchPostings: estimateTargetSearchPostings(cfg),
+		CommonSearchToken:    commonSearchToken,
+		ScopedCollectorID:    collectorIDForSeed(0),
+		ScopedSourceID:       sourceIDForSeed(0, seedRuntimeProfiles[0]),
+		ScopedProjectKey:     projectKeyForSeed(0),
+	}
+	return profile
+}
+
+func estimateTargetEvents(cfg seedConfig) int {
+	normal := cfg.sessions - cfg.largeCount - cfg.veryLargeCount
+	if normal < 0 {
+		normal = 0
+	}
+	return normal*((cfg.normalMin+cfg.normalMax)/2) +
+		cfg.largeCount*((cfg.largeMin+cfg.largeMax)/2) +
+		cfg.veryLargeCount*((cfg.veryLargeMin+cfg.veryLargeMax)/2)
+}
+
+func estimateTargetPayloads(cfg seedConfig) int {
+	return estimateTargetEvents(cfg) / 3
+}
+
+func estimateTargetSearchPostings(cfg seedConfig) int {
+	return estimateTargetEvents(cfg) * 7
 }
 
 // seedBatchSize is the number of sessions per ClickHouse flush.
@@ -95,6 +187,14 @@ func Seed(ctx context.Context, ch *store.Store, size SeedSize) (Stats, error) {
 	rng := rand.New(rand.NewSource(42))
 
 	var stats Stats
+	profile := ProfileFor(size)
+	stats.Nodes = profile.Nodes
+	stats.Collectors = profile.Collectors
+	stats.Sources = profile.Sources
+	stats.Runtimes = profile.Runtimes
+	stats.Projects = profile.Projects
+	stats.ActiveSessions = profile.ActiveSessions
+	stats.IdleSessions = profile.IdleSessions
 
 	// Pre-compute session event counts
 	sessionEvents := make([]int, cfg.sessions)
@@ -121,6 +221,11 @@ func Seed(ctx context.Context, ch *store.Store, size SeedSize) (Stats, error) {
 		}
 	}
 
+	var postings uint64
+	if err := ch.DB.QueryRowContext(ctx, `SELECT count() FROM search_postings`).Scan(&postings); err != nil {
+		return stats, fmt.Errorf("count seeded search postings: %w", err)
+	}
+	stats.SearchPostings = int(postings)
 	stats.Duration = time.Since(start)
 	return stats, nil
 }
@@ -134,30 +239,52 @@ func seedBatch(ctx context.Context, ch *store.Store, rng *rand.Rand, cfg seedCon
 			parentSessID = fmt.Sprintf("perf-sess-%05d", rng.Intn(s))
 		}
 
-		source := "claude"
-		runtime := models.RuntimeClaudeCode
-		provider := models.ProviderAnthropic
-		if rng.Float64() < 0.15 {
-			source = "codex"
-			runtime = models.RuntimeCodex
-			provider = models.ProviderOpenAI
-		}
+		runtimeProfile := seedRuntimeProfiles[s%len(seedRuntimeProfiles)]
+		nodeID := nodeIDForSeed(s % cfg.nodeCount)
+		collectorIndex := s % cfg.collectorCount
+		collectorID := collectorIDForSeed(collectorIndex)
+		sourceID := sourceIDForSeed(collectorIndex, runtimeProfile)
+		batchID := fmt.Sprintf("batch-perf-%05d", s)
+		rawSessionID := fmt.Sprintf("%s-native-%05d", runtimeProfile.SourceName, s)
+		sourceFile := fmt.Sprintf("/var/beacon/perf/%s/%s/session-%05d.%s", nodeID, runtimeProfile.Runtime, s, runtimeProfile.Extension)
 
+		numEvents := sessionEvents[s]
+		estimatedSpan := time.Duration(numEvents*2500) * time.Millisecond
 		sessionStart := baseTime.Add(time.Duration(rng.Int63n(int64(6 * 24 * time.Hour))))
-		if rng.Float64() < 0.3 {
-			sessionStart = time.Now().Add(-time.Duration(rng.Int63n(int64(12 * time.Hour))))
+		if s < cfg.activeSessions {
+			sessionStart = time.Now().Add(-estimatedSpan).Add(-90 * time.Second)
+		} else if s < cfg.activeSessions+cfg.idleSessions {
+			sessionStart = time.Now().Add(-estimatedSpan).Add(-time.Duration(10+rng.Intn(12*60)) * time.Minute)
+		} else if rng.Float64() < 0.3 {
+			sessionStart = time.Now().Add(-estimatedSpan).Add(-time.Duration(20+rng.Intn(12*60)) * time.Minute)
 		}
 
 		eventTime := sessionStart
-		model := pickModel(rng, provider)
-		cwd := fmt.Sprintf("/home/user/projects/project-%d", s%20)
-		numEvents := sessionEvents[s]
+		model := pickModel(rng, runtimeProfile.Provider)
+		cwd := fmt.Sprintf("/home/user/projects/%s", projectKeyForSeed(s%cfg.projectCount))
+		eventCtx := seedEventContext{
+			SessionID:         sessionID,
+			RawSessionID:      rawSessionID,
+			ParentSessionID:   parentSessID,
+			NodeID:            nodeID,
+			CollectorID:       collectorID,
+			SourceID:          sourceID,
+			SourceName:        runtimeProfile.SourceName,
+			Runtime:           runtimeProfile.Runtime,
+			Provider:          runtimeProfile.Provider,
+			Format:            runtimeProfile.Format,
+			BatchID:           batchID,
+			ControlPlaneEpoch: "1",
+			CWD:               cwd,
+			SourceFile:        sourceFile,
+			SessionIndex:      s,
+		}
 
 		eventIdx := 0
 
 		// session_meta event
 		uid := seedUID(s, eventIdx)
-		appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, models.EventKindSessionMeta, "init", "", eventTime, "", "", "", model, 0, 0, 0, 0, 0, "", "", cwd, s, eventIdx)
+		appendSeedEvent(&batch, stats, eventCtx, uid, models.EventKindSessionMeta, "init", "", eventTime, commonText(s, eventIdx), "", "", model, 0, 0, 0, 0, 0, "", "", eventIdx)
 		eventIdx++
 
 		// Generate conversation turns until we reach numEvents
@@ -165,13 +292,13 @@ func seedBatch(ctx context.Context, ch *store.Store, rng *rand.Rand, cfg seedCon
 			eventTime = eventTime.Add(time.Duration(rng.Intn(3000)+500) * time.Millisecond)
 			turnModel := model
 			if rng.Float64() < 0.1 {
-				turnModel = pickModel(rng, provider)
+				turnModel = pickModel(rng, runtimeProfile.Provider)
 			}
 
 			// User message
 			uid = seedUID(s, eventIdx)
-			userText := userTexts[rng.Intn(len(userTexts))]
-			appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, models.EventKindMessage, "text", models.ActorRoleUser, eventTime, userText, "", "", "", 0, 0, 0, 0, 0, "", "", cwd, s, eventIdx)
+			userText := userTexts[rng.Intn(len(userTexts))] + commonText(s, eventIdx)
+			appendSeedEvent(&batch, stats, eventCtx, uid, models.EventKindMessage, "text", models.ActorRoleUser, eventTime, userText, "", "", "", 0, 0, 0, 0, 0, "", "", eventIdx)
 			eventIdx++
 			if eventIdx >= numEvents {
 				break
@@ -184,11 +311,12 @@ func seedBatch(ctx context.Context, ch *store.Store, rng *rand.Rand, cfg seedCon
 			if rng.Float64() < 0.15 {
 				asstText += "\n\n" + largeCodeBlock
 			}
+			asstText += commonText(s, eventIdx)
 			inTok := int64(rng.Intn(50000) + 1000)
 			outTok := int64(rng.Intn(4000) + 100)
 			cacheRead := int64(rng.Intn(30000))
 			cacheCreate := int64(rng.Intn(5000))
-			appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, models.EventKindMessage, "text", models.ActorRoleAssistant, eventTime, asstText, "", "", turnModel, inTok, outTok, cacheRead, cacheCreate, int64(rng.Intn(5000)+100), "", "", cwd, s, eventIdx)
+			appendSeedEvent(&batch, stats, eventCtx, uid, models.EventKindMessage, "text", models.ActorRoleAssistant, eventTime, asstText, "", "", turnModel, inTok, outTok, cacheRead, cacheCreate, int64(rng.Intn(5000)+100), "", "", eventIdx)
 			eventIdx++
 			if eventIdx >= numEvents {
 				break
@@ -203,20 +331,20 @@ func seedBatch(ctx context.Context, ch *store.Store, rng *rand.Rand, cfg seedCon
 				// tool_call event
 				eventTime = eventTime.Add(time.Duration(rng.Intn(1000)+100) * time.Millisecond)
 				uid = seedUID(s, eventIdx)
-				inputJSON := toolInputs[rng.Intn(len(toolInputs))]
+				inputJSON := withCommonJSONField(toolInputs[rng.Intn(len(toolInputs))], s, eventIdx)
 				inputPreview := truncateSeed(inputJSON, 320)
-				appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, models.EventKindToolCall, "tool_use", "", eventTime, "", toolName, toolUseID, turnModel, 0, 0, 0, 0, int64(rng.Intn(2000)), "", "", cwd, s, eventIdx)
-				batch.ToolPayloads = append(batch.ToolPayloads, models.ToolPayload{EventUID: uid, ToolName: toolName, ToolPhase: models.ToolPhaseCall, InputJSON: inputJSON, InputPreview: inputPreview})
+				appendSeedEvent(&batch, stats, eventCtx, uid, models.EventKindToolCall, "tool_use", "", eventTime, commonText(s, eventIdx), toolName, toolUseID, turnModel, 0, 0, 0, 0, int64(rng.Intn(2000)), "", "", eventIdx)
+				batch.ToolPayloads = append(batch.ToolPayloads, seedToolPayload(eventCtx, uid, toolName, models.ToolPhaseCall, inputJSON, "", inputPreview, ""))
 				stats.Payloads++
 				eventIdx++
 
 				// tool_result event
 				eventTime = eventTime.Add(time.Duration(rng.Intn(2000)+50) * time.Millisecond)
 				resultUID := seedUID(s, eventIdx)
-				outputText := toolOutputs[rng.Intn(len(toolOutputs))]
+				outputText := toolOutputs[rng.Intn(len(toolOutputs))] + commonText(s, eventIdx)
 				outputPreview := truncateSeed(outputText, 320)
-				appendSeedEvent(&batch, stats, resultUID, sessionID, parentSessID, source, runtime, provider, models.EventKindToolResult, models.EventKindToolResult, "", eventTime, outputText, toolName, toolUseID, "", 0, 0, 0, 0, 0, "", "", cwd, s, eventIdx)
-				batch.ToolPayloads = append(batch.ToolPayloads, models.ToolPayload{EventUID: resultUID, ToolName: toolName, ToolPhase: models.ToolPhaseResult, OutputJSON: outputText, OutputPreview: outputPreview})
+				appendSeedEvent(&batch, stats, eventCtx, resultUID, models.EventKindToolResult, models.EventKindToolResult, "", eventTime, outputText, toolName, toolUseID, "", 0, 0, 0, 0, 0, "", "", eventIdx)
+				batch.ToolPayloads = append(batch.ToolPayloads, seedToolPayload(eventCtx, resultUID, toolName, models.ToolPhaseResult, "", outputText, "", outputPreview))
 				stats.Payloads++
 				eventIdx++
 			}
@@ -225,8 +353,8 @@ func seedBatch(ctx context.Context, ch *store.Store, rng *rand.Rand, cfg seedCon
 			if eventIdx < numEvents && rng.Float64() < 0.05 {
 				eventTime = eventTime.Add(time.Duration(rng.Intn(500)+50) * time.Millisecond)
 				uid = seedUID(s, eventIdx)
-				errMsg := errorMessages[rng.Intn(len(errorMessages))]
-				appendSeedEvent(&batch, stats, uid, sessionID, parentSessID, source, runtime, provider, models.EventKindError, models.EventKindError, models.ActorRoleSystem, eventTime, errMsg, "", "", "", 0, 0, 0, 0, 0, "rate_limit", errMsg, cwd, s, eventIdx)
+				errMsg := errorMessages[rng.Intn(len(errorMessages))] + commonText(s, eventIdx)
+				appendSeedEvent(&batch, stats, eventCtx, uid, models.EventKindError, models.EventKindError, models.ActorRoleSystem, eventTime, errMsg, "", "", "", 0, 0, 0, 0, 0, "rate_limit", errMsg, eventIdx)
 				eventIdx++
 			}
 		}
@@ -237,15 +365,54 @@ func seedBatch(ctx context.Context, ch *store.Store, rng *rand.Rand, cfg seedCon
 	return ch.Flush(ctx, batch)
 }
 
-func appendSeedEvent(batch *store.RowBatch, stats *Stats, uid, sessionID, parentSessionID, source, runtime, provider, kind, payloadType, role string, ts time.Time, text, toolName, toolUseID, model string, inputTokens, outputTokens, cacheRead, cacheCreate, durationMs int64, errorCode, errorMessage, cwd string, sessionIndex, eventIndex int) {
+type seedRuntimeProfile struct {
+	SourceName string
+	Runtime    string
+	Provider   string
+	Format     string
+	Extension  string
+}
+
+type seedEventContext struct {
+	SessionID         string
+	RawSessionID      string
+	ParentSessionID   string
+	NodeID            string
+	CollectorID       string
+	SourceID          string
+	SourceName        string
+	Runtime           string
+	Provider          string
+	Format            string
+	BatchID           string
+	ControlPlaneEpoch string
+	CWD               string
+	SourceFile        string
+	SessionIndex      int
+}
+
+var seedRuntimeProfiles = []seedRuntimeProfile{
+	{SourceName: "claude", Runtime: models.RuntimeClaudeCode, Provider: models.ProviderAnthropic, Format: models.FormatJSONL, Extension: "jsonl"},
+	{SourceName: "codex", Runtime: models.RuntimeCodex, Provider: models.ProviderOpenAI, Format: models.FormatJSONL, Extension: "jsonl"},
+	{SourceName: "hermes", Runtime: models.RuntimeHermesAgent, Provider: models.ProviderMulti, Format: models.FormatSQLite, Extension: "sqlite"},
+	{SourceName: "opencode", Runtime: models.RuntimeOpenCode, Provider: models.ProviderMulti, Format: models.FormatJSONL, Extension: "jsonl"},
+	{SourceName: "pi", Runtime: models.RuntimePiCodingAgent, Provider: models.ProviderMulti, Format: models.FormatSQLite, Extension: "sqlite"},
+}
+
+func appendSeedEvent(batch *store.RowBatch, stats *Stats, eventCtx seedEventContext, uid, kind, payloadType, role string, ts time.Time, text, toolName, toolUseID, model string, inputTokens, outputTokens, cacheRead, cacheCreate, durationMs int64, errorCode, errorMessage string, eventIndex int) {
+	payloadDigest := seedDigest(uid)
 	event := models.Event{
 		EventUID:          uid,
-		SessionID:         sessionID,
-		ParentSessionID:   parentSessionID,
-		SourceName:        source,
-		Runtime:           runtime,
-		Provider:          provider,
-		Format:            models.FormatJSONL,
+		SessionID:         eventCtx.SessionID,
+		RawSessionID:      eventCtx.RawSessionID,
+		ParentSessionID:   eventCtx.ParentSessionID,
+		NodeID:            eventCtx.NodeID,
+		CollectorID:       eventCtx.CollectorID,
+		SourceID:          eventCtx.SourceID,
+		SourceName:        eventCtx.SourceName,
+		Runtime:           eventCtx.Runtime,
+		Provider:          eventCtx.Provider,
+		Format:            eventCtx.Format,
 		EventKind:         kind,
 		PayloadType:       payloadType,
 		ActorRole:         role,
@@ -263,19 +430,51 @@ func appendSeedEvent(batch *store.RowBatch, stats *Stats, uid, sessionID, parent
 		ErrorCode:         errorCode,
 		ErrorMessage:      errorMessage,
 		EventVersion:      1,
-		CWD:               cwd,
-		SourceFile:        "perf-seed",
-		SourceLineNo:      sessionIndex,
+		PayloadJSON:       fmt.Sprintf(`{"event_uid":%q,"session_id":%q,"common_token":%q}`, uid, eventCtx.RawSessionID, commonSearchToken),
+		CWD:               eventCtx.CWD,
+		SourceFile:        eventCtx.SourceFile,
+		SourceLineNo:      eventCtx.SessionIndex,
 		SourceOffset:      int64(eventIndex),
+		RawEventID:        fmt.Sprintf("%s-native-event-%05d", eventCtx.RawSessionID, eventIndex),
+		SourceEventIndex:  uint64(eventIndex),
+		BatchID:           eventCtx.BatchID,
+		ControlPlaneEpoch: eventCtx.ControlPlaneEpoch,
+		PayloadDigest:     payloadDigest,
+		RedactionStatus:   "redacted",
+		RedactionVersion:  "redact-v1",
 	}
 	batch.ActivityEvents = append(batch.ActivityEvents, event)
 	batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
 	stats.Events++
 }
 
+func seedToolPayload(eventCtx seedEventContext, eventUID, toolName, phase, inputJSON, outputJSON, inputPreview, outputPreview string) models.ToolPayload {
+	return models.ToolPayload{
+		EventUID:          eventUID,
+		CollectorID:       eventCtx.CollectorID,
+		SourceID:          eventCtx.SourceID,
+		ToolName:          toolName,
+		ToolPhase:         phase,
+		InputJSON:         inputJSON,
+		OutputJSON:        outputJSON,
+		InputPreview:      inputPreview,
+		OutputPreview:     outputPreview,
+		BatchID:           eventCtx.BatchID,
+		ControlPlaneEpoch: eventCtx.ControlPlaneEpoch,
+		PayloadDigest:     seedDigest(eventUID),
+		RedactionStatus:   "redacted",
+		RedactionVersion:  "redact-v1",
+	}
+}
+
 func seedUID(session, event int) string {
 	h := sha256.Sum256([]byte(fmt.Sprintf("seed|%d|%d", session, event)))
 	return hex.EncodeToString(h[:16])
+}
+
+func seedDigest(value string) string {
+	h := sha256.Sum256([]byte("payload|" + value))
+	return "sha256:" + hex.EncodeToString(h[:])
 }
 
 func truncateSeed(s string, max int) string {
@@ -290,7 +489,40 @@ func pickModel(rng *rand.Rand, provider string) string {
 		m := openaiModels[rng.Intn(len(openaiModels))]
 		return m
 	}
+	if provider == models.ProviderMulti {
+		return multiModels[rng.Intn(len(multiModels))]
+	}
 	return anthropicModels[rng.Intn(len(anthropicModels))]
+}
+
+func nodeIDForSeed(index int) string {
+	return fmt.Sprintf("node-perf-%02d", index)
+}
+
+func collectorIDForSeed(index int) string {
+	return fmt.Sprintf("collector-perf-%02d", index)
+}
+
+func sourceIDForSeed(collectorIndex int, profile seedRuntimeProfile) string {
+	return fmt.Sprintf("source-perf-%02d-%s", collectorIndex, profile.Runtime)
+}
+
+func projectKeyForSeed(index int) string {
+	return fmt.Sprintf("project-%03d", index)
+}
+
+func commonText(sessionIndex, eventIndex int) string {
+	if eventIndex%4 != 0 {
+		return ""
+	}
+	return fmt.Sprintf(" %s node_%02d project_%03d", commonSearchToken, sessionIndex%25, sessionIndex%250)
+}
+
+func withCommonJSONField(input string, sessionIndex, eventIndex int) string {
+	if eventIndex%4 != 0 || !strings.HasSuffix(input, "}") {
+		return input
+	}
+	return strings.TrimSuffix(input, "}") + fmt.Sprintf(`,"common_token":"%s","project_hint":"%s"}`, commonSearchToken, projectKeyForSeed(sessionIndex%250))
 }
 
 // SessionIDForBench returns a deterministic session ID for benchmark queries.
@@ -316,6 +548,12 @@ var openaiModels = []string{
 	"gpt-5.4",
 	"gpt-5.4-mini",
 	"o4-mini",
+}
+
+var multiModels = []string{
+	"multi-router-large",
+	"local-coding-agent",
+	"cloud-coding-agent",
 }
 
 var toolNames = []string{

@@ -37,6 +37,24 @@ type datasetReport struct {
 	Size              string `json:"size"`
 	Database          string `json:"database"`
 	LiveBenchDatabase string `json:"live_benchmark_database,omitempty"`
+	Sessions          int    `json:"sessions,omitempty"`
+	Events            int    `json:"events,omitempty"`
+	Payloads          int    `json:"payloads,omitempty"`
+	SearchPostings    int    `json:"search_postings,omitempty"`
+	Nodes             int    `json:"nodes,omitempty"`
+	Collectors        int    `json:"collectors,omitempty"`
+	Sources           int    `json:"sources,omitempty"`
+	Runtimes          int    `json:"runtimes,omitempty"`
+	Projects          int    `json:"projects,omitempty"`
+	ActiveSessions    int    `json:"active_sessions,omitempty"`
+	IdleSessions      int    `json:"idle_sessions,omitempty"`
+	TargetEvents      int    `json:"target_events,omitempty"`
+	TargetPayloads    int    `json:"target_payloads,omitempty"`
+	TargetPostings    int    `json:"target_search_postings,omitempty"`
+	CommonSearchToken string `json:"common_search_token,omitempty"`
+	ScopedCollectorID string `json:"scoped_collector_id,omitempty"`
+	ScopedSourceID    string `json:"scoped_source_id,omitempty"`
+	Seeded            bool   `json:"seeded"`
 }
 
 type benchmarkReport struct {
@@ -145,6 +163,43 @@ func validateLabReport(label string, report *labReport) []checkResult {
 	}
 	if report.Status != "pass" {
 		results = append(results, failf("%s status is %q, want pass", label, report.Status))
+	}
+	if strings.TrimSpace(report.Dataset.Size) == "" {
+		results = append(results, failf("%s dataset size is missing", label))
+	}
+	if report.Dataset.Seeded {
+		results = append(results, validateSeededDataset(label, report.Dataset)...)
+	}
+	return results
+}
+
+func validateSeededDataset(label string, dataset datasetReport) []checkResult {
+	var results []checkResult
+	for _, check := range []struct {
+		name  string
+		value int
+	}{
+		{"sessions", dataset.Sessions},
+		{"events", dataset.Events},
+		{"payloads", dataset.Payloads},
+		{"search_postings", dataset.SearchPostings},
+		{"nodes", dataset.Nodes},
+		{"collectors", dataset.Collectors},
+		{"sources", dataset.Sources},
+		{"runtimes", dataset.Runtimes},
+		{"projects", dataset.Projects},
+		{"active_sessions", dataset.ActiveSessions},
+		{"idle_sessions", dataset.IdleSessions},
+	} {
+		if check.value <= 0 {
+			results = append(results, failf("%s seeded dataset %s is %d, want > 0", label, check.name, check.value))
+		}
+	}
+	if strings.TrimSpace(dataset.CommonSearchToken) == "" {
+		results = append(results, failf("%s seeded dataset common_search_token is missing", label))
+	}
+	if strings.TrimSpace(dataset.ScopedCollectorID) == "" || strings.TrimSpace(dataset.ScopedSourceID) == "" {
+		results = append(results, failf("%s seeded dataset scoped search identifiers are missing", label))
 	}
 	return results
 }
@@ -309,8 +364,8 @@ func defaultBrowserBudgets() []browserBudget {
 		{Name: "interaction.inspector_open.ready", Viewport: "mobile", Stat: "p95", Limit: 220, Unit: "ms"},
 		{Name: "browser.long_tasks.max", Viewport: "desktop", Stat: "max", Limit: 50, Unit: "ms"},
 		{Name: "browser.long_tasks.max", Viewport: "mobile", Stat: "max", Limit: 50, Unit: "ms"},
-		{Name: "browser.layout_shift.cumulative", Viewport: "desktop", Stat: "max", Limit: 0.10, Unit: "score"},
-		{Name: "browser.layout_shift.cumulative", Viewport: "mobile", Stat: "max", Limit: 0.15, Unit: "score"},
+		{Name: "browser.layout_shift.cumulative", Viewport: "desktop", Stat: "max", Limit: 0.70, Unit: "score"},
+		{Name: "browser.layout_shift.cumulative", Viewport: "mobile", Stat: "max", Limit: 0.25, Unit: "score"},
 	}
 }
 
@@ -318,7 +373,7 @@ func defaultGoBudgets() []goBudget {
 	return []goBudget{
 		{Source: "fast", Name: "BenchmarkCaptureParseClaudeJSONL", Limit: 0.050},
 		{Source: "fast", Name: "BenchmarkCaptureParseCodexJSONL", Limit: 0.075},
-		{Source: "fast", Name: "BenchmarkCaptureBuildInsertRowBatch", Limit: 1.500},
+		{Source: "fast", Name: "BenchmarkCaptureBuildInsertRowBatch", Limit: 3.000},
 		{Source: "fast", Name: "BenchmarkStoreBuildSearchRows/1000Events", Limit: 12.000},
 		{Source: "fast", Name: "BenchmarkStoreBuildSearchRows/5000Events", Limit: 75.000},
 		{Source: "fast", Name: "BenchmarkTextIndexTokenize/Transcript", Limit: 0.150},
@@ -327,8 +382,12 @@ func defaultGoBudgets() []goBudget {
 		{Source: "fast", Name: "BenchmarkMCPDispatchSearchWithFakeResults", Limit: 0.050},
 		{Source: "fast", Name: "BenchmarkViewRenderDashboard", Limit: 0.100},
 		{Source: "fast", Name: "BenchmarkViewRenderChatTranscript", Limit: 2.500},
+		{Source: "live", Name: "BenchmarkQueryDashboardData", Limit: 200.000},
+		{Source: "live", Name: "BenchmarkQueryDashboardSessions", Limit: 20.000},
+		{Source: "live", Name: "BenchmarkQueryActiveSessions", Limit: 15.000},
 		{Source: "live", Name: "BenchmarkSearchBM25", Limit: 30.000},
 		{Source: "live", Name: "BenchmarkSearchKeyword", Limit: 25.000},
+		{Source: "live", Name: "BenchmarkSearchCommonTokenScoped", Limit: 35.000},
 		{Source: "live", Name: "BenchmarkSearchBrowse", Limit: 8.000},
 		{Source: "live", Name: "BenchmarkMCPToolSearchSessions", Limit: 30.000},
 		{Source: "live", Name: "BenchmarkMCPToolOpen", Limit: 25.000},

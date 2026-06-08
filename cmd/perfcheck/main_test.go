@@ -92,6 +92,21 @@ func TestRunFailsInvalidBaselineSchema(t *testing.T) {
 	}
 }
 
+func TestRunFailsSeededReportMissingFleetMetadata(t *testing.T) {
+	report := passingReport()
+	report.Dataset.Seeded = true
+	report.Dataset.Sessions = 250
+	report.Dataset.Events = 1000
+	report.Dataset.Payloads = 100
+	report.Dataset.SearchPostings = 5000
+	path := writeReport(t, report)
+
+	err := run(config{reportPath: path, maxRegressionRatio: 1.25, minBrowserDelta: 5, minGoDeltaMS: 0.05, failOnMissing: true})
+	if err == nil || !strings.Contains(err.Error(), "performance check") {
+		t.Fatalf("run() error = %v, want missing seeded metadata failure", err)
+	}
+}
+
 func TestRunFailsMismatchedDatasetSize(t *testing.T) {
 	baseline := passingReport()
 	baseline.Dataset.Size = "medium"

@@ -71,6 +71,43 @@ func TestSpoolFullRejectsWithoutWriting(t *testing.T) {
 	}
 }
 
+func TestSpoolPartialWriteArtifactsDoNotBecomePendingBatches(t *testing.T) {
+	spool, err := OpenSpool(filepath.Join(t.TempDir(), "spool"), 1<<20)
+	if err != nil {
+		t.Fatalf("OpenSpool: %v", err)
+	}
+	written, err := spool.WritePending(context.Background(), testBatchRequest(t, 2, "batch-ok"))
+	if err != nil {
+		t.Fatalf("WritePending: %v", err)
+	}
+	tmpPath := filepath.Join(spool.Root(), spoolTmp, "00000000000000000001-partial.json.tmp")
+	if err := os.WriteFile(tmpPath, []byte(`{"version":1`), 0600); err != nil {
+		t.Fatalf("write partial tmp spool file: %v", err)
+	}
+	truncatedPending := filepath.Join(spool.Root(), spoolPending, "00000000000000000001-truncated.json")
+	if err := os.WriteFile(truncatedPending, []byte(`{"version":1`), 0600); err != nil {
+		t.Fatalf("write truncated pending spool file: %v", err)
+	}
+
+	pending, err := spool.Pending()
+	if err != nil {
+		t.Fatalf("Pending: %v", err)
+	}
+	if len(pending) != 1 || pending[0].Path != written.Path {
+		t.Fatalf("pending after partial artifacts = %#v, want only committed batch %s", pending, written.Path)
+	}
+	if _, err := os.Stat(tmpPath); err != nil {
+		t.Fatalf("partial tmp artifact should be ignored and left for manual cleanup: %v", err)
+	}
+	stats, err := spool.Stats()
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if stats.CorruptCount != 1 || stats.PendingCount != 1 {
+		t.Fatalf("stats after partial artifacts = %#v, want one corrupt pending and one valid pending", stats)
+	}
+}
+
 func TestSpoolAckDeletesCommittedBatch(t *testing.T) {
 	spool, err := OpenSpool(filepath.Join(t.TempDir(), "spool"), 1<<20)
 	if err != nil {

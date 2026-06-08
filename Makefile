@@ -76,7 +76,7 @@ perf-bench: ## Run perf benchmarks (PERF_SIZE=small|medium|large)
 perf-explain: ## Print ClickHouse plans for representative perf queries
 	@PERF_SIZE=$${PERF_SIZE:-medium} && \
 	echo "=== Beacon Perf Explain (size=$$PERF_SIZE, rev=$$(git rev-parse --short HEAD)) ===" && \
-	BEACON_PERF_EXPLAIN=1 PERF_SIZE=$$PERF_SIZE go test -run TestExplainQueryPlans -count=1 -timeout=10m -v ./internal/perf/
+	BEACON_PERF_EXPLAIN=1 BEACON_PERF_EXPLAIN_ASSERT=$${BEACON_PERF_EXPLAIN_ASSERT:-1} PERF_SIZE=$$PERF_SIZE go test -run TestExplainQueryPlans -count=1 -timeout=10m -v ./internal/perf/
 
 perf-browser: ## Run browser performance measurements
 	npm run test:perf:browser
