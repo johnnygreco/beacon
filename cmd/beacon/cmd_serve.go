@@ -19,6 +19,7 @@ import (
 	beacon "github.com/johnnygreco/beacon"
 	"github.com/johnnygreco/beacon/internal/capture"
 	"github.com/johnnygreco/beacon/internal/config"
+	"github.com/johnnygreco/beacon/internal/mcp"
 	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/search"
 	"github.com/johnnygreco/beacon/internal/sse"
@@ -144,6 +145,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Web server
 	handlers := web.NewHandlers(ch.DB, searcher, logger, cfg.Dashboard.Name)
 	apiHandlers := web.NewAPIHandlers(ch.DB, searcher, logger, controlStore)
+	mcpHTTPServer := mcp.NewServer(ch.DB, searcher, logger)
+	mcpHTTPServer.SetDefaultContextWindow(cfg.MCP.ContextWindow)
 	ingestHandlers := web.NewIngestHandlers(
 		controlStore,
 		ch,
@@ -158,7 +161,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		_ = bg.Wait()
 		return fmt.Errorf("preparing static filesystem: %w", err)
 	}
-	routerOptions := append(authOptions, web.WithIngestHandlers(ingestHandlers))
+	routerOptions := append(authOptions, web.WithIngestHandlers(ingestHandlers), web.WithMCPHandler(mcpHTTPServer.HTTPHandler()))
 	router := web.NewRouter(staticFS, broker, handlers, apiHandlers, routerOptions...)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)

@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/controlplane"
+	"github.com/johnnygreco/beacon/internal/mcp"
+	"github.com/johnnygreco/beacon/internal/web"
 )
 
 func TestDashboardAuthOptionsNonLoopbackRequiresProtection(t *testing.T) {
@@ -30,8 +34,8 @@ func TestDashboardAuthOptionsNonLoopbackRequiresProtection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dashboardAuthOptions reverse-proxy: %v", err)
 	}
-	if len(options) != 0 {
-		t.Fatalf("reverse-proxy options = %d, want none", len(options))
+	if len(options) != 1 {
+		t.Fatalf("reverse-proxy options = %d, want MCP middleware option", len(options))
 	}
 
 	cfg.Auth.Mode = config.AuthModeOwnerToken
@@ -51,8 +55,8 @@ func TestDashboardAuthOptionsNonLoopbackRequiresProtection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dashboardAuthOptions owner-token with token: %v", err)
 	}
-	if len(options) != 1 {
-		t.Fatalf("owner-token options = %d, want middleware option", len(options))
+	if len(options) != 2 {
+		t.Fatalf("owner-token options = %d, want page and API middleware options", len(options))
 	}
 }
 
@@ -72,6 +76,77 @@ func TestDashboardAuthOptionsLoopbackAllowsLocalMode(t *testing.T) {
 	}
 	if len(options) != 1 {
 		t.Fatalf("loopback options = %d, want host guard middleware option", len(options))
+	}
+}
+
+func TestReadTokenAPIMiddlewareAttachesScopedContexts(t *testing.T) {
+	store, err := controlplane.Open(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+	readToken, err := store.CreateToken(context.Background(), controlplane.CreateTokenRequest{
+		Type:        controlplane.TokenTypeRead,
+		NodeID:      "node-a",
+		CollectorID: "collector-a",
+		SourceIDs:   []string{"source-a", "source-b"},
+	})
+	if err != nil {
+		t.Fatalf("CreateToken read: %v", err)
+	}
+
+	var sawHandler bool
+	handler := readTokenAPIMiddleware(store, "owner_cookie")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawHandler = true
+		apiScope, ok := web.APIScopeFromContext(r.Context())
+		if !ok {
+			t.Fatal("missing web API scope")
+		}
+		if strings.Join(apiScope.NodeIDs, ",") != "node-a" || strings.Join(apiScope.CollectorIDs, ",") != "collector-a" || strings.Join(apiScope.SourceIDs, ",") != "source-a,source-b" {
+			t.Fatalf("web API scope = %#v", apiScope)
+		}
+		mcpScope, ok := mcp.AuthScopeFromContext(r.Context())
+		if !ok {
+			t.Fatal("missing MCP scope")
+		}
+		if strings.Join(mcpScope.NodeIDs, ",") != "node-a" || strings.Join(mcpScope.CollectorIDs, ",") != "collector-a" || strings.Join(mcpScope.SourceIDs, ",") != "source-a,source-b" {
+			t.Fatalf("MCP scope = %#v", mcpScope)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/mcp", nil)
+	req.Header.Set("Authorization", "Bearer "+readToken.Plaintext)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent || !sawHandler {
+		t.Fatalf("read token status/handler = %d/%v", rec.Code, sawHandler)
+	}
+}
+
+func TestReadTokenAPIMiddlewareLeavesOwnerTokenUnscoped(t *testing.T) {
+	store, err := controlplane.Open(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+	ownerToken, err := store.CreateToken(context.Background(), controlplane.CreateTokenRequest{Type: controlplane.TokenTypeOwner})
+	if err != nil {
+		t.Fatalf("CreateToken owner: %v", err)
+	}
+
+	handler := readTokenAPIMiddleware(store, "owner_cookie")(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := mcp.AuthScopeFromContext(r.Context()); ok {
+			t.Fatal("owner token unexpectedly set MCP scope")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	req.Header.Set("Authorization", "Bearer "+ownerToken.Plaintext)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("owner token status = %d", rec.Code)
 	}
 }
 

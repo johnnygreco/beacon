@@ -52,6 +52,10 @@ func requestOwnerTokens(r *http.Request, cookieName string) []string {
 	return tokens
 }
 
+func RequestAuthTokens(r *http.Request, cookieName string) []string {
+	return requestOwnerTokens(r, cookieName)
+}
+
 func bearerToken(header string) string {
 	header = strings.TrimSpace(header)
 	if len(header) <= len("Bearer") || !strings.EqualFold(header[:len("Bearer")], "Bearer") {

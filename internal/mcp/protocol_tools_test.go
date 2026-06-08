@@ -111,6 +111,19 @@ func TestToolsCallSearchSessionsSuccessAndError(t *testing.T) {
 
 	resp = srv.dispatch(context.Background(), &jsonRPCRequest{
 		JSONRPC: "2.0",
+		ID:      json.RawMessage(`102`),
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"search_sessions","arguments":{"query":"needle","limit":999}}`),
+	})
+	if resp == nil || resp.Error != nil {
+		t.Fatalf("search_sessions capped-limit response = %+v", resp)
+	}
+	if fake.query.Limit != maxSearchSessionsLimit {
+		t.Fatalf("capped search limit = %d, want %d", fake.query.Limit, maxSearchSessionsLimit)
+	}
+
+	resp = srv.dispatch(context.Background(), &jsonRPCRequest{
+		JSONRPC: "2.0",
 		ID:      json.RawMessage(`11`),
 		Method:  "tools/call",
 		Params:  json.RawMessage(`{"name":"search_sessions","arguments":{"limit":2}}`),
@@ -133,6 +146,108 @@ func TestToolsCallSearchSessionsSuccessAndError(t *testing.T) {
 	}
 	if strings.Contains(text, "search backend failed") {
 		t.Fatalf("search backend error leaked internal detail: %q", text)
+	}
+}
+
+func TestToolSearchAppliesAuthScopeAndEmitsProvenance(t *testing.T) {
+	fake := &fakeMCPSearcher{
+		results: []search.SearchResult{{
+			EventUID:    "evt-search",
+			SessionID:   "session-search",
+			NodeID:      "node-a",
+			CollectorID: "collector-a",
+			SourceID:    "source-a",
+			SourceName:  "source",
+			Runtime:     "runtime",
+			ProjectKey:  "beacon",
+			ProjectPath: "/work/beacon",
+			EventKind:   "message",
+			TextPreview: "needle result",
+			Score:       2.5,
+			Timestamp:   time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC),
+		}},
+	}
+	srv := testServer()
+	srv.searcher = fake
+	ctx := ContextWithAuthScope(context.Background(), ScopeFilters{NodeIDs: []string{"node-a"}, SourceIDs: []string{"source-a"}})
+
+	text, err := srv.toolSearch(ctx, json.RawMessage(`{"query":"needle","limit":2,"node_id":"node-a","source_id":"source-a"}`))
+	if err != nil {
+		t.Fatalf("toolSearch: %v", err)
+	}
+	if !reflect.DeepEqual(fake.query.NodeIDs, []string{"node-a"}) || !reflect.DeepEqual(fake.query.SourceIDs, []string{"source-a"}) {
+		t.Fatalf("search scope = nodes %#v sources %#v", fake.query.NodeIDs, fake.query.SourceIDs)
+	}
+	for _, want := range []string{
+		`"auth_scope_applied":true`,
+		`"node_ids":["node-a"]`,
+		`"source_ids":["source-a"]`,
+		`"node_id":"node-a"`,
+		`"collector_id":"collector-a"`,
+		`"runtime":"runtime"`,
+		`"project_key":"beacon"`,
+		`"open_ref":{"type":"event"`,
+		`"scope":{"node_ids":["node-a"],"source_ids":["source-a"]}`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("search output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestToolSearchAuthScopeCannotBeBroadened(t *testing.T) {
+	fake := &fakeMCPSearcher{}
+	srv := testServer()
+	srv.searcher = fake
+	ctx := ContextWithAuthScope(context.Background(), ScopeFilters{NodeIDs: []string{"node-a"}})
+
+	if _, err := srv.toolSearch(ctx, json.RawMessage(`{"query":"needle","node_id":"node-b"}`)); err != nil {
+		t.Fatalf("toolSearch: %v", err)
+	}
+	if !reflect.DeepEqual(fake.query.NodeIDs, []string{scopeImpossibleValue}) {
+		t.Fatalf("broadened auth scope query nodes = %#v", fake.query.NodeIDs)
+	}
+}
+
+func TestMCPScopeEventProjectKeyDerivesFromCWD(t *testing.T) {
+	clause, args := ScopeFilters{ProjectKeys: []string{"beacon"}}.eventSQLAndClause("ae", "")
+	if strings.Contains(clause, "ae.project_key") {
+		t.Fatalf("event project scope should not reference raw event project_key: %s", clause)
+	}
+	for _, want := range []string{"ae.cwd", "replaceRegexpOne", "IN (?)"} {
+		if !strings.Contains(clause, want) {
+			t.Fatalf("event project scope missing %q: %s", want, clause)
+		}
+	}
+	if fmt.Sprint(args) != "[beacon]" {
+		t.Fatalf("scope args = %#v, want [beacon]", args)
+	}
+}
+
+func TestMCPScopeEventAndSessionProjectKeyUsesSingleProjectFallback(t *testing.T) {
+	clause, args := ScopeFilters{ProjectKeys: []string{"beacon"}}.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
+	for _, want := range []string{"COALESCE(NULLIF(if(e.cwd", "COALESCE(s.project_count, 0) <= 1", "NULLIF(s.project_key, '')", "IN (?)"} {
+		if !strings.Contains(clause, want) {
+			t.Fatalf("event/session project scope missing %q: %s", want, clause)
+		}
+	}
+	if strings.Index(clause, "if(e.cwd") > strings.Index(clause, "s.project_key") {
+		t.Fatalf("event cwd project must be preferred before session fallback: %s", clause)
+	}
+	if fmt.Sprint(args) != "[beacon]" {
+		t.Fatalf("scope args = %#v, want [beacon]", args)
+	}
+}
+
+func TestMCPScopeNodeIDNormalizesBlankLocalRows(t *testing.T) {
+	clause, args := ScopeFilters{NodeIDs: []string{"local"}}.sqlAndClause("s")
+	for _, want := range []string{"COALESCE(NULLIF(s.node_id, ''), 'local')", "IN (?)"} {
+		if !strings.Contains(clause, want) {
+			t.Fatalf("node scope missing %q: %s", want, clause)
+		}
+	}
+	if fmt.Sprint(args) != "[local]" {
+		t.Fatalf("scope args = %#v, want [local]", args)
 	}
 }
 
@@ -165,12 +280,12 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 	db, stub := newMCPStubDB(t, []mcpStubQuery{
 		func(query string, args []driver.NamedValue) (driver.Rows, error) {
 			assertMCPQueryContains(t, query, "WITH target AS", "ROW_NUMBER() OVER", "WHERE n.rn BETWEEN")
-			assertMCPNamedValues(t, args, []any{"evt-target", "evt-target", 1, 2})
+			assertMCPNamedValues(t, args, []any{"evt-target", 1, 2})
 			return mcpRows(
-				[]string{"event_uid", "event_kind", "actor_role", "text_preview", "tool_name", "model", "tokens", "timestamp"},
-				[]driver.Value{"evt-before", "message", "user", "before", "", "gpt-5.4", int64(3), targetTime.Add(-time.Minute)},
-				[]driver.Value{"evt-target", "tool_call", "assistant", "target", "Bash", "gpt-5.4", int64(5), targetTime},
-				[]driver.Value{"evt-after", "tool_result", "tool", "after", "Bash", "gpt-5.4", int64(7), targetTime.Add(time.Minute)},
+				mcpOpenColumns(),
+				mcpOpenRow("evt-before", "session-1", "message", "user", "before", "", "gpt-5.4", int64(3), targetTime.Add(-time.Minute), 0),
+				mcpOpenRow("evt-target", "session-1", "tool_call", "assistant", "target", "Bash", "gpt-5.4", int64(5), targetTime, 1),
+				mcpOpenRow("evt-after", "session-1", "tool_result", "tool", "after", "Bash", "gpt-5.4", int64(7), targetTime.Add(time.Minute), 0),
 			), nil
 		},
 	})
@@ -183,17 +298,17 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolOpen: %v", err)
 	}
-	if !strings.Contains(text, `"schema":"beacon.mcp.open.v1"`) || !strings.Contains(text, `"event_id":"event:evt-target"`) || !strings.Contains(text, `"target":true`) {
+	if !strings.Contains(text, `"schema":"beacon.mcp.open.v1"`) || !strings.Contains(text, `"event_id":"event:evt-target"`) || !strings.Contains(text, `"session_id":"session:session-1"`) || !strings.Contains(text, `"target":true`) {
 		t.Fatalf("open output = %s", text)
 	}
 
 	db, stub = newMCPStubDB(t, []mcpStubQuery{
 		func(query string, args []driver.NamedValue) (driver.Rows, error) {
 			assertMCPQueryContains(t, query, "WITH target AS", "ROW_NUMBER() OVER", "WHERE n.rn BETWEEN")
-			assertMCPNamedValues(t, args, []any{"evt-target", "evt-target", 4, 4})
+			assertMCPNamedValues(t, args, []any{"evt-target", 4, 4})
 			return mcpRows(
-				[]string{"event_uid", "event_kind", "actor_role", "text_preview", "tool_name", "model", "tokens", "timestamp"},
-				[]driver.Value{"evt-target", "tool_call", "assistant", "target", "Bash", "gpt-5.4", int64(5), targetTime},
+				mcpOpenColumns(),
+				mcpOpenRow("evt-target", "session-1", "tool_call", "assistant", "target", "Bash", "gpt-5.4", int64(5), targetTime, 1),
 			), nil
 		},
 	})
@@ -207,7 +322,7 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 
 	db, stub = newMCPStubDB(t, []mcpStubQuery{
 		func(string, []driver.NamedValue) (driver.Rows, error) {
-			return mcpRows([]string{"event_uid", "event_kind", "actor_role", "text_preview", "tool_name", "model", "tokens", "timestamp"}), nil
+			return mcpRows(mcpOpenColumns()), nil
 		},
 	})
 	defer db.Close()
@@ -219,15 +334,15 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 	}
 
 	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"before":1}`))
-	if err == nil || !strings.Contains(err.Error(), "event_id is required") {
+	if err == nil || !strings.Contains(err.Error(), "event_id or open_ref is required") {
 		t.Fatalf("toolOpen required error = %v", err)
 	}
 	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"event_uid":"evt-target"}`))
-	if err == nil || !strings.Contains(err.Error(), "event_id is required") {
+	if err == nil || !strings.Contains(err.Error(), "event_id or open_ref is required") {
 		t.Fatalf("toolOpen event_uid argument error = %v", err)
 	}
 	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"id":"event:evt-target"}`))
-	if err == nil || !strings.Contains(err.Error(), "event_id is required") {
+	if err == nil || !strings.Contains(err.Error(), "event_id or open_ref is required") {
 		t.Fatalf("toolOpen id argument error = %v", err)
 	}
 
@@ -247,8 +362,8 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 	db, stub = newMCPStubDB(t, []mcpStubQuery{
 		func(string, []driver.NamedValue) (driver.Rows, error) {
 			return mcpRows(
-				[]string{"event_uid", "event_kind", "actor_role", "text_preview", "tool_name", "model", "tokens", "timestamp"},
-				[]driver.Value{"evt-target", "message", "assistant", "bad timestamp", "", "gpt-5.4", int64(1), "not-a-time"},
+				mcpOpenColumns(),
+				[]driver.Value{"evt-target", "session-1", "node-a", "collector-a", "source-a", "source", "runtime", "project", "/work/project", "message", "assistant", "bad timestamp", "", "gpt-5.4", int64(1), "not-a-time", uint8(1)},
 			), nil
 		},
 	})
@@ -258,6 +373,100 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"event_id":"event:evt-target"}`))
 	if err == nil || !strings.Contains(err.Error(), "scan context event") {
 		t.Fatalf("toolOpen scan error = %v", err)
+	}
+}
+
+func TestToolOpenRejectsOversizedContextWindow(t *testing.T) {
+	srv := testServer()
+	_, err := srv.toolOpen(context.Background(), json.RawMessage(`{"event_id":"event:evt-target","before":26,"after":1}`))
+	if err == nil || !strings.Contains(err.Error(), "before must be <= 25") {
+		t.Fatalf("oversized before error = %v", err)
+	}
+	_, err = srv.toolOpen(context.Background(), json.RawMessage(`{"event_id":"event:evt-target","before":1,"after":26}`))
+	if err == nil || !strings.Contains(err.Error(), "after must be <= 25") {
+		t.Fatalf("oversized after error = %v", err)
+	}
+}
+
+func TestDefaultOpenContextWindowIsClamped(t *testing.T) {
+	srv := testServer()
+	srv.SetDefaultContextWindow(1000)
+	if got := srv.defaultContextWindow(); got != maxOpenContextWindow {
+		t.Fatalf("default context window = %d, want %d", got, maxOpenContextWindow)
+	}
+}
+
+func TestToolOpenAcceptsSessionLatestOpenRef(t *testing.T) {
+	targetTime := time.Date(2026, 5, 22, 13, 0, 0, 0, time.UTC)
+	db, stub := newMCPStubDB(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "ae.session_id = ?", "ORDER BY timestamp DESC, event_uid DESC", "WHERE n.rn BETWEEN")
+			assertMCPNamedValues(t, args, []any{"session-1", 1, 1})
+			return mcpRows(
+				mcpOpenColumns(),
+				mcpOpenRow("evt-latest", "session-1", "message", "assistant", "latest", "", "gpt-5.4", int64(5), targetTime, 1),
+			), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	text, err := srv.toolOpen(context.Background(), json.RawMessage(`{"open_ref":{"type":"session_latest","session_id":"session:session-1","anchor":"latest"},"before":1,"after":1}`))
+	if err != nil {
+		t.Fatalf("toolOpen open_ref: %v", err)
+	}
+	if !strings.Contains(text, `"event_id":"event:evt-latest"`) || !strings.Contains(text, `"session_id":"session:session-1"`) {
+		t.Fatalf("open_ref output = %s", text)
+	}
+}
+
+func TestToolOpenScopedMissReturnsForbiddenWithoutExistenceLeak(t *testing.T) {
+	db, stub := newMCPStubDB(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "ae.event_uid = ?", "ae.source_id IN (?)", "WHERE n.rn BETWEEN")
+			assertMCPNamedValues(t, args, []any{"evt-secret", "source-a", "source-a", 3, 3})
+			return mcpRows(mcpOpenColumns()), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	ctx := ContextWithAuthScope(context.Background(), ScopeFilters{SourceIDs: []string{"source-a"}})
+	_, err := srv.toolOpen(ctx, json.RawMessage(`{"event_id":"event:evt-secret"}`))
+	if err == nil || err.Error() != "forbidden" {
+		t.Fatalf("scoped open error = %v, want forbidden", err)
+	}
+	if strings.Contains(err.Error(), "evt-secret") {
+		t.Fatalf("forbidden open leaked event id: %v", err)
+	}
+}
+
+func TestToolsCallOpenRefScopeIsAppliedAndForbiddenIsExact(t *testing.T) {
+	db, stub := newMCPStubDB(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "ae.event_uid = ?", "ae.source_id IN (?)", "WHERE n.rn BETWEEN")
+			assertMCPNamedValues(t, args, []any{"evt-secret", "source-a", "source-a", 3, 3})
+			return mcpRows(mcpOpenColumns()), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	resp := srv.dispatch(context.Background(), &jsonRPCRequest{
+		JSONRPC: "2.0",
+		ID:      json.RawMessage(`151`),
+		Method:  "tools/call",
+		Params:  json.RawMessage(`{"name":"open","arguments":{"open_ref":{"type":"event","event_id":"event:evt-secret","session_id":"session:session-1","scope":{"source_ids":["source-a"]}}}}`),
+	})
+	text, isError := toolText(t, resp)
+	if !isError || text != "forbidden" {
+		t.Fatalf("scoped open_ref text/isError = %q/%v, want exact forbidden", text, isError)
 	}
 }
 
@@ -301,8 +510,8 @@ func TestToolListSessionsSuccessAndErrors(t *testing.T) {
 			assertMCPQueryContains(t, query, "FROM (SELECT", "started_at >= ?", "ORDER BY started_at DESC, session_id DESC LIMIT ? OFFSET ?")
 			assertMCPNamedValues(t, args, []any{since, 5, 0})
 			return mcpRows(
-				[]string{"session_id", "source_name", "provider", "started_at", "ended_at", "event_count", "turn_count", "total_tokens", "tool_call_count", "mcp_call_count", "error_count", "last_model", "working_dir"},
-				[]driver.Value{"session-1", "codex", "openai", started, ended, int64(4), int64(2), int64(30), int64(1), int64(1), int64(0), "gpt-5.4", "/work/beacon"},
+				mcpSessionColumns(),
+				mcpSessionRow("session-1", started, ended),
 			), nil
 		},
 	})
@@ -318,6 +527,12 @@ func TestToolListSessionsSuccessAndErrors(t *testing.T) {
 	for _, want := range []string{
 		`"schema":"beacon.mcp.list_sessions.v1"`,
 		`"session_id":"session:session-1"`,
+		`"node_id":"node-a"`,
+		`"collector_id":"collector-a"`,
+		`"source_id":"source-a"`,
+		`"runtime":"codex"`,
+		`"project_key":"beacon"`,
+		`"open_ref":{"type":"session_latest"`,
 		`"provider":"openai"`,
 		`"working_dir":"/work/beacon"`,
 		`"total_tokens":30`,
@@ -334,6 +549,10 @@ func TestToolListSessionsSuccessAndErrors(t *testing.T) {
 	_, err = srv.toolListSessions(context.Background(), json.RawMessage(`{"cursor":"bad"}`))
 	if err == nil || !strings.Contains(err.Error(), "invalid cursor") {
 		t.Fatalf("invalid cursor error = %v", err)
+	}
+	_, err = srv.toolListSessions(context.Background(), json.RawMessage(fmt.Sprintf(`{"cursor":"offset:%d"}`, maxListSessionsCursorOffset+1)))
+	if err == nil || !strings.Contains(err.Error(), "cursor offset must be <=") {
+		t.Fatalf("too-deep cursor error = %v", err)
 	}
 
 	where, values, offset, err := listSessionsFilterSQL(listSessionsParams{
@@ -402,8 +621,8 @@ func TestToolListSessionsSuccessAndErrors(t *testing.T) {
 		},
 		func(string, []driver.NamedValue) (driver.Rows, error) {
 			return mcpRows(
-				[]string{"session_id", "source_name", "provider", "started_at", "ended_at", "event_count", "turn_count", "total_tokens", "tool_call_count", "mcp_call_count", "error_count", "last_model", "working_dir"},
-				[]driver.Value{"session-1", "codex", "openai", "not-a-time", ended, int64(4), int64(2), int64(30), int64(1), int64(1), int64(0), "gpt-5.4", "/work/beacon"},
+				mcpSessionColumns(),
+				mcpSessionRow("session-1", "not-a-time", ended),
 			), nil
 		},
 	})
@@ -413,6 +632,105 @@ func TestToolListSessionsSuccessAndErrors(t *testing.T) {
 	_, err = srv.toolListSessions(context.Background(), json.RawMessage(`{"limit":1}`))
 	if err == nil || !strings.Contains(err.Error(), "scan session") {
 		t.Fatalf("list scan error = %v", err)
+	}
+}
+
+func TestToolListSessionsProjectScopeUsesScopedActivitySource(t *testing.T) {
+	started := time.Date(2026, 5, 22, 9, 0, 0, 0, time.UTC)
+	ended := started.Add(10 * time.Minute)
+	db, stub := newMCPStubDB(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "SELECT count()", "FROM activity_events AS ae", "LEFT JOIN", "s.project_key", "project_key IN (?)", "COALESCE(NULLIF(e.node_id", "COALESCE(NULLIF(node_id", "last_model = ?")
+			assertMCPNamedValues(t, args, []any{"node-a", "beacon", "gpt-5.4", "node-a", "beacon"})
+			return mcpRows([]string{"count"}, []driver.Value{int64(1)}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "FROM activity_events AS ae", "LEFT JOIN", "s.project_key", "ORDER BY started_at DESC, session_id DESC LIMIT ? OFFSET ?")
+			assertMCPNamedValues(t, args, []any{"node-a", "beacon", "gpt-5.4", "node-a", "beacon", 1, 0})
+			return mcpRows(
+				mcpSessionColumns(),
+				mcpSessionRow("session-1", started, ended),
+			), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	if _, err := srv.toolListSessions(context.Background(), json.RawMessage(`{"project_key":"beacon","node_id":"node-a","model":"gpt-5.4","limit":1}`)); err != nil {
+		t.Fatalf("toolListSessions project scope: %v", err)
+	}
+}
+
+func TestToolListAgentsReturnsFleetProvenanceAndOpenRefs(t *testing.T) {
+	started := time.Date(2026, 5, 22, 9, 0, 0, 0, time.UTC)
+	ended := started.Add(10 * time.Minute)
+	db, stub := newMCPStubDB(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "SELECT count()", "GROUP BY node_id, collector_id, source_id")
+			assertMCPNamedValues(t, args, []any{"node-a"})
+			return mcpRows([]string{"count"}, []driver.Value{int64(1)}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "latest_session_id", "ORDER BY last_ended_at DESC")
+			assertMCPNamedValues(t, args, []any{"node-a", 10})
+			return mcpRows(
+				[]string{"node_id", "collector_id", "source_id", "source_name", "runtime", "project_key", "project_path", "session_count", "event_count", "total_tokens", "last_started_at", "last_ended_at", "latest_session_id"},
+				[]driver.Value{"node-a", "collector-a", "source-a", "source", "runtime", "beacon", "/work/beacon", int64(2), int64(12), int64(500), started, ended, "session-1"},
+			), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	text, err := srv.toolListAgents(context.Background(), json.RawMessage(`{"limit":10,"node_id":"node-a"}`))
+	if err != nil {
+		t.Fatalf("toolListAgents: %v", err)
+	}
+	for _, want := range []string{
+		`"schema":"beacon.mcp.list_agents.v1"`,
+		`"node_id":"node-a"`,
+		`"collector_id":"collector-a"`,
+		`"source_id":"source-a"`,
+		`"runtime":"runtime"`,
+		`"project_key":"beacon"`,
+		`"latest_session_id":"session:session-1"`,
+		`"open_ref":{"type":"session_latest"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("agent output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestToolListAgentsProjectScopeUsesScopedActivitySource(t *testing.T) {
+	started := time.Date(2026, 5, 22, 9, 0, 0, 0, time.UTC)
+	ended := started.Add(10 * time.Minute)
+	db, stub := newMCPStubDB(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "SELECT count()", "FROM activity_events AS ae", "LEFT JOIN", "s.project_key", "GROUP BY node_id, collector_id, source_id", "COALESCE(NULLIF(e.node_id", "COALESCE(NULLIF(node_id")
+			assertMCPNamedValues(t, args, []any{"node-a", "beacon", "node-a", "beacon"})
+			return mcpRows([]string{"count"}, []driver.Value{int64(1)}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "latest_session_id", "FROM activity_events AS ae", "ORDER BY last_ended_at DESC")
+			assertMCPNamedValues(t, args, []any{"node-a", "beacon", "node-a", "beacon", 10})
+			return mcpRows(
+				[]string{"node_id", "collector_id", "source_id", "source_name", "runtime", "project_key", "project_path", "session_count", "event_count", "total_tokens", "last_started_at", "last_ended_at", "latest_session_id"},
+				[]driver.Value{"node-a", "collector-a", "source-a", "source", "runtime", "beacon", "/work/beacon", int64(2), int64(12), int64(500), started, ended, "session-1"},
+			), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	if _, err := srv.toolListAgents(context.Background(), json.RawMessage(`{"limit":10,"project_key":"beacon","node_id":"node-a"}`)); err != nil {
+		t.Fatalf("toolListAgents project scope: %v", err)
 	}
 }
 
@@ -431,7 +749,7 @@ func TestToolListSessionsLimitIsCapped(t *testing.T) {
 		},
 		func(_ string, args []driver.NamedValue) (driver.Rows, error) {
 			assertMCPNamedValues(t, args, []any{maxListSessionsLimit, 0})
-			return mcpRows([]string{"session_id", "source_name", "provider", "started_at", "ended_at", "event_count", "turn_count", "total_tokens", "tool_call_count", "mcp_call_count", "error_count", "last_model", "working_dir"}), nil
+			return mcpRows(mcpSessionColumns()), nil
 		},
 	})
 	defer db.Close()
@@ -479,7 +797,7 @@ func TestToolUsageSummarySuccessAndErrors(t *testing.T) {
 	until := since.Add(24 * time.Hour)
 	db, stub := newMCPStubDB(t, []mcpStubQuery{
 		func(query string, args []driver.NamedValue) (driver.Rows, error) {
-			assertMCPQueryContains(t, query, "WITH latest_events AS", "GROUP BY event_uid", "e.timestamp >= ?", "e.timestamp < ?", "e.source_name = ?", "AS selected_total_tokens")
+			assertMCPQueryContains(t, query, "WITH latest_events AS", "GROUP BY event_uid", "e.timestamp >= ?", "e.timestamp < ?", "e.source_name IN (?)", "AS selected_total_tokens")
 			assertMCPNamedValues(t, args, []any{since, until, "codex"})
 			return mcpRows(
 				[]string{"session_count", "event_count", "input_tokens", "output_tokens", "total_tokens", "cache_read_tokens", "cache_create_tokens", "selected_total_tokens"},
@@ -570,6 +888,10 @@ func TestDataBackedToolsReturnDatabaseUnavailableToolErrors(t *testing.T) {
 			args: `{"name":"open","arguments":{"event_id":"event:evt-target","before":null,"after":null}}`,
 		},
 		{
+			name: "list_agents",
+			args: `{"name":"list_agents","arguments":{"limit":5}}`,
+		},
+		{
 			name: "list_sessions",
 			args: `{"name":"list_sessions","arguments":{"limit":5,"since":null}}`,
 		},
@@ -641,31 +963,46 @@ func TestToolDefinitionsMatchImplementedArguments(t *testing.T) {
 	defs := toolDefinitionsByName(t)
 
 	searchSchema := inputSchema(t, defs["search_sessions"])
-	assertSchemaProperties(t, searchSchema, "query", "limit", "session_id", "event_kinds")
-	assertRequired(t, searchSchema, "query", "limit", "session_id", "event_kinds")
+	assertSchemaProperties(t, searchSchema, append([]string{"query", "limit", "session_id", "event_kinds"}, scopeRequiredProperties()...)...)
+	assertRequired(t, searchSchema, append([]string{"query", "limit", "session_id", "event_kinds"}, scopeRequiredProperties()...)...)
 	assertPropertyType(t, searchSchema, "query", "string")
 	assertPropertyNullableType(t, searchSchema, "limit", "integer")
 	assertPropertyNullableType(t, searchSchema, "session_id", "string")
 	assertPropertyNullableType(t, searchSchema, "event_kinds", "array")
+	for _, name := range scopeRequiredProperties() {
+		property := schemaProperty(t, searchSchema, name)
+		if strings.HasSuffix(name, "s") {
+			assertPropertyNullableType(t, searchSchema, name, "array")
+		} else if property["type"] == nil {
+			t.Fatalf("scope property %s has no type", name)
+		}
+	}
 
 	openSchema := inputSchema(t, defs["open"])
-	assertSchemaProperties(t, openSchema, "event_id", "before", "after")
-	assertRequired(t, openSchema, "event_id", "before", "after")
-	assertPropertyType(t, openSchema, "event_id", "string")
+	assertSchemaProperties(t, openSchema, append([]string{"event_id", "session_id", "anchor", "open_ref", "before", "after"}, scopeRequiredProperties()...)...)
+	assertRequired(t, openSchema, append([]string{"event_id", "session_id", "anchor", "open_ref", "before", "after"}, scopeRequiredProperties()...)...)
+	assertPropertyNullableType(t, openSchema, "event_id", "string")
+	assertPropertyNullableType(t, openSchema, "session_id", "string")
+	assertPropertyNullableType(t, openSchema, "anchor", "string")
 	assertPropertyNullableType(t, openSchema, "before", "integer")
 	assertPropertyNullableType(t, openSchema, "after", "integer")
 
+	agentsSchema := inputSchema(t, defs["list_agents"])
+	assertSchemaProperties(t, agentsSchema, append([]string{"limit"}, scopeRequiredProperties()...)...)
+	assertRequired(t, agentsSchema, append([]string{"limit"}, scopeRequiredProperties()...)...)
+	assertPropertyNullableType(t, agentsSchema, "limit", "integer")
+
 	listSchema := inputSchema(t, defs["list_sessions"])
-	assertSchemaProperties(t, listSchema, "limit", "since", "until", "source_name", "model", "provider", "working_dir", "active_during_since", "active_during_until", "cursor")
-	assertRequired(t, listSchema, "limit", "since", "until", "source_name", "model", "provider", "working_dir", "active_during_since", "active_during_until", "cursor")
+	assertSchemaProperties(t, listSchema, append([]string{"limit", "since", "until", "model", "provider", "working_dir", "active_during_since", "active_during_until", "cursor"}, scopeRequiredProperties()...)...)
+	assertRequired(t, listSchema, append([]string{"limit", "since", "until", "model", "provider", "working_dir", "active_during_since", "active_during_until", "cursor"}, scopeRequiredProperties()...)...)
 	assertPropertyNullableType(t, listSchema, "limit", "integer")
 	for _, name := range []string{"since", "until", "source_name", "model", "provider", "working_dir", "active_during_since", "active_during_until", "cursor"} {
 		assertPropertyNullableType(t, listSchema, name, "string")
 	}
 
 	usageSchema := inputSchema(t, defs["usage_summary"])
-	assertSchemaProperties(t, usageSchema, "since", "until", "window_mode", "token_mode", "source_name", "model", "provider", "working_dir", "group_by", "limit")
-	assertRequired(t, usageSchema, "since", "until", "window_mode", "token_mode", "source_name", "model", "provider", "working_dir", "group_by", "limit")
+	assertSchemaProperties(t, usageSchema, append([]string{"since", "until", "window_mode", "token_mode", "model", "provider", "working_dir", "group_by", "limit"}, scopeRequiredProperties()...)...)
+	assertRequired(t, usageSchema, append([]string{"since", "until", "window_mode", "token_mode", "model", "provider", "working_dir", "group_by", "limit"}, scopeRequiredProperties()...)...)
 	for _, name := range []string{"since", "until", "window_mode", "token_mode", "source_name", "model", "provider", "working_dir"} {
 		assertPropertyNullableType(t, usageSchema, name, "string")
 	}
@@ -767,7 +1104,7 @@ func toolDefinitionsByName(t *testing.T) map[string]map[string]any {
 		name, _ := def["name"].(string)
 		defs[name] = def
 	}
-	for _, name := range []string{"search_sessions", "open", "list_sessions", "usage_summary"} {
+	for _, name := range []string{"search_sessions", "open", "list_agents", "list_sessions", "usage_summary"} {
 		if defs[name] == nil {
 			t.Fatalf("missing tool definition %q", name)
 		}
@@ -803,9 +1140,26 @@ func assertRequired(t *testing.T, schema map[string]any, names ...string) {
 	if !ok {
 		t.Fatalf("required = %#v, want []string", schema["required"])
 	}
-	if !reflect.DeepEqual(required, names) {
-		t.Fatalf("required = %#v, want %#v", required, names)
+	if !sameStringSet(required, names) {
+		t.Fatalf("required = %#v, want set %#v", required, names)
 	}
+}
+
+func sameStringSet(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	counts := make(map[string]int, len(want))
+	for _, value := range want {
+		counts[value]++
+	}
+	for _, value := range got {
+		if counts[value] == 0 {
+			return false
+		}
+		counts[value]--
+	}
+	return true
 }
 
 func assertPropertyType(t *testing.T, schema map[string]any, name, wantType string) {
@@ -941,6 +1295,40 @@ type mcpDriverRows struct {
 
 func mcpRows(columns []string, rows ...[]driver.Value) *mcpDriverRows {
 	return &mcpDriverRows{columns: columns, rows: rows}
+}
+
+func mcpOpenColumns() []string {
+	return []string{"event_uid", "event_session_id", "node_id", "collector_id", "source_id", "source_name", "runtime", "project_key", "project_path", "event_kind", "actor_role", "text_preview", "tool_name", "model", "tokens", "timestamp", "target"}
+}
+
+func mcpOpenRow(eventUID, sessionID, eventKind, actorRole, preview, toolName, model string, tokens int64, timestamp time.Time, target uint8) []driver.Value {
+	return []driver.Value{
+		eventUID,
+		sessionID,
+		"node-a",
+		"collector-a",
+		"source-a",
+		"source",
+		"runtime",
+		"project",
+		"/work/project",
+		eventKind,
+		actorRole,
+		preview,
+		toolName,
+		model,
+		tokens,
+		timestamp,
+		target,
+	}
+}
+
+func mcpSessionColumns() []string {
+	return []string{"session_id", "node_id", "collector_id", "source_id", "source_name", "runtime", "project_key", "project_path", "provider", "started_at", "ended_at", "event_count", "turn_count", "total_tokens", "tool_call_count", "mcp_call_count", "error_count", "last_model", "working_dir"}
+}
+
+func mcpSessionRow(sessionID string, started, ended any) []driver.Value {
+	return []driver.Value{sessionID, "node-a", "collector-a", "source-a", "codex", "codex", "beacon", "/work/beacon", "openai", started, ended, int64(4), int64(2), int64(30), int64(1), int64(1), int64(0), "gpt-5.4", "/work/beacon"}
 }
 
 func (r *mcpDriverRows) Columns() []string {

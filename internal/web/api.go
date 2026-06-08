@@ -116,7 +116,7 @@ func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 	var totalSessions, activeCount, toolCalls, mcpCalls int
 	var inputTokens, outputTokens int64
 	activeCutoff := time.Now().Add(-idleThreshold)
-	scope := parseAPIScopeFilters(r.URL.Query())
+	scope, _ := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
 	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", scope)
 	scopeClause, scopeArgs := scope.withoutProjectKeys().sqlAndClause("")
 	args := activeSessionPredicateArgs(scope, activeCutoff)
@@ -156,6 +156,7 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 		a.badRequest(w, err)
 		return
 	}
+	req.Scope, _ = scopeForRequest(r.Context(), req.Scope)
 
 	now := time.Now()
 	activeCutoff := now.Add(-idleThreshold)
@@ -200,6 +201,8 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 		a.badRequest(w, err)
 		return
 	}
+	var scopeMetadata APIScopeMetadata
+	req.Scope, scopeMetadata = scopeForRequest(r.Context(), req.Scope)
 	if !a.requireDashboardDB(w, r, "failed to query dashboard sessions") {
 		return
 	}
@@ -229,7 +232,7 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 		Query:   req.Query,
 		Offset:  req.Offset,
 		Limit:   req.Limit,
-		Scope:   req.Scope.metadata(),
+		Scope:   scopeMetadata,
 		HasMore: hasMore,
 		Items:   items,
 	})
@@ -317,12 +320,14 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 		a.badRequest(w, err)
 		return
 	}
+	var scopeMetadata APIScopeMetadata
+	req.Scope, scopeMetadata = scopeForRequest(r.Context(), req.Scope)
 	if !req.active() {
 		a.jsonResponse(w, APIDashboardSearchResponse{
 			State: "idle",
 			Sort:  req.SortBy,
 			Limit: req.Limit,
-			Scope: req.Scope.metadata(),
+			Scope: scopeMetadata,
 			Items: []APIDashboardSearchResult{},
 		})
 		return
@@ -336,7 +341,7 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 			SessionID: req.SessionID,
 			Sort:      req.SortBy,
 			Limit:     req.Limit,
-			Scope:     req.Scope.metadata(),
+			Scope:     scopeMetadata,
 			Items:     []APIDashboardSearchResult{},
 		})
 		return
@@ -431,7 +436,7 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 		SessionID: req.SessionID,
 		Sort:      req.SortBy,
 		Limit:     req.Limit,
-		Scope:     req.Scope.metadata(),
+		Scope:     scopeMetadata,
 		HasMore:   hasMore,
 		Items:     items,
 	})
@@ -608,7 +613,7 @@ func firstNonEmpty(values ...string) string {
 // GetSessionSubagents returns child sessions for a parent session as JSON.
 func (a *APIHandlers) GetSessionSubagents(w http.ResponseWriter, r *http.Request) {
 	parentID := chi.URLParam(r, "id")
-	scope := parseAPIScopeFilters(r.URL.Query())
+	scope, _ := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
 	sessions := QueryChildSessionsScoped(r.Context(), a.db, parentID, scope)
 	items := make([]APISessionSummary, 0, len(sessions))
 	for _, session := range sessions {
@@ -623,6 +628,7 @@ func (a *APIHandlers) GetActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := parseActivityAPIRequest(r.URL.Query())
+	req.Scope, _ = scopeForRequest(r.Context(), req.Scope)
 	items := QueryRecentActivityFilteredByKindScoped(r.Context(), a.db, req.Since, req.EventKinds, req.Scope)
 	result := make([]APIActivityItem, 0, len(items))
 	for _, item := range items {
@@ -650,11 +656,13 @@ func (a *APIHandlers) GetDashboardCharts(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	req := parseDashboardChartsAPIRequest(r.URL.Query())
+	var scopeMetadata APIScopeMetadata
+	req.Scope, scopeMetadata = scopeForRequest(r.Context(), req.Scope)
 	tokenCumulative, modelActivity := QueryDashboardModelAnalyticsScoped(r.Context(), a.db, parseRange(req.Range), req.Range, req.Scope)
 
 	a.jsonResponse(w, APIDashboardCharts{
 		Range:           req.Range,
-		Scope:           req.Scope.metadata(),
+		Scope:           scopeMetadata,
 		TokenCumulative: tokenCumulative,
 		ModelActivity:   modelActivity,
 	})
@@ -665,14 +673,14 @@ func (a *APIHandlers) GetDashboardFleet(w http.ResponseWriter, r *http.Request) 
 	if !a.requireDashboardDB(w, r, "failed to query dashboard fleet") {
 		return
 	}
-	scope := parseAPIScopeFilters(r.URL.Query())
-	a.jsonResponse(w, QueryDashboardFleet(r.Context(), a.db, scope, a.dashboardFleetSnapshot(r.Context())))
+	scope, scopeMetadata := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
+	a.jsonResponse(w, QueryDashboardFleet(r.Context(), a.db, scope, a.dashboardFleetSnapshot(r.Context()), scopeMetadata))
 }
 
 // GetSessionDetail returns detailed info for a single session.
 func (a *APIHandlers) GetSessionDetail(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	scope := parseAPIScopeFilters(r.URL.Query())
+	scope, _ := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
 
 	data, err := QuerySessionDetailScoped(r.Context(), a.db, id, scope)
 	if err != nil {
@@ -699,7 +707,7 @@ func (a *APIHandlers) GetSessionEvents(w http.ResponseWriter, r *http.Request) {
 	if req.Tail {
 		eventOrder = "timestamp DESC, event_uid DESC"
 	}
-	scope := parseAPIScopeFilters(r.URL.Query())
+	scope, _ := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
 	sessionScope := scope.withoutProjectKeys()
 	sessionScopeClause := ""
 	sessionScopeArgs := []any{}
@@ -774,7 +782,7 @@ func (a *APIHandlers) GetSessionEvents(w http.ResponseWriter, r *http.Request) {
 // GetEvent returns bounded detail for one event.
 func (a *APIHandlers) GetEvent(w http.ResponseWriter, r *http.Request) {
 	eventID := chi.URLParam(r, "event_id")
-	scope := parseAPIScopeFilters(r.URL.Query())
+	scope, _ := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
 	scopeClause, scopeArgs := scope.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
 	var e APISessionEvent
 	args := []any{eventID, eventID}
@@ -836,7 +844,7 @@ func (a *APIHandlers) GetEvent(w http.ResponseWriter, r *http.Request) {
 // GetToolPayload returns large tool input/output lazily.
 func (a *APIHandlers) GetToolPayload(w http.ResponseWriter, r *http.Request) {
 	eventID := chi.URLParam(r, "event_id")
-	scope := parseAPIScopeFilters(r.URL.Query())
+	scope, _ := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
 	scopeClause, scopeArgs := scope.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
 	var p APIToolPayload
 	args := []any{eventID, eventID}
@@ -896,6 +904,7 @@ func (a *APIHandlers) SearchEvents(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, "search unavailable", http.StatusServiceUnavailable)
 		return
 	}
+	req.Scope, _ = scopeForRequest(r.Context(), req.Scope)
 
 	sq := search.SearchQuery{Query: req.Query, Limit: req.Limit}
 	req.Scope.applyToSearchQuery(&sq)
@@ -909,7 +918,7 @@ func (a *APIHandlers) SearchEvents(w http.ResponseWriter, r *http.Request) {
 
 // GetTokensPerMinute returns time-series token data with breakdown.
 func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request) {
-	scope := parseAPIScopeFilters(r.URL.Query())
+	scope, _ := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
 	scopeClause, scopeArgs := scope.sqlAndClause("")
 	rows, err := a.db.QueryContext(r.Context(),
 		`SELECT minute, total_input, total_output, total_cache_read, tokens_total, call_count FROM (
@@ -951,7 +960,7 @@ func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request)
 
 // GetToolStats returns tool usage statistics.
 func (a *APIHandlers) GetToolStats(w http.ResponseWriter, r *http.Request) {
-	scope := parseAPIScopeFilters(r.URL.Query())
+	scope, _ := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
 	scopeClause, scopeArgs := scope.sqlAndClause("")
 	rows, err := a.db.QueryContext(r.Context(),
 		`SELECT tool_name,
@@ -988,7 +997,7 @@ func (a *APIHandlers) GetToolStats(w http.ResponseWriter, r *http.Request) {
 
 // GetTokensByModel returns token usage broken down by model.
 func (a *APIHandlers) GetTokensByModel(w http.ResponseWriter, r *http.Request) {
-	scope := parseAPIScopeFilters(r.URL.Query())
+	scope, _ := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
 	scopeClause, scopeArgs := scope.sqlAndClause("")
 	rows, err := a.db.QueryContext(r.Context(),
 		`SELECT model,

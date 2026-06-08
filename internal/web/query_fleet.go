@@ -58,7 +58,11 @@ type fleetNodeBuilder struct {
 	offlineCollectors map[string]struct{}
 }
 
-func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters, snapshot *controlplane.Snapshot) APIDashboardFleetResponse {
+func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters, snapshot *controlplane.Snapshot, metadataOpt ...APIScopeMetadata) APIDashboardFleetResponse {
+	metadata := scope.metadata()
+	if len(metadataOpt) > 0 {
+		metadata = metadataOpt[0]
+	}
 	now := time.Now()
 	builders := map[string]*fleetNodeBuilder{}
 	seedFleetEnrollment(builders, scope, snapshot)
@@ -210,7 +214,7 @@ func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters,
 	totals.NodeCount = len(nodes)
 	totals.CollectorCount = len(allCollectors)
 	totals.MissingHeartbeats = len(allCollectors) - len(healthCollectors)
-	return APIDashboardFleetResponse{Scope: scope.metadata(), Totals: totals, Nodes: nodes}
+	return APIDashboardFleetResponse{Scope: metadata, Totals: totals, Nodes: nodes}
 }
 
 func seedFleetEnrollment(builders map[string]*fleetNodeBuilder, scope APIScopeFilters, snapshot *controlplane.Snapshot) {

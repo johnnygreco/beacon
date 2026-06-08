@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -107,6 +108,99 @@ func TestRouterAuthProtectsDashboardAPIAndSSEButNotHealthOrStatic(t *testing.T) 
 				t.Fatalf("status = %d, want %d", rec.Code, tt.want)
 			}
 		})
+	}
+}
+
+func TestRouterMCPRouteUsesAPIAuthMiddleware(t *testing.T) {
+	router := NewRouter(
+		fstest.MapFS{"app.js": &fstest.MapFile{Data: []byte("ok")}},
+		nil,
+		nil,
+		nil,
+		WithAuthMiddleware(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusTeapot)
+			})
+		}),
+		WithAPIAuthMiddleware(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer api-token" {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				next.ServeHTTP(w, r)
+			})
+		}),
+		WithMCPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})),
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"initialized"}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"initialized"}`))
+	req.Header.Set("Authorization", "Bearer api-token")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("authorized status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+}
+
+func TestRouterMCPRouteUsesDedicatedMCPAuthMiddleware(t *testing.T) {
+	router := NewRouter(
+		fstest.MapFS{"app.js": &fstest.MapFile{Data: []byte("ok")}},
+		nil,
+		nil,
+		nil,
+		WithMCPAuthMiddleware(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer mcp-token" {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				next.ServeHTTP(w, r)
+			})
+		}),
+		WithMCPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})),
+		WithAPIAuthMiddleware(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/api/status" {
+					w.WriteHeader(http.StatusAccepted)
+					return
+				}
+				next.ServeHTTP(w, r)
+			})
+		}),
+	)
+
+	apiReq := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	apiRec := httptest.NewRecorder()
+	router.ServeHTTP(apiRec, apiReq)
+	if apiRec.Code != http.StatusAccepted {
+		t.Fatalf("api status = %d, want %d from API auth middleware", apiRec.Code, http.StatusAccepted)
+	}
+
+	mcpReq := httptest.NewRequest(http.MethodPost, "/api/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"initialized"}`))
+	mcpRec := httptest.NewRecorder()
+	router.ServeHTTP(mcpRec, mcpReq)
+	if mcpRec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized MCP status = %d, want %d", mcpRec.Code, http.StatusUnauthorized)
+	}
+
+	mcpReq = httptest.NewRequest(http.MethodPost, "/api/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"initialized"}`))
+	mcpReq.Header.Set("Authorization", "Bearer mcp-token")
+	mcpRec = httptest.NewRecorder()
+	router.ServeHTTP(mcpRec, mcpReq)
+	if mcpRec.Code != http.StatusNoContent {
+		t.Fatalf("authorized MCP status = %d, want %d", mcpRec.Code, http.StatusNoContent)
 	}
 }
 

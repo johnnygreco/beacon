@@ -55,7 +55,7 @@ func TestSearchFilterBuildersCoverAllControls(t *testing.T) {
 		"AND COALESCE(NULLIF(p.node_id, ''), 'local') IN (?)",
 		"AND p.timestamp >= ?",
 		"AND p.timestamp <= ?",
-		"AND p.tool_name NOT IN ('search_sessions', 'open', 'list_sessions')",
+		"AND p.tool_name NOT IN ('search_sessions', 'open', 'list_agents', 'list_sessions', 'usage_summary')",
 		"positionCaseInsensitive(p.text_preview, 'beacon') = 0",
 	} {
 		if !strings.Contains(sql, expected) {
@@ -148,7 +148,7 @@ func TestSearchBuildsPostingsQueryWithDeterministicRankingAndFilters(t *testing.
 				"AND p.event_kind IN (?,?)",
 				"AND p.timestamp >= ?",
 				"AND p.timestamp <= ?",
-				"AND p.tool_name NOT IN ('search_sessions', 'open', 'list_sessions')",
+				"AND p.tool_name NOT IN ('search_sessions', 'open', 'list_agents', 'list_sessions', 'usage_summary')",
 				"positionCaseInsensitive(p.text_preview, 'beacon') = 0",
 				"HAVING score >= ?",
 				"ORDER BY score DESC, timestamp DESC",

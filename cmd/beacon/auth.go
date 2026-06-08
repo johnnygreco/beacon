@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
 	"strings"
 
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/controlplane"
+	"github.com/johnnygreco/beacon/internal/mcp"
 	"github.com/johnnygreco/beacon/internal/web"
 )
 
@@ -22,7 +24,8 @@ func dashboardAuthOptions(ctx context.Context, cfg *config.Config, store *contro
 	if !isLoopbackHost(cfg.Server.Host) {
 		switch cfg.Auth.Mode {
 		case config.AuthModeReverseProxy:
-			return nil, nil
+			options = append(options, web.WithMCPAuthMiddleware(readTokenAPIMiddleware(store, cfg.Auth.CookieName)))
+			return options, nil
 		case config.AuthModeOwnerToken:
 			if !cfg.Auth.AllowInsecureOwnerHTTP {
 				return nil, fmt.Errorf("auth.mode %q on non-loopback HTTP requires auth.allow_insecure_owner_http = true or a trusted TLS reverse proxy with auth.mode %q",
@@ -57,7 +60,65 @@ func dashboardAuthOptions(ctx context.Context, cfg *config.Config, store *contro
 		return err == nil
 	}
 	options = append(options, web.WithAuthMiddleware(web.OwnerTokenMiddleware(authenticator, cfg.Auth.CookieName)))
+	options = append(options, web.WithAPIAuthMiddleware(readTokenAPIMiddleware(store, cfg.Auth.CookieName)))
 	return options, nil
+}
+
+func readTokenAPIMiddleware(store *controlplane.Store, cookieName string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for _, token := range web.RequestAuthTokens(r, cookieName) {
+				if record, ok := authenticateOwnerOrReadToken(r.Context(), store, token); ok {
+					ctx := r.Context()
+					if record.Type == controlplane.TokenTypeRead {
+						apiScope := web.APIScopeFilters{
+							NodeIDs:      singletonScopeValue(record.NodeID),
+							CollectorIDs: singletonScopeValue(record.CollectorID),
+							SourceIDs:    append([]string(nil), record.SourceIDs...),
+						}
+						ctx = web.ContextWithAPIScope(ctx, apiScope)
+						ctx = mcp.ContextWithAuthScope(ctx, mcp.ScopeFilters{
+							NodeIDs:      singletonScopeValue(record.NodeID),
+							CollectorIDs: singletonScopeValue(record.CollectorID),
+							SourceIDs:    append([]string(nil), record.SourceIDs...),
+						})
+					}
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+			w.WriteHeader(http.StatusUnauthorized)
+		})
+	}
+}
+
+func authenticateOwnerOrReadToken(ctx context.Context, store *controlplane.Store, plaintext string) (*controlplane.TokenRecord, bool) {
+	if store == nil {
+		return nil, false
+	}
+	if record, err := store.AuthenticateToken(ctx, controlplane.AuthenticateTokenRequest{
+		Plaintext:      plaintext,
+		AllowedTypes:   []string{controlplane.TokenTypeOwner, controlplane.TokenTypeAdmin},
+		RequiredScopes: []string{controlplane.ScopeRead},
+	}); err == nil {
+		return record, true
+	}
+	if record, err := store.AuthenticateToken(ctx, controlplane.AuthenticateTokenRequest{
+		Plaintext:      plaintext,
+		AllowedTypes:   []string{controlplane.TokenTypeRead},
+		RequiredScopes: []string{controlplane.ScopeRead},
+	}); err == nil {
+		return record, true
+	}
+	return nil, false
+}
+
+func singletonScopeValue(value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return []string{value}
 }
 
 func isLoopbackHost(host string) bool {

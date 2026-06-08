@@ -365,7 +365,7 @@ func buildFilters(alias string, q SearchQuery) (string, []any) {
 	}
 
 	if q.ExcludeMCPSelf {
-		clauses = append(clauses, "AND "+prefix+"tool_name NOT IN ('search_sessions', 'open', 'list_sessions')")
+		clauses = append(clauses, "AND "+prefix+"tool_name NOT IN ('search_sessions', 'open', 'list_agents', 'list_sessions', 'usage_summary')")
 		clauses = append(clauses, "AND positionCaseInsensitive("+prefix+"text_preview, 'beacon') = 0")
 	}
 

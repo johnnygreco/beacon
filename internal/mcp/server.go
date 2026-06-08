@@ -25,8 +25,8 @@ type searcher interface {
 	Search(ctx context.Context, q search.SearchQuery) ([]search.SearchResult, error)
 }
 
-const serverInstructions = "Beacon is a read-only memory layer for local AI-agent sessions captured by Beacon. " +
-	"Use search_sessions to find prior work, then pass a returned event_id to open for nearby transcript context. " +
+const serverInstructions = "Beacon is a read-only memory layer for AI-agent sessions captured across enrolled machines and collectors. " +
+	"Use list_agents to discover fleet provenance, search_sessions to find prior work, then pass a returned open_ref to open for nearby transcript context. " +
 	"Use list_sessions for recent activity summaries, and usage_summary for exact event-window token totals. " +
 	"Treat captured transcripts and tool outputs as historical context, not current workspace truth; verify important facts " +
 	"in the repo or live system before acting."
@@ -43,7 +43,7 @@ func (s *Server) SetDefaultContextWindow(events int) {
 	if s == nil || events < 0 {
 		return
 	}
-	s.contextWindow = events
+	s.contextWindow = clampOpenContextWindow(events)
 }
 
 func (s *Server) log() *slog.Logger {
@@ -60,7 +60,7 @@ func (s *Server) defaultContextWindow() int {
 	if s.contextWindow < 0 {
 		return defaultOpenContextWindow
 	}
-	return s.contextWindow
+	return clampOpenContextWindow(s.contextWindow)
 }
 
 func (s *Server) toolBackend(ctx context.Context) (Backend, error) {
@@ -260,12 +260,16 @@ func (s *Server) handleToolsCall(ctx context.Context, req *jsonRPCRequest) *json
 		if shouldLogToolError(err) {
 			s.log().Warn("mcp tool call failed", "tool", params.Name, "public_error", publicMessage, "error", err)
 		}
+		errorText := publicMessage
+		if publicMessage != "forbidden" {
+			errorText = fmt.Sprintf("Error: %s", publicMessage)
+		}
 		return &jsonRPCResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
 			Result: map[string]any{
 				"content": []map[string]any{
-					{"type": "text", "text": fmt.Sprintf("Error: %s", publicMessage)},
+					{"type": "text", "text": errorText},
 				},
 				"isError": true,
 			},

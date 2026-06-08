@@ -1,24 +1,24 @@
 # MCP Integration
 
-Beacon includes a read-only stdio MCP server for Claude Code, Codex, and other
-MCP clients. The MCP server lets agents search prior Beacon sessions while they
-stay inside their normal coding workflow.
+Beacon includes a read-only stdio MCP server for coding agents and other MCP
+clients. The MCP server lets agents search prior Beacon sessions while they stay
+inside their normal workflow.
 
 ## How it works
 
-`beacon mcp` is launched by the MCP client over stdin/stdout JSON-RPC. It can
-initialize, answer `ping`, and list its tools even when ClickHouse is
-temporarily unavailable. Data-backed tool calls open Beacon's ClickHouse
-database lazily and return a normal MCP tool error when the database cannot be
-reached.
+`beacon mcp` is launched by the MCP client over stdin/stdout JSON-RPC. It can run
+locally against ClickHouse or proxy to a central Beacon control plane over
+HTTP(S). In remote mode the agent machine does not need ClickHouse credentials.
 
-Beacon exposes four tools:
+Beacon exposes five tools:
 
 - `search_sessions` searches the precomputed activity index and returns session
-  and event IDs.
+  and event IDs, provenance, and `open_ref` values.
 - `open` retrieves one event plus nearby context from the same session. Pass the
-  `event_id` returned by `search_sessions`.
-- `list_sessions` lists recent sessions with summary stats.
+  `event_id` or `open_ref` returned by Beacon MCP tools.
+- `list_agents` lists enrolled collector/source/runtime/project rollups.
+- `list_sessions` lists recent sessions with summary stats and `open_ref`
+  values.
 - `usage_summary` aggregates event-level token usage for exact windows and
   optional top-contributor groupings.
 
@@ -30,19 +30,54 @@ verified against the current workspace before acting.
 
 ## Start Beacon
 
-Start Beacon before using MCP tools so local ClickHouse is available and
-migrated:
+Start Beacon on the machine that serves the central dashboard/control plane:
 
 ```bash
 beacon up
 ```
 
-The MCP client launches `beacon mcp`, so `beacon` must be installed on the
-machine where Claude Code, Codex, or the other MCP client runs.
+The MCP client launches `beacon mcp`, so `beacon` must also be installed on the
+machine where the MCP client runs.
 
-If an MCP client starts first, the connection should still initialize. Tool
-calls that need captured data will report that Beacon's database is unavailable
-and suggest starting Beacon with `beacon up`.
+If an MCP client starts first, the connection should still initialize. In local
+ClickHouse mode, data-backed tool calls report that Beacon's database is
+unavailable and suggest starting Beacon with `beacon up`.
+
+## Remote Control-Plane MCP
+
+Use remote mode when the agent process runs on a laptop, home server, VM, cloud
+host, or any other machine separate from the central Beacon server. Remote mode
+forwards each MCP JSON-RPC request to the dashboard API and never opens
+ClickHouse from the agent machine.
+
+```bash
+BEACON_MCP_URL=https://beacon.example.com/api/mcp \
+BEACON_READ_TOKEN="$BEACON_READ_TOKEN" \
+beacon mcp
+```
+
+Equivalent flags:
+
+```bash
+beacon mcp \
+  --remote-url https://beacon.example.com/api/mcp \
+  --read-token-file ~/.beacon/read-token
+```
+
+The token file can contain the same owner, admin, or read-scoped token you would
+otherwise put in `BEACON_READ_TOKEN`. If the URL has no path, Beacon appends
+`/api/mcp`. Use any Beacon token that carries read scope. The owner token shown
+by `beacon init` works for a full personal dataset; admin tokens do too. Bound
+read tokens, when minted by token tooling, silently scope results to their
+configured node, collector, or source bindings. Runtime and project are explicit
+tool filters and can also be carried forward by returned `open_ref` values.
+Returned payloads include `scope.auth_scope_applied` and the effective filters.
+
+Remote MCP URLs must use HTTPS for non-loopback hosts; plain HTTP is accepted
+only for loopback development.
+
+Remote `open` calls that target data outside the effective scope return
+`forbidden` without revealing whether the event or session exists.
 
 ## Claude Code
 
@@ -90,20 +125,20 @@ startup_timeout_sec = 20
 tool_timeout_sec = 60
 ```
 
-## Remote ClickHouse
+## Direct ClickHouse Mode
 
-If Claude Code or Codex runs on a different machine, install `beacon` on that
-machine too. The stdio MCP server runs where the agent runs, not where the
-Beacon dashboard is open.
+The default `beacon mcp` mode opens ClickHouse read-only from the same machine
+where the MCP client runs. Use this for local development or trusted
+administrative debugging. For normal cross-machine agents, prefer remote
+control-plane MCP.
 
-Use one of these layouts:
+Local/direct layouts:
 
 - Run Beacon's local ClickHouse on the agent machine.
-- Connect to ClickHouse through an SSH tunnel and use `127.0.0.1:9000`.
-- Point Beacon at a remote ClickHouse TCP address reachable from the agent
-  machine.
+- Connect to a trusted ClickHouse through an SSH tunnel and use `127.0.0.1:9000`.
+- Point Beacon at a ClickHouse TCP address reachable from the agent machine.
 
-`beacon mcp` opens ClickHouse read-only and does not run migrations. For a
+`beacon mcp` opens ClickHouse read-only and does not run migrations. For a direct
 remote database, run `beacon db migrate` from a trusted machine before pointing
 MCP clients at it.
 
@@ -136,6 +171,7 @@ tool_timeout_sec = 60
 Use port `9440` for ClickHouse native TCP over TLS. Use port `9000` only for
 plaintext native TCP on a private network or through an SSH tunnel. Require
 ClickHouse authentication when exposing the database beyond the local machine.
+Do not use direct ClickHouse credentials for normal remote agent MCP workflows.
 
 If you want the MCP entry to select a specific address while still using the
 default config file for the database name, credentials, and TLS, pass the address
@@ -181,6 +217,22 @@ With an address override:
 }
 ```
 
+Remote control-plane mode:
+
+```json
+{
+  "mcpServers": {
+    "beacon": {
+      "command": "beacon",
+      "args": ["mcp", "--remote-url", "https://beacon.example.com/api/mcp"],
+      "env": {
+        "BEACON_READ_TOKEN": "..."
+      }
+    }
+  }
+}
+```
+
 ## Troubleshooting
 
 If a client reports an MCP startup or handshake warning, first verify that the
@@ -191,19 +243,22 @@ stdout:
 printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"probe","version":"0"}}}' | beacon mcp
 ```
 
-The output should be one JSON-RPC response. If data-backed tool calls return an
-error such as `Beacon database is not available at 127.0.0.1:9000`, the MCP
-server has initialized but ClickHouse is not reachable for tool execution. In a
-local setup, start the local Beacon services:
+The output should be one JSON-RPC response. In local ClickHouse mode, if
+data-backed tool calls return an error such as `Beacon database is not available
+at 127.0.0.1:9000`, the MCP server has initialized but ClickHouse is not
+reachable for tool execution. Start the local Beacon services:
 
 ```bash
 beacon up
 ```
 
-For remote ClickHouse, check the configured address or pass an address override:
+For remote control-plane mode, verify the URL and token:
 
 ```bash
-beacon mcp --clickhouse clickhouse.workstation.example:9440
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"ping"}' | \
+  env BEACON_MCP_URL=https://beacon.example.com/api/mcp \
+      BEACON_READ_TOKEN="$BEACON_READ_TOKEN" \
+      beacon mcp
 ```
 
 ## Tool arguments
@@ -222,19 +277,73 @@ defaulted arguments nullable; send `null` when you want Beacon's default.
   "query": "pricing cache bug",
   "limit": null,
   "session_id": null,
-  "event_kinds": null
+  "event_kinds": null,
+  "node_id": null,
+  "node_ids": null,
+  "collector_id": null,
+  "collector_ids": null,
+  "source_id": null,
+  "source_ids": null,
+  "source_name": null,
+  "source_names": null,
+  "runtime": null,
+  "runtimes": null,
+  "project_key": null,
+  "project_keys": null
 }
 ```
+
+`limit` defaults to `25` and is capped at `100`.
 
 `open`:
 
 ```json
 {
   "event_id": "event:abc123",
+  "session_id": null,
+  "anchor": null,
+  "open_ref": null,
   "before": null,
-  "after": null
+  "after": null,
+  "node_id": null,
+  "node_ids": null,
+  "collector_id": null,
+  "collector_ids": null,
+  "source_id": null,
+  "source_ids": null,
+  "source_name": null,
+  "source_names": null,
+  "runtime": null,
+  "runtimes": null,
+  "project_key": null,
+  "project_keys": null
 }
 ```
+
+`before` and `after` default to `mcp.context_window` and are capped at `25`
+events per side.
+
+`list_agents`:
+
+```json
+{
+  "limit": null,
+  "node_id": null,
+  "node_ids": null,
+  "collector_id": null,
+  "collector_ids": null,
+  "source_id": null,
+  "source_ids": null,
+  "source_name": null,
+  "source_names": null,
+  "runtime": null,
+  "runtimes": null,
+  "project_key": null,
+  "project_keys": null
+}
+```
+
+`limit` defaults to `50` and is capped at `200`.
 
 `list_sessions`:
 
@@ -243,13 +352,24 @@ defaulted arguments nullable; send `null` when you want Beacon's default.
   "limit": null,
   "since": null,
   "until": null,
-  "source_name": null,
   "model": null,
   "provider": null,
   "working_dir": null,
   "active_during_since": null,
   "active_during_until": null,
-  "cursor": null
+  "cursor": null,
+  "node_id": null,
+  "node_ids": null,
+  "collector_id": null,
+  "collector_ids": null,
+  "source_id": null,
+  "source_ids": null,
+  "source_name": null,
+  "source_names": null,
+  "runtime": null,
+  "runtimes": null,
+  "project_key": null,
+  "project_keys": null
 }
 ```
 
@@ -258,8 +378,9 @@ defaulted arguments nullable; send `null` when you want Beacon's default.
 `metadata.next_cursor`; pass `next_cursor` back as `cursor` to continue paging.
 `since` and `until` filter session `started_at`; `active_during_since` and
 `active_during_until` use overlap semantics across `started_at` and `ended_at`.
-`source_name`, `model`, `provider`, and `working_dir` are exact filters. `limit`
-defaults to `20` and is capped at `100`.
+`model`, `provider`, and `working_dir` are exact filters. Scope filters accept
+node, collector, source, runtime, and project values. `limit` defaults to `20`
+and is capped at `100`. Deep cursor offsets are capped at `10000`.
 
 `usage_summary`:
 
@@ -269,10 +390,21 @@ defaults to `20` and is capped at `100`.
   "until": "now",
   "window_mode": "event_timestamp",
   "token_mode": "io_only",
-  "source_name": "codex",
   "model": null,
   "provider": null,
   "working_dir": null,
+  "node_id": null,
+  "node_ids": null,
+  "collector_id": null,
+  "collector_ids": null,
+  "source_id": null,
+  "source_ids": null,
+  "source_name": "codex",
+  "source_names": null,
+  "runtime": null,
+  "runtimes": null,
+  "project_key": null,
+  "project_keys": null,
   "group_by": ["session_id"],
   "limit": 10
 }
@@ -288,17 +420,22 @@ defaults to `20` and is capped at `100`.
   `input_tokens + output_tokens`; use `include_cache` to include
   `cache_read_tokens + cache_create_tokens` in the selected total.
 - `source_name`, `model`, `provider`, and `working_dir` are exact filters.
+  Scope filters accept node, collector, source, runtime, and project values.
 - `group_by` accepts `source_name`, `provider`, `model`, `session_id`, and
-  `working_dir`; grouped rows are ordered by selected total and then event
-  count.
+  `working_dir`, plus `node_id`, `collector_id`, `source_id`, `runtime`, and
+  `project_key`; grouped rows are ordered by selected total and then event count.
 - `limit` defaults to `10` and is capped server-side.
 
 The response includes `total_definition` and `selected_total_definition` so
 agents can state token semantics precisely. Use `beacon usage` for the same
 summary from a shell; see [usage summaries](usage.md).
 
-`open` accepts only `event_id`. Use the ID returned by `search_sessions`; do not
-pass legacy `id` or `event_uid` arguments.
+`open` accepts `event_id`, returned `open_ref` objects, or `session_id` with
+`anchor: "latest"`. Returned `open_ref` values carry the effective scope from
+the tool result that produced them; `open` intersects that scope with any
+explicit scope filters and the token's auth scope. Direct `open` calls can also
+pass node, collector, source, runtime, and project filters. Do not pass legacy
+`id` or `event_uid` arguments.
 
 ## Safe ClickHouse Escape Hatches
 
