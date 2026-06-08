@@ -143,7 +143,7 @@ func (s *Store) EnsureLocal(ctx context.Context, boot Bootstrap) (*Snapshot, err
 	if err != nil {
 		return nil, fmt.Errorf("begin control-plane metadata transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	if _, err := ensureMetadataValue(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
 		return nil, err
