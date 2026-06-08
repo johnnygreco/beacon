@@ -852,36 +852,7 @@ func TestClickHouseMigrateV6RecreatesAnalyticsProjectionWithRefreshID(t *testing
 		ENGINE = ReplacingMergeTree(updated_at)
 		ORDER BY id`,
 		`INSERT INTO ` + database + `.` + schemaVersionTable + ` (id, version) VALUES (1, 6)`,
-		`CREATE TABLE ` + database + `.analytics_projection (
-			session_id String,
-			node_id String,
-			collector_id String,
-			source_id String,
-			source_name LowCardinality(String),
-			runtime LowCardinality(String),
-			format LowCardinality(String),
-			project_key String,
-			project_path String,
-			minute DateTime64(3, 'UTC'),
-			provider LowCardinality(String),
-			model LowCardinality(String),
-			tool_name LowCardinality(String),
-			event_kind LowCardinality(String),
-			event_count UInt64,
-			call_count UInt64,
-			tool_call_count UInt64,
-			tool_result_count UInt64,
-			input_tokens UInt64,
-			output_tokens UInt64,
-			cache_read_tokens UInt64,
-			cache_create_tokens UInt64,
-			total_tokens UInt64,
-			duration_ms_sum UInt64,
-			cost_usd_sum Float64,
-			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
-		)
-		ENGINE = ReplacingMergeTree(updated_at)
-		ORDER BY (session_id, minute)`,
+		legacyAnalyticsProjectionV6SQL(database),
 	} {
 		if _, err := ch.DB.ExecContext(ctx, stmt); err != nil {
 			t.Fatalf("prepare v6 schema: %v\n%s", err, stmt)
@@ -904,6 +875,96 @@ func TestClickHouseMigrateV6RecreatesAnalyticsProjectionWithRefreshID(t *testing
 			t.Fatalf("migrated analytics_projection missing %s; columns=%v", column, columns)
 		}
 	}
+}
+
+func TestClickHouseMigrateV6RebuildsAnalyticsOnOutdatedRefresh(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	sessionID := "v6-rebuild-analytics"
+	event := models.Event{
+		EventUID:     "v6-rebuild-event",
+		SessionID:    sessionID,
+		SourceName:   "codex",
+		Runtime:      "codex",
+		Provider:     "openai",
+		Format:       models.FormatJSONL,
+		EventKind:    models.EventKindMessage,
+		ActorRole:    models.ActorRoleAssistant,
+		Timestamp:    time.Date(2026, 6, 8, 15, 0, 0, 0, time.UTC),
+		TextContent:  "v6 migration analytics rebuild",
+		TextPreview:  "v6 migration analytics rebuild",
+		InputTokens:  3,
+		OutputTokens: 4,
+		CWD:          "/Users/example/projects/beacon",
+		EventVersion: 1,
+		SourceFile:   "v6-rebuild.jsonl",
+		SourceLineNo: 1,
+	}
+	if err := ch.insertActivityEvents(ctx, []models.Event{event}); err != nil {
+		t.Fatalf("insert activity event: %v", err)
+	}
+	if err := ch.RefreshSessionProjections(ctx, []string{sessionID}); err != nil {
+		t.Fatalf("refresh session projection: %v", err)
+	}
+	if _, err := ch.DB.ExecContext(ctx, "DROP TABLE analytics_projection"); err != nil {
+		t.Fatalf("drop analytics projection: %v", err)
+	}
+	if _, err := ch.DB.ExecContext(ctx, legacyAnalyticsProjectionV6SQL(ch.Database())); err != nil {
+		t.Fatalf("create v6 analytics projection: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if _, err := ch.DB.ExecContext(ctx, `INSERT INTO schema_version (id, version) VALUES (?, ?)`, schemaVersionRowID, 6); err != nil {
+		t.Fatalf("mark schema v6: %v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+
+	if err := Migrate(ctx, ch.DB, ch.Database()); err != nil {
+		t.Fatalf("migrate v6 to current: %v", err)
+	}
+	refreshed, didRefresh, err := ch.RefreshOutdatedProjections(ctx)
+	if err != nil {
+		t.Fatalf("refresh outdated projections after migration: %v", err)
+	}
+	if !didRefresh || refreshed != 1 {
+		t.Fatalf("refresh after migration = count %d refreshed %v, want 1 true", refreshed, didRefresh)
+	}
+	rows, tokens := analyticsProjectionTotals(t, ch.DB, sessionID, "beacon")
+	if rows == 0 || tokens != 7 {
+		t.Fatalf("analytics after migration refresh rows/tokens = %d/%d, want rebuilt beacon tokens", rows, tokens)
+	}
+}
+
+func legacyAnalyticsProjectionV6SQL(database string) string {
+	return `CREATE TABLE ` + database + `.analytics_projection (
+		session_id String,
+		node_id String,
+		collector_id String,
+		source_id String,
+		source_name LowCardinality(String),
+		runtime LowCardinality(String),
+		format LowCardinality(String),
+		project_key String,
+		project_path String,
+		minute DateTime64(3, 'UTC'),
+		provider LowCardinality(String),
+		model LowCardinality(String),
+		tool_name LowCardinality(String),
+		event_kind LowCardinality(String),
+		event_count UInt64,
+		call_count UInt64,
+		tool_call_count UInt64,
+		tool_result_count UInt64,
+		input_tokens UInt64,
+		output_tokens UInt64,
+		cache_read_tokens UInt64,
+		cache_create_tokens UInt64,
+		total_tokens UInt64,
+		duration_ms_sum UInt64,
+		cost_usd_sum Float64,
+		updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
+	)
+	ENGINE = ReplacingMergeTree(updated_at)
+	ORDER BY (session_id, minute)`
 }
 
 func TestClickHouseInsertCaptureHeartbeats(t *testing.T) {
