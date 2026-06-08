@@ -625,24 +625,38 @@ rebuild from source files.
 
 1. Stop remote collectors or leave them running only if you understand they will
    pause/reject old-epoch writes during reset.
-2. On the control plane, run:
+2. Stop the local control-plane service or process. For a foreground/local run:
+
+   ```bash
+   beacon down
+   ```
+
+   If you run Beacon under systemd, launchd, or tmux, stop that managed service
+   instead. `beacon db reset --force` refuses to run while the local Beacon
+   server lock is active.
+3. On the control plane, run:
 
    ```bash
    beacon db reset --force
    ```
 
-3. Run:
+4. Start the control plane again:
+
+   ```bash
+   beacon up
+   ```
+
+5. Run:
 
    ```bash
    beacon status
    ```
 
    Confirm `reset_pending=false` and note the advanced `schema_epoch`.
-4. Keep or restart the control plane with `beacon up`.
-5. Create a fresh enrollment token with `beacon init --enroll-ttl 30m`.
-6. Re-enroll each collector so it receives a current-epoch ingest token.
-7. Restart `beacon collect` on each collector.
-8. Confirm activity reappears after replay/backfill.
+6. Create a fresh enrollment token with `beacon init --enroll-ttl 30m`.
+7. Re-enroll each collector so it receives a current-epoch ingest token.
+8. Restart `beacon collect` on each collector.
+9. Confirm activity reappears after replay/backfill.
 
 Reset does not delete original agent session files or the control-plane metadata
 database. It drops and recreates Beacon-owned ClickHouse tables. If the reset
