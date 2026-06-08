@@ -1,14 +1,13 @@
-package web
+package mcp
 
 import (
 	"context"
-	"net/url"
 	"strings"
 
 	"github.com/johnnygreco/beacon/internal/search"
 )
 
-type APIScopeFilters struct {
+type ScopeFilters struct {
 	NodeIDs      []string `json:"node_ids,omitempty"`
 	CollectorIDs []string `json:"collector_ids,omitempty"`
 	SourceIDs    []string `json:"source_ids,omitempty"`
@@ -19,96 +18,67 @@ type APIScopeFilters struct {
 	denyAll bool
 }
 
-type APIScopeMetadata struct {
-	AuthScopeApplied bool            `json:"auth_scope_applied"`
-	Filters          APIScopeFilters `json:"filters"`
+type ScopeMetadata struct {
+	AuthScopeApplied bool         `json:"auth_scope_applied"`
+	Filters          ScopeFilters `json:"filters"`
 }
 
-var apiScopeParamNames = []string{
-	"node_id",
-	"node_ids",
-	"collector_id",
-	"collector_ids",
-	"source_id",
-	"source_ids",
-	"source_name",
-	"source_names",
-	"runtime",
-	"runtimes",
-	"project_key",
-	"project_keys",
+type scopeContextKey struct{}
+
+func ContextWithAuthScope(ctx context.Context, scope ScopeFilters) context.Context {
+	return context.WithValue(ctx, scopeContextKey{}, authScopeContext{scope: normalizeScopeFilters(scope), applied: true})
 }
 
-func parseAPIScopeFilters(values url.Values) APIScopeFilters {
-	return normalizeAPIScopeFilters(APIScopeFilters{
-		NodeIDs:      parseAPIScopeValues(values, "node_id", "node_ids"),
-		CollectorIDs: parseAPIScopeValues(values, "collector_id", "collector_ids"),
-		SourceIDs:    parseAPIScopeValues(values, "source_id", "source_ids"),
-		SourceNames:  parseAPIScopeValues(values, "source_name", "source_names"),
-		Runtimes:     parseAPIScopeValues(values, "runtime", "runtimes"),
-		ProjectKeys:  parseAPIScopeValues(values, "project_key", "project_keys"),
-	})
-}
-
-func parseAPIScopeValues(values url.Values, names ...string) []string {
-	var out []string
-	for _, name := range names {
-		out = append(out, parseAPICSVParam(values, name)...)
-	}
-	return compactScopeValues(out)
-}
-
-func scopeQueryString(values url.Values) string {
-	if len(values) == 0 {
-		return ""
-	}
-	scoped := url.Values{}
-	for _, name := range apiScopeParamNames {
-		for _, value := range values[name] {
-			scoped.Add(name, value)
-		}
-	}
-	return scoped.Encode()
-}
-
-func (s APIScopeFilters) metadata() APIScopeMetadata {
-	return APIScopeMetadata{AuthScopeApplied: false, Filters: s}
-}
-
-type apiAuthScopeContextKey struct{}
-
-type apiAuthScope struct {
-	scope   APIScopeFilters
-	applied bool
-}
-
-func ContextWithAPIScope(ctx context.Context, scope APIScopeFilters) context.Context {
-	return context.WithValue(ctx, apiAuthScopeContextKey{}, apiAuthScope{scope: normalizeAPIScopeFilters(scope), applied: true})
-}
-
-func apiScopeFromContext(ctx context.Context) (APIScopeFilters, bool) {
-	auth, ok := ctx.Value(apiAuthScopeContextKey{}).(apiAuthScope)
+func AuthScopeFromContext(ctx context.Context) (ScopeFilters, bool) {
+	auth, ok := ctx.Value(scopeContextKey{}).(authScopeContext)
 	if !ok {
-		return APIScopeFilters{}, false
+		return ScopeFilters{}, false
 	}
 	return auth.scope, auth.applied
 }
 
-func APIScopeFromContext(ctx context.Context) (APIScopeFilters, bool) {
-	return apiScopeFromContext(ctx)
+type authScopeContext struct {
+	scope   ScopeFilters
+	applied bool
 }
 
-func scopeForRequest(ctx context.Context, requested APIScopeFilters) (APIScopeFilters, APIScopeMetadata) {
-	requested = normalizeAPIScopeFilters(requested)
-	auth, applied := apiScopeFromContext(ctx)
+type scopeArgs struct {
+	NodeID       string   `json:"node_id"`
+	NodeIDs      []string `json:"node_ids"`
+	CollectorID  string   `json:"collector_id"`
+	CollectorIDs []string `json:"collector_ids"`
+	SourceID     string   `json:"source_id"`
+	SourceIDs    []string `json:"source_ids"`
+	SourceName   string   `json:"source_name"`
+	SourceNames  []string `json:"source_names"`
+	Runtime      string   `json:"runtime"`
+	Runtimes     []string `json:"runtimes"`
+	ProjectKey   string   `json:"project_key"`
+	ProjectKeys  []string `json:"project_keys"`
+}
+
+func (a scopeArgs) filters() ScopeFilters {
+	return normalizeScopeFilters(ScopeFilters{
+		NodeIDs:      append([]string{a.NodeID}, a.NodeIDs...),
+		CollectorIDs: append([]string{a.CollectorID}, a.CollectorIDs...),
+		SourceIDs:    append([]string{a.SourceID}, a.SourceIDs...),
+		SourceNames:  append([]string{a.SourceName}, a.SourceNames...),
+		Runtimes:     append([]string{a.Runtime}, a.Runtimes...),
+		ProjectKeys:  append([]string{a.ProjectKey}, a.ProjectKeys...),
+	})
+}
+
+func (s *Server) effectiveScope(ctx context.Context, requested ScopeFilters) (ScopeFilters, ScopeMetadata) {
+	requested = normalizeScopeFilters(requested)
+	auth, applied := AuthScopeFromContext(ctx)
 	if !applied {
-		return requested, requested.metadata()
+		return requested, ScopeMetadata{AuthScopeApplied: false, Filters: requested}
 	}
-	scope := intersectAPIScopes(auth, requested)
-	return scope, APIScopeMetadata{AuthScopeApplied: true, Filters: scope}
+	scope := intersectScopes(auth, requested)
+	return scope, ScopeMetadata{AuthScopeApplied: true, Filters: scope}
 }
 
-func normalizeAPIScopeFilters(scope APIScopeFilters) APIScopeFilters {
+func normalizeScopeFilters(scope ScopeFilters) ScopeFilters {
 	scope.NodeIDs = compactScopeValues(scope.NodeIDs)
 	scope.CollectorIDs = compactScopeValues(scope.CollectorIDs)
 	scope.SourceIDs = compactScopeValues(scope.SourceIDs)
@@ -118,26 +88,26 @@ func normalizeAPIScopeFilters(scope APIScopeFilters) APIScopeFilters {
 	return scope
 }
 
-func intersectAPIScopes(auth, requested APIScopeFilters) APIScopeFilters {
+func intersectScopes(auth, requested ScopeFilters) ScopeFilters {
 	if auth.denyAll || requested.denyAll {
-		return APIScopeFilters{denyAll: true}
+		return ScopeFilters{denyAll: true}
 	}
 	var denied bool
-	out := APIScopeFilters{
-		NodeIDs:      intersectAPIScopeDimension(auth.NodeIDs, requested.NodeIDs, &denied),
-		CollectorIDs: intersectAPIScopeDimension(auth.CollectorIDs, requested.CollectorIDs, &denied),
-		SourceIDs:    intersectAPIScopeDimension(auth.SourceIDs, requested.SourceIDs, &denied),
-		SourceNames:  intersectAPIScopeDimension(auth.SourceNames, requested.SourceNames, &denied),
-		Runtimes:     intersectAPIScopeDimension(auth.Runtimes, requested.Runtimes, &denied),
-		ProjectKeys:  intersectAPIScopeDimension(auth.ProjectKeys, requested.ProjectKeys, &denied),
+	out := ScopeFilters{
+		NodeIDs:      intersectScopeDimension(auth.NodeIDs, requested.NodeIDs, &denied),
+		CollectorIDs: intersectScopeDimension(auth.CollectorIDs, requested.CollectorIDs, &denied),
+		SourceIDs:    intersectScopeDimension(auth.SourceIDs, requested.SourceIDs, &denied),
+		SourceNames:  intersectScopeDimension(auth.SourceNames, requested.SourceNames, &denied),
+		Runtimes:     intersectScopeDimension(auth.Runtimes, requested.Runtimes, &denied),
+		ProjectKeys:  intersectScopeDimension(auth.ProjectKeys, requested.ProjectKeys, &denied),
 	}
 	if denied {
-		return APIScopeFilters{denyAll: true}
+		return ScopeFilters{denyAll: true}
 	}
-	return normalizeAPIScopeFilters(out)
+	return normalizeScopeFilters(out)
 }
 
-func intersectAPIScopeDimension(auth, requested []string, denied *bool) []string {
+func intersectScopeDimension(auth, requested []string, denied *bool) []string {
 	auth = compactScopeValues(auth)
 	requested = compactScopeValues(requested)
 	if len(auth) == 0 {
@@ -162,23 +132,12 @@ func intersectAPIScopeDimension(auth, requested []string, denied *bool) []string
 	return out
 }
 
-func (s APIScopeFilters) withoutProjectKeys() APIScopeFilters {
-	s.ProjectKeys = nil
-	return s
-}
-
-func (s APIScopeFilters) withoutProjectKeysAndRuntimes() APIScopeFilters {
-	s.ProjectKeys = nil
-	s.Runtimes = nil
-	return s
-}
-
-func (s APIScopeFilters) applyToSearchQuery(q *search.SearchQuery) {
+func (s ScopeFilters) applyToSearchQuery(q *search.SearchQuery) {
 	if q == nil {
 		return
 	}
 	if s.denyAll {
-		q.NodeIDs = []string{apiScopeImpossibleValue}
+		q.NodeIDs = []string{scopeImpossibleValue}
 		return
 	}
 	q.NodeIDs = compactScopeValues(append(q.NodeIDs, s.NodeIDs...))
@@ -189,7 +148,7 @@ func (s APIScopeFilters) applyToSearchQuery(q *search.SearchQuery) {
 	q.ProjectKeys = compactScopeValues(append(q.ProjectKeys, s.ProjectKeys...))
 }
 
-func (s APIScopeFilters) sqlAndClause(alias string) (string, []any) {
+func (s ScopeFilters) sqlAndClause(alias string) (string, []any) {
 	predicates, args := s.sqlPredicates(alias)
 	if len(predicates) == 0 {
 		return "", nil
@@ -197,7 +156,7 @@ func (s APIScopeFilters) sqlAndClause(alias string) (string, []any) {
 	return " AND " + strings.Join(predicates, " AND "), args
 }
 
-func (s APIScopeFilters) eventSQLAndClause(alias, cwdExpr string) (string, []any) {
+func (s ScopeFilters) eventSQLAndClause(alias, cwdExpr string) (string, []any) {
 	predicates, args := s.eventSQLPredicates(alias, cwdExpr)
 	if len(predicates) == 0 {
 		return "", nil
@@ -205,25 +164,7 @@ func (s APIScopeFilters) eventSQLAndClause(alias, cwdExpr string) (string, []any
 	return " AND " + strings.Join(predicates, " AND "), args
 }
 
-func (s APIScopeFilters) eventAndSessionProjectSQLAndClause(eventAlias, cwdExpr, sessionAlias string) (string, []any) {
-	rawScope := s
-	rawScope.ProjectKeys = nil
-	predicates, args := rawScope.eventSQLPredicates(eventAlias, cwdExpr)
-	projectKeys := compactScopeValues(s.ProjectKeys)
-	if len(projectKeys) > 0 {
-		projectExpr := projectKeyExpr(cwdExpr)
-		if strings.TrimSpace(sessionAlias) != "" {
-			projectExpr = "COALESCE(NULLIF(" + projectExpr + ", ''), if(COALESCE(" + sessionAlias + ".project_count, 0) <= 1, NULLIF(" + sessionAlias + ".project_key, ''), ''))"
-		}
-		appendScopePredicate(&predicates, &args, projectExpr, projectKeys)
-	}
-	if len(predicates) == 0 {
-		return "", nil
-	}
-	return " AND " + strings.Join(predicates, " AND "), args
-}
-
-func (s APIScopeFilters) sqlPredicates(alias string) ([]string, []any) {
+func (s ScopeFilters) sqlPredicates(alias string) ([]string, []any) {
 	if s.denyAll {
 		return []string{"0 = 1"}, nil
 	}
@@ -242,7 +183,7 @@ func (s APIScopeFilters) sqlPredicates(alias string) ([]string, []any) {
 	return predicates, args
 }
 
-func (s APIScopeFilters) eventSQLPredicates(alias, cwdExpr string) ([]string, []any) {
+func (s ScopeFilters) eventSQLPredicates(alias, cwdExpr string) ([]string, []any) {
 	if s.denyAll {
 		return []string{"0 = 1"}, nil
 	}
@@ -264,8 +205,6 @@ func (s APIScopeFilters) eventSQLPredicates(alias, cwdExpr string) ([]string, []
 	appendScopePredicate(&predicates, &args, projectKeyExpr(projectExpr), s.ProjectKeys)
 	return predicates, args
 }
-
-const apiScopeImpossibleValue = "\x00beacon-no-scope-match"
 
 func appendScopePredicate(predicates *[]string, args *[]any, column string, values []string) {
 	values = compactScopeValues(values)
@@ -322,3 +261,22 @@ func compactScopeValues(values []string) []string {
 	}
 	return result
 }
+
+func sqlPlaceholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.TrimRight(strings.Repeat("?,", n), ",")
+}
+
+func hasScopeFilters(scope ScopeFilters) bool {
+	return scope.denyAll ||
+		len(scope.NodeIDs) > 0 ||
+		len(scope.CollectorIDs) > 0 ||
+		len(scope.SourceIDs) > 0 ||
+		len(scope.SourceNames) > 0 ||
+		len(scope.Runtimes) > 0 ||
+		len(scope.ProjectKeys) > 0
+}
+
+const scopeImpossibleValue = "\x00beacon-no-scope-match"
