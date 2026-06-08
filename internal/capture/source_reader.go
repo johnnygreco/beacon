@@ -141,35 +141,6 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 			}
 			continue
 		}
-		if len(lineBytes) > scannerMaxTokenBytes {
-			message := "line exceeds maximum capture token size"
-			fragment := truncate(string(lineBytes[:min(len(lineBytes), 500)]), 500)
-			if lineStart >= checkpointOffset {
-				result.CaptureErrors = append(result.CaptureErrors, models.CaptureError{
-					ID:              lineParseErrorID(src.Name, file, lineNo, lineStart, sourceGeneration, message, fragment),
-					SourceName:      src.Name,
-					SourceFile:      file,
-					SourceLineNo:    lineNo,
-					SourceOffset:    offset,
-					ErrorClass:      "parse_error",
-					ErrorMessage:    message,
-					ContextFragment: fragment,
-				})
-			}
-			offset += lineLen
-			if lineStart >= checkpointOffset {
-				visibleRecords++
-			}
-			if sourceReadWindowFull(maxRecords, visibleRecords) {
-				result.HasMore = offset < fi.Size()
-				break
-			}
-			if err == io.EOF {
-				break
-			}
-			continue
-		}
-
 		events, err := src.Parser(lineBytes, file, lineNo, offset)
 		if err != nil {
 			message := err.Error()

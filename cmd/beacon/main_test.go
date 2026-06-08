@@ -300,3 +300,33 @@ watch_root = "/tmp"
 		t.Fatalf("runWatch error = %q, validation should happen before ClickHouse", err.Error())
 	}
 }
+
+func TestRunWatchRejectsControlPlaneRoleBeforeClickHouse(t *testing.T) {
+	cfgPath := t.TempDir() + "/beacon.toml"
+	if err := os.WriteFile(cfgPath, []byte(`
+[database]
+addrs = ["127.0.0.1:1"]
+
+[fleet]
+role = "control-plane"
+`), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	oldCfgFile := cfgFile
+	cfgFile = cfgPath
+	t.Cleanup(func() {
+		cfgFile = oldCfgFile
+	})
+
+	err := runWatch(newWatchCmd(), nil)
+	if err == nil {
+		t.Fatal("runWatch returned nil error")
+	}
+	if !strings.Contains(err.Error(), `fleet.role "control-plane" uses beacon up`) {
+		t.Fatalf("runWatch error = %q, want control-plane role rejection", err.Error())
+	}
+	if strings.Contains(err.Error(), "clickhouse") {
+		t.Fatalf("runWatch error = %q, role rejection should happen before ClickHouse", err.Error())
+	}
+}

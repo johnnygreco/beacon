@@ -205,6 +205,9 @@ func (s *Service) SendPending(ctx context.Context) error {
 		if err := s.requeueInflight(); err != nil {
 			return err
 		}
+		if err := s.recoverSpooledStateFromSpool(); err != nil {
+			return err
+		}
 		pending, err := s.cfg.Spool.Pending()
 		if err != nil {
 			return err
@@ -481,12 +484,19 @@ func (s *Service) recoverSpooledStateFromSpool() error {
 	if err != nil {
 		return err
 	}
-	var next uint64
+	expected := s.cfg.State.AckedNext()
+	next := expected
 	var checkpoints []models.Checkpoint
 	for _, batch := range active {
-		if batch.Request.Sequence >= next {
-			next = batch.Request.Sequence + 1
+		sequence := batch.Request.Sequence
+		if sequence != expected {
+			if err := s.cfg.Spool.Discard(batch); err != nil {
+				return fmt.Errorf("discard orphaned spool batch sequence %d: %w", sequence, err)
+			}
+			continue
 		}
+		expected++
+		next = expected
 		checkpoints = append(checkpoints, batch.Request.Checkpoints...)
 	}
 	return s.cfg.State.ReplaceSpooled(next, checkpoints)

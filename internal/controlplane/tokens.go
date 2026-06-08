@@ -288,11 +288,6 @@ func (s *Store) CompleteRemoteEnrollment(ctx context.Context, enrollPlaintext, e
 	if err != nil {
 		return nil, err
 	}
-	if existingCollector {
-		if err := revokeActiveIngestTokensForCollector(ctx, tx, collectorID, now); err != nil {
-			return nil, err
-		}
-	}
 	ingest, err := insertToken(ctx, tx, CreateTokenRequest{
 		Type:        TokenTypeIngest,
 		Scopes:      []string{ScopeIngest},
@@ -307,6 +302,13 @@ func (s *Store) CompleteRemoteEnrollment(ctx context.Context, enrollPlaintext, e
 		return nil, fmt.Errorf("commit remote enrollment transaction: %w", err)
 	}
 	return &EnrollmentResult{Snapshot: snapshot, IngestToken: *ingest}, nil
+}
+
+func (s *Store) RevokeOlderActiveIngestTokensForCollector(ctx context.Context, current TokenRecord) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("control-plane metadata store is nil")
+	}
+	return revokeOlderActiveIngestTokensForCollector(ctx, s.db, current, time.Now().UTC())
 }
 
 func (s *Store) HasActiveOwnerToken(ctx context.Context) (bool, error) {
@@ -414,23 +416,26 @@ func insertToken(ctx context.Context, tx *sql.Tx, req CreateTokenRequest, now ti
 	return &CreatedToken{Record: record, Plaintext: plain}, nil
 }
 
-func revokeActiveIngestTokensForCollector(ctx context.Context, tx *sql.Tx, collectorID string, now time.Time) error {
-	collectorID = strings.TrimSpace(collectorID)
-	if collectorID == "" {
-		return fmt.Errorf("collector id is required")
+func revokeOlderActiveIngestTokensForCollector(ctx context.Context, db *sql.DB, current TokenRecord, now time.Time) error {
+	tokenID := strings.TrimSpace(current.ID)
+	collectorID := strings.TrimSpace(current.CollectorID)
+	if tokenID == "" || collectorID == "" || current.Type != TokenTypeIngest || current.CreatedAt.IsZero() {
+		return nil
 	}
-	if _, err := tx.ExecContext(ctx,
+	if _, err := db.ExecContext(ctx,
 		`UPDATE tokens
 		 SET status = ?, revoked_at = ?, updated_at = ?
-		 WHERE token_type = ? AND collector_id = ? AND status = ?`,
+		 WHERE token_type = ? AND collector_id = ? AND status = ? AND token_id != ? AND created_at < ?`,
 		TokenStatusRevoked,
 		formatTime(now),
 		formatTime(now),
 		TokenTypeIngest,
 		collectorID,
 		TokenStatusActive,
+		tokenID,
+		formatTime(current.CreatedAt),
 	); err != nil {
-		return fmt.Errorf("revoke active ingest tokens for collector %q: %w", collectorID, err)
+		return fmt.Errorf("revoke older ingest tokens for collector %q: %w", collectorID, err)
 	}
 	return nil
 }

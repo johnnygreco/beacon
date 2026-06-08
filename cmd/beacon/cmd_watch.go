@@ -33,6 +33,9 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	if cfg.Fleet.Role == config.FleetRoleCollector {
 		return fmt.Errorf("fleet.role %q uses beacon collect, not beacon watch", config.FleetRoleCollector)
 	}
+	if cfg.Fleet.Role == config.FleetRoleControlPlane {
+		return fmt.Errorf("fleet.role %q uses beacon up for the control-plane service; use fleet.role %q for local capture", config.FleetRoleControlPlane, config.FleetRoleBoth)
+	}
 
 	sources, err := buildSources(cfg)
 	if err != nil {

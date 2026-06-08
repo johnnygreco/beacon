@@ -1,6 +1,7 @@
 package collector
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -63,5 +64,47 @@ func TestRecoverSpooledStateClearsMissingSpoolCheckpoints(t *testing.T) {
 	}
 	if got := state.Next(); got != 1 {
 		t.Fatalf("next sequence after empty spool recovery = %d, want committed sequence 1", got)
+	}
+}
+
+func TestRecoverSpooledStateDiscardsNonContiguousActiveBatches(t *testing.T) {
+	dir := t.TempDir()
+	spool, err := OpenSpool(filepath.Join(dir, "spool"), 1<<20)
+	if err != nil {
+		t.Fatalf("OpenSpool: %v", err)
+	}
+	state, err := OpenStateStore(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatalf("OpenStateStore: %v", err)
+	}
+	if _, err := spool.WritePending(context.Background(), testBatchRequest(t, 2, "batch-orphan")); err != nil {
+		t.Fatalf("WritePending orphan: %v", err)
+	}
+	if err := state.MarkSpooled(3, []models.Checkpoint{{
+		SourceName: "codex",
+		SourceFile: "session.jsonl",
+		LastOffset: 84,
+		LastLineNo: 2,
+	}}); err != nil {
+		t.Fatalf("MarkSpooled: %v", err)
+	}
+	service := &Service{cfg: ServiceConfig{Spool: spool, State: state}}
+
+	if err := service.recoverSpooledStateFromSpool(); err != nil {
+		t.Fatalf("recoverSpooledStateFromSpool: %v", err)
+	}
+
+	if got := state.Next(); got != 1 {
+		t.Fatalf("next sequence after orphan recovery = %d, want committed sequence 1", got)
+	}
+	if cp := state.SpooledCheckpoint("codex", "session.jsonl"); cp != nil {
+		t.Fatalf("orphan spooled checkpoint survived recovery: %#v", cp)
+	}
+	pending, err := spool.Pending()
+	if err != nil {
+		t.Fatalf("Pending: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending orphan batches = %#v, want discarded", pending)
 	}
 }

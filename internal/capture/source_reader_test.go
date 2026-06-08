@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -204,6 +205,45 @@ func TestReadSourceFileWindowAdvancesWithinMultiEventLine(t *testing.T) {
 	state, ok = decodeLineParserCheckpointState(third.Checkpoint.StateJSON, nil)
 	if !ok || state.PendingEventIndex != 0 || state.PendingLineNo != 0 {
 		t.Fatalf("third pending state = %#v ok=%v, want cleared cursor", state, ok)
+	}
+}
+
+func TestReadSourceFileWindowParsesLargeMultiEventLine(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "large-session.jsonl")
+	line := strings.Repeat("x", scannerMaxTokenBytes+1)
+	if err := os.WriteFile(file, []byte(line+"\n"), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	source := WatchSource{
+		Name:     "claude",
+		Runtime:  models.RuntimeClaudeCode,
+		Provider: models.ProviderAnthropic,
+		Format:   models.FormatJSONL,
+		Parser: func(line []byte, file string, lineNo int, offset int64) ([]NormalizedEvent, error) {
+			return []NormalizedEvent{
+				{SessionID: "session", EventKind: models.EventKindMessage, ActorRole: models.ActorRoleAssistant, Timestamp: time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), TextContent: strings.Repeat("oversize", 1024), SourceFile: file, SourceLineNo: lineNo, SourceOffset: offset, RawPayload: string(line[:1024])},
+				{SessionID: "session", EventKind: models.EventKindMessage, ActorRole: models.ActorRoleAssistant, Timestamp: time.Date(2026, 6, 8, 12, 0, 1, 0, time.UTC), TextContent: "sendable sibling", SourceFile: file, SourceLineNo: lineNo, SourceOffset: offset, RawPayload: "sendable"},
+			}, nil
+		},
+	}
+
+	first, err := ReadSourceFileWindow(context.Background(), source, file, nil, nil, 1)
+	if err != nil {
+		t.Fatalf("first window: %v", err)
+	}
+	if len(first.Events) != 1 || first.Events[0].TextContent == "sendable sibling" || !first.HasMore || first.Checkpoint == nil {
+		t.Fatalf("first large-line window events=%#v checkpoint=%#v hasMore=%v", first.Events, first.Checkpoint, first.HasMore)
+	}
+	second, err := ReadSourceFileWindow(context.Background(), source, file, first.Checkpoint, nil, 1)
+	if err != nil {
+		t.Fatalf("second window: %v", err)
+	}
+	if len(second.Events) != 1 || second.Events[0].TextContent != "sendable sibling" || second.HasMore || second.Checkpoint == nil {
+		t.Fatalf("second large-line window events=%#v checkpoint=%#v hasMore=%v", second.Events, second.Checkpoint, second.HasMore)
+	}
+	if second.Checkpoint.LastOffset != int64(len(line)+1) {
+		t.Fatalf("second checkpoint offset = %d, want line end %d", second.Checkpoint.LastOffset, len(line)+1)
 	}
 }
 

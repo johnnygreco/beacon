@@ -60,6 +60,12 @@ func (s *StateStore) Next() uint64 {
 	return s.NextSequence
 }
 
+func (s *StateStore) AckedNext() uint64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return normalizedSequence(s.AckedNextSequence)
+}
+
 func (s *StateStore) MarkSpooled(nextSequence uint64, checkpoints []models.Checkpoint) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -144,8 +144,8 @@ func TestServiceSendPendingPausesWhenCorruptEarlierBatchIsQuarantined(t *testing
 	if err != nil {
 		t.Fatalf("Stats: %v", err)
 	}
-	if stats.CorruptCount != 1 || stats.PendingCount != 1 {
-		t.Fatalf("spool stats = %#v, want one quarantined corrupt batch and one pending later batch", stats)
+	if stats.CorruptCount != 1 || stats.PendingCount != 0 {
+		t.Fatalf("spool stats = %#v, want quarantined corrupt batch and discarded non-contiguous later batch", stats)
 	}
 }
 

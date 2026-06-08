@@ -95,7 +95,7 @@ func TestEnrollmentTokenIsOneUseAndMintsBoundIngestToken(t *testing.T) {
 	}
 }
 
-func TestRemoteReEnrollmentRequiresExistingIngestTokenAndRevokesOldToken(t *testing.T) {
+func TestRemoteReEnrollmentRequiresExistingIngestTokenAndRetiresOldTokenAfterUse(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "control-plane.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -142,6 +142,19 @@ func TestRemoteReEnrollmentRequiresExistingIngestTokenAndRevokesOldToken(t *test
 	}
 	if second.IngestToken.Record.NodeID != nodeID || second.IngestToken.Record.CollectorID != collectorID {
 		t.Fatalf("second assignment = %#v, want existing node/collector", second.IngestToken.Record)
+	}
+	if _, err := store.AuthenticateToken(context.Background(), AuthenticateTokenRequest{
+		Plaintext:      first.IngestToken.Plaintext,
+		AllowedTypes:   []string{TokenTypeIngest},
+		RequiredScopes: []string{ScopeIngest},
+		NodeID:         nodeID,
+		CollectorID:    collectorID,
+		SourceID:       sourceID,
+	}); err != nil {
+		t.Fatalf("old ingest token before replacement use should still authenticate: %v", err)
+	}
+	if err := store.RevokeOlderActiveIngestTokensForCollector(context.Background(), second.IngestToken.Record); err != nil {
+		t.Fatalf("RevokeOlderActiveIngestTokensForCollector: %v", err)
 	}
 	_, err = store.AuthenticateToken(context.Background(), AuthenticateTokenRequest{
 		Plaintext:      first.IngestToken.Plaintext,

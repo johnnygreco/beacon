@@ -110,8 +110,13 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := h.authenticateIngestToken(r.Context(), r, req.NodeID, req.CollectorID, req.SourceIDs); err != nil {
+	tokenRecord, err := h.authenticateIngestToken(r.Context(), r, req.NodeID, req.CollectorID, req.SourceIDs)
+	if err != nil {
 		h.authError(w, err)
+		return
+	}
+	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
+		h.internalError(w, "retire older ingest tokens", err)
 		return
 	}
 	snapshot, err := h.control.Snapshot(r.Context())
@@ -205,8 +210,13 @@ func (h *IngestHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 	for _, source := range req.Sources {
 		sourceIDs = append(sourceIDs, source.SourceID)
 	}
-	if err := h.authenticateIngestToken(r.Context(), r, req.NodeID, req.CollectorID, sourceIDs); err != nil {
+	tokenRecord, err := h.authenticateIngestToken(r.Context(), r, req.NodeID, req.CollectorID, sourceIDs)
+	if err != nil {
 		h.authError(w, err)
+		return
+	}
+	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
+		h.internalError(w, "retire older ingest tokens", err)
 		return
 	}
 	snapshot, err := h.control.Snapshot(r.Context())
@@ -238,12 +248,12 @@ func (h *IngestHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *IngestHandlers) authenticateIngestToken(ctx context.Context, r *http.Request, nodeID, collectorID string, sourceIDs []string) error {
+func (h *IngestHandlers) authenticateIngestToken(ctx context.Context, r *http.Request, nodeID, collectorID string, sourceIDs []string) (*controlplane.TokenRecord, error) {
 	token := bearerToken(r.Header.Get("Authorization"))
 	if token == "" {
-		return controlplane.ErrTokenInvalid
+		return nil, controlplane.ErrTokenInvalid
 	}
-	_, err := h.control.AuthenticateToken(ctx, controlplane.AuthenticateTokenRequest{
+	record, err := h.control.AuthenticateToken(ctx, controlplane.AuthenticateTokenRequest{
 		Plaintext:      token,
 		AllowedTypes:   []string{controlplane.TokenTypeIngest},
 		RequiredScopes: []string{controlplane.ScopeIngest},
@@ -251,7 +261,10 @@ func (h *IngestHandlers) authenticateIngestToken(ctx context.Context, r *http.Re
 		CollectorID:    collectorID,
 		SourceIDs:      sourceIDs,
 	})
-	return err
+	if err != nil {
+		return nil, err
+	}
+	return record, nil
 }
 
 func controlplaneBootstrapFromEnroll(boot ingest.EnrollBootstrap) controlplane.Bootstrap {

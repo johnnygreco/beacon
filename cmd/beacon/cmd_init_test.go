@@ -399,8 +399,8 @@ func TestRunRemoteEnrollPrintsConfigAndCollectorUsesAssignedMetadata(t *testing.
 		NodeID:         firstNodeID,
 		CollectorID:    firstCollectorID,
 		SourceID:       firstSourceID,
-	}); err == nil || !strings.Contains(err.Error(), controlplane.ErrTokenRevoked.Error()) {
-		t.Fatalf("old ingest token auth error = %v, want revoked", err)
+	}); err != nil {
+		t.Fatalf("old ingest token should remain usable until replacement is proven: %v", err)
 	}
 
 	cfg.Fleet.ControlPlaneURL = server.URL
