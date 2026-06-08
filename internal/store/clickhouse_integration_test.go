@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/search"
 )
 
 func setupLiveClickHouse(t *testing.T) *Store {
@@ -331,6 +333,131 @@ func TestSearchIndexProjectsBlankCWDEventsOnlyForSingleProjectSessions(t *testin
 	if singleBlankKey != "beacon" {
 		t.Fatalf("single-project blank search document project key = %q, want beacon", singleBlankKey)
 	}
+}
+
+func TestSearchIndexRefreshesBlankCWDFallbackWhenSessionBecomesMixedProject(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 8, 14, 0, 0, 0, time.UTC)
+	sessionID := "search-fallback-refresh"
+	firstEvents := []models.Event{
+		{
+			EventUID:     "search-refresh-beacon",
+			SessionID:    sessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now,
+			TextContent:  "refresh beacon project text",
+			TextPreview:  "refresh beacon project text",
+			CWD:          "/Users/example/projects/beacon",
+			EventVersion: 1,
+			SourceFile:   "search-refresh.jsonl",
+			SourceLineNo: 1,
+		},
+		{
+			EventUID:     "search-refresh-blank",
+			SessionID:    sessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(time.Second),
+			TextContent:  "refresh blank cwd unique needle",
+			TextPreview:  "refresh blank cwd unique needle",
+			EventVersion: 1,
+			SourceFile:   "search-refresh.jsonl",
+			SourceLineNo: 2,
+			SourceOffset: 1,
+		},
+	}
+	batch := RowBatch{ActivityEvents: firstEvents}
+	for _, event := range firstEvents {
+		batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+	}
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("flush initial search refresh events: %v", err)
+	}
+
+	blankProjectKey := searchDocumentProjectKey(t, ch.DB, "search-refresh-blank")
+	if blankProjectKey != "beacon" {
+		t.Fatalf("initial blank-cwd search project key = %q, want beacon", blankProjectKey)
+	}
+	searcher := search.NewSearcher(ch.DB, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})), 25, 0)
+	results, err := searcher.Search(ctx, search.SearchQuery{
+		Query:       "unique needle",
+		ProjectKeys: []string{"beacon"},
+	})
+	if err != nil {
+		t.Fatalf("initial scoped search: %v", err)
+	}
+	if !searchResultsContain(results, "search-refresh-blank") {
+		t.Fatalf("initial beacon-scoped search results = %#v, want blank-cwd event", results)
+	}
+
+	otherEvent := models.Event{
+		EventUID:     "search-refresh-other",
+		SessionID:    sessionID,
+		SourceName:   "codex",
+		Runtime:      "codex",
+		Provider:     "openai",
+		Format:       models.FormatJSONL,
+		EventKind:    models.EventKindMessage,
+		ActorRole:    models.ActorRoleAssistant,
+		Timestamp:    now.Add(-time.Minute),
+		TextContent:  "refresh other project text",
+		TextPreview:  "refresh other project text",
+		CWD:          "/Users/example/projects/other",
+		EventVersion: 1,
+		SourceFile:   "search-refresh.jsonl",
+		SourceLineNo: 3,
+		SourceOffset: 2,
+	}
+	batch = RowBatch{ActivityEvents: []models.Event{otherEvent}, RawRecords: []models.RawRecord{NewRawRecord(otherEvent)}}
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("flush second project search refresh event: %v", err)
+	}
+
+	blankProjectKey = searchDocumentProjectKey(t, ch.DB, "search-refresh-blank")
+	if blankProjectKey != "" {
+		t.Fatalf("mixed-project blank-cwd search project key = %q, want empty", blankProjectKey)
+	}
+	results, err = searcher.Search(ctx, search.SearchQuery{
+		Query:       "unique needle",
+		ProjectKeys: []string{"beacon"},
+	})
+	if err != nil {
+		t.Fatalf("post-refresh scoped search: %v", err)
+	}
+	if searchResultsContain(results, "search-refresh-blank") {
+		t.Fatalf("post-refresh beacon-scoped search results = %#v, want blank-cwd event excluded", results)
+	}
+}
+
+func searchDocumentProjectKey(t *testing.T, db *sql.DB, eventUID string) string {
+	t.Helper()
+	var projectKey string
+	if err := db.QueryRowContext(context.Background(),
+		`SELECT COALESCE(max(project_key), '')
+		 FROM search_documents FINAL
+		 WHERE event_uid = ?`, eventUID).Scan(&projectKey); err != nil {
+		t.Fatalf("query search document project key for %s: %v", eventUID, err)
+	}
+	return projectKey
+}
+
+func searchResultsContain(results []search.SearchResult, eventUID string) bool {
+	for _, result := range results {
+		if result.EventUID == eventUID {
+			return true
+		}
+	}
+	return false
 }
 
 func TestClickHouseRefreshOutdatedProjectionsRepairsMissingAndStaleProjection(t *testing.T) {

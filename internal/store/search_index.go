@@ -257,12 +257,12 @@ func (s *Store) refreshSearchIndex(ctx context.Context, batchSize int, where str
 	}
 	sessionProjectsCTE := `SELECT
 				session_id,
-				if(project_count = 1, any_project_path, '') AS session_project_path
+				if(project_count = 1, single_project_path, '') AS session_project_path
 			FROM (
 				SELECT
 					session_id,
 					uniqExactIf(project_key, project_key != '') AS project_count,
-					anyIf(project_path, project_key != '') AS any_project_path
+					minIf(project_path, project_key != '') AS single_project_path
 				FROM (
 					SELECT
 						session_id,
@@ -279,12 +279,12 @@ func (s *Store) refreshSearchIndex(ctx context.Context, batchSize int, where str
 		}
 		sessionProjectsCTE = `SELECT
 				session_id,
-				if(project_count = 1, any_project_path, '') AS session_project_path
+				if(project_count = 1, single_project_path, '') AS session_project_path
 			FROM (
 				SELECT
 					session_id,
 					uniqExactIf(project_key, project_key != '') AS project_count,
-					anyIf(project_path, project_key != '') AS any_project_path
+					minIf(project_path, project_key != '') AS single_project_path
 				FROM (
 					SELECT
 						session_id,

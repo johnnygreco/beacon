@@ -82,6 +82,7 @@ func (s *Store) Flush(ctx context.Context, rows RowBatch) error {
 type sessionSearchProject struct {
 	projectPath string
 	projectKey  string
+	single      bool
 }
 
 func (s *Store) sessionSearchProjects(ctx context.Context, ids []string) (map[string]sessionSearchProject, error) {
@@ -97,9 +98,31 @@ func (s *Store) sessionSearchProjects(ctx context.Context, ids []string) (map[st
 	for i, id := range ids {
 		args[i] = id
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT session_id, COALESCE(project_path, ''), COALESCE(project_key, '')
-		FROM session_projection FINAL
-		WHERE session_id IN (`+placeholders(len(ids))+`)`, args...)
+	rows, err := s.DB.QueryContext(ctx, `SELECT session_id,
+		       if(single_project, single_project_path, '') AS project_path,
+		       if(single_project, single_project_key, '') AS project_key,
+		       single_project
+		FROM (
+			SELECT session_id,
+			       minIf(project_path, project_key != '') AS single_project_path,
+			       minIf(project_key, project_key != '') AS single_project_key,
+			       toUInt8(uniqExactIf(project_key, project_key != '') = 1) AS single_project
+			FROM (
+				SELECT latest_session_id AS session_id,
+				       cwd AS project_path,
+				       `+projectKeySQL("cwd")+` AS project_key
+				FROM (
+					SELECT event_uid,
+					       argMax(session_id, captured_at) AS latest_session_id,
+					       argMax(cwd, captured_at) AS cwd
+					FROM activity_events
+					WHERE session_id IN (`+placeholders(len(ids))+`)
+					GROUP BY event_uid
+				)
+				WHERE latest_session_id != ''
+			)
+			GROUP BY session_id
+		)`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -107,9 +130,11 @@ func (s *Store) sessionSearchProjects(ctx context.Context, ids []string) (map[st
 	for rows.Next() {
 		var sessionID string
 		var project sessionSearchProject
-		if err := rows.Scan(&sessionID, &project.projectPath, &project.projectKey); err != nil {
+		var single uint8
+		if err := rows.Scan(&sessionID, &project.projectPath, &project.projectKey, &single); err != nil {
 			return nil, err
 		}
+		project.single = single != 0
 		projects[sessionID] = project
 	}
 	if err := rows.Err(); err != nil {
