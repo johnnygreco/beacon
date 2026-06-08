@@ -41,6 +41,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 		cfg.Capture.Enabled = false
 	}
 
+	pidFile, err := acquirePIDFile()
+	if err != nil {
+		return fmt.Errorf("acquire beacon pidfile: %w", err)
+	} else {
+		defer pidFile.Close()
+	}
+
 	var sources []capture.WatchSource
 	if cfg.Capture.Enabled {
 		sources, err = buildSources(cfg)
@@ -54,6 +61,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("initializing control-plane metadata: %w", err)
 	}
 	defer controlStore.Close()
+	if err := ensureNoResetPending(controlSnapshot); err != nil {
+		return err
+	}
 	authOptions, err := dashboardAuthOptions(context.Background(), cfg, controlStore)
 	if err != nil {
 		return fmt.Errorf("dashboard auth: %w", err)
@@ -97,7 +107,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	broker := sse.NewBroker(cfg.SSE.SubscriberBuffer, logger)
 	updater := web.NewUpdater(broker, logger)
-
 	batcher := capture.NewBatcher(
 		ch,
 		500,
@@ -113,21 +122,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	defer cancel()
 	bg := newBackgroundGroup(ctx, cancel, logger)
 
-	bg.Go("capture batcher", func(ctx context.Context) error {
-		batcher.Run(ctx)
-		return nil
-	})
-
-	bg.Go("dashboard updater", func(ctx context.Context) error {
-		updater.Run(ctx)
-		return nil
-	})
-
+	var watcher *capture.Watcher
 	if cfg.Capture.Enabled {
 		for _, s := range sources {
 			logger.Info("capture source configured", "name", s.Name, "runtime", s.Runtime, "provider", s.Provider, "globs", s.Globs)
 		}
-		watcher := capture.NewWatcher(
+		watcher = capture.NewWatcher(
 			sources,
 			batcher.EventCh(),
 			ch,
@@ -137,14 +137,9 @@ func runServe(cmd *cobra.Command, args []string) error {
 			cfg.Capture.BackfillOnStart,
 			cfg.Capture.BackfillWorkers,
 		)
-		bg.Go("capture watcher", watcher.Run)
 	}
 
 	searcher := search.NewSearcher(ch.DB, logger, cfg.Search.MaxResults, cfg.Search.RebuildInterval)
-	bg.Go("search index monitor", func(ctx context.Context) error {
-		searcher.MonitorIndex(ctx)
-		return nil
-	})
 
 	// Web server
 	handlers := web.NewHandlers(ch.DB, searcher, logger, cfg.Dashboard.Name)
@@ -172,17 +167,25 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Handler: router,
 	}
 
-	pidFile, err := acquirePIDFile()
-	if err != nil {
-		return fmt.Errorf("acquire beacon pidfile: %w", err)
-	} else {
-		defer pidFile.Close()
-	}
-
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
+	bg.Go("capture batcher", func(ctx context.Context) error {
+		batcher.Run(ctx)
+		return nil
+	})
+	bg.Go("dashboard updater", func(ctx context.Context) error {
+		updater.Run(ctx)
+		return nil
+	})
+	if watcher != nil {
+		bg.Go("capture watcher", watcher.Run)
+	}
+	bg.Go("search index monitor", func(ctx context.Context) error {
+		searcher.MonitorIndex(ctx)
+		return nil
+	})
 	bg.Go("signal handler", signalCancelWorker(sigCh, cancel, logger, "shutting down..."))
 	bg.Go("http shutdown", func(ctx context.Context) error {
 		return shutdownHTTPServerOnContext(ctx, srv, 10*time.Second)
@@ -212,12 +215,11 @@ func pidfilePath() string {
 	return filepath.Join(home, ".beacon", "beacon.pid")
 }
 
-type pidFileLock struct {
-	path string
-	lock *os.File
+type beaconRunLock struct {
+	file *os.File
 }
 
-func acquirePIDFile() (*pidFileLock, error) {
+func acquireBeaconRunLock() (*beaconRunLock, error) {
 	path := pidfilePath()
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
@@ -234,17 +236,44 @@ func acquirePIDFile() (*pidFileLock, error) {
 		}
 		return nil, err
 	}
+	return &beaconRunLock{file: lock}, nil
+}
+
+func (l *beaconRunLock) Close() error {
+	if l == nil || l.file == nil {
+		return nil
+	}
+	var err error
+	if flockErr := syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN); flockErr != nil {
+		err = flockErr
+	}
+	if closeErr := l.file.Close(); err == nil {
+		err = closeErr
+	}
+	l.file = nil
+	return err
+}
+
+type pidFileLock struct {
+	path    string
+	runLock *beaconRunLock
+}
+
+func acquirePIDFile() (*pidFileLock, error) {
+	path := pidfilePath()
+	runLock, err := acquireBeaconRunLock()
+	if err != nil {
+		return nil, err
+	}
 	if existing := readPidFromFile(); existing > 0 && existing != os.Getpid() {
-		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-		_ = lock.Close()
+		_ = runLock.Close()
 		return nil, fmt.Errorf("beacon process already running with pid %d", existing)
 	}
 	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
-		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-		_ = lock.Close()
+		_ = runLock.Close()
 		return nil, err
 	}
-	return &pidFileLock{path: path, lock: lock}, nil
+	return &pidFileLock{path: path, runLock: runLock}, nil
 }
 
 func (p *pidFileLock) Close() error {
@@ -257,16 +286,8 @@ func (p *pidFileLock) Close() error {
 			_ = os.Remove(p.path)
 		}
 	}
-	var err error
-	if p.lock != nil {
-		if flockErr := syscall.Flock(int(p.lock.Fd()), syscall.LOCK_UN); flockErr != nil {
-			err = flockErr
-		}
-		if closeErr := p.lock.Close(); err == nil {
-			err = closeErr
-		}
-		p.lock = nil
-	}
+	err := p.runLock.Close()
+	p.runLock = nil
 	return err
 }
 

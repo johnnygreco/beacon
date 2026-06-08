@@ -289,6 +289,80 @@ func TestRunDBResetForceSkipsConfirmationAndResets(t *testing.T) {
 	}
 }
 
+func TestRunDBResetHoldsRunLockDuringDestructiveReset(t *testing.T) {
+	resetConfigState(t)
+	setStdin(t, "")
+	checkedRunLock := false
+	stubDBResetStore(t,
+		func(context.Context, store.Options) (*store.Store, error) {
+			return &store.Store{}, nil
+		},
+		func(context.Context, *sql.DB, string) error {
+			checkedRunLock = true
+			second, err := acquireBeaconRunLock()
+			if err == nil {
+				_ = second.Close()
+				t.Fatal("acquireBeaconRunLock succeeded during db reset, want lock rejection")
+			}
+			if !strings.Contains(err.Error(), "locked") {
+				t.Fatalf("acquireBeaconRunLock error = %v, want locked rejection", err)
+			}
+			return nil
+		},
+	)
+
+	cmd := dbSubcommand(t, newDBCmd(), "reset")
+	if err := cmd.Flags().Set("force", "true"); err != nil {
+		t.Fatalf("set force flag: %v", err)
+	}
+	if err := runDBReset(cmd, nil); err != nil {
+		t.Fatalf("runDBReset() returned error: %v", err)
+	}
+	if !checkedRunLock {
+		t.Fatal("db reset did not reach destructive reset callback")
+	}
+	after, err := acquireBeaconRunLock()
+	if err != nil {
+		t.Fatalf("acquireBeaconRunLock after db reset: %v", err)
+	}
+	if err := after.Close(); err != nil {
+		t.Fatalf("close run lock after db reset: %v", err)
+	}
+}
+
+func TestRunDBResetRejectsHeldRunLock(t *testing.T) {
+	resetConfigState(t)
+	setStdin(t, "")
+	lock, err := acquireBeaconRunLock()
+	if err != nil {
+		t.Fatalf("acquire run lock: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := lock.Close(); err != nil {
+			t.Fatalf("close run lock: %v", err)
+		}
+	})
+	stubDBResetStore(t,
+		func(context.Context, store.Options) (*store.Store, error) {
+			t.Fatal("db reset opened store while run lock was held")
+			return nil, nil
+		},
+		func(context.Context, *sql.DB, string) error {
+			t.Fatal("db reset ran reset while run lock was held")
+			return nil
+		},
+	)
+
+	cmd := dbSubcommand(t, newDBCmd(), "reset")
+	if err := cmd.Flags().Set("force", "true"); err != nil {
+		t.Fatalf("set force flag: %v", err)
+	}
+	err = runDBReset(cmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "running local Beacon capture process or reset") || !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("runDBReset error = %v, want run-lock rejection", err)
+	}
+}
+
 func TestRunDBResetFailureLeavesResetPendingWithoutEpochAdvance(t *testing.T) {
 	resetConfigState(t)
 	setStdin(t, "")
@@ -484,6 +558,25 @@ func defaultControlPlaneSnapshot(t *testing.T) *controlplane.Snapshot {
 		t.Fatalf("Snapshot: %v", err)
 	}
 	return snapshot
+}
+
+func prepareResetPendingControlPlane(t *testing.T, metadataPath string) {
+	t.Helper()
+	control, err := controlplane.Open(metadataPath)
+	if err != nil {
+		t.Fatalf("Open control-plane: %v", err)
+	}
+	defer control.Close()
+	if _, err := control.EnsureLocal(context.Background(), controlplane.Bootstrap{
+		NodeID:      "node-reset-pending",
+		NodeName:    "Reset Pending",
+		CollectorID: "collector-reset-pending",
+	}); err != nil {
+		t.Fatalf("EnsureLocal: %v", err)
+	}
+	if _, err := control.BeginReset(context.Background()); err != nil {
+		t.Fatalf("BeginReset: %v", err)
+	}
 }
 
 func stubDBResetStore(

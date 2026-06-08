@@ -95,6 +95,17 @@ func controlPlaneStatus(ctx context.Context, cfg *config.Config) (*controlplane.
 	return store.Snapshot(ctx)
 }
 
+func ensureNoResetPending(snapshot *controlplane.Snapshot) error {
+	if snapshot == nil || !snapshot.ResetPending {
+		return nil
+	}
+	epoch := snapshot.ResetPendingEpoch
+	if epoch == "" {
+		epoch = snapshot.SchemaEpoch
+	}
+	return fmt.Errorf("control-plane reset pending at schema_epoch %s; rerun `beacon db reset --force` after resolving the reset failure before starting Beacon", epoch)
+}
+
 func captureFleetIdentity(snapshot *controlplane.Snapshot) capture.FleetIdentity {
 	identity := capture.FleetIdentity{Sources: map[string]capture.FleetSourceIdentity{}}
 	if snapshot == nil {

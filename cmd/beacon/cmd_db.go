@@ -215,6 +215,12 @@ func runDBReset(cmd *cobra.Command, args []string) error {
 	if cfg.Fleet.Role == config.FleetRoleCollector {
 		return fmt.Errorf("fleet.role %q cannot reset control-plane ClickHouse data; run beacon db reset on the control-plane machine", config.FleetRoleCollector)
 	}
+	runLock, err := acquireBeaconRunLock()
+	if err != nil {
+		return fmt.Errorf("stop the running local Beacon capture process or reset before resetting captured data: %w. Run `beacon down`, then rerun `beacon db reset --force`", err)
+	}
+	defer runLock.Close()
+
 	if pid := readPidFromFile(); pid > 0 {
 		return fmt.Errorf("stop the running local Beacon capture process before resetting captured data (pid %d). Run `beacon down`, then rerun `beacon db reset --force`", pid)
 	}
