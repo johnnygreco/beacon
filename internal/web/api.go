@@ -700,10 +700,7 @@ func (a *APIHandlers) GetSessionEvents(w http.ResponseWriter, r *http.Request) {
 			       e.timestamp, e.text_preview, e.tool_name, e.tool_use_id, e.model,
 			       e.input_tokens + e.output_tokens AS tokens, e.duration_ms
 			FROM `+latestActivityEventsSubquery("ae.session_id IN (SELECT session_id FROM scoped_session)")+` AS e
-			LEFT JOIN (
-				SELECT session_id, project_key
-				FROM session_projection FINAL
-			) AS s ON s.session_id = e.session_id
+			LEFT JOIN `+sessionProjectFallbackSubquery("ae.session_id IN (SELECT session_id FROM scoped_session)")+` AS s ON s.session_id = e.session_id
 			WHERE 1 = 1`+eventScopeClause+`
 			ORDER BY `+eventOrder+`
 			LIMIT ? OFFSET ?
@@ -793,10 +790,7 @@ func (a *APIHandlers) GetEvent(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(p.input_preview, ''), COALESCE(p.output_preview, '')
 		 FROM latest_event e
 		 LEFT JOIN payload_previews p ON e.event_uid = p.event_uid
-		 LEFT JOIN (
-			SELECT session_id, project_key
-			FROM session_projection FINAL
-		 ) AS s ON s.session_id = e.session_id
+		 LEFT JOIN `+sessionProjectFallbackSubquery("ae.session_id IN (SELECT session_id FROM latest_event)")+` AS s ON s.session_id = e.session_id
 		 WHERE 1 = 1`+scopeClause+`
 		 LIMIT 1`, args...).Scan(&e.EventUID, &e.SessionID, &e.EventKind, &e.PayloadType, &e.ActorRole,
 		&e.Timestamp, &e.TextPreview, &e.ToolName, &e.ToolUseID, &e.Model, &e.Tokens, &e.DurationMs,
@@ -850,10 +844,7 @@ func (a *APIHandlers) GetToolPayload(w http.ResponseWriter, r *http.Request) {
 		        p.input_preview, p.output_preview
 		 FROM payload AS p
 		 INNER JOIN latest_event AS e ON e.event_uid = p.event_uid
-		 LEFT JOIN (
-			SELECT session_id, project_key
-			FROM session_projection FINAL
-		 ) AS s ON s.session_id = e.session_id
+		 LEFT JOIN `+sessionProjectFallbackSubquery("ae.session_id IN (SELECT session_id FROM latest_event)")+` AS s ON s.session_id = e.session_id
 		 WHERE 1 = 1`+scopeClause+`
 		 LIMIT 1`, args...).Scan(&p.EventUID, &p.ToolName, &p.ToolPhase, &p.InputJSON, &p.OutputJSON, &p.InputPreview, &p.OutputPreview)
 	if err != nil {

@@ -86,12 +86,8 @@ func QueryRecentActivityFilteredByKindScoped(ctx context.Context, db *sql.DB, si
 	projectKeys := compactScopeValues(scope.ProjectKeys)
 	join := ""
 	if len(projectKeys) > 0 {
-		join = `LEFT JOIN (
-			SELECT session_id, project_key
-			FROM session_projection FINAL
-			WHERE session_id != ''
-		) AS s ON s.session_id = ae.session_id`
-		where += ` AND COALESCE(NULLIF(` + projectKeyExpr("ae.cwd") + `, ''), NULLIF(s.project_key, '')) IN (` + sqlPlaceholders(len(projectKeys)) + `)`
+		join = `LEFT JOIN ` + sessionProjectFallbackSubquery("") + ` AS s ON s.session_id = ae.session_id`
+		where += ` AND COALESCE(NULLIF(` + projectKeyExpr("ae.cwd") + `, ''), if(COALESCE(s.project_count, 0) <= 1, NULLIF(s.project_key, ''), '')) IN (` + sqlPlaceholders(len(projectKeys)) + `)`
 		for _, projectKey := range projectKeys {
 			args = append(args, projectKey)
 		}

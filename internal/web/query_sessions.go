@@ -192,6 +192,7 @@ func queryCompletedSessionContentMatchIDs(ctx context.Context, db *sql.DB, since
 			FROM activity_events FINAL
 		 ) AS e
 		 INNER JOIN ` + sessionSource + ` AS s ON s.session_id = e.session_id
+		 LEFT JOIN ` + sessionProjectFallbackSubquery("") + ` AS sj ON sj.session_id = e.session_id
 		 LEFT JOIN (
 			SELECT *
 			FROM tool_payloads FINAL
@@ -215,7 +216,7 @@ func queryCompletedSessionContentMatchIDs(ctx context.Context, db *sql.DB, since
 		query += clause
 		args = append(args, scopeArgs...)
 	}
-	if clause, eventScopeArgs := scope.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s"); clause != "" {
+	if clause, eventScopeArgs := scope.eventAndSessionProjectSQLAndClause("e", "e.cwd", "sj"); clause != "" {
 		query += clause
 		args = append(args, eventScopeArgs...)
 	}

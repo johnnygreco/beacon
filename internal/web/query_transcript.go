@@ -44,10 +44,7 @@ func QuerySessionConversationScoped(ctx context.Context, db *sql.DB, id string, 
 			       sum(if(event_kind = 'message' AND actor_role = 'user', 1, 0))
 			         OVER (PARTITION BY session_id ORDER BY timestamp, event_uid) AS turn_seq
 			FROM `+latestActivityEventsSubquery("ae.session_id IN (SELECT session_id FROM scoped_session)")+` e
-			LEFT JOIN (
-				SELECT session_id, project_key
-				FROM session_projection FINAL
-			) AS s ON s.session_id = e.session_id
+			LEFT JOIN `+sessionProjectFallbackSubquery("ae.session_id IN (SELECT session_id FROM scoped_session)")+` AS s ON s.session_id = e.session_id
 			WHERE 1 = 1`+eventScopeClause+`
 		),
 		payload_previews AS (

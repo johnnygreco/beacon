@@ -196,6 +196,143 @@ func TestAnalyticsProjectionProjectFallbackReplacesChangedRows(t *testing.T) {
 	}
 }
 
+func TestSearchIndexProjectsBlankCWDEventsOnlyForSingleProjectSessions(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 8, 13, 0, 0, 0, time.UTC)
+	sessionID := "search-mixed-project"
+	events := []models.Event{
+		{
+			EventUID:     "search-mixed-beacon",
+			SessionID:    sessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now,
+			TextContent:  "beacon project search text",
+			TextPreview:  "beacon project search text",
+			CWD:          "/Users/example/projects/beacon",
+			EventVersion: 1,
+			SourceFile:   "search-mixed.jsonl",
+			SourceLineNo: 1,
+		},
+		{
+			EventUID:     "search-mixed-other",
+			SessionID:    sessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(time.Second),
+			TextContent:  "other project search text",
+			TextPreview:  "other project search text",
+			CWD:          "/Users/example/projects/other",
+			EventVersion: 1,
+			SourceFile:   "search-mixed.jsonl",
+			SourceLineNo: 2,
+			SourceOffset: 1,
+		},
+		{
+			EventUID:     "search-mixed-blank",
+			SessionID:    sessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(2 * time.Second),
+			TextContent:  "blank cwd search text",
+			TextPreview:  "blank cwd search text",
+			EventVersion: 1,
+			SourceFile:   "search-mixed.jsonl",
+			SourceLineNo: 3,
+			SourceOffset: 2,
+		},
+	}
+	batch := RowBatch{ActivityEvents: events}
+	for _, event := range events {
+		batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+	}
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("flush mixed project search events: %v", err)
+	}
+
+	var beaconKey, blankKey string
+	if err := ch.DB.QueryRowContext(ctx,
+		`SELECT
+			maxIf(project_key, event_uid = 'search-mixed-beacon'),
+			maxIf(project_key, event_uid = 'search-mixed-blank')
+		 FROM search_documents FINAL
+		 WHERE session_id = ?`, sessionID).Scan(&beaconKey, &blankKey); err != nil {
+		t.Fatalf("search document project query: %v", err)
+	}
+	if beaconKey != "beacon" || blankKey != "" {
+		t.Fatalf("search document project keys = beacon %q blank %q, want beacon/empty", beaconKey, blankKey)
+	}
+
+	singleSessionID := "search-single-project"
+	singleEvents := []models.Event{
+		{
+			EventUID:     "search-single-beacon",
+			SessionID:    singleSessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(3 * time.Second),
+			TextContent:  "single project beacon text",
+			TextPreview:  "single project beacon text",
+			CWD:          "/Users/example/projects/beacon",
+			EventVersion: 1,
+			SourceFile:   "search-single.jsonl",
+			SourceLineNo: 1,
+		},
+		{
+			EventUID:     "search-single-blank",
+			SessionID:    singleSessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(4 * time.Second),
+			TextContent:  "single project blank cwd text",
+			TextPreview:  "single project blank cwd text",
+			EventVersion: 1,
+			SourceFile:   "search-single.jsonl",
+			SourceLineNo: 2,
+			SourceOffset: 1,
+		},
+	}
+	batch = RowBatch{ActivityEvents: singleEvents}
+	for _, event := range singleEvents {
+		batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+	}
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("flush single project search events: %v", err)
+	}
+
+	var singleBlankKey string
+	if err := ch.DB.QueryRowContext(ctx,
+		`SELECT maxIf(project_key, event_uid = 'search-single-blank')
+		 FROM search_documents FINAL
+		 WHERE session_id = ?`, singleSessionID).Scan(&singleBlankKey); err != nil {
+		t.Fatalf("single search document project query: %v", err)
+	}
+	if singleBlankKey != "beacon" {
+		t.Fatalf("single-project blank search document project key = %q, want beacon", singleBlankKey)
+	}
+}
+
 func TestClickHouseRefreshOutdatedProjectionsRepairsMissingAndStaleProjection(t *testing.T) {
 	ch := setupLiveClickHouse(t)
 	ctx := context.Background()

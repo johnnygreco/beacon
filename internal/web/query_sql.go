@@ -146,6 +146,33 @@ func sessionProjectionSubquery(where string) string {
 	FROM session_projection FINAL ` + sqlWhereClause(where) + `)`
 }
 
+func sessionProjectFallbackSubquery(where string) string {
+	if strings.TrimSpace(where) == "" {
+		where = "ae.session_id != ''"
+	}
+	return `(SELECT session_id,
+		       if(project_count = 1, any_project_key, '') AS project_key,
+		       project_count
+		FROM (
+			SELECT session_id,
+			       uniqExactIf(project_key, project_key != '') AS project_count,
+			       anyIf(project_key, project_key != '') AS any_project_key
+			FROM (
+				SELECT session_id,
+				       ` + projectKeyExpr("cwd") + ` AS project_key
+				FROM (
+					SELECT event_uid,
+					       argMax(session_id, captured_at) AS session_id,
+					       argMax(cwd, captured_at) AS cwd
+					FROM activity_events AS ae ` + sqlWhereClause(where) + `
+					GROUP BY event_uid
+				)
+				WHERE session_id != ''
+			)
+			GROUP BY session_id
+		))`
+}
+
 func sessionProjectionSubqueryForScope(where string, scope APIScopeFilters) (string, []any) {
 	return sessionProjectionSubqueryForScopeWithPrefilter(where, "", nil, scope)
 }
@@ -190,10 +217,7 @@ func sessionProjectionSubqueryForScopeWithPrefilter(where, eventSessionWhere str
 		       sum(e.cost_usd) AS total_cost_usd,
 		       countIf(e.cost_usd != 0) AS cost_event_count
 		FROM ` + latestActivityEventsSubquery(latestWhere) + ` AS e
-		LEFT JOIN (
-			SELECT session_id, project_key
-			FROM session_projection FINAL
-		) AS s ON s.session_id = e.session_id
+		LEFT JOIN ` + sessionProjectFallbackSubquery("") + ` AS s ON s.session_id = e.session_id
 		WHERE 1 = 1` + scopeClause + `
 		GROUP BY e.session_id
 	)

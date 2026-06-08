@@ -241,8 +241,12 @@ func TestSessionEventsAndTranscriptUseEventProjectBeforeSessionFallback(t *testi
 	otherEvent.CWD = "/Users/example/projects/other"
 	otherEvent.TextContent = "other project hidden"
 	otherEvent.TextPreview = "other project hidden"
+	blankProjectEvent := liveEvent("mixed-project-blank", sessionID, "message", "assistant", now.Add(2*time.Second), "openai", "gpt-5", "", 1, 1, 0)
+	blankProjectEvent.SourceID = "remote-source"
+	blankProjectEvent.TextContent = "blank project hidden"
+	blankProjectEvent.TextPreview = "blank project hidden"
 
-	batch := store.RowBatch{ActivityEvents: []models.Event{otherEvent, beaconEvent}}
+	batch := store.RowBatch{ActivityEvents: []models.Event{beaconEvent, otherEvent, blankProjectEvent}}
 	for _, event := range batch.ActivityEvents {
 		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
 	}
@@ -275,18 +279,20 @@ func TestSessionEventsAndTranscriptUseEventProjectBeforeSessionFallback(t *testi
 	if len(events) != 1 || events[0].EventUID != otherEvent.EventUID {
 		t.Fatalf("other-scoped session events = %#v, want only %s", events, otherEvent.EventUID)
 	}
+	recordAPIStatus(t, api.GetEvent, "/api/events/"+blankProjectEvent.EventUID+"?project_key=beacon", http.StatusNotFound, "event_id", blankProjectEvent.EventUID)
+	recordAPIStatus(t, api.GetEvent, "/api/events/"+blankProjectEvent.EventUID+"?project_key=other", http.StatusNotFound, "event_id", blankProjectEvent.EventUID)
 
 	_, turns := QuerySessionConversationScoped(context.Background(), ch.DB, sessionID, APIScopeFilters{ProjectKeys: []string{"beacon"}})
 	seen := map[string]bool{}
 	for _, turn := range turns {
 		for _, event := range turn.Events {
 			seen[event.EventUID] = true
-			if strings.Contains(event.TextPreview, "other project hidden") || strings.Contains(event.TextContent, "other project hidden") {
-				t.Fatalf("beacon-scoped transcript leaked other project event: %#v", event)
+			if strings.Contains(event.TextPreview, "hidden") || strings.Contains(event.TextContent, "hidden") {
+				t.Fatalf("beacon-scoped transcript leaked out-of-project event: %#v", event)
 			}
 		}
 	}
-	if !seen[beaconEvent.EventUID] || seen[otherEvent.EventUID] {
+	if !seen[beaconEvent.EventUID] || seen[otherEvent.EventUID] || seen[blankProjectEvent.EventUID] {
 		t.Fatalf("beacon-scoped transcript event set = %#v", seen)
 	}
 	_, turns = QuerySessionConversationScoped(context.Background(), ch.DB, sessionID, APIScopeFilters{ProjectKeys: []string{"beacon"}, SourceIDs: []string{"remote-source"}})
@@ -296,8 +302,43 @@ func TestSessionEventsAndTranscriptUseEventProjectBeforeSessionFallback(t *testi
 			seen[event.EventUID] = true
 		}
 	}
-	if !seen[beaconEvent.EventUID] || seen[otherEvent.EventUID] {
+	if !seen[beaconEvent.EventUID] || seen[otherEvent.EventUID] || seen[blankProjectEvent.EventUID] {
 		t.Fatalf("remote beacon-scoped transcript event set = %#v", seen)
+	}
+
+	singleSessionID := "single-project-session"
+	singleBeaconEvent := liveEvent("single-project-beacon", singleSessionID, "message", "assistant", now.Add(3*time.Second), "openai", "gpt-5", "", 1, 1, 0)
+	singleBeaconEvent.CWD = "/Users/example/projects/beacon"
+	singleBlankEvent := liveEvent("single-project-blank", singleSessionID, "message", "assistant", now.Add(4*time.Second), "openai", "gpt-5", "", 1, 1, 0)
+	singleBlankEvent.TextContent = "blank project inherits single project"
+	singleBlankEvent.TextPreview = "blank project inherits single project"
+	batch = store.RowBatch{ActivityEvents: []models.Event{singleBeaconEvent, singleBlankEvent}}
+	for _, event := range batch.ActivityEvents {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush single project events: %v", err)
+	}
+	body = recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+singleSessionID+"/events?project_key=beacon", "id", singleSessionID)
+	events = nil
+	if err := json.Unmarshal([]byte(body), &events); err != nil {
+		t.Fatalf("decode single-project session events: %v\n%s", err, body)
+	}
+	if len(events) != 2 {
+		t.Fatalf("single-project scoped events = %#v, want both project and blank-cwd events", events)
+	}
+	recordAPIResponse(t, api.GetEvent, "/api/events/"+singleBlankEvent.EventUID+"?project_key=beacon", "event_id", singleBlankEvent.EventUID)
+	recordAPIStatus(t, api.GetEvent, "/api/events/"+singleBlankEvent.EventUID+"?project_key=other", http.StatusNotFound, "event_id", singleBlankEvent.EventUID)
+
+	_, turns = QuerySessionConversationScoped(context.Background(), ch.DB, singleSessionID, APIScopeFilters{ProjectKeys: []string{"beacon"}})
+	seen = map[string]bool{}
+	for _, turn := range turns {
+		for _, event := range turn.Events {
+			seen[event.EventUID] = true
+		}
+	}
+	if !seen[singleBeaconEvent.EventUID] || !seen[singleBlankEvent.EventUID] {
+		t.Fatalf("single-project transcript event set = %#v, want project and blank-cwd events", seen)
 	}
 }
 
