@@ -17,6 +17,7 @@ const maxOpenContextWindow = 25
 const maxSearchSessionsLimit = 100
 const defaultListSessionsLimit = 20
 const maxListSessionsLimit = 100
+const maxListSessionsCursorOffset = 10000
 
 func toolDefinitions() []map[string]any {
 	return []map[string]any{
@@ -94,7 +95,7 @@ func toolDefinitions() []map[string]any {
 					"working_dir":         nullableType("string", "Filter by session working directory"),
 					"active_during_since": nullableType("string", "Only sessions active at or after this RFC3339 timestamp"),
 					"active_during_until": nullableType("string", "Only sessions active at or before this RFC3339 timestamp"),
-					"cursor":              nullableType("string", "Opaque pagination cursor returned by a prior list_sessions call"),
+					"cursor":              nullableType("string", "Opaque pagination cursor returned by a prior list_sessions call; deep offsets are capped"),
 				}, scopeSchemaProperties()),
 				"required":             append([]string{"limit", "since", "until", "model", "provider", "working_dir", "active_during_since", "active_during_until", "cursor"}, scopeRequiredProperties()...),
 				"additionalProperties": false,
@@ -609,7 +610,7 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 	nextOffset := offset + len(sessions)
 	resultComplete := int64(nextOffset) >= totalMatching
 	nextCursor := ""
-	if !resultComplete {
+	if !resultComplete && nextOffset <= maxListSessionsCursorOffset {
 		nextCursor = "offset:" + strconv.Itoa(nextOffset)
 	}
 	return FormatSessionList(sessions, sessionListMetadata{
@@ -879,6 +880,9 @@ func parseListSessionsCursor(raw string) (int, error) {
 	offset, err := strconv.Atoi(raw)
 	if err != nil || offset < 0 {
 		return 0, userToolError("invalid cursor")
+	}
+	if offset > maxListSessionsCursorOffset {
+		return 0, userToolError("cursor offset must be <= %d", maxListSessionsCursorOffset)
 	}
 	return offset, nil
 }

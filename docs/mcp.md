@@ -69,8 +69,9 @@ otherwise put in `BEACON_READ_TOKEN`. If the URL has no path, Beacon appends
 `/api/mcp`. Use any Beacon token that carries read scope. The owner token shown
 by `beacon init` works for a full personal dataset; admin tokens do too. Bound
 read tokens, when minted by token tooling, silently scope results to their
-configured node, collector, source, runtime, or project bindings. Returned
-payloads include `scope.auth_scope_applied` and the effective filters.
+configured node, collector, or source bindings. Runtime and project are explicit
+tool filters and can also be carried forward by returned `open_ref` values.
+Returned payloads include `scope.auth_scope_applied` and the effective filters.
 
 Remote MCP URLs must use HTTPS for non-loopback hosts; plain HTTP is accepted
 only for loopback development.
@@ -342,6 +343,8 @@ events per side.
 }
 ```
 
+`limit` defaults to `50` and is capped at `200`.
+
 `list_sessions`:
 
 ```json
@@ -377,7 +380,7 @@ events per side.
 `active_during_until` use overlap semantics across `started_at` and `ended_at`.
 `model`, `provider`, and `working_dir` are exact filters. Scope filters accept
 node, collector, source, runtime, and project values. `limit` defaults to `20`
-and is capped at `100`.
+and is capped at `100`. Deep cursor offsets are capped at `10000`.
 
 `usage_summary`:
 
