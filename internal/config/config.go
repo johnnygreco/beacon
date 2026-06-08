@@ -442,7 +442,7 @@ func validateFleet(fleet *FleetConfig) error {
 
 func isSQLiteSpecialPath(path string) bool {
 	lower := strings.ToLower(strings.TrimSpace(path))
-	return lower == ":memory:" || strings.HasPrefix(lower, "file:")
+	return lower == ":memory:" || strings.HasPrefix(lower, "file:") || strings.Contains(lower, "?")
 }
 
 func expandHomePath(path string) string {

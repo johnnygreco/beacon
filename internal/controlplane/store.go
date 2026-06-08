@@ -83,6 +83,9 @@ func Open(path string) (*Store, error) {
 	if path == "" {
 		return nil, fmt.Errorf("control-plane metadata path is required")
 	}
+	if isSQLiteSpecialPath(path) {
+		return nil, fmt.Errorf("control-plane metadata path must be a durable filesystem path, not a SQLite DSN")
+	}
 	if err := prepareMetadataFile(path); err != nil {
 		return nil, err
 	}
@@ -282,11 +285,19 @@ func normalizeBootstrap(boot Bootstrap) Bootstrap {
 
 func prepareMetadataFile(path string) error {
 	dir := filepath.Dir(path)
+	dirExisted := true
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		dirExisted = false
+	} else if err != nil {
+		return fmt.Errorf("stat control-plane metadata directory: %w", err)
+	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create control-plane metadata directory: %w", err)
 	}
-	if err := os.Chmod(dir, 0700); err != nil {
-		return fmt.Errorf("secure control-plane metadata directory: %w", err)
+	if shouldSecureMetadataDir(dir, dirExisted) {
+		if err := os.Chmod(dir, 0700); err != nil {
+			return fmt.Errorf("secure control-plane metadata directory: %w", err)
+		}
 	}
 	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("control-plane metadata path %q must not be a symlink", path)
@@ -301,6 +312,10 @@ func prepareMetadataFile(path string) error {
 	return restrictMetadataFiles(path)
 }
 
+func shouldSecureMetadataDir(dir string, dirExisted bool) bool {
+	return !dirExisted || filepath.Base(dir) == ".beacon"
+}
+
 func restrictMetadataFiles(path string) error {
 	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
 		if err := os.Chmod(candidate, 0600); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -308,6 +323,11 @@ func restrictMetadataFiles(path string) error {
 		}
 	}
 	return nil
+}
+
+func isSQLiteSpecialPath(path string) bool {
+	lower := strings.ToLower(strings.TrimSpace(path))
+	return lower == ":memory:" || strings.HasPrefix(lower, "file:") || strings.Contains(lower, "?")
 }
 
 func ensureMetadataValue(ctx context.Context, tx *sql.Tx, key, value string, now time.Time) (string, error) {

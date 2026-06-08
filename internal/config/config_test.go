@@ -351,6 +351,11 @@ func TestLoad_InvalidValues(t *testing.T) {
 			wantErr: "fleet.metadata_path must be a durable filesystem path",
 		},
 		{
+			name:    "fleet metadata path query suffix",
+			body:    "[fleet]\nmetadata_path = \"/tmp/control-plane.db?_journal_mode=OFF\"\n",
+			wantErr: "fleet.metadata_path must be a durable filesystem path",
+		},
+		{
 			name:    "fleet collector role reserved",
 			body:    "[fleet]\nrole = \"collector\"\n",
 			wantErr: `fleet.role "collector" is reserved`,

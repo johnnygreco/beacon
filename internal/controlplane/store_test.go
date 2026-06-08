@@ -176,7 +176,7 @@ func TestEnsureLocalReconcilesRemovedSources(t *testing.T) {
 }
 
 func TestOpenRestrictsExistingPermissiveMetadataPath(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "metadata")
+	dir := filepath.Join(t.TempDir(), ".beacon")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("create metadata dir: %v", err)
 	}
@@ -203,6 +203,43 @@ func TestOpenRestrictsExistingPermissiveMetadataPath(t *testing.T) {
 		if _, err := os.Stat(candidate); err == nil {
 			assertMode(t, candidate, 0600)
 		}
+	}
+}
+
+func TestOpenDoesNotChmodArbitraryExistingParent(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatalf("chmod temp dir: %v", err)
+	}
+	path := filepath.Join(dir, "custom-control-plane.db")
+
+	store, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	assertMode(t, dir, 0755)
+}
+
+func TestOpenRejectsSQLiteDSNPath(t *testing.T) {
+	for _, path := range []string{
+		":memory:",
+		"file:/tmp/control-plane.db?mode=memory",
+		filepath.Join(t.TempDir(), "control-plane.db?_journal_mode=OFF"),
+	} {
+		t.Run(path, func(t *testing.T) {
+			store, err := Open(path)
+			if err == nil {
+				store.Close()
+				t.Fatal("Open returned nil error for SQLite DSN path")
+			}
+			if !strings.Contains(err.Error(), "SQLite DSN") {
+				t.Fatalf("Open error = %v, want SQLite DSN", err)
+			}
+		})
 	}
 }
 
