@@ -7,6 +7,7 @@ total 28.0
 ${MODULE}/cmd/beacon 17.5
 ${MODULE}/internal/capture 60.0
 ${MODULE}/internal/config 90.0
+${MODULE}/internal/ingest 85.0
 ${MODULE}/internal/mcp 20.0
 ${MODULE}/internal/search 31.0
 ${MODULE}/internal/sse 45.0

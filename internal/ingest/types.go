@@ -125,9 +125,7 @@ func NormalizeBatch(req BatchRequest) BatchRequest {
 	req.PayloadDigest = strings.TrimSpace(req.PayloadDigest)
 	req.RedactionVersion = strings.TrimSpace(req.RedactionVersion)
 	req.SourceIDs = normalizeStrings(req.SourceIDs)
-	if req.CreatedAt.IsZero() {
-		req.CreatedAt = time.Now().UTC()
-	} else {
+	if !req.CreatedAt.IsZero() {
 		req.CreatedAt = req.CreatedAt.UTC()
 	}
 	return req
@@ -149,6 +147,9 @@ func ValidateBatch(req BatchRequest) error {
 	}
 	if req.ControlPlaneEpoch == "" {
 		return fmt.Errorf("control_plane_epoch is required")
+	}
+	if req.CreatedAt.IsZero() {
+		return fmt.Errorf("created_at is required")
 	}
 	if req.Sequence == 0 {
 		return fmt.Errorf("sequence must be positive")
@@ -177,6 +178,9 @@ func ValidateBatch(req BatchRequest) error {
 
 func ComputeBatchDigest(req BatchRequest) (string, error) {
 	req = NormalizeBatch(req)
+	if req.CreatedAt.IsZero() {
+		return "", fmt.Errorf("created_at is required")
+	}
 	req.PayloadDigest = ""
 	payload, err := json.Marshal(req)
 	if err != nil {
