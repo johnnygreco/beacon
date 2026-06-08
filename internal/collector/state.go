@@ -223,7 +223,7 @@ func (s *StateStore) MarkAcked(nextSequence uint64, checkpoints []models.Checkpo
 	return nil
 }
 
-func (s *StateStore) MarkBatchAcked(nextSequence, sequence uint64, fallbackCheckpoints []models.Checkpoint) error {
+func (s *StateStore) MarkBatchAcked(nextSequence, sequence uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	next := s.NextSequence

@@ -190,9 +190,10 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 					return err
 				}
 				cp := s.cfg.State.SpooledCheckpoint(src.Name, file)
-				result, err := capture.ReadSourceFileWindow(ctx, src, file, cp, s.cfg.Logger, windowSize, s.redactionPolicy())
+				policy := s.redactionPolicy()
+				result, err := capture.ReadSourceFileWindow(ctx, src, file, cp, s.cfg.Logger, windowSize, policy)
 				if err != nil {
-					s.cfg.Logger.Warn("collector read source file failed", "source", src.Name, "file", s.redactionPolicy().RedactPath(file), "error", err)
+					s.cfg.Logger.Warn("collector read source file failed", "source", src.Name, "file", policy.RedactPath(file), "error", policy.Redact(err.Error()))
 					break
 				}
 				if len(result.Events) == 0 && len(result.CaptureErrors) == 0 && result.Checkpoint == nil {
@@ -304,7 +305,7 @@ func (s *Service) SendPending(ctx context.Context) error {
 			s.setTerminalBlocked(err)
 			return err
 		}
-		if err := s.cfg.State.MarkBatchAcked(ack.NextSequence, inflight.Request.Sequence, inflight.Request.Checkpoints); err != nil {
+		if err := s.cfg.State.MarkBatchAcked(ack.NextSequence, inflight.Request.Sequence); err != nil {
 			if _, moveErr := s.cfg.Spool.MarkPending(inflight); moveErr != nil {
 				return fmt.Errorf("%w; additionally failed to return batch to pending: %v", err, moveErr)
 			}

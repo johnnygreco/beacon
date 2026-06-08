@@ -167,6 +167,37 @@ func TestWatcherSetupLogsRedactConfiguredPaths(t *testing.T) {
 	}
 }
 
+func TestProcessFileReadErrorLogRedactsPathError(t *testing.T) {
+	privateDir := filepath.Join(t.TempDir(), "private")
+	file := filepath.Join(privateDir, "session.jsonl")
+	if err := os.MkdirAll(privateDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("first\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(file, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(file, 0600) })
+	var logs bytes.Buffer
+	fake := newFakeWatcherStore()
+	src := WatchSource{Name: "codex", Parser: lineTextParser(t)}
+	w := newFakeWatcher(src, fake, make(chan BatchEvent, 1))
+	w.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	w.redactor = redaction.NewPolicy(redaction.Config{PathMasks: []string{privateDir}})
+
+	w.processFile(context.Background(), src, file)
+
+	got := logs.String()
+	if strings.Contains(got, privateDir) || strings.Contains(got, file) {
+		t.Fatalf("read error log leaked private path: %s", got)
+	}
+	if !strings.Contains(got, redaction.PathMarker) {
+		t.Fatalf("read error log missing path marker: %s", got)
+	}
+}
+
 func TestCheckpointManagerLoadSaveAndRotation(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

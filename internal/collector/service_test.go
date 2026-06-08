@@ -1,10 +1,12 @@
 package collector
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -288,6 +290,30 @@ func TestServiceRecoverDiscardsSpoolBatchWithoutPrivateCheckpointState(t *testin
 	}
 }
 
+func TestServiceReadErrorLogRedactsPathError(t *testing.T) {
+	service, _, file := newTestService(t, "http://127.0.0.1:1", 1<<20)
+	privateDir := filepath.Dir(file)
+	if err := os.Chmod(file, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(file, 0600) })
+	var logs bytes.Buffer
+	service.cfg.Logger = slog.New(slog.NewTextHandler(&logs, nil))
+	service.cfg.RedactionPolicy = redaction.NewPolicy(redaction.Config{PathMasks: []string{privateDir}})
+
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("ScanOnce: %v", err)
+	}
+
+	got := logs.String()
+	if strings.Contains(got, privateDir) || strings.Contains(got, file) {
+		t.Fatalf("collector read error log leaked private path: %s", got)
+	}
+	if !strings.Contains(got, redaction.PathMarker) {
+		t.Fatalf("collector read error log missing path marker: %s", got)
+	}
+}
+
 func TestValidateBatchBodySizeRejectsGzipTransportLimit(t *testing.T) {
 	body := []byte("{}")
 	compressedLen, err := gzipEncodedLen(body)
@@ -443,7 +469,35 @@ func TestServiceSpoolFullDuringMultiChunkReadLeavesNoPartialBatch(t *testing.T) 
 	if err != nil {
 		t.Fatalf("encode first request: %v", err)
 	}
-	service.cfg.Spool.maxBytes = int64(len(firstPayload)) + 1
+	secondResult, err := capture.ReadSourceFileWindow(context.Background(), source, source.Globs[0], result.Checkpoint, nil, 1)
+	if err != nil {
+		t.Fatalf("ReadSourceFile second window: %v", err)
+	}
+	secondReq, err := service.buildBatchRequest(
+		2,
+		"source-test",
+		capture.RedactNormalizedEvents(secondResult.Events, policy),
+		nil,
+		capture.RedactCheckpoints(enrichCollectorCheckpoints(secondResult.Checkpoint, service.cfg.Identity, source.Name, "source-test"), policy),
+	)
+	if err != nil {
+		t.Fatalf("build second request: %v", err)
+	}
+	secondPayload, err := encodeSpoolEnvelope(secondReq)
+	if err != nil {
+		t.Fatalf("encode second request: %v", err)
+	}
+	slack := len(secondPayload) / 4
+	if slack > 256 {
+		slack = 256
+	}
+	if slack < 64 {
+		slack = 64
+	}
+	if len(secondPayload) <= slack*2 {
+		t.Fatalf("second payload length = %d too small for deterministic spool-full sizing with slack %d", len(secondPayload), slack)
+	}
+	service.cfg.Spool.maxBytes = int64(len(firstPayload) + slack)
 
 	if err := service.ScanOnce(context.Background()); err != nil {
 		t.Fatalf("ScanOnce: %v", err)

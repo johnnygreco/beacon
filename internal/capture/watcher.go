@@ -352,9 +352,10 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 	}
 
 	cp := cm.Get(file)
-	result, err := ReadSourceFile(ctx, src, file, cp, w.logger, w.redactionPolicy())
+	policy := w.redactionPolicy()
+	result, err := ReadSourceFile(ctx, src, file, cp, w.logger, policy)
 	if err != nil {
-		w.logger.Error("read source file failed", "file", w.redactionPolicy().RedactPath(file), "error", err)
+		w.logger.Error("read source file failed", "file", policy.RedactPath(file), "error", policy.Redact(err.Error()))
 		return
 	}
 	for _, errRow := range RedactCaptureErrors(result.CaptureErrors, w.redactionPolicy()) {
