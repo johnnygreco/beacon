@@ -137,8 +137,16 @@ mode = "reverse-proxy"
 ```
 
 The reverse proxy is responsible for authenticating you before traffic reaches
-Beacon. In this mode the dashboard and JSON API trust the proxy boundary;
-`/api/mcp` still requires a Beacon read-capable bearer token.
+Beacon. Because Beacon is still bound to `127.0.0.1`, configure the proxy's
+upstream request `Host` as `127.0.0.1:4600` or `localhost:4600`; Beacon's
+loopback guard rejects forwarded public hosts such as `beacon.example.com`.
+
+In this loopback reverse-proxy layout, the dashboard, JSON API, and `/api/mcp`
+trust the proxy boundary. The proxy must authenticate every externally
+reachable route, including `/api/mcp`. Beacon read-token enforcement and scoped
+read-token filtering for `/api/mcp` are active when Beacon runs in owner-token
+mode, or when reverse-proxy mode is bound to a non-loopback private interface
+that only the trusted proxy can reach.
 
 Owner-token mode is available for personal API or browser access:
 
@@ -275,16 +283,22 @@ MCP dataset.
 On the collector machine:
 
 ```bash
-export BEACON_ENROLL_TOKEN="paste-the-one-use-token-here"
-beacon enroll https://beacon.example.com --token-env BEACON_ENROLL_TOKEN
+printf 'Enrollment token: ' >&2
+read -r -s BEACON_ENROLL_TOKEN
+printf '\n' >&2
+printf '%s\n' "$BEACON_ENROLL_TOKEN" | beacon enroll https://beacon.example.com --token-stdin
 unset BEACON_ENROLL_TOKEN
 ```
 
-The stdin form avoids putting the token value in the command line:
+If your shell does not support silent `read -s`, paste the token from a password
+manager directly into the stdin form instead of putting the token literal in a
+shell command:
 
 ```bash
-printf '%s\n' "$BEACON_ENROLL_TOKEN" | beacon enroll https://beacon.example.com --token-stdin
+beacon enroll https://beacon.example.com --token-stdin
 ```
+
+Paste the token, press Enter, then send EOF with `Ctrl-D`.
 
 Successful enrollment writes:
 
@@ -329,8 +343,7 @@ Expected behavior:
 - pending batches are written under `[fleet].spool_dir`
 - batches are sent to `/api/ingest/v1/batches`
 - local state advances only after the control plane acknowledges commit
-- heartbeats report source status, queue depth, spool bytes, active files, and
-  error count
+- heartbeats report source status, queue depth, and spool bytes
 
 When the control plane is offline, the collector keeps retrying and leaves
 pending data in the spool until `[fleet].spool_max_bytes` is reached. If the
@@ -428,11 +441,14 @@ beacon mcp \
   --read-token-file ~/.beacon/read-token
 ```
 
-Use an owner, admin, or read-scoped token with read scope. The owner token shown
-by `beacon init` works for a full personal dataset. If you use a scoped read
-token, Beacon silently applies the token's node, collector, or source scope, and
-tool results include effective scope metadata. Explicit tool filters can further
-scope by node, collector, source, runtime, or project.
+Use an owner, admin, or read-scoped token with read scope when Beacon token auth
+is active for `/api/mcp`. The owner token shown by `beacon init` works for a
+full personal dataset. If you use a scoped read token in an auth-enforced MCP
+layout, Beacon silently applies the token's node, collector, or source scope,
+and tool results include effective scope metadata. Explicit tool filters can
+further scope by node, collector, source, runtime, or project. In the loopback
+reverse-proxy layout above, the proxy owns MCP authentication and Beacon does
+not apply read-token scoping to `/api/mcp`.
 
 Remote MCP URLs must use HTTPS for non-loopback hosts. Plain HTTP is accepted
 only for loopback development.
@@ -458,13 +474,15 @@ On the dashboard:
 - recent activity should advance after a collector sends new batches
 - the browser should connect over HTTPS when accessed off-host
 
-For API or MCP token checks, use a read-capable token:
+For owner-token API auth, use a read-capable token:
 
 ```bash
 curl -fsS \
   -H "Authorization: Bearer $BEACON_READ_TOKEN" \
   https://beacon.example.com/api/dashboard/fleet
 ```
+
+For MCP, use the remote MCP ping in the troubleshooting runbook below.
 
 ## Redaction and minimization
 

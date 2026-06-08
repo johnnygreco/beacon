@@ -71,10 +71,17 @@ The token file can contain the same owner, admin, or read-scoped token you would
 otherwise put in `BEACON_READ_TOKEN`. If the URL has no path, Beacon appends
 `/api/mcp`. Use any Beacon token that carries read scope. The owner token shown
 by `beacon init` works for a full personal dataset; admin tokens do too. Bound
-read tokens, when minted by token tooling, silently scope results to their
-configured node, collector, or source bindings. Runtime and project are explicit
-tool filters and can also be carried forward by returned `open_ref` values.
-Returned payloads include `scope.auth_scope_applied` and the effective filters.
+read tokens, when minted by token tooling and enforced by Beacon MCP auth,
+silently scope results to their configured node, collector, or source bindings.
+Runtime and project are explicit tool filters and can also be carried forward by
+returned `open_ref` values. Returned payloads include
+`scope.auth_scope_applied` and the effective filters.
+
+In the loopback reverse-proxy production layout, Beacon trusts the proxy
+boundary for `/api/mcp`; the proxy must authenticate that route and Beacon does
+not apply read-token scoping there. Beacon-enforced MCP bearer tokens and
+read-token scopes are active in owner-token mode, or in reverse-proxy mode bound
+to a non-loopback private interface that only the trusted proxy can reach.
 
 Remote MCP URLs must use HTTPS for non-loopback hosts; plain HTTP is accepted
 only for loopback development.
