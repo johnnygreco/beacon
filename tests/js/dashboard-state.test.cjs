@@ -57,18 +57,18 @@ function loadStateSandbox(search) {
 }
 
 test("dashboard scope chips clear only their own value", () => {
-  const sandbox = loadStateSandbox("?node_ids=macbook-local,mac-mini-codex&node_id=cloud-codex&runtime=codex");
+  const sandbox = loadStateSandbox("?node_ids=node-a,node-b&node_id=node-c&runtime=runtime-a");
 
-  sandbox.clearDashboardScope("node_id", "macbook-local");
+  sandbox.clearDashboardScope("node_id", "node-a");
 
   const params = new URLSearchParams(sandbox.window.location.search);
-  assert.deepEqual(params.getAll("node_ids"), ["mac-mini-codex"]);
-  assert.deepEqual(params.getAll("node_id"), ["cloud-codex"]);
-  assert.equal(params.get("runtime"), "codex");
+  assert.deepEqual(params.getAll("node_ids"), ["node-b"]);
+  assert.deepEqual(params.getAll("node_id"), ["node-c"]);
+  assert.equal(params.get("runtime"), "runtime-a");
 });
 
 test("dashboard scope clear all still clears every scope field", () => {
-  const sandbox = loadStateSandbox("?node_ids=macbook-local,mac-mini-codex&runtime=codex&project_key=beacon");
+  const sandbox = loadStateSandbox("?node_ids=node-a,node-b&runtime=runtime-a&project_key=project-a");
 
   sandbox.clearDashboardScope("");
 
