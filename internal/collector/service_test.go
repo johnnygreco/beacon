@@ -119,6 +119,36 @@ func TestServiceSendPendingRequeuesInflightBeforeLaterPending(t *testing.T) {
 	}
 }
 
+func TestServiceSendPendingPausesWhenCorruptEarlierBatchIsQuarantined(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		attempts.Add(1)
+	}))
+	defer server.Close()
+	service, _, _ := newTestService(t, server.URL, 1<<20)
+	corruptPath := filepath.Join(service.cfg.Spool.Root(), "pending", "00000000000000000001-corrupt.json")
+	if err := os.WriteFile(corruptPath, []byte("{"), 0600); err != nil {
+		t.Fatalf("write corrupt pending spool file: %v", err)
+	}
+	if _, err := service.cfg.Spool.WritePending(context.Background(), testBatchRequest(t, 2, "batch-pending")); err != nil {
+		t.Fatalf("WritePending second: %v", err)
+	}
+
+	if err := service.SendPending(context.Background()); err != nil {
+		t.Fatalf("SendPending: %v", err)
+	}
+	if got := attempts.Load(); got != 0 {
+		t.Fatalf("send attempts = %d, want paused while quarantine is non-empty", got)
+	}
+	stats, err := service.cfg.Spool.Stats()
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if stats.CorruptCount != 1 || stats.PendingCount != 1 {
+		t.Fatalf("spool stats = %#v, want one quarantined corrupt batch and one pending later batch", stats)
+	}
+}
+
 func TestServiceSpoolFullPausesBeforeCheckpointAndSequenceAdvance(t *testing.T) {
 	service, state, file := newTestService(t, "http://127.0.0.1:1", 16)
 	if err := service.ScanOnce(context.Background()); err != nil {
@@ -133,6 +163,20 @@ func TestServiceSpoolFullPausesBeforeCheckpointAndSequenceAdvance(t *testing.T) 
 	status := service.Status()
 	if !status.BlockedSpoolFull {
 		t.Fatalf("BlockedSpoolFull = false, want true")
+	}
+}
+
+func TestValidateBatchBodySizeRejectsGzipTransportLimit(t *testing.T) {
+	body := []byte("{}")
+	compressedLen, err := gzipEncodedLen(body)
+	if err != nil {
+		t.Fatalf("gzip body: %v", err)
+	}
+	if compressedLen <= len(body) {
+		t.Fatalf("test body compressed to %d <= raw %d; need gzip overhead to exceed raw body", compressedLen, len(body))
+	}
+	if err := validateEncodedBatchBodySize(body, len(body)); err == nil || !strings.Contains(err.Error(), "gzip body exceeds ingest limit") {
+		t.Fatalf("validateEncodedBatchBodySize error = %v, want gzip transport limit", err)
 	}
 }
 

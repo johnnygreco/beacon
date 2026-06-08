@@ -31,10 +31,11 @@ details in logs or persisted diagnostics.
 - `collector spool is full` means local source reads paused before advancing the
   spooled checkpoint. Restore ingest connectivity or raise `fleet.spool_max_bytes`
   before deleting source files that have not been acknowledged.
-- Corrupt spool files are moved to the `quarantine` directory and scanning stops
-  while quarantine is non-empty. Inspect the quarantined JSON for disk or manual
-  edit damage, then move it out of the spool or reset the collector only after
-  confirming the affected source data can be reread.
+- Corrupt spool files are moved to the `quarantine` directory. Scanning and
+  sending both stop while quarantine is non-empty so later sequence numbers do
+  not overtake the damaged batch. Inspect the quarantined JSON for disk or
+  manual edit damage, then move it out of the spool or reset the collector only
+  after confirming the affected source data can be reread.
 - `401` and `403` ingest responses are terminal for the pending batch. Re-enroll
   the collector or fix token placement, then restart collection; Beacon will not
   keep reposting the same terminal batch automatically.

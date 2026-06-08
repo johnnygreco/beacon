@@ -11,9 +11,16 @@ const RedactionVersion = "redact-v1"
 
 var tokenPattern = regexp.MustCompile(`bcn_(owner|enroll|ingest|read|admin)_[A-Za-z0-9_:-]+_[A-Fa-f0-9]{16,}`)
 
-var secretValuePatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)(["']?)(api[_-]?key|token|secret|password)(["']?)(\s*[:=]\s*)(["']?)[^"'\s,}]+(["']?)`),
-	regexp.MustCompile(`(?i)(\\["'])(api[_-]?key|token|secret|password)(\\["'])(\s*:\s*)(\\["'])[^\\\s,}]+(\\["'])`),
+type secretValuePattern struct {
+	re          *regexp.Regexp
+	replacement string
+}
+
+var secretValuePatterns = []secretValuePattern{
+	{regexp.MustCompile(`(?i)(\\["'])(api[_-]?key|token|secret|password)(\\["'])(\s*:\s*)(\\["'])(?:\\\\.|[^\\])*?(\\["'])`), `$1$2$3$4$5[REDACTED_SECRET]$6`},
+	{regexp.MustCompile(`(?i)(["']?)(api[_-]?key|token|secret|password)(["']?)(\s*[:=]\s*)(")(?:\\.|[^"\\])*(")`), `$1$2$3$4$5[REDACTED_SECRET]$6`},
+	{regexp.MustCompile(`(?i)(["']?)(api[_-]?key|token|secret|password)(["']?)(\s*[:=]\s*)(')(?:\\.|[^'\\])*(')`), `$1$2$3$4$5[REDACTED_SECRET]$6`},
+	{regexp.MustCompile(`(?i)(["']?)(api[_-]?key|token|secret|password)(["']?)(\s*[:=]\s*)[^\s"',}]+`), `$1$2$3$4[REDACTED_SECRET]`},
 }
 
 func RedactEvents(events []capture.NormalizedEvent) []capture.NormalizedEvent {
@@ -50,7 +57,7 @@ func redactString(value string) string {
 	}
 	value = tokenPattern.ReplaceAllString(value, "[REDACTED_TOKEN]")
 	for _, pattern := range secretValuePatterns {
-		value = pattern.ReplaceAllString(value, `$1$2$3$4$5[REDACTED_SECRET]$6`)
+		value = pattern.re.ReplaceAllString(value, pattern.replacement)
 	}
 	return value
 }

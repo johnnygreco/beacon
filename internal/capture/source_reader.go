@@ -25,11 +25,19 @@ type SourceReadResult struct {
 }
 
 type wholeFileCheckpointState struct {
-	Version       int   `json:"version"`
-	Size          int64 `json:"size"`
-	ModTimeUnixNS int64 `json:"mod_time_unix_ns"`
-	EventIndex    int   `json:"event_index,omitempty"`
-	Complete      bool  `json:"complete,omitempty"`
+	Version       int                     `json:"version"`
+	Size          int64                   `json:"size"`
+	ModTimeUnixNS int64                   `json:"mod_time_unix_ns"`
+	Sidecars      []wholeFileSidecarState `json:"sidecars,omitempty"`
+	EventIndex    int                     `json:"event_index,omitempty"`
+	Complete      bool                    `json:"complete,omitempty"`
+}
+
+type wholeFileSidecarState struct {
+	Suffix        string `json:"suffix"`
+	Exists        bool   `json:"exists"`
+	Size          int64  `json:"size,omitempty"`
+	ModTimeUnixNS int64  `json:"mod_time_unix_ns,omitempty"`
 }
 
 func ReadSourceFile(ctx context.Context, src WatchSource, file string, cp *models.Checkpoint, logger *slog.Logger) (SourceReadResult, error) {
@@ -128,16 +136,20 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 		}
 		if len(lineBytes) > scannerMaxTokenBytes {
 			lineStart := offset
-			result.CaptureErrors = append(result.CaptureErrors, models.CaptureError{
-				ID:              genID(),
-				SourceName:      src.Name,
-				SourceFile:      file,
-				SourceLineNo:    lineNo,
-				SourceOffset:    offset,
-				ErrorClass:      "parse_error",
-				ErrorMessage:    "line exceeds maximum capture token size",
-				ContextFragment: truncate(string(lineBytes[:min(len(lineBytes), 500)]), 500),
-			})
+			message := "line exceeds maximum capture token size"
+			fragment := truncate(string(lineBytes[:min(len(lineBytes), 500)]), 500)
+			if lineStart >= checkpointOffset {
+				result.CaptureErrors = append(result.CaptureErrors, models.CaptureError{
+					ID:              lineParseErrorID(src.Name, file, lineNo, lineStart, sourceGeneration, message, fragment),
+					SourceName:      src.Name,
+					SourceFile:      file,
+					SourceLineNo:    lineNo,
+					SourceOffset:    offset,
+					ErrorClass:      "parse_error",
+					ErrorMessage:    message,
+					ContextFragment: fragment,
+				})
+			}
 			offset += lineLen
 			if lineStart >= checkpointOffset {
 				visibleRecords++
@@ -155,16 +167,20 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 		events, err := src.Parser(lineBytes, file, lineNo, offset)
 		if err != nil {
 			lineStart := offset
-			result.CaptureErrors = append(result.CaptureErrors, models.CaptureError{
-				ID:              genID(),
-				SourceName:      src.Name,
-				SourceFile:      file,
-				SourceLineNo:    lineNo,
-				SourceOffset:    offset,
-				ErrorClass:      "parse_error",
-				ErrorMessage:    err.Error(),
-				ContextFragment: truncate(string(lineBytes), 500),
-			})
+			message := err.Error()
+			fragment := truncate(string(lineBytes), 500)
+			if lineStart >= checkpointOffset {
+				result.CaptureErrors = append(result.CaptureErrors, models.CaptureError{
+					ID:              lineParseErrorID(src.Name, file, lineNo, lineStart, sourceGeneration, message, fragment),
+					SourceName:      src.Name,
+					SourceFile:      file,
+					SourceLineNo:    lineNo,
+					SourceOffset:    offset,
+					ErrorClass:      "parse_error",
+					ErrorMessage:    message,
+					ContextFragment: fragment,
+				})
+			}
 			offset += lineLen
 			if lineStart >= checkpointOffset {
 				visibleRecords++
@@ -224,7 +240,7 @@ func readWholeSourceFile(ctx context.Context, src WatchSource, file string, fi o
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	if wholeFileUnchanged(cp, fi) {
+	if wholeFileUnchanged(src, file, cp, fi) {
 		return result, nil
 	}
 	events, err := src.FileParser(file)
@@ -248,7 +264,7 @@ func readWholeSourceFile(ctx context.Context, src WatchSource, file string, fi o
 			SourceGeneration: sourceGeneration,
 			LastOffset:       fi.Size(),
 			LastLineNo:       0,
-			StateJSON:        encodeWholeFileCheckpointState(fi, 0, true),
+			StateJSON:        encodeWholeFileCheckpointState(src, file, fi, 0, true),
 		}
 		return result, nil
 	}
@@ -257,7 +273,7 @@ func readWholeSourceFile(ctx context.Context, src WatchSource, file string, fi o
 	}
 	PropagateModel(events)
 	events = DeduplicateTokens(events)
-	start := wholeFileCheckpointEventIndex(cp, fi)
+	start := wholeFileCheckpointEventIndex(src, file, cp, fi)
 	if start > len(events) {
 		start = len(events)
 	}
@@ -281,12 +297,12 @@ func readWholeSourceFile(ctx context.Context, src WatchSource, file string, fi o
 		SourceGeneration: sourceGeneration,
 		LastOffset:       wholeFileCheckpointOffset(fi, complete),
 		LastLineNo:       end,
-		StateJSON:        encodeWholeFileCheckpointState(fi, end, complete),
+		StateJSON:        encodeWholeFileCheckpointState(src, file, fi, end, complete),
 	}
 	return result, nil
 }
 
-func wholeFileUnchanged(cp *models.Checkpoint, fi os.FileInfo) bool {
+func wholeFileUnchanged(src WatchSource, file string, cp *models.Checkpoint, fi os.FileInfo) bool {
 	if cp == nil {
 		return false
 	}
@@ -297,10 +313,10 @@ func wholeFileUnchanged(cp *models.Checkpoint, fi os.FileInfo) bool {
 	if err := json.Unmarshal([]byte(cp.StateJSON), &state); err != nil {
 		return false
 	}
-	return wholeFileCheckpointMatches(state, fi) && state.Complete
+	return wholeFileCheckpointMatches(src, file, state, fi) && state.Complete
 }
 
-func wholeFileCheckpointEventIndex(cp *models.Checkpoint, fi os.FileInfo) int {
+func wholeFileCheckpointEventIndex(src WatchSource, file string, cp *models.Checkpoint, fi os.FileInfo) int {
 	if cp == nil {
 		return 0
 	}
@@ -308,7 +324,7 @@ func wholeFileCheckpointEventIndex(cp *models.Checkpoint, fi os.FileInfo) int {
 	if err := json.Unmarshal([]byte(cp.StateJSON), &state); err != nil {
 		return 0
 	}
-	if !wholeFileCheckpointMatches(state, fi) || state.Complete {
+	if !wholeFileCheckpointMatches(src, file, state, fi) || state.Complete {
 		return 0
 	}
 	if state.EventIndex < 0 {
@@ -317,8 +333,20 @@ func wholeFileCheckpointEventIndex(cp *models.Checkpoint, fi os.FileInfo) int {
 	return state.EventIndex
 }
 
-func wholeFileCheckpointMatches(state wholeFileCheckpointState, fi os.FileInfo) bool {
-	return state.Version == 1 && state.Size == fi.Size() && state.ModTimeUnixNS == fi.ModTime().UnixNano()
+func wholeFileCheckpointMatches(src WatchSource, file string, state wholeFileCheckpointState, fi os.FileInfo) bool {
+	if state.Version != 2 || state.Size != fi.Size() || state.ModTimeUnixNS != fi.ModTime().UnixNano() {
+		return false
+	}
+	currentSidecars := wholeFileSidecarStates(src, file)
+	if len(state.Sidecars) != len(currentSidecars) {
+		return false
+	}
+	for i := range currentSidecars {
+		if state.Sidecars[i] != currentSidecars[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func wholeFileCheckpointOffset(fi os.FileInfo, complete bool) int64 {
@@ -328,11 +356,12 @@ func wholeFileCheckpointOffset(fi os.FileInfo, complete bool) int64 {
 	return 0
 }
 
-func encodeWholeFileCheckpointState(fi os.FileInfo, eventIndex int, complete bool) string {
+func encodeWholeFileCheckpointState(src WatchSource, file string, fi os.FileInfo, eventIndex int, complete bool) string {
 	data, err := json.Marshal(wholeFileCheckpointState{
-		Version:       1,
+		Version:       2,
 		Size:          fi.Size(),
 		ModTimeUnixNS: fi.ModTime().UnixNano(),
+		Sidecars:      wholeFileSidecarStates(src, file),
 		EventIndex:    eventIndex,
 		Complete:      complete,
 	})
@@ -340,6 +369,44 @@ func encodeWholeFileCheckpointState(fi os.FileInfo, eventIndex int, complete boo
 		return ""
 	}
 	return string(data)
+}
+
+func wholeFileSidecarStates(src WatchSource, file string) []wholeFileSidecarState {
+	if src.Format != models.FormatSQLite {
+		return nil
+	}
+	states := make([]wholeFileSidecarState, 0, 2)
+	for _, suffix := range []string{"-wal", "-shm"} {
+		states = append(states, wholeFileSidecarStateFor(file, suffix))
+	}
+	return states
+}
+
+func wholeFileSidecarStateFor(file, suffix string) wholeFileSidecarState {
+	state := wholeFileSidecarState{Suffix: suffix}
+	fi, err := os.Stat(file + suffix)
+	if err != nil {
+		return state
+	}
+	state.Exists = true
+	state.Size = fi.Size()
+	state.ModTimeUnixNS = fi.ModTime().UnixNano()
+	return state
+}
+
+func lineParseErrorID(sourceName, file string, lineNo int, offset int64, sourceGeneration int, message, fragment string) string {
+	parts := []string{
+		"line-parse-error",
+		sourceName,
+		file,
+		strconv.Itoa(lineNo),
+		strconv.FormatInt(offset, 10),
+		strconv.Itoa(sourceGeneration),
+		message,
+		fragment,
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return "capture_error_" + hex.EncodeToString(sum[:])[:32]
 }
 
 func wholeFileErrorID(sourceName, file string, fi os.FileInfo, sourceGeneration int, err error) string {

@@ -164,6 +164,69 @@ func TestReadSourceFileSkipsNoProgressCheckpointForPartialLine(t *testing.T) {
 	}
 }
 
+func TestReadSourceFileSkipsReplayParseErrorsBeforeCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "session.jsonl")
+	if err := os.WriteFile(file, []byte("bad\n{\"msg\":\"two\"}\n"), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	source := WatchSource{
+		Name:     "codex",
+		Runtime:  models.RuntimeCodex,
+		Provider: models.ProviderOpenAI,
+		Format:   models.FormatJSONL,
+		Parser: func(line []byte, file string, lineNo int, offset int64) ([]NormalizedEvent, error) {
+			if string(line) == "bad" {
+				return nil, errors.New("bad json")
+			}
+			return []NormalizedEvent{{
+				SessionID:    "session",
+				SourceName:   "codex",
+				Runtime:      models.RuntimeCodex,
+				Provider:     models.ProviderOpenAI,
+				Format:       models.FormatJSONL,
+				EventKind:    models.EventKindMessage,
+				ActorRole:    models.ActorRoleAssistant,
+				Timestamp:    time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+				RawPayload:   string(line),
+				SourceFile:   file,
+				SourceLineNo: lineNo,
+				SourceOffset: offset,
+			}}, nil
+		},
+	}
+
+	first, err := ReadSourceFile(context.Background(), source, file, nil, nil)
+	if err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+	if len(first.CaptureErrors) != 1 || len(first.Events) != 1 || first.Checkpoint == nil {
+		t.Fatalf("first read errors=%#v events=%#v checkpoint=%#v", first.CaptureErrors, first.Events, first.Checkpoint)
+	}
+	if err := os.WriteFile(file, []byte("bad\n{\"msg\":\"two\"}\n{\"msg\":\"three\"}\n"), 0644); err != nil {
+		t.Fatalf("append source: %v", err)
+	}
+
+	second, err := ReadSourceFile(context.Background(), source, file, first.Checkpoint, nil)
+	if err != nil {
+		t.Fatalf("second read: %v", err)
+	}
+	if len(second.CaptureErrors) != 0 {
+		t.Fatalf("second read replayed parse errors before checkpoint: %#v", second.CaptureErrors)
+	}
+	if len(second.Events) != 1 || second.Events[0].SourceLineNo != 3 {
+		t.Fatalf("second read events=%#v, want only line 3", second.Events)
+	}
+
+	fresh, err := ReadSourceFile(context.Background(), source, file, nil, nil)
+	if err != nil {
+		t.Fatalf("fresh read: %v", err)
+	}
+	if len(fresh.CaptureErrors) != 1 || fresh.CaptureErrors[0].ID != first.CaptureErrors[0].ID {
+		t.Fatalf("line parse error IDs = first %#v fresh %#v, want stable", first.CaptureErrors, fresh.CaptureErrors)
+	}
+}
+
 func TestReadWholeSourceFileWindowUsesEventIndexCheckpoint(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "state.db")
@@ -196,6 +259,67 @@ func TestReadWholeSourceFileWindowUsesEventIndexCheckpoint(t *testing.T) {
 	}
 	if len(second.Events) != 1 || second.Events[0].SessionID != "two" || second.HasMore || second.Checkpoint == nil || second.Checkpoint.LastOffset == 0 {
 		t.Fatalf("second whole-file window = %#v checkpoint=%#v hasMore=%v", second.Events, second.Checkpoint, second.HasMore)
+	}
+}
+
+func TestReadWholeSourceFileSQLiteSidecarsInvalidateCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "state.db")
+	if err := os.WriteFile(file, []byte("state"), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	var parses int
+	source := WatchSource{
+		Name:     "hermes",
+		Runtime:  models.RuntimeHermesAgent,
+		Provider: models.ProviderMulti,
+		Format:   models.FormatSQLite,
+		FileParser: func(file string) ([]NormalizedEvent, error) {
+			parses++
+			events := []NormalizedEvent{{
+				SessionID:  "one",
+				SourceName: "hermes",
+				Runtime:    models.RuntimeHermesAgent,
+				Provider:   models.ProviderMulti,
+				Format:     models.FormatSQLite,
+				EventKind:  models.EventKindMessage,
+				ActorRole:  models.ActorRoleAssistant,
+				Timestamp:  time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+				SourceFile: file,
+			}}
+			if _, err := os.Stat(file + "-wal"); err == nil {
+				events = append(events, NormalizedEvent{
+					SessionID:  "two",
+					SourceName: "hermes",
+					Runtime:    models.RuntimeHermesAgent,
+					Provider:   models.ProviderMulti,
+					Format:     models.FormatSQLite,
+					EventKind:  models.EventKindMessage,
+					ActorRole:  models.ActorRoleAssistant,
+					Timestamp:  time.Date(2026, 6, 8, 12, 0, 1, 0, time.UTC),
+					SourceFile: file,
+				})
+			}
+			return events, nil
+		},
+	}
+
+	first, err := ReadSourceFile(context.Background(), source, file, nil, nil)
+	if err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+	if len(first.Events) != 1 || first.Checkpoint == nil || parses != 1 {
+		t.Fatalf("first read events=%#v checkpoint=%#v parses=%d", first.Events, first.Checkpoint, parses)
+	}
+	if err := os.WriteFile(file+"-wal", []byte("committed rows still in wal"), 0644); err != nil {
+		t.Fatalf("write wal sidecar: %v", err)
+	}
+	second, err := ReadSourceFile(context.Background(), source, file, first.Checkpoint, nil)
+	if err != nil {
+		t.Fatalf("second read: %v", err)
+	}
+	if parses != 2 || len(second.Events) != 2 {
+		t.Fatalf("second read parses=%d events=%#v, want WAL sidecar to invalidate checkpoint", parses, second.Events)
 	}
 }
 

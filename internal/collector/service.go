@@ -1,6 +1,8 @@
 package collector
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -186,6 +188,13 @@ func (s *Service) SendPending(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		stats, err := s.cfg.Spool.Stats()
+		if err != nil {
+			return err
+		}
+		if stats.CorruptCount > 0 {
+			return nil
+		}
 		if len(pending) == 0 {
 			s.setSpoolFull(false)
 			s.clearTerminalBlocked()
@@ -345,14 +354,42 @@ func (s *Service) buildBatchRequest(sequence uint64, sourceID string, events []c
 }
 
 func validateBatchBodySize(req ingest.BatchRequest) error {
+	return validateBatchBodySizeLimit(req, ingest.MaxBodyBytes)
+}
+
+func validateBatchBodySizeLimit(req ingest.BatchRequest, maxBytes int) error {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return err
 	}
-	if len(body) > ingest.MaxBodyBytes {
-		return fmt.Errorf("collector batch JSON body exceeds ingest limit: %d > %d", len(body), ingest.MaxBodyBytes)
+	return validateEncodedBatchBodySize(body, maxBytes)
+}
+
+func validateEncodedBatchBodySize(body []byte, maxBytes int) error {
+	if len(body) > maxBytes {
+		return fmt.Errorf("collector batch JSON body exceeds ingest limit: %d > %d", len(body), maxBytes)
+	}
+	compressedLen, err := gzipEncodedLen(body)
+	if err != nil {
+		return err
+	}
+	if compressedLen > maxBytes {
+		return fmt.Errorf("collector batch gzip body exceeds ingest limit: %d > %d", compressedLen, maxBytes)
 	}
 	return nil
+}
+
+func gzipEncodedLen(body []byte) (int, error) {
+	var compressed bytes.Buffer
+	gz := gzip.NewWriter(&compressed)
+	if _, err := gz.Write(body); err != nil {
+		_ = gz.Close()
+		return 0, err
+	}
+	if err := gz.Close(); err != nil {
+		return 0, err
+	}
+	return compressed.Len(), nil
 }
 
 func (s *Service) recoverSpooledStateFromSpool() error {
