@@ -286,10 +286,12 @@ func normalizeBootstrap(boot Bootstrap) Bootstrap {
 func prepareMetadataFile(path string) error {
 	dir := filepath.Dir(path)
 	dirExisted := true
-	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+	if info, err := os.Lstat(dir); errors.Is(err, os.ErrNotExist) {
 		dirExisted = false
 	} else if err != nil {
 		return fmt.Errorf("stat control-plane metadata directory: %w", err)
+	} else if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("control-plane metadata directory %q must not be a symlink", dir)
 	}
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create control-plane metadata directory: %w", err)
