@@ -24,6 +24,9 @@ func NewRouter(
 
 	r := chi.NewRouter()
 
+	for _, middleware := range opts.globalMiddlewares {
+		r.Use(middleware)
+	}
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Compress(5))
@@ -81,10 +84,19 @@ func NewRouter(
 }
 
 type routerOptions struct {
-	authMiddleware func(http.Handler) http.Handler
+	globalMiddlewares []func(http.Handler) http.Handler
+	authMiddleware    func(http.Handler) http.Handler
 }
 
 type RouterOption func(*routerOptions)
+
+func WithGlobalMiddleware(middleware func(http.Handler) http.Handler) RouterOption {
+	return func(opts *routerOptions) {
+		if middleware != nil {
+			opts.globalMiddlewares = append(opts.globalMiddlewares, middleware)
+		}
+	}
+}
 
 func WithAuthMiddleware(middleware func(http.Handler) http.Handler) RouterOption {
 	return func(opts *routerOptions) {

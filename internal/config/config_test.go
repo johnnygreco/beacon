@@ -60,7 +60,7 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Dashboard.Name != "" {
 		t.Errorf("Dashboard.Name = %q, want empty default", cfg.Dashboard.Name)
 	}
-	if cfg.Auth.Mode != AuthModeLoopback || cfg.Auth.CookieName != "beacon_owner_token" {
+	if cfg.Auth.Mode != AuthModeLoopback || cfg.Auth.CookieName != "beacon_owner_token" || cfg.Auth.AllowInsecureOwnerHTTP {
 		t.Errorf("Auth defaults = %#v, want loopback mode and default cookie", cfg.Auth)
 	}
 	if cfg.Fleet.Role != FleetRoleBoth {
@@ -119,6 +119,7 @@ name = " Workstation A "
 [auth]
 mode = "owner-token"
 cookie_name = "beacon_test_owner"
+allow_insecure_owner_http = true
 
 [fleet]
 role = "both"
@@ -174,7 +175,7 @@ format = "jsonl"
 	if cfg.Dashboard.Name != "Workstation A" {
 		t.Errorf("Dashboard.Name = %q, want %q", cfg.Dashboard.Name, "Workstation A")
 	}
-	if cfg.Auth.Mode != AuthModeOwnerToken || cfg.Auth.CookieName != "beacon_test_owner" {
+	if cfg.Auth.Mode != AuthModeOwnerToken || cfg.Auth.CookieName != "beacon_test_owner" || !cfg.Auth.AllowInsecureOwnerHTTP {
 		t.Errorf("Auth = %#v, want custom owner-token auth", cfg.Auth)
 	}
 	if cfg.Fleet.Role != FleetRoleBoth {

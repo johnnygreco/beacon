@@ -33,7 +33,12 @@ func newEnrollCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "enroll",
 		Short: "Enroll this machine with a one-use Beacon token",
-		Args:  cobra.NoArgs,
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return fmt.Errorf("enroll does not accept positional arguments; use --token-stdin or --token-env")
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runEnroll(cmd, tokenStdin, tokenEnv)
 		},

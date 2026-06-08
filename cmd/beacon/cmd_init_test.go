@@ -140,13 +140,22 @@ func TestReadEnrollmentTokenSafeInputs(t *testing.T) {
 }
 
 func TestEnrollCommandRejectsTokenArgv(t *testing.T) {
+	token := "bcn_enroll_secret"
 	cmd := newRootCmd()
 	cmd.SetOut(&bytes.Buffer{})
-	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"enroll", "bcn_enroll_secret"})
+	var errOut bytes.Buffer
+	cmd.SetErr(&errOut)
+	cmd.SetArgs([]string{"enroll", token})
 
-	if err := cmd.Execute(); err == nil {
+	err := cmd.Execute()
+	if err == nil {
 		t.Fatal("enroll command accepted a token argument")
+	}
+	if strings.Contains(err.Error(), token) {
+		t.Fatalf("error echoed token: %q", err.Error())
+	}
+	if strings.Contains(errOut.String(), token) {
+		t.Fatalf("stderr echoed token: %q", errOut.String())
 	}
 }
 

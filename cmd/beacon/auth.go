@@ -15,11 +15,21 @@ func dashboardAuthOptions(ctx context.Context, cfg *config.Config, store *contro
 	if cfg == nil {
 		return nil, fmt.Errorf("config is nil")
 	}
+	options := []web.RouterOption{}
+	if isLoopbackHost(cfg.Server.Host) {
+		options = append(options, web.WithGlobalMiddleware(web.LoopbackHostMiddleware(cfg.Server.Host)))
+	}
 	if !isLoopbackHost(cfg.Server.Host) {
 		switch cfg.Auth.Mode {
 		case config.AuthModeReverseProxy:
 			return nil, nil
 		case config.AuthModeOwnerToken:
+			if !cfg.Auth.AllowInsecureOwnerHTTP {
+				return nil, fmt.Errorf("auth.mode %q on non-loopback HTTP requires auth.allow_insecure_owner_http = true or a trusted TLS reverse proxy with auth.mode %q",
+					cfg.Auth.Mode,
+					config.AuthModeReverseProxy,
+				)
+			}
 			hasOwnerToken, err := store.HasActiveOwnerToken(ctx)
 			if err != nil {
 				return nil, err
@@ -36,7 +46,7 @@ func dashboardAuthOptions(ctx context.Context, cfg *config.Config, store *contro
 		}
 	}
 	if cfg.Auth.Mode != config.AuthModeOwnerToken {
-		return nil, nil
+		return options, nil
 	}
 	authenticator := func(ctx context.Context, plaintext string) bool {
 		_, err := store.AuthenticateToken(ctx, controlplane.AuthenticateTokenRequest{
@@ -46,7 +56,8 @@ func dashboardAuthOptions(ctx context.Context, cfg *config.Config, store *contro
 		})
 		return err == nil
 	}
-	return []web.RouterOption{web.WithAuthMiddleware(web.OwnerTokenMiddleware(authenticator, cfg.Auth.CookieName))}, nil
+	options = append(options, web.WithAuthMiddleware(web.OwnerTokenMiddleware(authenticator, cfg.Auth.CookieName)))
+	return options, nil
 }
 
 func isLoopbackHost(host string) bool {

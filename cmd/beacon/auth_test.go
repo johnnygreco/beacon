@@ -36,6 +36,11 @@ func TestDashboardAuthOptionsNonLoopbackRequiresProtection(t *testing.T) {
 
 	cfg.Auth.Mode = config.AuthModeOwnerToken
 	_, err = dashboardAuthOptions(context.Background(), cfg, store)
+	if err == nil || !strings.Contains(err.Error(), "allow_insecure_owner_http") {
+		t.Fatalf("dashboardAuthOptions owner-token without insecure opt-in error = %v, want insecure HTTP rejection", err)
+	}
+	cfg.Auth.AllowInsecureOwnerHTTP = true
+	_, err = dashboardAuthOptions(context.Background(), cfg, store)
 	if err == nil || !strings.Contains(err.Error(), "requires an active owner/admin token") {
 		t.Fatalf("dashboardAuthOptions owner-token without token error = %v, want owner-token rejection", err)
 	}
@@ -65,8 +70,8 @@ func TestDashboardAuthOptionsLoopbackAllowsLocalMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dashboardAuthOptions loopback: %v", err)
 	}
-	if len(options) != 0 {
-		t.Fatalf("loopback options = %d, want none", len(options))
+	if len(options) != 1 {
+		t.Fatalf("loopback options = %d, want host guard middleware option", len(options))
 	}
 }
 

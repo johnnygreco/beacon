@@ -147,36 +147,7 @@ func (s *Store) EnsureLocal(ctx context.Context, boot Bootstrap) (*Snapshot, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := ensureMetadataValue(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
-		return nil, err
-	}
-	if _, err := ensureMetadataValue(ctx, tx, "schema_epoch", InitialSchemaEpoch, now); err != nil {
-		return nil, err
-	}
-	if boot.NodeID == "" {
-		boot.NodeID, err = ensureMetadataValue(ctx, tx, "local_node_id", generatedID("node"), now)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if boot.CollectorID == "" {
-		boot.CollectorID, err = ensureMetadataValue(ctx, tx, "local_collector_id", generatedID("collector"), now)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if err := upsertNode(ctx, tx, boot, now); err != nil {
-		return nil, err
-	}
-	if err := upsertCollector(ctx, tx, boot, now); err != nil {
-		return nil, err
-	}
-	for _, source := range boot.Sources {
-		if err := upsertSource(ctx, tx, boot.CollectorID, source, now); err != nil {
-			return nil, err
-		}
-	}
-	if err := reconcileSources(ctx, tx, boot.CollectorID, boot.Sources); err != nil {
+	if _, err := ensureLocalTx(ctx, tx, boot, now); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -188,12 +159,54 @@ func (s *Store) EnsureLocal(ctx context.Context, boot Bootstrap) (*Snapshot, err
 	return s.Snapshot(ctx)
 }
 
+func ensureLocalTx(ctx context.Context, tx *sql.Tx, boot Bootstrap, now time.Time) (Bootstrap, error) {
+	if _, err := ensureMetadataValue(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
+		return Bootstrap{}, err
+	}
+	if _, err := ensureMetadataValue(ctx, tx, "schema_epoch", InitialSchemaEpoch, now); err != nil {
+		return Bootstrap{}, err
+	}
+	if boot.NodeID == "" {
+		nodeID, err := ensureMetadataValue(ctx, tx, "local_node_id", generatedID("node"), now)
+		if err != nil {
+			return Bootstrap{}, err
+		}
+		boot.NodeID = nodeID
+	}
+	if boot.CollectorID == "" {
+		collectorID, err := ensureMetadataValue(ctx, tx, "local_collector_id", generatedID("collector"), now)
+		if err != nil {
+			return Bootstrap{}, err
+		}
+		boot.CollectorID = collectorID
+	}
+	if err := upsertNode(ctx, tx, boot, now); err != nil {
+		return Bootstrap{}, err
+	}
+	if err := upsertCollector(ctx, tx, boot, now); err != nil {
+		return Bootstrap{}, err
+	}
+	for _, source := range boot.Sources {
+		if err := upsertSource(ctx, tx, boot.CollectorID, source, now); err != nil {
+			return Bootstrap{}, err
+		}
+	}
+	if err := reconcileSources(ctx, tx, boot.CollectorID, boot.Sources); err != nil {
+		return Bootstrap{}, err
+	}
+	return boot, nil
+}
+
 func (s *Store) Snapshot(ctx context.Context) (*Snapshot, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("control-plane metadata store is nil")
 	}
-	snap := &Snapshot{Path: s.path}
-	metadata, err := readMetadata(ctx, s.db)
+	return snapshotFromQueryer(ctx, s.path, s.db)
+}
+
+func snapshotFromQueryer(ctx context.Context, path string, q tokenQueryer) (*Snapshot, error) {
+	snap := &Snapshot{Path: path}
+	metadata, err := readMetadata(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -201,13 +214,13 @@ func (s *Store) Snapshot(ctx context.Context) (*Snapshot, error) {
 	snap.SchemaEpoch = metadata["schema_epoch"]
 	snap.LocalNodeID = metadata["local_node_id"]
 	snap.LocalCollectorID = metadata["local_collector_id"]
-	if snap.Nodes, err = readNodes(ctx, s.db); err != nil {
+	if snap.Nodes, err = readNodes(ctx, q); err != nil {
 		return nil, err
 	}
-	if snap.Collectors, err = readCollectors(ctx, s.db); err != nil {
+	if snap.Collectors, err = readCollectors(ctx, q); err != nil {
 		return nil, err
 	}
-	if snap.Sources, err = readSources(ctx, s.db); err != nil {
+	if snap.Sources, err = readSources(ctx, q); err != nil {
 		return nil, err
 	}
 	return snap, nil
@@ -509,8 +522,8 @@ func reconcileSources(ctx context.Context, tx *sql.Tx, collectorID string, sourc
 	return nil
 }
 
-func readMetadata(ctx context.Context, db *sql.DB) (map[string]string, error) {
-	rows, err := db.QueryContext(ctx, `SELECT key, value FROM metadata`)
+func readMetadata(ctx context.Context, q tokenQueryer) (map[string]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT key, value FROM metadata`)
 	if err != nil {
 		return nil, fmt.Errorf("read control-plane metadata: %w", err)
 	}
@@ -530,8 +543,8 @@ func readMetadata(ctx context.Context, db *sql.DB) (map[string]string, error) {
 	return values, nil
 }
 
-func readNodes(ctx context.Context, db *sql.DB) ([]Node, error) {
-	rows, err := db.QueryContext(ctx,
+func readNodes(ctx context.Context, q tokenQueryer) ([]Node, error) {
+	rows, err := q.QueryContext(ctx,
 		`SELECT node_id, display_name, hostname, platform, created_at, updated_at
 		 FROM nodes ORDER BY node_id`)
 	if err != nil {
@@ -556,8 +569,8 @@ func readNodes(ctx context.Context, db *sql.DB) ([]Node, error) {
 	return nodes, nil
 }
 
-func readCollectors(ctx context.Context, db *sql.DB) ([]Collector, error) {
-	rows, err := db.QueryContext(ctx,
+func readCollectors(ctx context.Context, q tokenQueryer) ([]Collector, error) {
+	rows, err := q.QueryContext(ctx,
 		`SELECT collector_id, node_id, display_name, created_at, updated_at
 		 FROM collectors ORDER BY collector_id`)
 	if err != nil {
@@ -582,8 +595,8 @@ func readCollectors(ctx context.Context, db *sql.DB) ([]Collector, error) {
 	return collectors, nil
 }
 
-func readSources(ctx context.Context, db *sql.DB) ([]Source, error) {
-	rows, err := db.QueryContext(ctx,
+func readSources(ctx context.Context, q tokenQueryer) ([]Source, error) {
+	rows, err := q.QueryContext(ctx,
 		`SELECT source_id, collector_id, name, runtime, provider, format, watch_root, created_at, updated_at
 		 FROM sources ORDER BY collector_id, name`)
 	if err != nil {

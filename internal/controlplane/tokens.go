@@ -157,22 +157,7 @@ func (s *Store) CompleteEnrollment(ctx context.Context, enrollPlaintext string, 
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("control-plane metadata store is nil")
 	}
-	if _, err := s.AuthenticateToken(ctx, AuthenticateTokenRequest{
-		Plaintext:      enrollPlaintext,
-		AllowedTypes:   []string{TokenTypeEnroll},
-		RequiredScopes: []string{ScopeEnroll},
-	}); err != nil {
-		return nil, err
-	}
-	snapshot, err := s.EnsureLocal(ctx, boot)
-	if err != nil {
-		return nil, err
-	}
-	nodeID, collectorID, sourceIDs, err := assignmentForEnrollment(snapshot, boot)
-	if err != nil {
-		return nil, err
-	}
-
+	boot = normalizeBootstrap(boot)
 	now := time.Now().UTC()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -184,16 +169,6 @@ func (s *Store) CompleteEnrollment(ctx context.Context, enrollPlaintext string, 
 		Plaintext:      enrollPlaintext,
 		AllowedTypes:   []string{TokenTypeEnroll},
 		RequiredScopes: []string{ScopeEnroll},
-	}, now)
-	if err != nil {
-		return nil, err
-	}
-	ingest, err := insertToken(ctx, tx, CreateTokenRequest{
-		Type:        TokenTypeIngest,
-		Scopes:      []string{ScopeIngest},
-		NodeID:      nodeID,
-		CollectorID: collectorID,
-		SourceIDs:   sourceIDs,
 	}, now)
 	if err != nil {
 		return nil, err
@@ -217,6 +192,28 @@ func (s *Store) CompleteEnrollment(ctx context.Context, enrollPlaintext string, 
 	}
 	if affected != 1 {
 		return nil, ErrTokenUsed
+	}
+	assignedBoot, err := ensureLocalTx(ctx, tx, boot, now)
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err := snapshotFromQueryer(ctx, s.path, tx)
+	if err != nil {
+		return nil, err
+	}
+	nodeID, collectorID, sourceIDs, err := assignmentForEnrollment(snapshot, assignedBoot)
+	if err != nil {
+		return nil, err
+	}
+	ingest, err := insertToken(ctx, tx, CreateTokenRequest{
+		Type:        TokenTypeIngest,
+		Scopes:      []string{ScopeIngest},
+		NodeID:      nodeID,
+		CollectorID: collectorID,
+		SourceIDs:   sourceIDs,
+	}, now)
+	if err != nil {
+		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit enrollment transaction: %w", err)
@@ -387,16 +384,27 @@ func validateAuthenticatedToken(record TokenRecord, req AuthenticateTokenRequest
 			return ErrTokenScopeDenied
 		}
 	}
-	if req.NodeID != "" && record.NodeID != "" && req.NodeID != record.NodeID {
+	if tokenAuthRequiresIngestBindings(record, req) &&
+		(req.NodeID == "" || req.CollectorID == "" || req.SourceID == "" ||
+			record.NodeID == "" || record.CollectorID == "" || len(record.SourceIDs) == 0) {
 		return ErrTokenBindingMismatch
 	}
-	if req.CollectorID != "" && record.CollectorID != "" && req.CollectorID != record.CollectorID {
+	if req.NodeID != "" && req.NodeID != record.NodeID {
 		return ErrTokenBindingMismatch
 	}
-	if req.SourceID != "" && len(record.SourceIDs) > 0 && !containsString(record.SourceIDs, req.SourceID) {
+	if req.CollectorID != "" && req.CollectorID != record.CollectorID {
+		return ErrTokenBindingMismatch
+	}
+	if req.SourceID != "" && !containsString(record.SourceIDs, req.SourceID) {
 		return ErrTokenBindingMismatch
 	}
 	return nil
+}
+
+func tokenAuthRequiresIngestBindings(record TokenRecord, req AuthenticateTokenRequest) bool {
+	return record.Type == TokenTypeIngest ||
+		containsString(req.AllowedTypes, TokenTypeIngest) ||
+		containsString(req.RequiredScopes, ScopeIngest)
 }
 
 func scanTokenRecord(rows *sql.Rows) (TokenRecord, string, error) {

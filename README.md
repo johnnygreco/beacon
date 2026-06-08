@@ -155,6 +155,7 @@ name = "Workstation A"
 [auth]
 mode = "loopback"
 cookie_name = "beacon_owner_token"
+allow_insecure_owner_http = false
 
 [fleet]
 role = "both"
@@ -180,7 +181,11 @@ The default `[server].host` is `127.0.0.1` with `[auth].mode = "loopback"`.
 If you bind Beacon to a non-loopback host such as `0.0.0.0`, startup requires
 either `[auth].mode = "owner-token"` with an active owner/admin token created by
 `beacon init`, or `[auth].mode = "reverse-proxy"` when a trusted proxy handles
-access control.
+access control. Owner-token mode on non-loopback plain HTTP also requires the
+explicit `allow_insecure_owner_http = true` opt-in; use a TLS reverse proxy for
+normal browser access. Without a login UI, owner-token browser access requires
+setting the configured cookie yourself, while API clients can send
+`Authorization: Bearer <owner-token>`.
 
 Set `[dashboard].name` when you run Beacon dashboards for multiple machines or
 workspaces. The configured name becomes the dashboard heading and browser tab
@@ -198,9 +203,12 @@ In this release, keep `[fleet].role = "both"`; dedicated collector and
 control-plane modes are reserved for the multi-machine follow-up work.
 
 Use `beacon init` to create a local owner token and a short-lived one-use
-enrollment token. Use `beacon enroll --token-stdin` or
-`beacon enroll --token-env BEACON_ENROLL_TOKEN` on the collector; Beacon never
-requires enrollment tokens in command arguments.
+enrollment token in the configured metadata store. In this release,
+`beacon enroll --token-stdin` and
+`beacon enroll --token-env BEACON_ENROLL_TOKEN` consume that token from the same
+metadata store; remote control-plane enrollment over `fleet.control_plane_url`
+lands with the later HTTPS ingest work. Beacon never requires enrollment tokens
+in command arguments.
 
 If `[database].addrs` points to a remote ClickHouse host, Beacon will not start ClickHouse for you. Start the database yourself and run `beacon db migrate`.
 
@@ -300,6 +308,9 @@ beacon up
 
 | Command | Use it for |
 |---------|------------|
+| `beacon init` | Create local owner and one-use enrollment tokens |
+| `beacon enroll --token-stdin` | Consume an enrollment token from stdin and mint a bound ingest token |
+| `beacon enroll --token-env NAME` | Consume an enrollment token from an environment variable name |
 | `beacon up` | Start the dashboard and capture service |
 | `beacon down` | Stop the running Beacon web server |
 | `beacon watch` | Capture sessions without the web dashboard |

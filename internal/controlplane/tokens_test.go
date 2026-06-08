@@ -213,6 +213,50 @@ func TestIngestTokenRejectsCollectorBindingMismatch(t *testing.T) {
 	}
 }
 
+func TestIngestTokenRejectsMissingBindingRequests(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+
+	token, err := store.CreateToken(context.Background(), CreateTokenRequest{
+		Type:        TokenTypeIngest,
+		NodeID:      "node-a",
+		CollectorID: "collector-a",
+		SourceIDs:   []string{"source-a"},
+	})
+	if err != nil {
+		t.Fatalf("CreateToken ingest: %v", err)
+	}
+	tests := []struct {
+		name        string
+		nodeID      string
+		collectorID string
+		sourceID    string
+	}{
+		{name: "missing node", collectorID: "collector-a", sourceID: "source-a"},
+		{name: "missing collector", nodeID: "node-a", sourceID: "source-a"},
+		{name: "missing source", nodeID: "node-a", collectorID: "collector-a"},
+		{name: "missing all"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := store.AuthenticateToken(context.Background(), AuthenticateTokenRequest{
+				Plaintext:      token.Plaintext,
+				AllowedTypes:   []string{TokenTypeIngest},
+				RequiredScopes: []string{ScopeIngest},
+				NodeID:         tt.nodeID,
+				CollectorID:    tt.collectorID,
+				SourceID:       tt.sourceID,
+			})
+			if !errors.Is(err, ErrTokenBindingMismatch) {
+				t.Fatalf("AuthenticateToken error = %v, want ErrTokenBindingMismatch", err)
+			}
+		})
+	}
+}
+
 func TestInvalidEnrollmentTokenDoesNotMutateMetadata(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "control-plane.db"))
 	if err != nil {
@@ -230,6 +274,42 @@ func TestInvalidEnrollmentTokenDoesNotMutateMetadata(t *testing.T) {
 	}
 	if len(snapshot.Nodes) != 0 || len(snapshot.Collectors) != 0 || len(snapshot.Sources) != 0 {
 		t.Fatalf("invalid enrollment mutated metadata: %#v", snapshot)
+	}
+}
+
+func TestEnrollmentAssignmentFailureRollsBackMetadataAndTokenUse(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+
+	enroll, err := store.CreateToken(context.Background(), CreateTokenRequest{Type: TokenTypeEnroll})
+	if err != nil {
+		t.Fatalf("CreateToken enroll: %v", err)
+	}
+	boot := Bootstrap{
+		NodeID:      "node-no-source",
+		NodeName:    "No Source",
+		CollectorID: "collector-no-source",
+	}
+	_, err = store.CompleteEnrollment(context.Background(), enroll.Plaintext, boot)
+	if err == nil || !strings.Contains(err.Error(), "no source assignments") {
+		t.Fatalf("CompleteEnrollment error = %v, want source assignment failure", err)
+	}
+	if _, err := store.AuthenticateToken(context.Background(), AuthenticateTokenRequest{
+		Plaintext:      enroll.Plaintext,
+		AllowedTypes:   []string{TokenTypeEnroll},
+		RequiredScopes: []string{ScopeEnroll},
+	}); err != nil {
+		t.Fatalf("enroll token should remain active after rollback: %v", err)
+	}
+	snapshot, err := store.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if len(snapshot.Nodes) != 0 || len(snapshot.Collectors) != 0 || len(snapshot.Sources) != 0 {
+		t.Fatalf("failed enrollment mutated metadata: %#v", snapshot)
 	}
 }
 

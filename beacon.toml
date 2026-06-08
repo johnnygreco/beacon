@@ -78,6 +78,7 @@ name = ""
 [auth]
 mode = "loopback"
 cookie_name = "beacon_owner_token"
+allow_insecure_owner_http = false
 
 [fleet]
 role = "both"

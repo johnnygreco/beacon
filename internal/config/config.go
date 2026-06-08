@@ -96,8 +96,9 @@ const (
 )
 
 type AuthConfig struct {
-	Mode       string
-	CookieName string `mapstructure:"cookie_name"`
+	Mode                   string
+	CookieName             string `mapstructure:"cookie_name"`
+	AllowInsecureOwnerHTTP bool   `mapstructure:"allow_insecure_owner_http"`
 }
 
 const (
@@ -185,6 +186,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("dashboard.name", "")
 	v.SetDefault("auth.mode", AuthModeLoopback)
 	v.SetDefault("auth.cookie_name", "beacon_owner_token")
+	v.SetDefault("auth.allow_insecure_owner_http", false)
 	v.SetDefault("fleet.role", FleetRoleBoth)
 	v.SetDefault("fleet.metadata_path", DefaultControlPlaneMetadataPath())
 	v.SetDefault("fleet.control_plane_url", "")
