@@ -540,6 +540,112 @@ func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T)
 	}
 }
 
+func TestDashboardAnalyticsAPIsUseGuardedProjectFallback(t *testing.T) {
+	ch := setupLiveWebStore(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	api := NewAPIHandlers(ch.DB, nil, logger)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	mixedSessionID := "dashboard-analytics-mixed-project"
+	mixedEvents := []models.Event{
+		liveEvent("dashboard-analytics-mixed-beacon", mixedSessionID, "message", "assistant", now, "openai", "gpt-beacon", "", 2, 3, 0),
+		liveEvent("dashboard-analytics-mixed-other", mixedSessionID, "message", "assistant", now.Add(time.Second), "openai", "gpt-other", "", 4, 6, 0),
+		liveEvent("dashboard-analytics-mixed-blank", mixedSessionID, "tool_call", "assistant", now.Add(2*time.Second), "openai", "gpt-blank", "mcp__blank__leak", 7, 8, 90),
+	}
+	mixedEvents[0].CWD = "/Users/example/projects/beacon"
+	mixedEvents[1].CWD = "/Users/example/projects/other"
+	for i := range mixedEvents {
+		mixedEvents[i].SourceID = "analytics-mixed-source"
+		mixedEvents[i].SourceLineNo = i + 1
+		mixedEvents[i].SourceOffset = int64(i)
+	}
+	singleSessionID := "dashboard-analytics-single-project"
+	singleEvents := []models.Event{
+		liveEvent("dashboard-analytics-single-beacon", singleSessionID, "message", "assistant", now.Add(3*time.Second), "openai", "gpt-single", "", 1, 2, 0),
+		liveEvent("dashboard-analytics-single-blank", singleSessionID, "tool_call", "assistant", now.Add(4*time.Second), "openai", "gpt-single-blank", "mcp__single__read", 5, 6, 40),
+	}
+	singleEvents[0].CWD = "/Users/example/projects/beacon"
+	for i := range singleEvents {
+		singleEvents[i].SourceID = "analytics-single-source"
+		singleEvents[i].SourceLineNo = i + 1
+		singleEvents[i].SourceOffset = int64(i)
+	}
+	events := append(mixedEvents, singleEvents...)
+	batch := store.RowBatch{ActivityEvents: events}
+	for _, event := range events {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush guarded analytics events: %v", err)
+	}
+
+	mixedScope := "project_key=beacon&source_id=analytics-mixed-source"
+	chartsBody := recordAPIResponse(t, api.GetDashboardCharts, "/api/dashboard/charts?"+mixedScope)
+	var charts APIDashboardCharts
+	if err := json.Unmarshal([]byte(chartsBody), &charts); err != nil {
+		t.Fatalf("decode mixed charts: %v\n%s", err, chartsBody)
+	}
+	if charts.TokenCumulative.Summary.TotalTokens != 5 || modelSeriesSum(charts.TokenCumulative.Datasets, "gpt-blank") != 0 {
+		t.Fatalf("mixed beacon-scoped chart leaked blank-cwd analytics: %#v", charts.TokenCumulative)
+	}
+	if got := metricSeriesTotal(charts.ModelActivity.Metrics["tool_calls"].Datasets); got != 0 {
+		t.Fatalf("mixed beacon-scoped tool-call chart = %v, want blank-cwd tool excluded", got)
+	}
+	tokensBody := recordAPIResponse(t, api.GetTokensPerMinute, "/api/tokens-per-minute?"+mixedScope)
+	var perMinute []APITokensPerMinute
+	if err := json.Unmarshal([]byte(tokensBody), &perMinute); err != nil {
+		t.Fatalf("decode mixed tokens per minute: %v\n%s", err, tokensBody)
+	}
+	if tokenSum, callSum := tokenMinuteTotals(perMinute); tokenSum != 5 || callSum != 1 {
+		t.Fatalf("mixed beacon-scoped tokens per minute = tokens %d calls %d", tokenSum, callSum)
+	}
+	toolBody := recordAPIResponse(t, api.GetToolStats, "/api/tool-stats?"+mixedScope)
+	var tools []APIToolStats
+	if err := json.Unmarshal([]byte(toolBody), &tools); err != nil {
+		t.Fatalf("decode mixed tool stats: %v\n%s", err, toolBody)
+	}
+	if len(tools) != 0 {
+		t.Fatalf("mixed beacon-scoped tool stats leaked blank-cwd tool: %#v", tools)
+	}
+	modelBody := recordAPIResponse(t, api.GetTokensByModel, "/api/tokens-by-model?"+mixedScope)
+	var modelRows []APITokensByModel
+	if err := json.Unmarshal([]byte(modelBody), &modelRows); err != nil {
+		t.Fatalf("decode mixed tokens by model: %v\n%s", err, modelBody)
+	}
+	if len(modelRows) != 1 || modelRows[0].Model != "gpt-beacon" || modelRows[0].TotalTokens != 5 {
+		t.Fatalf("mixed beacon-scoped tokens by model = %#v", modelRows)
+	}
+
+	singleScope := "project_key=beacon&source_id=analytics-single-source"
+	chartsBody = recordAPIResponse(t, api.GetDashboardCharts, "/api/dashboard/charts?"+singleScope)
+	charts = APIDashboardCharts{}
+	if err := json.Unmarshal([]byte(chartsBody), &charts); err != nil {
+		t.Fatalf("decode single charts: %v\n%s", err, chartsBody)
+	}
+	if charts.TokenCumulative.Summary.TotalTokens != 14 || modelSeriesSum(charts.TokenCumulative.Datasets, "gpt-single-blank") != 11 {
+		t.Fatalf("single beacon-scoped chart did not include blank-cwd analytics: %#v", charts.TokenCumulative)
+	}
+	if got := metricSeriesTotal(charts.ModelActivity.Metrics["tool_calls"].Datasets); got != 1 {
+		t.Fatalf("single beacon-scoped tool-call chart = %v, want blank-cwd tool included", got)
+	}
+	toolBody = recordAPIResponse(t, api.GetToolStats, "/api/tool-stats?"+singleScope)
+	tools = nil
+	if err := json.Unmarshal([]byte(toolBody), &tools); err != nil {
+		t.Fatalf("decode single tool stats: %v\n%s", err, toolBody)
+	}
+	if len(tools) != 1 || tools[0].ToolName != "mcp__single__read" || tools[0].Calls != 1 {
+		t.Fatalf("single beacon-scoped tool stats = %#v", tools)
+	}
+	modelBody = recordAPIResponse(t, api.GetTokensByModel, "/api/tokens-by-model?"+singleScope)
+	modelRows = nil
+	if err := json.Unmarshal([]byte(modelBody), &modelRows); err != nil {
+		t.Fatalf("decode single tokens by model: %v\n%s", err, modelBody)
+	}
+	if apiModelTokenTotal(modelRows, "gpt-single") != 3 || apiModelTokenTotal(modelRows, "gpt-single-blank") != 11 {
+		t.Fatalf("single beacon-scoped tokens by model = %#v", modelRows)
+	}
+}
+
 func TestQuerySessionDetailKeepsUnattributedModelTokensSeparate(t *testing.T) {
 	ch := setupLiveWebStore(t)
 
@@ -767,6 +873,25 @@ func modelTokenTotal(items []views.ModelTokens, model string) int64 {
 		}
 	}
 	return 0
+}
+
+func apiModelTokenTotal(items []APITokensByModel, model string) int64 {
+	for _, item := range items {
+		if item.Model == model {
+			return item.TotalTokens
+		}
+	}
+	return 0
+}
+
+func tokenMinuteTotals(points []APITokensPerMinute) (int64, int) {
+	var tokenSum int64
+	var callSum int
+	for _, point := range points {
+		tokenSum += point.TotalTokens
+		callSum += point.CallCount
+	}
+	return tokenSum, callSum
 }
 
 func containsSession(items []APISessionSummary, id string) bool {

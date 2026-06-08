@@ -342,11 +342,7 @@ func analyticsProjectionInsertSQL(placeholders string) string {
 				WHERE session_id IN (%[1]s)
 				GROUP BY event_uid
 			) AS latest_events
-			LEFT JOIN (
-				SELECT session_id, project_path
-				FROM session_projection FINAL
-				WHERE session_id IN (%[1]s)
-			) AS sp ON sp.session_id = latest_events.projected_session_id
+			LEFT JOIN `+sessionProjectFallbackSQL(placeholders)+` AS sp ON sp.session_id = latest_events.projected_session_id
 		)
 		GROUP BY projected_session_id, node_id, collector_id, source_id, source_name, runtime, format, project_key, project_path, minute, provider, model, tool_name, event_kind`, placeholders, projectKeySQL("project_path"))
 }

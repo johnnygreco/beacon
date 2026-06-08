@@ -279,30 +279,8 @@ func (s *Store) refreshSearchIndex(ctx context.Context, batchSize int, where str
 		}
 		sessionProjectsCTE = `SELECT
 				session_id,
-				if(project_count = 1, single_project_path, '') AS session_project_path
-			FROM (
-				SELECT
-					session_id,
-					uniqExactIf(project_key, project_key != '') AS project_count,
-					minIf(project_path, project_key != '') AS single_project_path
-				FROM (
-					SELECT
-						session_id,
-						cwd AS project_path,
-						` + projectKeySQL("cwd") + ` AS project_key
-					FROM (
-						SELECT
-							event_uid,
-							argMax(session_id, captured_at) AS session_id,
-							argMax(cwd, captured_at) AS cwd
-						FROM activity_events AS sp
-						WHERE sp.session_id IN (` + placeholders(len(projectSessionIDs)) + `)
-						GROUP BY event_uid
-					)
-				)
-				GROUP BY session_id
-			)
-			`
+				project_path AS session_project_path
+			FROM ` + sessionProjectFallbackSQL(placeholders(len(projectSessionIDs))) + ` AS fallback`
 		args = append(args, projectArgs...)
 	}
 	rows, err := s.DB.QueryContext(ctx, fmt.Sprintf(`WITH latest_events AS (

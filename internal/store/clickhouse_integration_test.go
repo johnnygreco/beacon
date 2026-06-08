@@ -198,6 +198,169 @@ func TestAnalyticsProjectionProjectFallbackReplacesChangedRows(t *testing.T) {
 	}
 }
 
+func TestAnalyticsProjectionProjectsBlankCWDEventsOnlyForSingleProjectSessions(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 8, 12, 30, 0, 0, time.UTC)
+	mixedSessionID := "analytics-mixed-project"
+	events := []models.Event{
+		{
+			EventUID:     "analytics-mixed-beacon",
+			SessionID:    mixedSessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now,
+			TextContent:  "analytics beacon project",
+			TextPreview:  "analytics beacon project",
+			InputTokens:  2,
+			OutputTokens: 3,
+			CWD:          "/Users/example/projects/beacon",
+			EventVersion: 1,
+			SourceFile:   "analytics-mixed.jsonl",
+			SourceLineNo: 1,
+		},
+		{
+			EventUID:     "analytics-mixed-other",
+			SessionID:    mixedSessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(time.Second),
+			TextContent:  "analytics other project",
+			TextPreview:  "analytics other project",
+			InputTokens:  4,
+			OutputTokens: 6,
+			CWD:          "/Users/example/projects/other",
+			EventVersion: 1,
+			SourceFile:   "analytics-mixed.jsonl",
+			SourceLineNo: 2,
+			SourceOffset: 1,
+		},
+		{
+			EventUID:     "analytics-mixed-blank",
+			SessionID:    mixedSessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(2 * time.Second),
+			TextContent:  "analytics blank project",
+			TextPreview:  "analytics blank project",
+			InputTokens:  7,
+			OutputTokens: 8,
+			EventVersion: 1,
+			SourceFile:   "analytics-mixed.jsonl",
+			SourceLineNo: 3,
+			SourceOffset: 2,
+		},
+	}
+	batch := RowBatch{ActivityEvents: events}
+	for _, event := range events {
+		batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+	}
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("flush mixed project analytics events: %v", err)
+	}
+	rows, tokens := analyticsProjectionTotals(t, ch.DB, mixedSessionID, "beacon")
+	if rows == 0 || tokens != 5 {
+		t.Fatalf("beacon analytics rows/tokens = %d/%d, want only beacon event tokens", rows, tokens)
+	}
+	rows, tokens = analyticsProjectionTotals(t, ch.DB, mixedSessionID, "other")
+	if rows == 0 || tokens != 10 {
+		t.Fatalf("other analytics rows/tokens = %d/%d, want only other event tokens", rows, tokens)
+	}
+	rows, tokens = analyticsProjectionTotals(t, ch.DB, mixedSessionID, "")
+	if rows == 0 || tokens != 15 {
+		t.Fatalf("blank analytics rows/tokens = %d/%d, want mixed-project blank-cwd tokens", rows, tokens)
+	}
+
+	singleSessionID := "analytics-single-project"
+	singleEvents := []models.Event{
+		{
+			EventUID:     "analytics-single-beacon",
+			SessionID:    singleSessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(3 * time.Second),
+			TextContent:  "analytics single beacon",
+			TextPreview:  "analytics single beacon",
+			InputTokens:  1,
+			OutputTokens: 2,
+			CWD:          "/Users/example/projects/beacon",
+			EventVersion: 1,
+			SourceFile:   "analytics-single.jsonl",
+			SourceLineNo: 1,
+		},
+		{
+			EventUID:     "analytics-single-blank",
+			SessionID:    singleSessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(4 * time.Second),
+			TextContent:  "analytics single blank",
+			TextPreview:  "analytics single blank",
+			InputTokens:  5,
+			OutputTokens: 6,
+			EventVersion: 1,
+			SourceFile:   "analytics-single.jsonl",
+			SourceLineNo: 2,
+			SourceOffset: 1,
+		},
+	}
+	batch = RowBatch{ActivityEvents: singleEvents}
+	for _, event := range singleEvents {
+		batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+	}
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("flush single project analytics events: %v", err)
+	}
+	rows, tokens = analyticsProjectionTotals(t, ch.DB, singleSessionID, "beacon")
+	if rows == 0 || tokens != 14 {
+		t.Fatalf("single-project beacon analytics rows/tokens = %d/%d, want project and blank-cwd tokens", rows, tokens)
+	}
+	rows, tokens = analyticsProjectionTotals(t, ch.DB, singleSessionID, "")
+	if rows != 0 || tokens != 0 {
+		t.Fatalf("single-project blank analytics rows/tokens = %d/%d, want none", rows, tokens)
+	}
+}
+
+func analyticsProjectionTotals(t *testing.T, db *sql.DB, sessionID, projectKey string) (uint64, uint64) {
+	t.Helper()
+	var rows, tokens uint64
+	if err := db.QueryRowContext(context.Background(), `SELECT count(), COALESCE(sum(total_tokens), 0)
+		FROM (
+			SELECT *
+			FROM analytics_projection FINAL
+		) AS ap
+		INNER JOIN (
+			SELECT session_id, argMax(refresh_id, updated_at) AS refresh_id
+			FROM analytics_projection FINAL
+			WHERE session_id = ?
+			GROUP BY session_id
+		) AS latest ON latest.session_id = ap.session_id AND latest.refresh_id = ap.refresh_id
+		WHERE ap.session_id = ? AND ap.project_key = ?`, sessionID, sessionID, projectKey).Scan(&rows, &tokens); err != nil {
+		t.Fatalf("analytics totals %q: %v", projectKey, err)
+	}
+	return rows, tokens
+}
+
 func TestSearchIndexProjectsBlankCWDEventsOnlyForSingleProjectSessions(t *testing.T) {
 	ch := setupLiveClickHouse(t)
 	ctx := context.Background()
