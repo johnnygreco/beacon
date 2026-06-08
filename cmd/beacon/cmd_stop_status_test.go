@@ -8,12 +8,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/johnnygreco/beacon/internal/controlplane"
 	"github.com/johnnygreco/beacon/internal/store"
 )
 
@@ -95,6 +97,80 @@ func TestReadPidReturnsLivePID(t *testing.T) {
 	}
 }
 
+func TestAcquirePIDFileRejectsOtherLivePID(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	proc := exec.Command("sleep", "5")
+	if err := proc.Start(); err != nil {
+		t.Fatalf("start sleep process: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = proc.Process.Kill()
+		_ = proc.Wait()
+	})
+	path := pidfilePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("create pidfile dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(strconv.Itoa(proc.Process.Pid)), 0644); err != nil {
+		t.Fatalf("write pidfile: %v", err)
+	}
+
+	if _, err := acquirePIDFile(); err == nil || !strings.Contains(err.Error(), "already running") {
+		t.Fatalf("acquirePIDFile error = %v, want already-running rejection", err)
+	}
+}
+
+func TestAcquirePIDFileRejectsConcurrentStart(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	first, err := acquirePIDFile()
+	if err != nil {
+		t.Fatalf("first acquirePIDFile: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := first.Close(); err != nil {
+			t.Fatalf("close first pidfile: %v", err)
+		}
+	})
+
+	second, err := acquirePIDFile()
+	if err == nil {
+		t.Cleanup(func() {
+			if err := second.Close(); err != nil {
+				t.Fatalf("close second pidfile: %v", err)
+			}
+		})
+		t.Fatal("second acquirePIDFile succeeded, want lock rejection")
+	}
+	if !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("second acquirePIDFile error = %v, want lock rejection", err)
+	}
+}
+
+func TestPIDFileCloseKeepsForeignPIDFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := pidfilePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("create pidfile dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("12345"), 0644); err != nil {
+		t.Fatalf("write pidfile: %v", err)
+	}
+
+	if err := (&pidFileLock{path: path}).Close(); err != nil {
+		t.Fatalf("close pidfile lock: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read pidfile after foreign remove: %v", err)
+	}
+	if string(data) != "12345" {
+		t.Fatalf("pidfile data after foreign remove = %q, want unchanged", string(data))
+	}
+}
+
 func TestCheckServerHealthStatus(t *testing.T) {
 	okServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/health" {
@@ -172,7 +248,26 @@ func TestRunStopUsesPidfileBeforeConfig(t *testing.T) {
 func TestRunStatusReportsClickHouseUnavailable(t *testing.T) {
 	resetConfigState(t)
 	cfgPath := filepath.Join(t.TempDir(), "beacon.toml")
-	config := "[server]\nhost = \"127.0.0.1\"\nport = 19001\n\n[database]\naddrs = [\"127.0.0.1:19000\"]\n"
+	metadataPath := filepath.Join(t.TempDir(), "control-plane.db")
+	control, err := controlplane.Open(metadataPath)
+	if err != nil {
+		t.Fatalf("Open control-plane: %v", err)
+	}
+	if _, err := control.EnsureLocal(context.Background(), controlplane.Bootstrap{
+		NodeID:      "node-status",
+		NodeName:    "Status",
+		CollectorID: "collector-status",
+		Sources:     []controlplane.SourceRegistration{{Name: "codex", Runtime: "codex", Provider: "openai", Format: "jsonl", WatchRoot: "/tmp/codex"}},
+	}); err != nil {
+		t.Fatalf("EnsureLocal: %v", err)
+	}
+	if _, err := control.BeginReset(context.Background()); err != nil {
+		t.Fatalf("BeginReset: %v", err)
+	}
+	if err := control.Close(); err != nil {
+		t.Fatalf("Close control-plane: %v", err)
+	}
+	config := "[server]\nhost = \"127.0.0.1\"\nport = 19001\n\n[database]\naddrs = [\"127.0.0.1:19000\"]\n\n[fleet]\nmetadata_path = \"" + metadataPath + "\"\n"
 	if err := os.WriteFile(cfgPath, []byte(config), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -195,6 +290,8 @@ func TestRunStatusReportsClickHouseUnavailable(t *testing.T) {
 	for _, want := range []string{
 		"Beacon Status",
 		"Server:  not running",
+		"Control Plane: schema_epoch=1 reset_pending=true",
+		"Reset Pending: epoch=1",
 		"ClickHouse: unavailable at 127.0.0.1:19000 (offline)",
 	} {
 		if !strings.Contains(output, want) {

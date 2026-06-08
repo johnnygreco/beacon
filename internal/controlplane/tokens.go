@@ -43,6 +43,7 @@ var (
 	ErrTokenScopeDenied     = errors.New("token scope denied")
 	ErrTokenBindingMismatch = errors.New("token binding mismatch")
 	ErrEnrollmentInvalid    = errors.New("enrollment invalid")
+	ErrResetPending         = errors.New("control-plane reset pending")
 )
 
 type TokenRecord struct {
@@ -176,6 +177,9 @@ func (s *Store) CompleteEnrollment(ctx context.Context, enrollPlaintext string, 
 	if err != nil {
 		return nil, err
 	}
+	if err := ensureResetNotPending(ctx, tx); err != nil {
+		return nil, err
+	}
 	result, err := tx.ExecContext(ctx,
 		`UPDATE tokens
 		 SET status = ?, used_at = ?, updated_at = ?
@@ -244,6 +248,9 @@ func (s *Store) CompleteRemoteEnrollment(ctx context.Context, enrollPlaintext, e
 	if err != nil {
 		return nil, err
 	}
+	if err := ensureResetNotPending(ctx, tx); err != nil {
+		return nil, err
+	}
 	result, err := tx.ExecContext(ctx,
 		`UPDATE tokens
 		 SET status = ?, used_at = ?, updated_at = ?
@@ -302,6 +309,17 @@ func (s *Store) CompleteRemoteEnrollment(ctx context.Context, enrollPlaintext, e
 		return nil, fmt.Errorf("commit remote enrollment transaction: %w", err)
 	}
 	return &EnrollmentResult{Snapshot: snapshot, IngestToken: *ingest}, nil
+}
+
+func ensureResetNotPending(ctx context.Context, q tokenQueryer) error {
+	metadata, err := readMetadata(ctx, q)
+	if err != nil {
+		return err
+	}
+	if metadata["reset_pending"] == "true" {
+		return ErrResetPending
+	}
+	return nil
 }
 
 func (s *Store) RevokeOlderActiveIngestTokensForCollector(ctx context.Context, current TokenRecord) error {

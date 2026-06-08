@@ -330,3 +330,89 @@ role = "control-plane"
 		t.Fatalf("runWatch error = %q, role rejection should happen before ClickHouse", err.Error())
 	}
 }
+
+func TestRunServeRejectsHeldRunLockBeforeClickHouse(t *testing.T) {
+	resetConfigState(t)
+	cfgPath := t.TempDir() + "/beacon.toml"
+	if err := os.WriteFile(cfgPath, []byte(`
+[database]
+addrs = ["127.0.0.1:1"]
+`), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfgFile = cfgPath
+	lock, err := acquireBeaconRunLock()
+	if err != nil {
+		t.Fatalf("acquire run lock: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := lock.Close(); err != nil {
+			t.Fatalf("close run lock: %v", err)
+		}
+	})
+
+	err = runServe(newUpCmd(), nil)
+	if err == nil {
+		t.Fatal("runServe returned nil error")
+	}
+	if !strings.Contains(err.Error(), "acquire beacon pidfile") || !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("runServe error = %q, want pidfile lock rejection", err.Error())
+	}
+	if strings.Contains(err.Error(), "clickhouse") {
+		t.Fatalf("runServe error = %q, pidfile rejection should happen before ClickHouse", err.Error())
+	}
+}
+
+func TestRunServeRejectsResetPendingBeforeClickHouse(t *testing.T) {
+	resetConfigState(t)
+	metadataPath := t.TempDir() + "/control-plane.db"
+	prepareResetPendingControlPlane(t, metadataPath)
+	cfgPath := writeResetPendingServiceConfig(t, metadataPath)
+	cfgFile = cfgPath
+
+	err := runServe(newUpCmd(), nil)
+	if err == nil {
+		t.Fatal("runServe returned nil error")
+	}
+	if !strings.Contains(err.Error(), "control-plane reset pending") {
+		t.Fatalf("runServe error = %q, want reset-pending rejection", err.Error())
+	}
+	if strings.Contains(err.Error(), "clickhouse") {
+		t.Fatalf("runServe error = %q, reset-pending rejection should happen before ClickHouse", err.Error())
+	}
+}
+
+func TestRunWatchRejectsResetPendingBeforeClickHouse(t *testing.T) {
+	resetConfigState(t)
+	metadataPath := t.TempDir() + "/control-plane.db"
+	prepareResetPendingControlPlane(t, metadataPath)
+	cfgPath := writeResetPendingServiceConfig(t, metadataPath)
+	cfgFile = cfgPath
+
+	err := runWatch(newWatchCmd(), nil)
+	if err == nil {
+		t.Fatal("runWatch returned nil error")
+	}
+	if !strings.Contains(err.Error(), "control-plane reset pending") {
+		t.Fatalf("runWatch error = %q, want reset-pending rejection", err.Error())
+	}
+	if strings.Contains(err.Error(), "clickhouse") {
+		t.Fatalf("runWatch error = %q, reset-pending rejection should happen before ClickHouse", err.Error())
+	}
+}
+
+func writeResetPendingServiceConfig(t *testing.T, metadataPath string) string {
+	t.Helper()
+	cfgPath := t.TempDir() + "/beacon.toml"
+	body := `
+[database]
+addrs = ["127.0.0.1:1"]
+
+[fleet]
+metadata_path = "` + metadataPath + `"
+`
+	if err := os.WriteFile(cfgPath, []byte(body), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	return cfgPath
+}

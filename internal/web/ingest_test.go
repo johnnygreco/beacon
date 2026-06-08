@@ -130,6 +130,59 @@ func TestIngestBatchRejectsBindingEpochAndDigestConflicts(t *testing.T) {
 	}
 }
 
+func TestIngestBatchRejectsResetPendingBeforeCommit(t *testing.T) {
+	control, token, sourceID := testIngestControlPlane(t)
+	if _, err := control.BeginReset(context.Background()); err != nil {
+		t.Fatalf("BeginReset: %v", err)
+	}
+	committer := &fakeIngestCommitter{}
+	handler := NewIngestHandlers(control, committer, 0, 0, nil, nil)
+	req := testIngestBatchRequest(t, sourceID)
+
+	rec := postIngestJSON(t, handler.Batch, req, token)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d body=%s, want 503", rec.Code, rec.Body.String())
+	}
+	if committer.calls != 0 {
+		t.Fatalf("committer calls = %d, want no commit during reset", committer.calls)
+	}
+}
+
+func TestIngestBatchRejectsOldEpochAfterResetCompletion(t *testing.T) {
+	control, token, sourceID := testIngestControlPlane(t)
+	if _, err := control.BeginReset(context.Background()); err != nil {
+		t.Fatalf("BeginReset: %v", err)
+	}
+	completed, err := control.CompleteReset(context.Background())
+	if err != nil {
+		t.Fatalf("CompleteReset: %v", err)
+	}
+	if completed.SchemaEpoch == controlplane.InitialSchemaEpoch {
+		t.Fatalf("schema epoch did not advance after reset: %#v", completed)
+	}
+	committer := &fakeIngestCommitter{}
+	handler := NewIngestHandlers(control, committer, 0, 0, nil, nil)
+	req := testIngestBatchRequest(t, sourceID)
+
+	rec := postIngestJSON(t, handler.Batch, req, token)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	if committer.calls != 0 {
+		t.Fatalf("committer calls = %d, want no commit for old epoch", committer.calls)
+	}
+
+	req.ControlPlaneEpoch = completed.SchemaEpoch
+	req.PayloadDigest = computeTestBatchDigest(t, req)
+	rec = postIngestJSON(t, handler.Batch, req, token)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status with stale token and new epoch = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	if committer.calls != 0 {
+		t.Fatalf("committer calls = %d, want no commit for stale token", committer.calls)
+	}
+}
+
 func TestIngestEnrollCompletesRemoteEnrollment(t *testing.T) {
 	control, enrollToken := testEnrollControlPlane(t)
 	committer := &fakeIngestCommitter{}
@@ -172,6 +225,39 @@ func TestIngestEnrollCompletesRemoteEnrollment(t *testing.T) {
 	}
 	if _, ok := raw["token"]; ok {
 		t.Fatalf("enrollment response leaked token metadata: %s", rec.Body.String())
+	}
+}
+
+func TestIngestEnrollRejectsResetPendingWithoutUsingToken(t *testing.T) {
+	control, enrollToken := testEnrollControlPlane(t)
+	if _, err := control.BeginReset(context.Background()); err != nil {
+		t.Fatalf("BeginReset: %v", err)
+	}
+	handler := NewIngestHandlers(control, &fakeIngestCommitter{}, 0, 0, nil, nil)
+	req := ingest.EnrollRequest{
+		Schema: ingest.SchemaV1,
+		Bootstrap: ingest.EnrollBootstrap{
+			NodeName: "Remote",
+			Sources: []ingest.EnrollSourceRegistration{{
+				Name:      "codex",
+				Runtime:   models.RuntimeCodex,
+				Provider:  models.ProviderOpenAI,
+				Format:    models.FormatJSONL,
+				WatchRoot: "~/.codex",
+			}},
+		},
+	}
+
+	rec := postIngestJSON(t, handler.Enroll, req, enrollToken)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d body=%s, want 503", rec.Code, rec.Body.String())
+	}
+	if _, err := control.AuthenticateToken(context.Background(), controlplane.AuthenticateTokenRequest{
+		Plaintext:      enrollToken,
+		AllowedTypes:   []string{controlplane.TokenTypeEnroll},
+		RequiredScopes: []string{controlplane.ScopeEnroll},
+	}); err != nil {
+		t.Fatalf("enrollment token after reset-pending rejection = %v, want still active", err)
 	}
 }
 
@@ -245,6 +331,95 @@ func TestReplacementIngestUseRevokesOlderCollectorToken(t *testing.T) {
 	})
 	if !errors.Is(err, controlplane.ErrTokenRevoked) {
 		t.Fatalf("old ingest token after replacement batch = %v, want revoked", err)
+	}
+}
+
+func TestReplacementBatchWithInvalidCheckpointDoesNotRevokeOlderToken(t *testing.T) {
+	control, enrollToken := testEnrollControlPlane(t)
+	handler := NewIngestHandlers(control, &fakeIngestCommitter{}, 0, 0, nil, nil)
+	boot := ingest.EnrollBootstrap{
+		NodeName: "Remote",
+		Sources: []ingest.EnrollSourceRegistration{{
+			Name:      "codex",
+			Runtime:   models.RuntimeCodex,
+			Provider:  models.ProviderOpenAI,
+			Format:    models.FormatJSONL,
+			WatchRoot: "~/.codex",
+		}},
+	}
+	first := postIngestJSON(t, handler.Enroll, ingest.EnrollRequest{Schema: ingest.SchemaV1, Bootstrap: boot}, enrollToken)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first enroll status = %d body=%s, want 200", first.Code, first.Body.String())
+	}
+	var firstResp ingest.EnrollResponse
+	if err := json.Unmarshal(first.Body.Bytes(), &firstResp); err != nil {
+		t.Fatalf("decode first enrollment: %v", err)
+	}
+	secondEnroll, err := control.CreateToken(context.Background(), controlplane.CreateTokenRequest{Type: controlplane.TokenTypeEnroll})
+	if err != nil {
+		t.Fatalf("CreateToken second enroll: %v", err)
+	}
+	boot.NodeID = firstResp.Assignment.NodeID
+	boot.CollectorID = firstResp.Assignment.CollectorID
+	second := postIngestJSON(t, handler.Enroll, ingest.EnrollRequest{
+		Schema:              ingest.SchemaV1,
+		Bootstrap:           boot,
+		ExistingIngestToken: firstResp.IngestToken,
+	}, secondEnroll.Plaintext)
+	if second.Code != http.StatusOK {
+		t.Fatalf("second enroll status = %d body=%s, want 200", second.Code, second.Body.String())
+	}
+	var secondResp ingest.EnrollResponse
+	if err := json.Unmarshal(second.Body.Bytes(), &secondResp); err != nil {
+		t.Fatalf("decode second enrollment: %v", err)
+	}
+
+	batch := testIngestBatchRequest(t, secondResp.Assignment.SourceIDs[0])
+	batch.BatchID = "batch-invalid-checkpoint"
+	batch.NodeID = secondResp.Assignment.NodeID
+	batch.CollectorID = secondResp.Assignment.CollectorID
+	batch.SourceIDs = secondResp.Assignment.SourceIDs
+	batch.Checkpoints = []models.Checkpoint{{
+		SourceName: "unknown",
+		SourceFile: "session.jsonl",
+		LastOffset: 32,
+		LastLineNo: 1,
+	}}
+	batch.PayloadDigest = computeTestBatchDigest(t, batch)
+	rec := postIngestJSON(t, handler.Batch, batch, secondResp.IngestToken)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("batch status = %d body=%s, want 403", rec.Code, rec.Body.String())
+	}
+	if _, err := control.AuthenticateToken(context.Background(), controlplane.AuthenticateTokenRequest{
+		Plaintext:      firstResp.IngestToken,
+		AllowedTypes:   []string{controlplane.TokenTypeIngest},
+		RequiredScopes: []string{controlplane.ScopeIngest},
+		NodeID:         firstResp.Assignment.NodeID,
+		CollectorID:    firstResp.Assignment.CollectorID,
+		SourceID:       firstResp.Assignment.SourceIDs[0],
+	}); err != nil {
+		t.Fatalf("old ingest token after rejected replacement batch = %v, want still active", err)
+	}
+}
+
+func TestBatchCommitStillSucceedsWhenTokenCleanupFails(t *testing.T) {
+	control, token, sourceID := testIngestControlPlane(t)
+	committer := &fakeIngestCommitter{
+		afterCommit: func() {
+			if err := control.Close(); err != nil {
+				t.Fatalf("Close control-plane after commit: %v", err)
+			}
+		},
+	}
+	handler := NewIngestHandlers(control, committer, 0, 0, nil, nil)
+	req := testIngestBatchRequest(t, sourceID)
+
+	rec := postIngestJSON(t, handler.Batch, req, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200 despite cleanup failure after commit", rec.Code, rec.Body.String())
+	}
+	if committer.calls != 1 {
+		t.Fatalf("committer calls = %d, want committed once", committer.calls)
 	}
 }
 
@@ -406,12 +581,65 @@ func TestIngestHeartbeatAuthenticatesAndPersists(t *testing.T) {
 	}
 }
 
+func TestIngestHeartbeatRejectsResetPending(t *testing.T) {
+	control, token, sourceID := testIngestControlPlane(t)
+	if _, err := control.BeginReset(context.Background()); err != nil {
+		t.Fatalf("BeginReset: %v", err)
+	}
+	committer := &fakeIngestCommitter{}
+	handler := NewIngestHandlers(control, committer, 0, 0, nil, nil)
+	req := ingest.HeartbeatRequest{
+		Schema:            ingest.SchemaV1,
+		CollectorID:       "collector-web",
+		NodeID:            "node-web",
+		ControlPlaneEpoch: controlplane.InitialSchemaEpoch,
+		Sources:           []ingest.HeartbeatSource{{SourceID: sourceID, Status: "healthy"}},
+	}
+
+	rec := postIngestJSON(t, handler.Heartbeat, req, token)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d body=%s, want 503", rec.Code, rec.Body.String())
+	}
+	if len(committer.heartbeats) != 0 {
+		t.Fatalf("heartbeats = %#v, want none during reset", committer.heartbeats)
+	}
+}
+
+func TestIngestHeartbeatRejectsStaleTokenAfterResetCompletion(t *testing.T) {
+	control, token, sourceID := testIngestControlPlane(t)
+	if _, err := control.BeginReset(context.Background()); err != nil {
+		t.Fatalf("BeginReset: %v", err)
+	}
+	completed, err := control.CompleteReset(context.Background())
+	if err != nil {
+		t.Fatalf("CompleteReset: %v", err)
+	}
+	committer := &fakeIngestCommitter{}
+	handler := NewIngestHandlers(control, committer, 0, 0, nil, nil)
+	req := ingest.HeartbeatRequest{
+		Schema:            ingest.SchemaV1,
+		CollectorID:       "collector-web",
+		NodeID:            "node-web",
+		ControlPlaneEpoch: completed.SchemaEpoch,
+		Sources:           []ingest.HeartbeatSource{{SourceID: sourceID, Status: "healthy"}},
+	}
+
+	rec := postIngestJSON(t, handler.Heartbeat, req, token)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d body=%s, want 409", rec.Code, rec.Body.String())
+	}
+	if len(committer.heartbeats) != 0 {
+		t.Fatalf("heartbeats = %#v, want none for stale token", committer.heartbeats)
+	}
+}
+
 type fakeIngestCommitter struct {
-	calls      int
-	meta       store.IngestBatchMeta
-	rows       store.RowBatch
-	heartbeats []models.CaptureHeartbeat
-	err        error
+	calls       int
+	meta        store.IngestBatchMeta
+	rows        store.RowBatch
+	heartbeats  []models.CaptureHeartbeat
+	err         error
+	afterCommit func()
 }
 
 func (f *fakeIngestCommitter) CommitIngestBatch(_ context.Context, meta store.IngestBatchMeta, rows store.RowBatch) (store.IngestBatchAck, error) {
@@ -420,6 +648,9 @@ func (f *fakeIngestCommitter) CommitIngestBatch(_ context.Context, meta store.In
 	f.rows = rows
 	if f.err != nil {
 		return store.IngestBatchAck{}, f.err
+	}
+	if f.afterCommit != nil {
+		f.afterCommit()
 	}
 	return store.IngestBatchAck{
 		BatchID:           meta.BatchID,

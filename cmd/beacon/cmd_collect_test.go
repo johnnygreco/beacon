@@ -125,6 +125,35 @@ node_name = "Smoke Collector"
 	if stats.PendingCount != 0 || stats.InflightCount != 0 || stats.CorruptCount != 0 {
 		t.Fatalf("spool stats after ack = %#v, want empty active spool", stats)
 	}
+
+	if _, err := control.BeginReset(context.Background()); err != nil {
+		t.Fatalf("BeginReset server: %v", err)
+	}
+	if _, err := control.CompleteReset(context.Background()); err != nil {
+		t.Fatalf("CompleteReset server: %v", err)
+	}
+	secondEnroll, err := control.CreateToken(context.Background(), controlplane.CreateTokenRequest{Type: controlplane.TokenTypeEnroll})
+	if err != nil {
+		t.Fatalf("CreateToken second enroll: %v", err)
+	}
+	if err := os.WriteFile(sourceFile, []byte(line+strings.Replace(line, "event-1", "event-2", 1)), 0600); err != nil {
+		t.Fatalf("append second source event: %v", err)
+	}
+	if err := runRemoteEnroll(newEnrollCmd(), cfg, server.URL, secondEnroll.Plaintext); err != nil {
+		t.Fatalf("second runRemoteEnroll: %v", err)
+	}
+	if err := runCollect(newCollectCmd(), true, server.URL); err != nil {
+		t.Fatalf("second runCollect --once after reset: %v", err)
+	}
+	if committer.calls != 2 {
+		t.Fatalf("committer calls after reset replay = %d, want 2", committer.calls)
+	}
+	if committer.meta.ControlPlaneEpoch != "2" {
+		t.Fatalf("replayed batch epoch = %q, want 2", committer.meta.ControlPlaneEpoch)
+	}
+	if len(committer.rows.ActivityEvents) != 2 {
+		t.Fatalf("replayed activity events = %d, want full file replay of 2", len(committer.rows.ActivityEvents))
+	}
 }
 
 func TestRunCollectRejectsControlPlaneRoleBeforeMetadata(t *testing.T) {

@@ -46,19 +46,23 @@ type Service struct {
 }
 
 type Status struct {
-	Spool              SpoolStats `json:"spool"`
-	BlockedSpoolFull   bool       `json:"blocked_spool_full"`
-	LastBatchID        string     `json:"last_batch_id,omitempty"`
-	LastAckAt          time.Time  `json:"last_ack_at,omitempty"`
-	LastError          string     `json:"last_error,omitempty"`
-	LastScanAt         time.Time  `json:"last_scan_at,omitempty"`
-	LastHeartbeatAt    time.Time  `json:"last_heartbeat_at,omitempty"`
-	LastHeartbeatError string     `json:"last_heartbeat_error,omitempty"`
-	BlockedTerminal    bool       `json:"blocked_terminal"`
+	Spool                SpoolStats `json:"spool"`
+	BlockedSpoolFull     bool       `json:"blocked_spool_full"`
+	LastBatchID          string     `json:"last_batch_id,omitempty"`
+	LastAckAt            time.Time  `json:"last_ack_at,omitempty"`
+	LastError            string     `json:"last_error,omitempty"`
+	LastScanAt           time.Time  `json:"last_scan_at,omitempty"`
+	LastHeartbeatAt      time.Time  `json:"last_heartbeat_at,omitempty"`
+	LastHeartbeatError   string     `json:"last_heartbeat_error,omitempty"`
+	BlockedTerminal      bool       `json:"blocked_terminal"`
+	BlockedResetPending  bool       `json:"blocked_reset_pending"`
+	BlockedEpochMismatch bool       `json:"blocked_epoch_mismatch"`
 }
 
 var ErrTerminalBlocked = errors.New("collector is blocked on terminal ingest failure")
 var ErrBatchTooLarge = errors.New("collector batch exceeds ingest limit")
+var ErrResetPending = errors.New("collector is paused while control-plane reset is pending")
+var ErrEpochMismatch = errors.New("collector control-plane epoch changed; re-enroll before replay")
 
 func NewService(cfg ServiceConfig) (*Service, error) {
 	if cfg.Spool == nil {
@@ -91,6 +95,24 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
 	}
+	if cfg.Identity.ControlPlaneEpoch == "" {
+		return nil, fmt.Errorf("collector control-plane epoch is required")
+	}
+	activeEpochMismatch, err := cfg.Spool.HasActiveEpochMismatch(cfg.Identity.ControlPlaneEpoch)
+	if err != nil {
+		return nil, fmt.Errorf("inspect active spool epochs: %w", err)
+	}
+	if cfg.State.NeedsEpochReset(cfg.Identity.ControlPlaneEpoch) || activeEpochMismatch {
+		if err := cfg.Spool.DiscardActive(); err != nil {
+			return nil, fmt.Errorf("discard old-epoch spool batches: %w", err)
+		}
+		if err := cfg.Spool.DiscardQuarantine(); err != nil {
+			return nil, fmt.Errorf("discard old-epoch quarantined spool batches: %w", err)
+		}
+	}
+	if _, err := cfg.State.EnsureEpoch(cfg.Identity.ControlPlaneEpoch); err != nil {
+		return nil, fmt.Errorf("initialize collector state epoch: %w", err)
+	}
 	return &Service{cfg: cfg, nextRetry: cfg.RetryMin}, nil
 }
 
@@ -103,7 +125,7 @@ func (s *Service) Run(ctx context.Context) error {
 	shouldScan := true
 	if err := s.SendPending(ctx); err != nil {
 		s.setError(err)
-		shouldScan = retryableSendError(err)
+		shouldScan = shouldScanAfterSendError(err)
 	}
 	if shouldScan {
 		if err := s.ScanOnce(ctx); err != nil {
@@ -118,7 +140,7 @@ func (s *Service) Run(ctx context.Context) error {
 		case <-scanTicker.C:
 			if err := s.SendPending(ctx); err != nil {
 				s.setError(err)
-				if retryableSendError(err) {
+				if shouldScanAfterSendError(err) {
 					if scanErr := s.ScanOnce(ctx); scanErr != nil {
 						s.setError(scanErr)
 					}
@@ -140,6 +162,9 @@ func (s *Service) Run(ctx context.Context) error {
 }
 
 func (s *Service) ScanOnce(ctx context.Context) error {
+	if s.resetOrEpochBlocked() {
+		return nil
+	}
 	if err := s.recoverSpooledStateFromSpool(); err != nil {
 		return err
 	}
@@ -202,6 +227,12 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 
 func (s *Service) SendPending(ctx context.Context) error {
 	for {
+		if s.epochBlocked() {
+			return ErrEpochMismatch
+		}
+		if s.resetPendingBlocked() {
+			return ErrResetPending
+		}
 		if err := s.requeueInflight(); err != nil {
 			return err
 		}
@@ -234,6 +265,20 @@ func (s *Service) SendPending(ctx context.Context) error {
 		}
 		ack, err := s.cfg.Client.SendBatch(ctx, inflight.Request)
 		if err != nil {
+			if sendErr, ok := err.(*SendError); ok && sendErr.ResetPending {
+				if _, moveErr := s.cfg.Spool.MarkPending(inflight); moveErr != nil {
+					return moveErr
+				}
+				s.setResetPending(err)
+				return fmt.Errorf("%w: %v", ErrResetPending, err)
+			}
+			if sendErr, ok := err.(*SendError); ok && sendErr.EpochMismatch {
+				if _, moveErr := s.cfg.Spool.MarkPending(inflight); moveErr != nil {
+					return moveErr
+				}
+				s.setEpochMismatch(err)
+				return fmt.Errorf("%w: %v", ErrEpochMismatch, err)
+			}
 			if sendErr, ok := err.(*SendError); ok && !sendErr.Retryable {
 				if _, moveErr := s.cfg.Spool.MarkPending(inflight); moveErr != nil {
 					return moveErr
@@ -304,11 +349,20 @@ func (s *Service) SendHeartbeat(ctx context.Context) error {
 		Sources:           sources,
 	})
 	if err != nil {
+		if sendErr, ok := err.(*SendError); ok && sendErr.ResetPending {
+			s.setResetPending(err)
+			return fmt.Errorf("%w: %v", ErrResetPending, err)
+		}
+		if sendErr, ok := err.(*SendError); ok && sendErr.EpochMismatch {
+			s.setEpochMismatch(err)
+			return fmt.Errorf("%w: %v", ErrEpochMismatch, err)
+		}
 		return err
 	}
 	s.mu.Lock()
 	s.status.LastHeartbeatAt = time.Now().UTC()
 	s.status.LastHeartbeatError = ""
+	s.status.BlockedResetPending = false
 	s.mu.Unlock()
 	return nil
 }
@@ -608,6 +662,10 @@ func retryableSendError(err error) bool {
 	return err != nil && errors.As(err, &sendErr) && sendErr.Retryable
 }
 
+func shouldScanAfterSendError(err error) bool {
+	return retryableSendError(err) && !errors.Is(err, ErrResetPending) && !errors.Is(err, ErrEpochMismatch)
+}
+
 func (s *Service) setError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -647,6 +705,8 @@ func (s *Service) setAcked(batchID string) {
 	s.status.LastError = ""
 	s.status.BlockedSpoolFull = false
 	s.status.BlockedTerminal = false
+	s.status.BlockedResetPending = false
+	s.status.BlockedEpochMismatch = false
 }
 
 func (s *Service) setTerminalBlocked(err error) {
@@ -664,8 +724,44 @@ func (s *Service) clearTerminalBlocked() {
 	s.status.BlockedTerminal = false
 }
 
+func (s *Service) setResetPending(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status.BlockedResetPending = true
+	if err != nil {
+		s.status.LastError = err.Error()
+	}
+}
+
+func (s *Service) setEpochMismatch(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status.BlockedEpochMismatch = true
+	if err != nil {
+		s.status.LastError = err.Error()
+	}
+}
+
 func (s *Service) terminalBlocked() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.status.BlockedTerminal
+}
+
+func (s *Service) resetOrEpochBlocked() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.status.BlockedResetPending || s.status.BlockedEpochMismatch
+}
+
+func (s *Service) resetPendingBlocked() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.status.BlockedResetPending
+}
+
+func (s *Service) epochBlocked() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.status.BlockedEpochMismatch
 }

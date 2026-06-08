@@ -115,13 +115,17 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 		h.authError(w, err)
 		return
 	}
-	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
-		h.internalError(w, "retire older ingest tokens", err)
-		return
-	}
 	snapshot, err := h.control.Snapshot(r.Context())
 	if err != nil {
 		h.internalError(w, "read control-plane metadata", err)
+		return
+	}
+	if snapshot.ResetPending {
+		h.jsonError(w, "control-plane reset pending", http.StatusServiceUnavailable)
+		return
+	}
+	if ingestTokenPredatesReset(tokenRecord, snapshot) {
+		h.jsonError(w, "control_plane_epoch mismatch; ingest token predates reset", http.StatusConflict)
 		return
 	}
 	if req.ControlPlaneEpoch != snapshot.SchemaEpoch {
@@ -147,7 +151,6 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, err.Error(), http.StatusForbidden)
 		return
 	}
-
 	rows := capture.BuildRowBatch(req.Events, h.defaultInput, h.defaultOutput, identity, capture.RowBatchMetadata{
 		BatchID:          req.BatchID,
 		RedactionStatus:  "redacted",
@@ -179,6 +182,9 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.commitError(w, err)
 		return
+	}
+	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
+		h.log().Warn("retire older ingest tokens after batch commit failed", "error", err)
 	}
 	if h.notify != nil && len(rows.ActivityEvents) > 0 {
 		h.notify(sessionIDsFromStoreEvents(rows.ActivityEvents))
@@ -221,6 +227,14 @@ func (h *IngestHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		h.internalError(w, "read control-plane metadata", err)
 		return
 	}
+	if snapshot.ResetPending {
+		h.jsonError(w, "control-plane reset pending", http.StatusServiceUnavailable)
+		return
+	}
+	if ingestTokenPredatesReset(tokenRecord, snapshot) {
+		h.jsonError(w, "control_plane_epoch mismatch; ingest token predates reset", http.StatusConflict)
+		return
+	}
 	if req.ControlPlaneEpoch != snapshot.SchemaEpoch {
 		h.jsonError(w, "control_plane_epoch mismatch", http.StatusConflict)
 		return
@@ -230,10 +244,6 @@ func (h *IngestHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
-		h.internalError(w, "retire older ingest tokens", err)
-		return
-	}
 	if h.heartbeatRecorder == nil {
 		h.internalError(w, "heartbeat storage is not configured", errors.New("missing heartbeat recorder"))
 		return
@@ -241,6 +251,9 @@ func (h *IngestHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 	if err := h.heartbeatRecorder.InsertCaptureHeartbeats(r.Context(), heartbeatRows(req, sourceByID)); err != nil {
 		h.internalError(w, "write collector heartbeat", err)
 		return
+	}
+	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
+		h.log().Warn("retire older ingest tokens after heartbeat failed", "error", err)
 	}
 	h.jsonResponse(w, ingest.HeartbeatResponse{
 		Schema:            ingest.SchemaV1,
@@ -266,6 +279,13 @@ func (h *IngestHandlers) authenticateIngestToken(ctx context.Context, r *http.Re
 		return nil, err
 	}
 	return record, nil
+}
+
+func ingestTokenPredatesReset(record *controlplane.TokenRecord, snapshot *controlplane.Snapshot) bool {
+	if record == nil || snapshot == nil || snapshot.ResetCompletedAt == nil {
+		return false
+	}
+	return !record.CreatedAt.After(*snapshot.ResetCompletedAt)
 }
 
 func normalizeHeartbeatSources(req *ingest.HeartbeatRequest) ([]string, error) {
@@ -404,6 +424,8 @@ func (h *IngestHandlers) authError(w http.ResponseWriter, err error) {
 
 func (h *IngestHandlers) enrollmentError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, controlplane.ErrResetPending):
+		h.jsonError(w, "control-plane reset pending", http.StatusServiceUnavailable)
 	case isTokenAuthError(err):
 		h.authError(w, err)
 	case errors.Is(err, controlplane.ErrEnrollmentInvalid):

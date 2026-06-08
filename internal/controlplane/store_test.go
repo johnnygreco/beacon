@@ -400,6 +400,68 @@ func TestPrepareMetadataFileRestrictsPreexistingRegularSidecars(t *testing.T) {
 	assertMode(t, path+"-shm", 0600)
 }
 
+func TestResetCoordinationAdvancesEpochOnceAndPreservesMetadata(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+
+	initial, err := store.EnsureLocal(context.Background(), Bootstrap{
+		NodeID:      "node-local",
+		NodeName:    "Local",
+		CollectorID: "collector-local",
+		Sources:     []SourceRegistration{{Name: "codex", Runtime: "codex", Provider: "openai", Format: "jsonl", WatchRoot: "/tmp/codex"}},
+	})
+	if err != nil {
+		t.Fatalf("EnsureLocal: %v", err)
+	}
+
+	pending, err := store.BeginReset(context.Background())
+	if err != nil {
+		t.Fatalf("BeginReset: %v", err)
+	}
+	if !pending.ResetPending || pending.SchemaEpoch != initial.SchemaEpoch || pending.ResetPendingEpoch != initial.SchemaEpoch || pending.ResetPendingAt == nil {
+		t.Fatalf("pending snapshot = %#v, want pending at initial epoch %q", pending, initial.SchemaEpoch)
+	}
+
+	stillPending, err := store.BeginReset(context.Background())
+	if err != nil {
+		t.Fatalf("BeginReset second: %v", err)
+	}
+	if stillPending.SchemaEpoch != initial.SchemaEpoch || stillPending.ResetPendingEpoch != initial.SchemaEpoch {
+		t.Fatalf("second pending snapshot = %#v, want no epoch advancement before completion", stillPending)
+	}
+
+	completed, err := store.CompleteReset(context.Background())
+	if err != nil {
+		t.Fatalf("CompleteReset: %v", err)
+	}
+	if completed.ResetPending || completed.ResetPendingEpoch != "" || completed.ResetPendingAt != nil {
+		t.Fatalf("completed snapshot still pending: %#v", completed)
+	}
+	if completed.SchemaEpoch != "2" {
+		t.Fatalf("completed schema epoch = %q, want 2", completed.SchemaEpoch)
+	}
+	if completed.OwnerInstanceID != initial.OwnerInstanceID {
+		t.Fatalf("owner instance changed across reset: %q -> %q", initial.OwnerInstanceID, completed.OwnerInstanceID)
+	}
+	if len(completed.Collectors) != 1 || completed.Collectors[0].ID != "collector-local" {
+		t.Fatalf("collector metadata after reset = %#v", completed.Collectors)
+	}
+	if len(completed.Sources) != 1 || completed.Sources[0].ID != initial.Sources[0].ID {
+		t.Fatalf("source metadata after reset = %#v, initial %#v", completed.Sources, initial.Sources)
+	}
+
+	again, err := store.CompleteReset(context.Background())
+	if err != nil {
+		t.Fatalf("CompleteReset second: %v", err)
+	}
+	if again.SchemaEpoch != completed.SchemaEpoch {
+		t.Fatalf("second completion advanced epoch = %q, want unchanged %q", again.SchemaEpoch, completed.SchemaEpoch)
+	}
+}
+
 func TestOpenRejectsMetadataDirectorySymlink(t *testing.T) {
 	base := t.TempDir()
 	targetDir := filepath.Join(base, "target")

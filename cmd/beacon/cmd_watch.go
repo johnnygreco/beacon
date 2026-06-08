@@ -37,6 +37,13 @@ func runWatch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("fleet.role %q uses beacon up for the control-plane service; use fleet.role %q for local capture", config.FleetRoleControlPlane, config.FleetRoleBoth)
 	}
 
+	pidFile, err := acquirePIDFile()
+	if err != nil {
+		return fmt.Errorf("acquire beacon pidfile: %w", err)
+	} else {
+		defer pidFile.Close()
+	}
+
 	sources, err := buildSources(cfg)
 	if err != nil {
 		return fmt.Errorf("capture source config: %w", err)
@@ -47,6 +54,9 @@ func runWatch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("initializing control-plane metadata: %w", err)
 	}
 	defer controlStore.Close()
+	if err := ensureNoResetPending(controlSnapshot); err != nil {
+		return err
+	}
 
 	storeOpts := storeOptionsFromConfig(cfg)
 	if err := ensureLocalClickHouse(storeOpts); err != nil {

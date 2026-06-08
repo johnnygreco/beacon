@@ -278,8 +278,25 @@ When a local database cannot be migrated cleanly, the intended recovery path is:
 1. stop Beacon;
 2. run `beacon db reset --force`, or wipe the managed local ClickHouse storage if
    the server metadata itself is inconsistent;
-3. start Beacon again and let backfill rebuild the derived Beacon data from the
-   configured capture sources.
+3. run `beacon status` and confirm `reset_pending=false` with an advanced
+   `schema_epoch`;
+4. start Beacon again and let local backfill rebuild the derived Beacon data from
+   the configured capture sources.
+
+For remote collectors, reset advances the control-plane `schema_epoch` and old
+ingest tokens stop writing. After the control-plane reset completes:
+
+1. keep or restart the control-plane with `beacon up`;
+2. on each collector machine, run `beacon enroll <control-plane-url>` with a new
+   enrollment token;
+3. restart `beacon collect`;
+4. verify `beacon status` shows `reset_pending=false`, and verify collectors are
+   sending new-epoch batches by checking that activity reappears after replay.
+
+If `beacon db reset --force` fails, `reset_pending` intentionally remains active
+so collectors pause instead of writing stale data. Fix the underlying reset
+error and rerun `beacon db reset --force`; the reset lock only blocks another
+reset while a reset process is actively running.
 
 If a future release needs durable upgrade guarantees, this policy should be
 revisited before shipping that release.

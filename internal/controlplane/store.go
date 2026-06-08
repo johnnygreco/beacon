@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,14 +42,18 @@ type SourceRegistration struct {
 }
 
 type Snapshot struct {
-	Path             string
-	OwnerInstanceID  string
-	SchemaEpoch      string
-	LocalNodeID      string
-	LocalCollectorID string
-	Nodes            []Node
-	Collectors       []Collector
-	Sources          []Source
+	Path              string
+	OwnerInstanceID   string
+	SchemaEpoch       string
+	ResetPending      bool
+	ResetPendingEpoch string
+	ResetPendingAt    *time.Time
+	ResetCompletedAt  *time.Time
+	LocalNodeID       string
+	LocalCollectorID  string
+	Nodes             []Node
+	Collectors        []Collector
+	Sources           []Source
 }
 
 type Node struct {
@@ -185,6 +190,126 @@ func (s *Store) EnsureControlPlane(ctx context.Context) (*Snapshot, error) {
 	return s.Snapshot(ctx)
 }
 
+func (s *Store) BeginReset(ctx context.Context) (*Snapshot, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("control-plane metadata store is nil")
+	}
+	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin control-plane metadata transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := ensureMetadataValue(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
+		return nil, err
+	}
+	epoch, err := ensureMetadataValue(ctx, tx, "schema_epoch", InitialSchemaEpoch, now)
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := readMetadata(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	if metadata["reset_pending"] != "true" {
+		if err := setMetadataValue(ctx, tx, "reset_pending", "true", now); err != nil {
+			return nil, err
+		}
+		if err := setMetadataValue(ctx, tx, "reset_pending_epoch", epoch, now); err != nil {
+			return nil, err
+		}
+		if err := setMetadataValue(ctx, tx, "reset_pending_at", formatTime(now), now); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit reset-pending metadata: %w", err)
+	}
+	return s.Snapshot(ctx)
+}
+
+func (s *Store) CompleteReset(ctx context.Context) (*Snapshot, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("control-plane metadata store is nil")
+	}
+	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin control-plane metadata transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := ensureMetadataValue(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
+		return nil, err
+	}
+	epoch, err := ensureMetadataValue(ctx, tx, "schema_epoch", InitialSchemaEpoch, now)
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := readMetadata(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	if metadata["reset_pending"] == "true" {
+		pendingEpoch := metadata["reset_pending_epoch"]
+		if pendingEpoch == "" || pendingEpoch == epoch {
+			next, err := incrementSchemaEpoch(epoch)
+			if err != nil {
+				return nil, err
+			}
+			if err := setMetadataValue(ctx, tx, "schema_epoch", next, now); err != nil {
+				return nil, err
+			}
+		}
+		if err := setMetadataValue(ctx, tx, "reset_pending", "false", now); err != nil {
+			return nil, err
+		}
+		if err := setMetadataValue(ctx, tx, "reset_pending_epoch", "", now); err != nil {
+			return nil, err
+		}
+		if err := setMetadataValue(ctx, tx, "reset_pending_at", "", now); err != nil {
+			return nil, err
+		}
+		if err := setMetadataValue(ctx, tx, "reset_completed_at", formatTime(now), now); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit reset completion metadata: %w", err)
+	}
+	return s.Snapshot(ctx)
+}
+
+func (s *Store) SetSchemaEpoch(ctx context.Context, epoch string) (*Snapshot, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("control-plane metadata store is nil")
+	}
+	epoch = strings.TrimSpace(epoch)
+	if epoch == "" {
+		return nil, fmt.Errorf("schema_epoch is required")
+	}
+	if _, err := parseSchemaEpoch(epoch); err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin schema epoch metadata transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := ensureMetadataValue(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
+		return nil, err
+	}
+	if err := setMetadataValue(ctx, tx, "schema_epoch", epoch, now); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit schema epoch metadata: %w", err)
+	}
+	return s.Snapshot(ctx)
+}
+
 func ensureLocalTx(ctx context.Context, tx *sql.Tx, boot Bootstrap, now time.Time) (Bootstrap, error) {
 	if _, err := ensureMetadataValue(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
 		return Bootstrap{}, err
@@ -315,6 +440,14 @@ func snapshotFromQueryer(ctx context.Context, path string, q tokenQueryer) (*Sna
 	}
 	snap.OwnerInstanceID = metadata["owner_instance_id"]
 	snap.SchemaEpoch = metadata["schema_epoch"]
+	snap.ResetPending = metadata["reset_pending"] == "true"
+	snap.ResetPendingEpoch = metadata["reset_pending_epoch"]
+	if resetPendingAt := parseTime(metadata["reset_pending_at"]); !resetPendingAt.IsZero() {
+		snap.ResetPendingAt = &resetPendingAt
+	}
+	if resetCompletedAt := parseTime(metadata["reset_completed_at"]); !resetCompletedAt.IsZero() {
+		snap.ResetCompletedAt = &resetCompletedAt
+	}
 	snap.LocalNodeID = metadata["local_node_id"]
 	snap.LocalCollectorID = metadata["local_collector_id"]
 	if snap.Nodes, err = readNodes(ctx, q); err != nil {
@@ -506,6 +639,19 @@ func ensureMetadataValue(ctx context.Context, tx *sql.Tx, key, value string, now
 	return stored, nil
 }
 
+func setMetadataValue(ctx context.Context, tx *sql.Tx, key, value string, now time.Time) error {
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO metadata (key, value, updated_at) VALUES (?, ?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+		key,
+		value,
+		formatTime(now),
+	); err != nil {
+		return fmt.Errorf("set metadata %q: %w", key, err)
+	}
+	return nil
+}
+
 func ensureLocalMetadataValue(ctx context.Context, tx *sql.Tx, key, configuredValue, generatedValue string, now time.Time) (string, error) {
 	value := configuredValue
 	if value == "" {
@@ -519,6 +665,26 @@ func ensureLocalMetadataValue(ctx context.Context, tx *sql.Tx, key, configuredVa
 		return "", fmt.Errorf("configured %s %q does not match existing metadata value %q", key, configuredValue, stored)
 	}
 	return stored, nil
+}
+
+func incrementSchemaEpoch(epoch string) (string, error) {
+	epoch = strings.TrimSpace(epoch)
+	if epoch == "" {
+		epoch = InitialSchemaEpoch
+	}
+	value, err := parseSchemaEpoch(epoch)
+	if err != nil {
+		return "", err
+	}
+	return strconv.FormatUint(value+1, 10), nil
+}
+
+func parseSchemaEpoch(epoch string) (uint64, error) {
+	value, err := strconv.ParseUint(epoch, 10, 64)
+	if err != nil || value == 0 {
+		return 0, fmt.Errorf("schema_epoch %q is not a positive integer", epoch)
+	}
+	return value, nil
 }
 
 func upsertNode(ctx context.Context, tx *sql.Tx, boot Bootstrap, now time.Time) error {

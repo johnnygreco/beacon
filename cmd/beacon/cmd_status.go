@@ -26,6 +26,7 @@ func newStatusCmd() *cobra.Command {
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
+	ctx := commandContext(cmd)
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -49,22 +50,30 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
-	if snapshot, err := controlPlaneStatus(cmd.Context(), cfg); err != nil {
+	if snapshot, err := controlPlaneStatus(ctx, cfg); err != nil {
 		fmt.Printf("Control Plane: unavailable (%v)\n", err)
 	} else {
-		fmt.Printf("Control Plane: schema_epoch=%s metadata=%s nodes=%d collectors=%d sources=%d\n",
+		fmt.Printf("Control Plane: schema_epoch=%s reset_pending=%t metadata=%s nodes=%d collectors=%d sources=%d\n",
 			snapshot.SchemaEpoch,
+			snapshot.ResetPending,
 			snapshot.Path,
 			len(snapshot.Nodes),
 			len(snapshot.Collectors),
 			len(snapshot.Sources),
 		)
+		if snapshot.ResetPending {
+			pendingAt := "unknown"
+			if snapshot.ResetPendingAt != nil {
+				pendingAt = snapshot.ResetPendingAt.Format(time.RFC3339)
+			}
+			fmt.Printf("Reset Pending: epoch=%s since=%s\n", snapshot.ResetPendingEpoch, pendingAt)
+		}
 	}
 	fmt.Println()
 
 	// Store stats
 	opts := storeOptionsFromConfig(cfg)
-	ch, err := statusOpenStore(cmd.Context(), opts)
+	ch, err := statusOpenStore(ctx, opts)
 	if err != nil {
 		fmt.Printf("ClickHouse: unavailable at %s (%v)\n", strings.Join(opts.Addrs, ","), err)
 		return nil

@@ -199,9 +199,12 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	localBoot := controlPlaneBootstrap(cfg)
 	localBoot.NodeID = resp.Assignment.NodeID
 	localBoot.CollectorID = resp.Assignment.CollectorID
-	snapshot, err := store.EnsureLocal(commandContext(cmd), localBoot)
-	if err != nil {
+	if _, err := store.EnsureLocal(commandContext(cmd), localBoot); err != nil {
 		return fmt.Errorf("write local collector metadata: %w", err)
+	}
+	snapshot, err := store.SetSchemaEpoch(commandContext(cmd), resp.Assignment.ControlPlaneEpoch)
+	if err != nil {
+		return fmt.Errorf("write local collector schema epoch: %w", err)
 	}
 	if err := verifyRemoteSourceAssignments(snapshot, resp.Assignment); err != nil {
 		return err
@@ -332,7 +335,11 @@ func postRemoteEnrollment(ctx context.Context, controlPlaneURL, token, existingI
 	if strings.TrimSpace(resp.IngestToken) == "" {
 		return nil, fmt.Errorf("remote enrollment response did not include an ingest token")
 	}
-	if strings.TrimSpace(resp.Assignment.NodeID) == "" || strings.TrimSpace(resp.Assignment.CollectorID) == "" || len(resp.Assignment.SourceIDs) == 0 || len(resp.Assignment.Sources) == 0 {
+	if strings.TrimSpace(resp.Assignment.NodeID) == "" ||
+		strings.TrimSpace(resp.Assignment.CollectorID) == "" ||
+		strings.TrimSpace(resp.Assignment.ControlPlaneEpoch) == "" ||
+		len(resp.Assignment.SourceIDs) == 0 ||
+		len(resp.Assignment.Sources) == 0 {
 		return nil, fmt.Errorf("remote enrollment response did not include a complete assignment")
 	}
 	return &resp, nil
@@ -365,6 +372,12 @@ func enrollBootstrapFromControlPlane(boot controlplane.Bootstrap) ingest.EnrollB
 func verifyRemoteSourceAssignments(snapshot *controlplane.Snapshot, assignment ingest.EnrollAssignment) error {
 	if snapshot == nil {
 		return fmt.Errorf("local collector metadata snapshot is nil")
+	}
+	if strings.TrimSpace(assignment.ControlPlaneEpoch) == "" {
+		return fmt.Errorf("remote enrollment response did not include a control-plane epoch")
+	}
+	if snapshot.SchemaEpoch != strings.TrimSpace(assignment.ControlPlaneEpoch) {
+		return fmt.Errorf("remote enrollment epoch mismatch: local %s remote %s", snapshot.SchemaEpoch, assignment.ControlPlaneEpoch)
 	}
 	if len(assignment.Sources) == 0 {
 		return fmt.Errorf("remote enrollment response did not include source assignments")

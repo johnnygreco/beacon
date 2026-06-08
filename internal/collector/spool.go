@@ -174,6 +174,66 @@ func (s *Spool) Discard(batch SpoolBatch) error {
 	return syncDir(filepath.Dir(batch.Path))
 }
 
+func (s *Spool) DiscardActive() error {
+	return s.discardBatches(s.Active)
+}
+
+func (s *Spool) DiscardQuarantine() error {
+	return s.discardStateFiles(spoolQuarantine)
+}
+
+func (s *Spool) discardBatches(list func() ([]SpoolBatch, error)) error {
+	active, err := list()
+	if err != nil {
+		return err
+	}
+	synced := map[string]struct{}{}
+	for _, batch := range active {
+		dir := filepath.Dir(batch.Path)
+		if err := os.Remove(batch.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		synced[dir] = struct{}{}
+	}
+	for dir := range synced {
+		if err := syncDir(dir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Spool) discardStateFiles(state string) error {
+	dir := filepath.Join(s.root, state)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return syncDir(dir)
+}
+
+func (s *Spool) HasActiveEpochMismatch(epoch string) (bool, error) {
+	active, err := s.Active()
+	if err != nil {
+		return false, err
+	}
+	for _, batch := range active {
+		if batch.Request.ControlPlaneEpoch != epoch {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *Spool) Stats() (SpoolStats, error) {
 	pendingCount, pendingBytes, err := s.countState(spoolPending)
 	if err != nil {
