@@ -128,7 +128,13 @@
 			}
 		});
 		var qs = query.toString();
-		return path + (qs ? '?' + qs : '');
+		var hash = '';
+		var hashIndex = String(path || '').indexOf('#');
+		if (hashIndex >= 0) {
+			hash = String(path).slice(hashIndex);
+			path = String(path).slice(0, hashIndex);
+		}
+		return path + (qs ? '?' + qs : '') + hash;
 	}
 
 	dashboard.utils = {

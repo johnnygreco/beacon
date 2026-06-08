@@ -78,6 +78,19 @@ func QueryRecentActivityFilteredByKindScoped(ctx context.Context, db *sql.DB, si
 		where += clause
 		args = append(args, scopeArgs...)
 	}
+	projectKeys := compactScopeValues(scope.ProjectKeys)
+	join := ""
+	if len(projectKeys) > 0 {
+		join = `LEFT JOIN (
+			SELECT session_id, project_key
+			FROM session_projection FINAL
+			WHERE session_id != ''
+		) AS s ON s.session_id = ae.session_id`
+		where += ` AND COALESCE(NULLIF(s.project_key, ''), ` + projectKeyExpr("ae.cwd") + `) IN (` + sqlPlaceholders(len(projectKeys)) + `)`
+		for _, projectKey := range projectKeys {
+			args = append(args, projectKey)
+		}
+	}
 
 	query := `SELECT e.event_uid,
 		        e.event_kind,
@@ -90,18 +103,7 @@ func QueryRecentActivityFilteredByKindScoped(ctx context.Context, db *sql.DB, si
 		        COALESCE(e.runtime, ''),
 		        COALESCE(e.provider, ''),
 		        e.timestamp
-		 FROM ` + recentActivityEventsSubquery(where) + ` AS e`
-	if len(compactScopeValues(scope.ProjectKeys)) > 0 {
-		query += ` LEFT JOIN (
-			SELECT session_id, project_key
-			FROM session_projection FINAL
-			WHERE session_id != ''
-		) AS s ON s.session_id = e.session_id
-		WHERE COALESCE(NULLIF(s.project_key, ''), ` + projectKeyExpr("e.cwd") + `) IN (` + sqlPlaceholders(len(compactScopeValues(scope.ProjectKeys))) + `)`
-		for _, projectKey := range compactScopeValues(scope.ProjectKeys) {
-			args = append(args, projectKey)
-		}
-	}
+		 FROM ` + recentActivityEventsJoinedSubquery(where, join) + ` AS e`
 	query += ` ORDER BY timestamp DESC LIMIT 200`
 
 	rows, err := db.QueryContext(ctx, query, args...)

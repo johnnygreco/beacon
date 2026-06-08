@@ -128,6 +128,7 @@ type MetricData struct {
 
 type SessionSummary struct {
 	ID                string
+	ScopeQuery        string
 	Actor             string
 	NodeID            string
 	CollectorID       string
@@ -528,6 +529,7 @@ func (d DashboardData) HeaderTitle() string {
 
 type SessionDetailData struct {
 	Session       SessionSummary
+	ScopeQuery    string
 	Turns         []TurnDetail
 	ChatTurns     []ChatTurn
 	TokensChart   MultiSeriesChart
@@ -595,4 +597,5 @@ type ChatTurn struct {
 // ChatContext holds additional context passed to the chat view for rendering.
 type ChatContext struct {
 	ChildSessions []SessionSummary // subagent sessions for this parent
+	ScopeQuery    string
 }

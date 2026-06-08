@@ -426,6 +426,53 @@ func TestDashboardChartsAttributeBlankModelsFromSessionTimeline(t *testing.T) {
 	}
 }
 
+func TestRecentActivityProjectScopeFiltersBeforeCandidateLimit(t *testing.T) {
+	ch := setupLiveWebStore(t)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	inScopeID := "activity-project-in-scope"
+	outScopeID := "activity-project-out-scope"
+	events := []models.Event{
+		liveEvent("activity-in-meta", inScopeID, "session_meta", "system", now.Add(-time.Hour), "openai", "", "", 0, 0, 0),
+		liveEvent("activity-in-message", inScopeID, "message", "assistant", now.Add(-30*time.Minute), "openai", "gpt-5", "", 1, 1, 0),
+		liveEvent("activity-out-meta", outScopeID, "session_meta", "system", now.Add(-time.Hour), "openai", "", "", 0, 0, 0),
+	}
+	events[0].CWD = "/Users/example/projects/beacon"
+	events[1].TextPreview = "scoped project activity"
+	events[2].CWD = "/Users/example/projects/other"
+	for i := 0; i < recentActivityCandidates+5; i++ {
+		uid := fmt.Sprintf("activity-out-message-%04d", i)
+		event := liveEvent(uid, outScopeID, "message", "assistant", now.Add(time.Duration(i)*time.Second), "openai", "gpt-5", "", 1, 1, 0)
+		event.TextPreview = "newer out of scope activity"
+		events = append(events, event)
+	}
+	for i := range events {
+		events[i].SourceLineNo = i + 1
+		events[i].SourceOffset = int64(i * 10)
+	}
+
+	batch := store.RowBatch{ActivityEvents: events}
+	for _, event := range events {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	items := QueryRecentActivityFilteredByKindScoped(context.Background(), ch.DB, nil, []string{"message"}, APIScopeFilters{ProjectKeys: []string{"beacon"}})
+	if len(items) == 0 {
+		t.Fatalf("expected scoped project activity despite newer out-of-scope candidates")
+	}
+	if items[0].ID != "activity-in-message" || items[0].SessionID != inScopeID {
+		t.Fatalf("activity = %#v, want in-scope message first", items)
+	}
+	for _, item := range items {
+		if item.SessionID == outScopeID {
+			t.Fatalf("out-of-scope activity leaked into project-scoped result: %#v", items)
+		}
+	}
+}
+
 func liveEvent(uid, sessionID, kind, role string, ts time.Time, provider, model, tool string, input, output, duration int64) models.Event {
 	return models.Event{
 		EventUID:     uid,

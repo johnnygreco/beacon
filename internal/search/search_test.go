@@ -312,15 +312,17 @@ func TestSearch_ProjectFilterUsesSessionCWDForEventsWithoutCWD(t *testing.T) {
 		EventVersion: 1,
 		SourceFile:   "search-test",
 	}
-	batch := store.RowBatch{
-		ActivityEvents: []models.Event{sessionMeta, message},
-		RawRecords: []models.RawRecord{
-			store.NewRawRecord(sessionMeta),
-			store.NewRawRecord(message),
-		},
+	if err := ch.Flush(context.Background(), store.RowBatch{
+		ActivityEvents: []models.Event{sessionMeta},
+		RawRecords:     []models.RawRecord{store.NewRawRecord(sessionMeta)},
+	}); err != nil {
+		t.Fatalf("flush session metadata: %v", err)
 	}
-	if err := ch.Flush(context.Background(), batch); err != nil {
-		t.Fatalf("flush: %v", err)
+	if err := ch.Flush(context.Background(), store.RowBatch{
+		ActivityEvents: []models.Event{message},
+		RawRecords:     []models.RawRecord{store.NewRawRecord(message)},
+	}); err != nil {
+		t.Fatalf("flush project message: %v", err)
 	}
 
 	s := search.NewSearcher(ch.DB, logger, 25, 0)

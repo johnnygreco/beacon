@@ -252,7 +252,7 @@ function completedRow(session, isSubagent, parentID) {
 	}
 	var subPrefix = isSubagent ? '<span class="w-1.5 h-1.5 rounded-full bg-blue-400/50 flex-shrink-0"></span><span class="text-blue-400/70 text-xs">sub</span>' : '';
 	var subCount = !isSubagent && subagentCount > 0 ? '<span class="text-[10px] text-blue-400/60 font-normal">+' + subagentCount + ' sub</span>' : '';
-	var sessionURL = '/sessions/' + encodeURIComponent(session.id);
+	var sessionURL = requestURL('/sessions/' + encodeURIComponent(session.id), {});
 	var escapedSessionURL = escapeAttr(sessionURL);
 	var titleButton = '<button type="button" class="session-row-open text-left transition-colors hover:text-blue-300 focus-visible:text-blue-300" data-session-link="' + escapedSessionURL + '" aria-label="Open session ' + escapeAttr(sessionTitle(session)) + '">' + escapeHTML(sessionTitle(session)) + '</button>';
 	var rowActionAttrs = ' data-session-link="' + escapedSessionURL + '"';
@@ -337,8 +337,8 @@ function searchEventBadge(kind) {
 
 function searchResultHref(item) {
 	var base = '/sessions/' + encodeURIComponent(item.session_id || '');
-	if (item.event_uid) return base + '#' + encodeURIComponent(item.event_uid);
-	return base;
+	if (item.event_uid) return requestURL(base + '#' + encodeURIComponent(item.event_uid), {});
+	return requestURL(base, {});
 }
 
 function searchRow(item) {
@@ -633,7 +633,7 @@ function activeCard(session, context) {
 	var errorCount = nonNegativeInt(session.error_count);
 	var pinned = context && typeof context.pinnedIndex === 'number' && context.pinnedIndex >= 0;
 	var attrs = ' data-active-session-id="' + escapeAttr(session.id) + '" data-active-pinned="' + (pinned ? 'true' : 'false') + '"';
-	var link = '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(session.id)) + '" class="active-session-link">' + activeSessionLinkContent(session, statusDot, live, sub, turnCount, toolCount, errorCount) + '</a>';
+	var link = '<a href="' + escapeAttr(requestURL('/sessions/' + encodeURIComponent(session.id), {})) + '" class="active-session-link">' + activeSessionLinkContent(session, statusDot, live, sub, turnCount, toolCount, errorCount) + '</a>';
 	var shell = '<div class="active-session-row-shell">' + link + activeSessionActions(session, context) + '</div>';
 	if (sub) {
 		return '<div class="active-session-card ' + border + '"' + attrs + '>' + shell + '</div>';
@@ -645,7 +645,7 @@ function activeCard(session, context) {
 			var childLive = child.status === 'active';
 			var childDot = activeStatusDot(childLive, true);
 			var childModel = child.last_model ? '<span class="text-gray-400 truncate min-w-0 flex-1" title="' + escapeAttr(child.last_model) + '">' + escapeHTML(shortModel(child.last_model)) + '</span>' : '';
-			return '<a href="' + escapeAttr('/sessions/' + encodeURIComponent(child.id)) + '" class="active-child-row"><div class="active-child-main">' + childDot + '<span class="active-child-id">' + escapeHTML(shortID(child.id)) + '</span>' + childModel + '<span class="active-child-stat">' + escapeHTML(child.duration || '') + '</span><span class="active-child-stat">' + nonNegativeInt(child.tool_call_count) + 't</span></div></a>';
+			return '<a href="' + escapeAttr(requestURL('/sessions/' + encodeURIComponent(child.id), {})) + '" class="active-child-row"><div class="active-child-main">' + childDot + '<span class="active-child-id">' + escapeHTML(shortID(child.id)) + '</span>' + childModel + '<span class="active-child-stat">' + escapeHTML(child.duration || '') + '</span><span class="active-child-stat">' + nonNegativeInt(child.tool_call_count) + 't</span></div></a>';
 		}).join('') + '</div>';
 	}
 	return '<div class="active-session-card ' + border + '"' + attrs + '>' + shell + childHTML + '</div>';
@@ -684,7 +684,7 @@ function renderActivity(items) {
 		return;
 	}
 	setHTMLIfChanged(feed, '<div class="activity-bar-list"><div class="activity-bar-rail" aria-hidden="true"></div>' + items.map(function(item) {
-		var url = '/sessions/' + encodeURIComponent(item.session_id || '') + '#' + encodeURIComponent(item.id || '');
+		var url = requestURL('/sessions/' + encodeURIComponent(item.session_id || '') + '#' + encodeURIComponent(item.id || ''), {});
 		var provider = item.provider ? '<span class="px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 ' + providerBadgeClasses(item.provider) + '">' + escapeHTML(providerShort(item.provider)) + '</span>' : '';
 		var sid = item.session_id ? '<span class="text-xs text-gray-600 font-mono flex-shrink-0">' + escapeHTML(shortID(item.session_id)) + '</span>' : '';
 		return '<a href="' + escapeAttr(url) + '" data-type="' + escapeAttr(item.type) + '" data-transcript-link="true" class="activity-bar-item group">' +

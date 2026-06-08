@@ -80,6 +80,26 @@ func buildSearchRows(events []models.Event, payloads []models.ToolPayload) ([]mo
 	return docs, postings
 }
 
+func eventUIDs(events []models.Event) []string {
+	if len(events) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(events))
+	result := make([]string, 0, len(events))
+	for _, event := range events {
+		uid := strings.TrimSpace(event.EventUID)
+		if uid == "" {
+			continue
+		}
+		if _, ok := seen[uid]; ok {
+			continue
+		}
+		seen[uid] = struct{}{}
+		result = append(result, uid)
+	}
+	return result
+}
+
 func searchProject(cwd string) (string, string) {
 	projectPath := strings.TrimRight(strings.TrimSpace(cwd), "/")
 	if projectPath == "" {
@@ -199,7 +219,7 @@ func (s *Store) RefreshOutdatedSearchIndex(ctx context.Context) (int, bool, erro
 }
 
 func (s *Store) RefreshSearchIndex(ctx context.Context, batchSize int) (int, error) {
-	return s.refreshSearchIndex(ctx, batchSize, nil)
+	return s.refreshSearchIndex(ctx, batchSize, "ae.session_id != ''", nil, nil)
 }
 
 func (s *Store) RefreshSearchIndexForSessions(ctx context.Context, ids []string, batchSize int) (int, error) {
@@ -207,23 +227,59 @@ func (s *Store) RefreshSearchIndexForSessions(ctx context.Context, ids []string,
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	return s.refreshSearchIndex(ctx, batchSize, ids)
+	where := "ae.session_id != '' AND ae.session_id IN (" + placeholders(len(ids)) + ")"
+	args := make([]any, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	return s.refreshSearchIndex(ctx, batchSize, where, args, ids)
 }
 
-func (s *Store) refreshSearchIndex(ctx context.Context, batchSize int, ids []string) (int, error) {
+func (s *Store) RefreshSearchIndexForEvents(ctx context.Context, events []models.Event, batchSize int) (int, error) {
+	uids := eventUIDs(events)
+	if len(uids) == 0 {
+		return 0, nil
+	}
+	where := "ae.session_id != '' AND ae.event_uid IN (" + placeholders(len(uids)) + ")"
+	args := make([]any, 0, len(uids))
+	for _, uid := range uids {
+		args = append(args, uid)
+	}
+	return s.refreshSearchIndex(ctx, batchSize, where, args, sessionIDs(events))
+}
+
+func (s *Store) refreshSearchIndex(ctx context.Context, batchSize int, where string, args []any, projectSessionIDs []string) (int, error) {
 	if s == nil || s.DB == nil || s.native == nil {
 		return 0, nil
 	}
 	if batchSize <= 0 {
 		batchSize = defaultProjectionRefreshBatch
 	}
-	where := "ae.session_id != ''"
-	args := make([]any, 0, len(ids))
-	if len(ids) > 0 {
-		where += " AND ae.session_id IN (" + placeholders(len(ids)) + ")"
-		for _, id := range ids {
-			args = append(args, id)
+	sessionProjectsCTE := `SELECT
+				session_id,
+				argMaxIf(cwd, timestamp, cwd != '') AS session_project_path
+			FROM latest_events
+			GROUP BY session_id`
+	if len(projectSessionIDs) > 0 {
+		projectArgs := make([]any, 0, len(projectSessionIDs))
+		for _, id := range projectSessionIDs {
+			projectArgs = append(projectArgs, id)
 		}
+		sessionProjectsCTE = `SELECT
+				session_id,
+				argMaxIf(cwd, timestamp, cwd != '') AS session_project_path
+			FROM (
+				SELECT
+					event_uid,
+					argMax(session_id, captured_at) AS session_id,
+					argMax(timestamp, captured_at) AS timestamp,
+					argMax(cwd, captured_at) AS cwd
+				FROM activity_events AS sp
+				WHERE sp.session_id IN (` + placeholders(len(projectSessionIDs)) + `)
+				GROUP BY event_uid
+			)
+			GROUP BY session_id`
+		args = append(args, projectArgs...)
 	}
 	rows, err := s.DB.QueryContext(ctx, fmt.Sprintf(`WITH latest_events AS (
 			SELECT
@@ -253,11 +309,7 @@ func (s *Store) refreshSearchIndex(ctx context.Context, batchSize int, ids []str
 			GROUP BY event_uid
 		),
 		session_projects AS (
-			SELECT
-				session_id,
-				argMaxIf(cwd, timestamp, cwd != '') AS session_project_path
-			FROM latest_events
-			GROUP BY session_id
+			%s
 		)
 		SELECT
 			e.event_uid,
@@ -283,7 +335,7 @@ func (s *Store) refreshSearchIndex(ctx context.Context, batchSize int, ids []str
 			if(e.cwd != '', e.cwd, sp.session_project_path)
 		FROM latest_events AS e
 		LEFT JOIN session_projects AS sp ON sp.session_id = e.session_id
-		ORDER BY e.session_id, e.event_uid`, where), args...)
+		ORDER BY e.session_id, e.event_uid`, where, sessionProjectsCTE), args...)
 	if err != nil {
 		return 0, err
 	}

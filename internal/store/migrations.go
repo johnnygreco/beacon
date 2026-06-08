@@ -511,7 +511,7 @@ func Schema(database string) []string {
 		)
 		ENGINE = ReplacingMergeTree(updated_at)
 		PARTITION BY toYYYYMM(minute)
-		ORDER BY (collector_id, source_id, project_key, session_id, minute, provider, model, tool_name, event_kind)`,
+		ORDER BY (collector_id, source_id, project_key, project_path, session_id, node_id, source_name, runtime, format, minute, provider, model, tool_name, event_kind)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("search_documents") + ` (
 			event_uid String,

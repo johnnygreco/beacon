@@ -40,6 +40,10 @@ func latestActivityEventsSubquery(where string) string {
 }
 
 func recentActivityEventsSubquery(where string) string {
+	return recentActivityEventsJoinedSubquery(where, "")
+}
+
+func recentActivityEventsJoinedSubquery(where, join string) string {
 	return fmt.Sprintf(`(SELECT event_uid,
 	               argMax(session_id, captured_at) AS session_id,
 	               argMax(node_id, captured_at) AS node_id,
@@ -74,7 +78,7 @@ func recentActivityEventsSubquery(where string) string {
 			       error_message,
 			       cwd,
 			       captured_at
-			FROM activity_events AS ae `+sqlWhereClause(where)+`
+			FROM activity_events AS ae `+join+` `+sqlWhereClause(where)+`
 			ORDER BY timestamp DESC
 			LIMIT %d
 	        )

@@ -38,6 +38,10 @@ test("dashboard URL helper preserves current scope filters", () => {
       utils.requestURL("/api/dashboard/activity", { event_kind: "message" }),
       "/api/dashboard/activity?node_ids=node-a%2Cnode-b&source_id=remote&source_id=cloud&project_key=beacon&event_kind=message",
     );
+    assert.equal(
+      utils.requestURL("/sessions/session-1#event-1", {}),
+      "/sessions/session-1?node_ids=node-a%2Cnode-b&source_id=remote&source_id=cloud&project_key=beacon#event-1",
+    );
   } finally {
     if (previousLocation === undefined) {
       delete global.location;

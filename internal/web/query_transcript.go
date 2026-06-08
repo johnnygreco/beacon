@@ -13,13 +13,30 @@ import (
 
 // QuerySessionConversation returns the conversation trace for a session.
 func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]views.ChatTurn, []views.TurnDetail) {
+	return QuerySessionConversationScoped(ctx, db, id, APIScopeFilters{})
+}
+
+func QuerySessionConversationScoped(ctx context.Context, db *sql.DB, id string, scope APIScopeFilters) ([]views.ChatTurn, []views.TurnDetail) {
+	sessionScopeClause, sessionScopeArgs := scope.sqlAndClause("")
+	rawScope := scope
+	rawScope.ProjectKeys = nil
+	eventScopeClause, eventScopeArgs := rawScope.eventSQLAndClause("ae", "")
+	args := []any{id}
+	args = append(args, sessionScopeArgs...)
+	args = append(args, eventScopeArgs...)
 	traceRows, err := db.QueryContext(ctx,
-		`WITH trace AS (
+		`WITH scoped_session AS (
+			SELECT session_id
+			FROM session_projection FINAL
+			WHERE session_id = ?`+sessionScopeClause+`
+			LIMIT 1
+		),
+		trace AS (
 			SELECT e.*,
 			       row_number() OVER (PARTITION BY session_id ORDER BY timestamp, event_uid) AS event_order,
 			       sum(if(event_kind = 'message' AND actor_role = 'user', 1, 0))
 			         OVER (PARTITION BY session_id ORDER BY timestamp, event_uid) AS turn_seq
-			FROM `+latestActivityEventsSubquery("ae.session_id = ?")+` e
+			FROM `+latestActivityEventsSubquery("ae.session_id IN (SELECT session_id FROM scoped_session)"+eventScopeClause)+` e
 		),
 		payload_previews AS (
 			SELECT event_uid,
@@ -37,7 +54,7 @@ func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]vie
 		        '' AS input_json, '' AS output_json
 		 FROM trace e
 		 LEFT JOIN payload_previews tio ON e.event_uid = tio.event_uid
-		 ORDER BY event_order`, id)
+		 ORDER BY event_order`, args...)
 	if err != nil {
 		logQueryError("session conversation", err)
 		return nil, nil

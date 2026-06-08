@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/johnnygreco/beacon/internal/models"
 )
@@ -55,11 +56,24 @@ func (s *Store) Flush(ctx context.Context, rows RowBatch) error {
 		if err := s.RefreshAnalyticsProjections(ctx, ids); err != nil {
 			return fmt.Errorf("refresh analytics projections: %w", err)
 		}
-		if _, err := s.RefreshSearchIndexForSessions(ctx, ids, 0); err != nil {
+		if searchProjectMetadataChanged(rows.ActivityEvents) {
+			if _, err := s.RefreshSearchIndexForSessions(ctx, ids, 0); err != nil {
+				return fmt.Errorf("refresh search index: %w", err)
+			}
+		} else if _, err := s.RefreshSearchIndexForEvents(ctx, rows.ActivityEvents, 0); err != nil {
 			return fmt.Errorf("refresh search index: %w", err)
 		}
 	}
 	return nil
+}
+
+func searchProjectMetadataChanged(events []models.Event) bool {
+	for _, event := range events {
+		if strings.TrimSpace(event.CWD) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) InsertCaptureError(ctx context.Context, errRow models.CaptureError) error {

@@ -21,6 +21,21 @@ type APIScopeMetadata struct {
 	Filters          APIScopeFilters `json:"filters"`
 }
 
+var apiScopeParamNames = []string{
+	"node_id",
+	"node_ids",
+	"collector_id",
+	"collector_ids",
+	"source_id",
+	"source_ids",
+	"source_name",
+	"source_names",
+	"runtime",
+	"runtimes",
+	"project_key",
+	"project_keys",
+}
+
 func parseAPIScopeFilters(values url.Values) APIScopeFilters {
 	return APIScopeFilters{
 		NodeIDs:      parseAPIScopeValues(values, "node_id", "node_ids"),
@@ -38,6 +53,19 @@ func parseAPIScopeValues(values url.Values, names ...string) []string {
 		out = append(out, parseAPICSVParam(values, name)...)
 	}
 	return compactScopeValues(out)
+}
+
+func scopeQueryString(values url.Values) string {
+	if len(values) == 0 {
+		return ""
+	}
+	scoped := url.Values{}
+	for _, name := range apiScopeParamNames {
+		for _, value := range values[name] {
+			scoped.Add(name, value)
+		}
+	}
+	return scoped.Encode()
 }
 
 func (s APIScopeFilters) metadata() APIScopeMetadata {

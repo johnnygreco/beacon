@@ -108,7 +108,7 @@ func TestSchemaIncludesAnalyticsProjection(t *testing.T) {
 		"call_count UInt64",
 		"duration_ms_sum UInt64",
 		"cost_usd_sum Float64",
-		"ORDER BY (collector_id, source_id, project_key, session_id, minute, provider, model, tool_name, event_kind)",
+		"ORDER BY (collector_id, source_id, project_key, project_path, session_id, node_id, source_name, runtime, format, minute, provider, model, tool_name, event_kind)",
 	} {
 		if !strings.Contains(schema, expected) {
 			t.Fatalf("schema missing %s", expected)

@@ -7,6 +7,13 @@ import (
 	"github.com/johnnygreco/beacon/internal/views"
 )
 
+func chatSessionPath(id, query string) string {
+	if strings.TrimSpace(query) == "" {
+		return fmt.Sprintf("/sessions/%s", id)
+	}
+	return fmt.Sprintf("/sessions/%s?%s", id, query)
+}
+
 templ ChatView(chatTurns []views.ChatTurn) {
 	@ChatViewWithContext(chatTurns, views.ChatContext{})
 }
@@ -228,7 +235,7 @@ templ chatSubagentDispatch(item views.ToolChainItem, chatCtx views.ChatContext) 
 			</details>
 		}
 		if agentID(item) != "" {
-			<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", agentID(item))) }
+			<a href={ templ.SafeURL(chatSessionPath(agentID(item), chatCtx.ScopeQuery)) }
 			   class="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 text-xs font-medium text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-md hover:bg-blue-500/20 hover:border-blue-400/40 transition-colors">
 				<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
