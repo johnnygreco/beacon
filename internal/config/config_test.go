@@ -60,6 +60,19 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Dashboard.Name != "" {
 		t.Errorf("Dashboard.Name = %q, want empty default", cfg.Dashboard.Name)
 	}
+	if cfg.Fleet.Role != FleetRoleBoth {
+		t.Errorf("Fleet.Role = %q, want %q", cfg.Fleet.Role, FleetRoleBoth)
+	}
+	wantMetadataPath := filepath.Join(os.Getenv("HOME"), ".beacon", "control-plane.db")
+	if cfg.Fleet.MetadataPath != wantMetadataPath {
+		t.Errorf("Fleet.MetadataPath = %q, want %q", cfg.Fleet.MetadataPath, wantMetadataPath)
+	}
+	if cfg.Fleet.NodeName == "" {
+		t.Error("Fleet.NodeName is empty, want default hostname/local value")
+	}
+	if cfg.Fleet.ControlPlaneURL != "" || cfg.Fleet.NodeID != "" || cfg.Fleet.CollectorID != "" {
+		t.Errorf("Fleet defaults = %#v, want only role/metadata_path/node_name populated", cfg.Fleet)
+	}
 
 	if len(cfg.Capture.Sources) != 5 {
 		t.Fatalf("Capture.Sources has %d entries, want 5", len(cfg.Capture.Sources))
@@ -82,6 +95,7 @@ func TestLoad_Defaults(t *testing.T) {
 }
 
 func TestLoad_CustomConfigFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	tmpFile := filepath.Join(t.TempDir(), "beacon.toml")
 	if err := os.WriteFile(tmpFile, []byte(`
 [server]
@@ -98,6 +112,14 @@ reconcile_interval = "45s"
 
 [dashboard]
 name = " Workstation A "
+
+[fleet]
+role = "both"
+metadata_path = "~/custom-control-plane.db"
+control_plane_url = "https://beacon.example"
+node_id = "node.mac-mini"
+node_name = " Mac Mini "
+collector_id = "collector.mac-mini"
 
 [[capture.sources]]
 name = "custom-codex"
@@ -144,6 +166,18 @@ format = "jsonl"
 	}
 	if cfg.Dashboard.Name != "Workstation A" {
 		t.Errorf("Dashboard.Name = %q, want %q", cfg.Dashboard.Name, "Workstation A")
+	}
+	if cfg.Fleet.Role != FleetRoleBoth {
+		t.Errorf("Fleet.Role = %q, want %q", cfg.Fleet.Role, FleetRoleBoth)
+	}
+	if cfg.Fleet.MetadataPath != filepath.Join(os.Getenv("HOME"), "custom-control-plane.db") {
+		t.Errorf("Fleet.MetadataPath = %q, want expanded custom path", cfg.Fleet.MetadataPath)
+	}
+	if cfg.Fleet.ControlPlaneURL != "https://beacon.example" {
+		t.Errorf("Fleet.ControlPlaneURL = %q, want https://beacon.example", cfg.Fleet.ControlPlaneURL)
+	}
+	if cfg.Fleet.NodeID != "node.mac-mini" || cfg.Fleet.NodeName != "Mac Mini" || cfg.Fleet.CollectorID != "collector.mac-mini" {
+		t.Errorf("Fleet identity = %#v, want trimmed custom identity", cfg.Fleet)
 	}
 }
 
@@ -292,6 +326,51 @@ func TestLoad_InvalidValues(t *testing.T) {
 			wantErr: "dashboard.name must be <= 80 characters",
 		},
 		{
+			name:    "fleet role",
+			body:    "[fleet]\nrole = \"enterprise\"\n",
+			wantErr: "fleet.role must be one of",
+		},
+		{
+			name:    "fleet metadata path",
+			body:    "[fleet]\nmetadata_path = \" \"\n",
+			wantErr: "fleet.metadata_path is required",
+		},
+		{
+			name:    "fleet metadata path relative",
+			body:    "[fleet]\nmetadata_path = \"control-plane.db\"\n",
+			wantErr: "fleet.metadata_path must be absolute",
+		},
+		{
+			name:    "fleet metadata path memory",
+			body:    "[fleet]\nmetadata_path = \":memory:\"\n",
+			wantErr: "fleet.metadata_path must be a durable filesystem path",
+		},
+		{
+			name:    "fleet metadata path uri",
+			body:    "[fleet]\nmetadata_path = \"file:/tmp/control-plane.db?mode=memory\"\n",
+			wantErr: "fleet.metadata_path must be a durable filesystem path",
+		},
+		{
+			name:    "fleet metadata path query suffix",
+			body:    "[fleet]\nmetadata_path = \"/tmp/control-plane.db?_journal_mode=OFF\"\n",
+			wantErr: "fleet.metadata_path must be a durable filesystem path",
+		},
+		{
+			name:    "fleet collector role reserved",
+			body:    "[fleet]\nrole = \"collector\"\n",
+			wantErr: `fleet.role "collector" is reserved`,
+		},
+		{
+			name:    "fleet collector url scheme",
+			body:    "[fleet]\ncontrol_plane_url = \"ssh://beacon.example\"\n",
+			wantErr: "fleet.control_plane_url must use http or https",
+		},
+		{
+			name:    "fleet node id",
+			body:    "[fleet]\nnode_id = \"not valid\"\n",
+			wantErr: "fleet.node_id",
+		},
+		{
 			name: "unsupported source pair",
 			body: `
 [[capture.sources]]
@@ -400,6 +479,7 @@ func TestValidate_InvalidFields(t *testing.T) {
 		{name: "mcp max high", mutate: func(c *Config) { c.MCP.MaxResults = 10001 }, wantErr: "mcp.max_results must be <= 10000"},
 		{name: "mcp context high", mutate: func(c *Config) { c.MCP.ContextWindow = 1001 }, wantErr: "mcp.context_window must be <= 1000"},
 		{name: "dashboard name high", mutate: func(c *Config) { c.Dashboard.Name = strings.Repeat("x", DashboardNameMaxLength+1) }, wantErr: "dashboard.name must be <= 80 characters"},
+		{name: "fleet collector id", mutate: func(c *Config) { c.Fleet.CollectorID = "bad id" }, wantErr: "fleet.collector_id"},
 	}
 
 	for _, tt := range tests {
@@ -438,6 +518,11 @@ func TestValidate_NormalizesTrimmedFields(t *testing.T) {
 		},
 	}
 	cfg.Dashboard.Name = "  Workstation\n\tA  "
+	cfg.Fleet.Role = " both "
+	cfg.Fleet.MetadataPath = " /tmp/control-plane.db "
+	cfg.Fleet.NodeID = " node.local "
+	cfg.Fleet.NodeName = "  Local\n\tNode  "
+	cfg.Fleet.CollectorID = " collector.local "
 	if err := Validate(&cfg); err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
@@ -451,6 +536,13 @@ func TestValidate_NormalizesTrimmedFields(t *testing.T) {
 	}
 	if cfg.Dashboard.Name != "Workstation A" {
 		t.Fatalf("dashboard name not normalized: %q", cfg.Dashboard.Name)
+	}
+	if cfg.Fleet.Role != FleetRoleBoth ||
+		cfg.Fleet.MetadataPath != "/tmp/control-plane.db" ||
+		cfg.Fleet.NodeID != "node.local" ||
+		cfg.Fleet.NodeName != "Local Node" ||
+		cfg.Fleet.CollectorID != "collector.local" {
+		t.Fatalf("fleet fields not normalized: %#v", cfg.Fleet)
 	}
 }
 
@@ -475,5 +567,10 @@ func validTestConfig() Config {
 		Search:  SearchConfig{MaxResults: 25, RebuildInterval: 5},
 		Pricing: PricingConfig{DefaultInputCost: 3, DefaultOutputCost: 15},
 		MCP:     MCPConfig{MaxResults: 25, ContextWindow: 3},
+		Fleet: FleetConfig{
+			Role:         FleetRoleBoth,
+			MetadataPath: "/tmp/control-plane.db",
+			NodeName:     "local",
+		},
 	}
 }

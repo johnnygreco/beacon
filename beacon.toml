@@ -74,3 +74,11 @@ context_window = 3
 
 [dashboard]
 name = ""
+
+[fleet]
+role = "both"
+metadata_path = "~/.beacon/control-plane.db"
+control_plane_url = ""
+node_id = ""
+node_name = ""
+collector_id = ""

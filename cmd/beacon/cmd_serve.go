@@ -42,6 +42,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	controlStore, _, err := initializeControlPlane(context.Background(), cfg, logger)
+	if err != nil {
+		return fmt.Errorf("initializing control-plane metadata: %w", err)
+	}
+	defer controlStore.Close()
+
 	storeOpts := storeOptionsFromConfig(cfg)
 	if err := ensureLocalClickHouse(storeOpts); err != nil {
 		return fmt.Errorf("starting clickhouse: %w", err)

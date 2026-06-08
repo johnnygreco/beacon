@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,6 +27,7 @@ type Config struct {
 	Pricing   PricingConfig
 	MCP       MCPConfig
 	Dashboard DashboardConfig
+	Fleet     FleetConfig
 }
 
 type ServerConfig struct {
@@ -86,6 +88,21 @@ type DashboardConfig struct {
 	Name string
 }
 
+const (
+	FleetRoleBoth         = "both"
+	FleetRoleControlPlane = "control-plane"
+	FleetRoleCollector    = "collector"
+)
+
+type FleetConfig struct {
+	Role            string
+	MetadataPath    string `mapstructure:"metadata_path"`
+	ControlPlaneURL string `mapstructure:"control_plane_url"`
+	NodeID          string `mapstructure:"node_id"`
+	NodeName        string `mapstructure:"node_name"`
+	CollectorID     string `mapstructure:"collector_id"`
+}
+
 func Load(cfgFile string) (*Config, error) {
 	v := viper.New()
 	if cfgFile != "" {
@@ -119,6 +136,12 @@ func Load(cfgFile string) (*Config, error) {
 	if len(cfg.Capture.Sources) == 0 {
 		cfg.Capture.Sources = DefaultCaptureSources()
 	}
+	if cfg.Fleet.MetadataPath != "" {
+		cfg.Fleet.MetadataPath = expandHomePath(cfg.Fleet.MetadataPath)
+	}
+	if cfg.Fleet.NodeName == "" {
+		cfg.Fleet.NodeName = defaultNodeName()
+	}
 	if err := Validate(&cfg); err != nil {
 		return nil, err
 	}
@@ -148,6 +171,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("mcp.max_results", 25)
 	v.SetDefault("mcp.context_window", 3)
 	v.SetDefault("dashboard.name", "")
+	v.SetDefault("fleet.role", FleetRoleBoth)
+	v.SetDefault("fleet.metadata_path", DefaultControlPlaneMetadataPath())
+	v.SetDefault("fleet.control_plane_url", "")
+	v.SetDefault("fleet.node_id", "")
+	v.SetDefault("fleet.node_name", "")
+	v.SetDefault("fleet.collector_id", "")
 }
 
 func DefaultCaptureSources() []SourceConfig {
@@ -191,6 +220,7 @@ func SupportedSourceRuntimeFormatPairs() []string {
 }
 
 var databaseNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+var fleetIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
 
 func Validate(cfg *Config) error {
 	if cfg == nil {
@@ -289,7 +319,17 @@ func Validate(cfg *Config) error {
 	if utf8.RuneCountInString(cfg.Dashboard.Name) > DashboardNameMaxLength {
 		return fmt.Errorf("dashboard.name must be <= %d characters", DashboardNameMaxLength)
 	}
+	if err := validateFleet(&cfg.Fleet); err != nil {
+		return err
+	}
 	return nil
+}
+
+func DefaultControlPlaneMetadataPath() string {
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".beacon", "control-plane.db")
+	}
+	return filepath.Join("$HOME", ".beacon", "control-plane.db")
 }
 
 func normalizeDashboardName(value string) string {
@@ -350,6 +390,84 @@ func validateSources(sources []SourceConfig) error {
 		}
 	}
 	return nil
+}
+
+func validateFleet(fleet *FleetConfig) error {
+	fleet.Role = strings.TrimSpace(fleet.Role)
+	switch fleet.Role {
+	case FleetRoleBoth:
+	case FleetRoleControlPlane, FleetRoleCollector:
+		return fmt.Errorf("fleet.role %q is reserved until dedicated control-plane and collector modes are implemented; use %q", fleet.Role, FleetRoleBoth)
+	default:
+		return fmt.Errorf("fleet.role must be one of %q, %q, or %q", FleetRoleBoth, FleetRoleControlPlane, FleetRoleCollector)
+	}
+
+	fleet.MetadataPath = strings.TrimSpace(fleet.MetadataPath)
+	if fleet.MetadataPath == "" {
+		return fmt.Errorf("fleet.metadata_path is required")
+	}
+	if isSQLiteSpecialPath(fleet.MetadataPath) {
+		return fmt.Errorf("fleet.metadata_path must be a durable filesystem path, not a SQLite DSN")
+	}
+	if !filepath.IsAbs(fleet.MetadataPath) {
+		return fmt.Errorf("fleet.metadata_path must be absolute")
+	}
+	fleet.MetadataPath = filepath.Clean(fleet.MetadataPath)
+
+	fleet.ControlPlaneURL = strings.TrimSpace(fleet.ControlPlaneURL)
+	if fleet.ControlPlaneURL != "" {
+		parsed, err := url.Parse(fleet.ControlPlaneURL)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			return fmt.Errorf("fleet.control_plane_url must be an absolute URL")
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			return fmt.Errorf("fleet.control_plane_url must use http or https")
+		}
+	}
+
+	fleet.NodeID = strings.TrimSpace(fleet.NodeID)
+	if fleet.NodeID != "" && !fleetIDPattern.MatchString(fleet.NodeID) {
+		return fmt.Errorf("fleet.node_id %q must match %s", fleet.NodeID, fleetIDPattern.String())
+	}
+	fleet.NodeName = normalizeDashboardName(fleet.NodeName)
+	if fleet.NodeName == "" {
+		return fmt.Errorf("fleet.node_name is required")
+	}
+	fleet.CollectorID = strings.TrimSpace(fleet.CollectorID)
+	if fleet.CollectorID != "" && !fleetIDPattern.MatchString(fleet.CollectorID) {
+		return fmt.Errorf("fleet.collector_id %q must match %s", fleet.CollectorID, fleetIDPattern.String())
+	}
+	return nil
+}
+
+func isSQLiteSpecialPath(path string) bool {
+	lower := strings.ToLower(strings.TrimSpace(path))
+	return lower == ":memory:" || strings.HasPrefix(lower, "file:") || strings.Contains(lower, "?")
+}
+
+func expandHomePath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
+		}
+		return path
+	}
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
+}
+
+func defaultNodeName() string {
+	if hostname, err := os.Hostname(); err == nil {
+		if normalized := normalizeDashboardName(hostname); normalized != "" {
+			return normalized
+		}
+	}
+	return "local"
 }
 
 func validatePort(field string, port int) error {
