@@ -142,11 +142,14 @@ upstream request `Host` as `127.0.0.1:4600` or `localhost:4600`; Beacon's
 loopback guard rejects forwarded public hosts such as `beacon.example.com`.
 
 In this loopback reverse-proxy layout, the dashboard, JSON API, and `/api/mcp`
-trust the proxy boundary. The proxy must authenticate every externally
-reachable route, including `/api/mcp`. Beacon read-token enforcement and scoped
-read-token filtering for `/api/mcp` are active when Beacon runs in owner-token
-mode, or when reverse-proxy mode is bound to a non-loopback private interface
-that only the trusted proxy can reach.
+trust the proxy boundary. The proxy must authenticate externally reachable
+dashboard and JSON read routes, including `/api/mcp`. Collector ingest routes
+under `/api/ingest/v1/` must remain reachable to enrolled collectors over HTTPS
+with their Beacon bearer `Authorization` header preserved, unless the proxy uses
+an additional auth mechanism those collectors can satisfy. Beacon read-token
+enforcement and scoped read-token filtering for `/api/mcp` are active when
+Beacon runs in owner-token mode, or when reverse-proxy mode is bound to a
+non-loopback private interface that only the trusted proxy can reach.
 
 Owner-token mode is available for personal API or browser access:
 
@@ -508,13 +511,18 @@ path_masks = [
   "/srv/secrets"
 ]
 env_masks = [
+  "BEACON_ADMIN_TOKEN",
+  "BEACON_ENROLL_TOKEN",
+  "BEACON_INGEST_TOKEN",
+  "BEACON_OWNER_TOKEN",
+  "BEACON_READ_TOKEN",
   "OPENAI_API_KEY",
   "ANTHROPIC_API_KEY",
   "GITHUB_TOKEN",
-  "BEACON_OWNER_TOKEN",
-  "BEACON_ENROLL_TOKEN",
-  "BEACON_INGEST_TOKEN",
-  "BEACON_READ_TOKEN"
+  "GH_TOKEN",
+  "AWS_ACCESS_KEY_ID",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN"
 ]
 literal_masks = [
   "internal-hostname.example",
