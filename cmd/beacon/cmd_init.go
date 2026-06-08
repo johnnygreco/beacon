@@ -101,10 +101,17 @@ func runInit(cmd *cobra.Command, enrollTTL time.Duration) error {
 	fmt.Fprintf(out, "Beacon initialized at %s\n", snapshot.Path)
 	fmt.Fprintf(out, "Owner token (shown once):\n%s\n\n", owner.Plaintext)
 	fmt.Fprintf(out, "Enrollment token (shown once, expires %s):\n%s\n\n", expiresAt.Format(time.RFC3339), enroll.Plaintext)
+	if cfg.Fleet.Role == config.FleetRoleControlPlane {
+		fmt.Fprintln(out, "On collector machines, set fleet.role = \"collector\", pass the control-plane URL, and provide the enrollment token through stdin or an environment variable name:")
+		fmt.Fprintf(out, "  printf '%%s\\n' \"$BEACON_ENROLL_TOKEN\" | beacon enroll https://beacon.example --token-stdin\n")
+		fmt.Fprintln(out, "  beacon enroll https://beacon.example --token-env BEACON_ENROLL_TOKEN")
+		fmt.Fprintln(out, "Then run beacon collect.")
+		return nil
+	}
 	fmt.Fprintln(out, "For this configured metadata store, pass the enrollment token through stdin or an environment variable name:")
 	fmt.Fprintf(out, "  printf '%%s\\n' \"$BEACON_ENROLL_TOKEN\" | beacon enroll --token-stdin\n")
 	fmt.Fprintln(out, "  beacon enroll --token-env BEACON_ENROLL_TOKEN")
-	fmt.Fprintln(out, "Remote collectors can pass the control-plane URL as the enroll argument and then run beacon collect.")
+	fmt.Fprintln(out, "Remote collectors set fleet.role = \"collector\", pass the control-plane URL as the enroll argument, and then run beacon collect.")
 	return nil
 }
 

@@ -82,8 +82,15 @@ func TestRunInitControlPlaneRoleDoesNotCreateLocalCollector(t *testing.T) {
 	if err := runInit(cmd, time.Minute); err != nil {
 		t.Fatalf("runInit: %v", err)
 	}
-	if tokens := tokensFromOutput(out.String()); len(tokens) != 2 {
+	output := out.String()
+	if tokens := tokensFromOutput(output); len(tokens) != 2 {
 		t.Fatalf("tokens in output = %v, want owner and enrollment tokens", tokens)
+	}
+	if strings.Contains(output, "beacon enroll --token-stdin") || strings.Contains(output, "beacon enroll --token-env") {
+		t.Fatalf("control-plane init output includes local enroll commands that role guard rejects: %q", output)
+	}
+	if !strings.Contains(output, `fleet.role = "collector"`) || !strings.Contains(output, "beacon enroll https://beacon.example --token-stdin") {
+		t.Fatalf("control-plane init output = %q, want remote collector role guidance", output)
 	}
 	store, err := controlplane.Open(metadataPath)
 	if err != nil {

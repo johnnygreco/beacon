@@ -206,17 +206,14 @@ func (h *IngestHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, "invalid ingest schema", http.StatusBadRequest)
 		return
 	}
-	sourceIDs := make([]string, 0, len(req.Sources))
-	for _, source := range req.Sources {
-		sourceIDs = append(sourceIDs, source.SourceID)
+	sourceIDs, err := normalizeHeartbeatSources(&req)
+	if err != nil {
+		h.jsonError(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 	tokenRecord, err := h.authenticateIngestToken(r.Context(), r, req.NodeID, req.CollectorID, sourceIDs)
 	if err != nil {
 		h.authError(w, err)
-		return
-	}
-	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
-		h.internalError(w, "retire older ingest tokens", err)
 		return
 	}
 	snapshot, err := h.control.Snapshot(r.Context())
@@ -231,6 +228,10 @@ func (h *IngestHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 	_, sourceByID, err := validateCollectorBindings(snapshot, req.NodeID, req.CollectorID, sourceIDs)
 	if err != nil {
 		h.jsonError(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
+		h.internalError(w, "retire older ingest tokens", err)
 		return
 	}
 	if h.heartbeatRecorder == nil {
@@ -265,6 +266,19 @@ func (h *IngestHandlers) authenticateIngestToken(ctx context.Context, r *http.Re
 		return nil, err
 	}
 	return record, nil
+}
+
+func normalizeHeartbeatSources(req *ingest.HeartbeatRequest) ([]string, error) {
+	sourceIDs := make([]string, 0, len(req.Sources))
+	for i := range req.Sources {
+		sourceID := strings.TrimSpace(req.Sources[i].SourceID)
+		if sourceID == "" {
+			return nil, fmt.Errorf("heartbeat source_id is required")
+		}
+		req.Sources[i].SourceID = sourceID
+		sourceIDs = append(sourceIDs, sourceID)
+	}
+	return sourceIDs, nil
 }
 
 func controlplaneBootstrapFromEnroll(boot ingest.EnrollBootstrap) controlplane.Bootstrap {

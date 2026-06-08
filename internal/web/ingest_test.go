@@ -293,14 +293,20 @@ func TestReplacementHeartbeatWithBlankSourceDoesNotRevokeOlderToken(t *testing.T
 		CollectorID:       secondResp.Assignment.CollectorID,
 		NodeID:            secondResp.Assignment.NodeID,
 		ControlPlaneEpoch: secondResp.Assignment.ControlPlaneEpoch,
-		Sources: []ingest.HeartbeatSource{{
-			SourceID: " ",
-			Status:   "healthy",
-		}},
+		Sources: []ingest.HeartbeatSource{
+			{
+				SourceID: secondResp.Assignment.SourceIDs[0],
+				Status:   "healthy",
+			},
+			{
+				SourceID: " ",
+				Status:   "healthy",
+			},
+		},
 	}
 	rec := postIngestJSON(t, handler.Heartbeat, req, secondResp.IngestToken)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("heartbeat status = %d body=%s, want 403", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("heartbeat status = %d body=%s, want 400", rec.Code, rec.Body.String())
 	}
 	if _, err := control.AuthenticateToken(context.Background(), controlplane.AuthenticateTokenRequest{
 		Plaintext:      firstResp.IngestToken,
