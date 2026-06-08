@@ -108,12 +108,20 @@ const (
 )
 
 type FleetConfig struct {
-	Role            string
-	MetadataPath    string `mapstructure:"metadata_path"`
-	ControlPlaneURL string `mapstructure:"control_plane_url"`
-	NodeID          string `mapstructure:"node_id"`
-	NodeName        string `mapstructure:"node_name"`
-	CollectorID     string `mapstructure:"collector_id"`
+	Role              string
+	MetadataPath      string        `mapstructure:"metadata_path"`
+	ControlPlaneURL   string        `mapstructure:"control_plane_url"`
+	NodeID            string        `mapstructure:"node_id"`
+	NodeName          string        `mapstructure:"node_name"`
+	CollectorID       string        `mapstructure:"collector_id"`
+	IngestTokenFile   string        `mapstructure:"ingest_token_file"`
+	IngestTokenEnv    string        `mapstructure:"ingest_token_env"`
+	SpoolDir          string        `mapstructure:"spool_dir"`
+	SpoolMaxBytes     int64         `mapstructure:"spool_max_bytes"`
+	SpoolBatchSize    int           `mapstructure:"spool_batch_size"`
+	RetryMin          time.Duration `mapstructure:"retry_min"`
+	RetryMax          time.Duration `mapstructure:"retry_max"`
+	HeartbeatInterval time.Duration `mapstructure:"heartbeat_interval"`
 }
 
 func Load(cfgFile string) (*Config, error) {
@@ -193,6 +201,14 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("fleet.node_id", "")
 	v.SetDefault("fleet.node_name", "")
 	v.SetDefault("fleet.collector_id", "")
+	v.SetDefault("fleet.ingest_token_file", DefaultIngestTokenPath())
+	v.SetDefault("fleet.ingest_token_env", "BEACON_INGEST_TOKEN")
+	v.SetDefault("fleet.spool_dir", DefaultSpoolDir())
+	v.SetDefault("fleet.spool_max_bytes", int64(256*1024*1024))
+	v.SetDefault("fleet.spool_batch_size", 500)
+	v.SetDefault("fleet.retry_min", "1s")
+	v.SetDefault("fleet.retry_max", "1m")
+	v.SetDefault("fleet.heartbeat_interval", "30s")
 }
 
 func DefaultCaptureSources() []SourceConfig {
@@ -351,6 +367,20 @@ func DefaultControlPlaneMetadataPath() string {
 	return filepath.Join("$HOME", ".beacon", "control-plane.db")
 }
 
+func DefaultIngestTokenPath() string {
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".beacon", "ingest-token")
+	}
+	return filepath.Join("$HOME", ".beacon", "ingest-token")
+}
+
+func DefaultSpoolDir() string {
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".beacon", "spool")
+	}
+	return filepath.Join("$HOME", ".beacon", "spool")
+}
+
 func normalizeDashboardName(value string) string {
 	value = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
@@ -416,7 +446,6 @@ func validateFleet(fleet *FleetConfig) error {
 	switch fleet.Role {
 	case FleetRoleBoth:
 	case FleetRoleControlPlane, FleetRoleCollector:
-		return fmt.Errorf("fleet.role %q is reserved until dedicated control-plane and collector modes are implemented; use %q", fleet.Role, FleetRoleBoth)
 	default:
 		return fmt.Errorf("fleet.role must be one of %q, %q, or %q", FleetRoleBoth, FleetRoleControlPlane, FleetRoleCollector)
 	}
@@ -435,13 +464,11 @@ func validateFleet(fleet *FleetConfig) error {
 
 	fleet.ControlPlaneURL = strings.TrimSpace(fleet.ControlPlaneURL)
 	if fleet.ControlPlaneURL != "" {
-		parsed, err := url.Parse(fleet.ControlPlaneURL)
-		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			return fmt.Errorf("fleet.control_plane_url must be an absolute URL")
+		normalized, err := NormalizeControlPlaneURL(fleet.ControlPlaneURL, "fleet.control_plane_url")
+		if err != nil {
+			return err
 		}
-		if parsed.Scheme != "http" && parsed.Scheme != "https" {
-			return fmt.Errorf("fleet.control_plane_url must use http or https")
-		}
+		fleet.ControlPlaneURL = normalized
 	}
 
 	fleet.NodeID = strings.TrimSpace(fleet.NodeID)
@@ -455,6 +482,41 @@ func validateFleet(fleet *FleetConfig) error {
 	fleet.CollectorID = strings.TrimSpace(fleet.CollectorID)
 	if fleet.CollectorID != "" && !fleetIDPattern.MatchString(fleet.CollectorID) {
 		return fmt.Errorf("fleet.collector_id %q must match %s", fleet.CollectorID, fleetIDPattern.String())
+	}
+	fleet.IngestTokenFile = strings.TrimSpace(fleet.IngestTokenFile)
+	if fleet.IngestTokenFile != "" {
+		fleet.IngestTokenFile = expandHomePath(fleet.IngestTokenFile)
+		if !filepath.IsAbs(fleet.IngestTokenFile) {
+			return fmt.Errorf("fleet.ingest_token_file must be absolute")
+		}
+		fleet.IngestTokenFile = filepath.Clean(fleet.IngestTokenFile)
+	}
+	fleet.IngestTokenEnv = strings.TrimSpace(fleet.IngestTokenEnv)
+	if fleet.IngestTokenEnv == "" {
+		return fmt.Errorf("fleet.ingest_token_env is required")
+	}
+	fleet.SpoolDir = expandHomePath(strings.TrimSpace(fleet.SpoolDir))
+	if fleet.SpoolDir == "" {
+		return fmt.Errorf("fleet.spool_dir is required")
+	}
+	if !filepath.IsAbs(fleet.SpoolDir) {
+		return fmt.Errorf("fleet.spool_dir must be absolute")
+	}
+	fleet.SpoolDir = filepath.Clean(fleet.SpoolDir)
+	if fleet.SpoolMaxBytes <= 0 {
+		return fmt.Errorf("fleet.spool_max_bytes must be positive")
+	}
+	if fleet.SpoolBatchSize <= 0 {
+		return fmt.Errorf("fleet.spool_batch_size must be positive")
+	}
+	if fleet.RetryMin <= 0 {
+		return fmt.Errorf("fleet.retry_min must be positive")
+	}
+	if fleet.RetryMax < fleet.RetryMin {
+		return fmt.Errorf("fleet.retry_max must be greater than or equal to fleet.retry_min")
+	}
+	if fleet.HeartbeatInterval <= 0 {
+		return fmt.Errorf("fleet.heartbeat_interval must be positive")
 	}
 	return nil
 }
@@ -526,4 +588,36 @@ func validateHostPort(field, value string) error {
 		return fmt.Errorf("%s port must be numeric", field)
 	}
 	return validatePort(field+" port", port)
+}
+
+func NormalizeControlPlaneURL(raw, field string) (string, error) {
+	field = strings.TrimSpace(field)
+	if field == "" {
+		field = "control plane URL"
+	}
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("%s must be an absolute URL", field)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("%s must use http or https", field)
+	}
+	if parsed.Scheme == "http" && !isLoopbackURLHost(parsed.Host) {
+		return "", fmt.Errorf("%s must use https for non-loopback hosts", field)
+	}
+	return raw, nil
+}
+
+func isLoopbackURLHost(hostport string) bool {
+	host := strings.TrimSpace(hostport)
+	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
+		host = parsedHost
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }

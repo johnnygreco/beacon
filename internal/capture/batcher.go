@@ -2,7 +2,6 @@ package capture
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -48,6 +47,12 @@ type FleetIdentity struct {
 
 type FleetSourceIdentity struct {
 	SourceID string
+}
+
+type RowBatchMetadata struct {
+	BatchID          string
+	RedactionStatus  string
+	RedactionVersion string
 }
 
 type BatcherOption func(*Batcher)
@@ -202,10 +207,26 @@ func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput f
 	return batch
 }
 
+func BuildRowBatch(events []NormalizedEvent, defaultInput, defaultOutput float64, identity FleetIdentity, metadata RowBatchMetadata) store.RowBatch {
+	batch, _ := buildInsertRowBatchWithMetadata(events, defaultInput, defaultOutput, identity, nil, metadata)
+	return batch
+}
+
 func buildInsertRowBatchWithKnown(events []NormalizedEvent, defaultInput, defaultOutput float64, identity FleetIdentity, knownRawEvents map[string]string) (store.RowBatch, map[string]string) {
+	return buildInsertRowBatchWithMetadata(events, defaultInput, defaultOutput, identity, knownRawEvents, RowBatchMetadata{})
+}
+
+func buildInsertRowBatchWithMetadata(events []NormalizedEvent, defaultInput, defaultOutput float64, identity FleetIdentity, knownRawEvents map[string]string, metadata RowBatchMetadata) (store.RowBatch, map[string]string) {
 	var batch store.RowBatch
 	identity = normalizeFleetIdentity(identity)
 	batchID := batchID(events, identity)
+	if metadata.BatchID != "" {
+		batchID = metadata.BatchID
+	}
+	redactionStatus := metadata.RedactionStatus
+	if redactionStatus == "" {
+		redactionStatus = "unredacted"
+	}
 	prepared := make([]preparedEvent, 0, len(events))
 	resolvedRawEvents := make(map[string]string, len(events))
 	for key, uid := range knownRawEvents {
@@ -297,7 +318,8 @@ func buildInsertRowBatchWithKnown(events []NormalizedEvent, defaultInput, defaul
 			BatchID:            batchID,
 			ControlPlaneEpoch:  identity.ControlPlaneEpoch,
 			PayloadDigest:      item.payloadDigest,
-			RedactionStatus:    "unredacted",
+			RedactionStatus:    redactionStatus,
+			RedactionVersion:   metadata.RedactionVersion,
 		}
 		if item.rawSessionID != "" {
 			event.SessionID = item.sessionID
@@ -351,7 +373,8 @@ func buildInsertRowBatchWithKnown(events []NormalizedEvent, defaultInput, defaul
 				BatchID:           batchID,
 				ControlPlaneEpoch: identity.ControlPlaneEpoch,
 				PayloadDigest:     digestString(evt.ToolInput + "\x00" + evt.ToolOutput),
-				RedactionStatus:   "unredacted",
+				RedactionStatus:   redactionStatus,
+				RedactionVersion:  metadata.RedactionVersion,
 			}
 			batch.ToolPayloads = append(batch.ToolPayloads, payload)
 		}
@@ -485,12 +508,4 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func genID() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand failed: " + err.Error())
-	}
-	return hex.EncodeToString(b)
 }

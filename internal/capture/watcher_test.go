@@ -384,6 +384,48 @@ func TestProcessFileRecordsParseErrorsAndContinues(t *testing.T) {
 	}
 }
 
+func TestProcessFileHoldsUnterminatedFinalLine(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "partial.jsonl")
+	firstLine := `{"msg":"complete"}`
+	if err := os.WriteFile(file, []byte(firstLine+"\n"+`{"msg":"partial"`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeWatcherStore()
+	events := make(chan BatchEvent, 4)
+	src := WatchSource{Name: "codex", Parser: lineTextParser(t)}
+	w := newFakeWatcher(src, fake, events)
+
+	w.processFile(ctx, src, file)
+
+	got := drainBatchEvents(events)
+	if len(got) != 1 || got[0].TextContent != firstLine {
+		t.Fatalf("first process events = %#v, want only complete line", got)
+	}
+	saved := fake.lastCheckpoint(t, file)
+	if saved.LastOffset != int64(len(firstLine)+1) || saved.LastLineNo != 1 {
+		t.Fatalf("checkpoint after partial line = %#v, want complete-line checkpoint", saved)
+	}
+
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("}\n"); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w.processFile(ctx, src, file)
+	got = drainBatchEvents(events)
+	if len(got) != 1 || got[0].SourceLineNo != 2 {
+		t.Fatalf("second process events = %#v, want completed second line", got)
+	}
+}
+
 func TestProcessWholeFileParserEmitsRowsAndSavesCheckpoint(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -418,8 +460,8 @@ func TestProcessWholeFileParserEmitsRowsAndSavesCheckpoint(t *testing.T) {
 			t.Fatalf("whole-file metadata = %#v", evt)
 		}
 	}
-	if saved := fake.lastCheckpoint(t, file); saved.LastOffset != 0 || saved.LastLineNo != 0 {
-		t.Fatalf("whole-file checkpoint = %#v, want zero offset/line", saved)
+	if saved := fake.lastCheckpoint(t, file); saved.LastOffset != int64(len("sqlite fixture")) || saved.LastLineNo != 2 {
+		t.Fatalf("whole-file checkpoint = %#v, want completed whole-file checkpoint", saved)
 	}
 }
 
@@ -444,8 +486,8 @@ func TestProcessWholeFileParserRecordsParseError(t *testing.T) {
 	if len(fake.captureErrors) != 1 || fake.captureErrors[0].ErrorMessage != "sqlite parse failed" {
 		t.Fatalf("capture errors = %#v, want sqlite parse failure", fake.captureErrors)
 	}
-	if len(fake.saved) != 0 {
-		t.Fatalf("checkpoints saved after whole-file parse error = %#v, want none", fake.saved)
+	if len(fake.saved) != 1 || fake.saved[0].LastOffset != 0 {
+		t.Fatalf("checkpoints saved after whole-file parse error = %#v, want non-complete retry checkpoint", fake.saved)
 	}
 }
 
@@ -547,6 +589,37 @@ func TestLineParserCheckpointStateSeedsReplayModel(t *testing.T) {
 	PropagateModelWithInitial(replayed, decoded.ReplayState.Models)
 	if replayed[0].Model != "gpt-5.5" {
 		t.Fatalf("replayed event model = %q, want gpt-5.5", replayed[0].Model)
+	}
+}
+
+func TestLineParserCheckpointStateDropsSessionsOutsideReplayWindow(t *testing.T) {
+	initial := lineParserState{
+		Models: map[string]string{
+			"old-session":    "gpt-old",
+			"replay-session": "gpt-replay",
+		},
+		TokenUsageTotals: map[string]string{
+			"old-session":    "1:0:0:1",
+			"replay-session": "2:0:0:2",
+		},
+	}
+	events := []NormalizedEvent{
+		{SessionID: "old-session", SourceOffset: 0, SourceLineNo: 1},
+		{SessionID: "replay-session", SourceOffset: 20, SourceLineNo: 2},
+	}
+
+	state := buildLineParserCheckpointState(initial, events, []replayLine{{offset: 20, lineNo: 2}})
+	if _, ok := state.ReplayState.Models["old-session"]; ok {
+		t.Fatalf("old-session model was retained outside replay window: %#v", state.ReplayState.Models)
+	}
+	if _, ok := state.ReplayState.TokenUsageTotals["old-session"]; ok {
+		t.Fatalf("old-session token total was retained outside replay window: %#v", state.ReplayState.TokenUsageTotals)
+	}
+	if state.ReplayState.Models["replay-session"] != "gpt-replay" {
+		t.Fatalf("replay-session model = %q, want gpt-replay", state.ReplayState.Models["replay-session"])
+	}
+	if state.ReplayState.TokenUsageTotals["replay-session"] != "2:0:0:2" {
+		t.Fatalf("replay-session token total = %q, want retained", state.ReplayState.TokenUsageTotals["replay-session"])
 	}
 }
 

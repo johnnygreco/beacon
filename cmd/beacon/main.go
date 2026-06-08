@@ -36,6 +36,7 @@ func newRootCmd() *cobra.Command {
 		newEnrollCmd(),
 		newUpCmd(),
 		newDownCmd(),
+		newCollectCmd(),
 		newWatchCmd(),
 		newMCPCmd(),
 		newUsageCmd(),

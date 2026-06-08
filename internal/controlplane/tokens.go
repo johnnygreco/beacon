@@ -42,6 +42,7 @@ var (
 	ErrTokenUsed            = errors.New("token already used")
 	ErrTokenScopeDenied     = errors.New("token scope denied")
 	ErrTokenBindingMismatch = errors.New("token binding mismatch")
+	ErrEnrollmentInvalid    = errors.New("enrollment invalid")
 )
 
 type TokenRecord struct {
@@ -75,12 +76,14 @@ type CreateTokenRequest struct {
 }
 
 type AuthenticateTokenRequest struct {
-	Plaintext      string
-	AllowedTypes   []string
-	RequiredScopes []string
-	NodeID         string
-	CollectorID    string
-	SourceID       string
+	Plaintext        string
+	AllowedTypes     []string
+	RequiredScopes   []string
+	NodeID           string
+	CollectorID      string
+	SourceID         string
+	SourceIDs        []string
+	SkipBindingCheck bool
 }
 
 type EnrollmentResult struct {
@@ -221,6 +224,93 @@ func (s *Store) CompleteEnrollment(ctx context.Context, enrollPlaintext string, 
 	return &EnrollmentResult{Snapshot: snapshot, IngestToken: *ingest}, nil
 }
 
+func (s *Store) CompleteRemoteEnrollment(ctx context.Context, enrollPlaintext, existingIngestPlaintext string, boot Bootstrap) (*EnrollmentResult, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("control-plane metadata store is nil")
+	}
+	boot = normalizeBootstrap(boot)
+	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin remote enrollment transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	enrollRecord, err := authenticateToken(ctx, tx, AuthenticateTokenRequest{
+		Plaintext:      enrollPlaintext,
+		AllowedTypes:   []string{TokenTypeEnroll},
+		RequiredScopes: []string{ScopeEnroll},
+	}, now)
+	if err != nil {
+		return nil, err
+	}
+	result, err := tx.ExecContext(ctx,
+		`UPDATE tokens
+		 SET status = ?, used_at = ?, updated_at = ?
+		 WHERE token_id = ? AND status = ?`,
+		TokenStatusUsed,
+		formatTime(now),
+		formatTime(now),
+		enrollRecord.ID,
+		TokenStatusActive,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("mark enroll token used: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("mark enroll token used: %w", err)
+	}
+	if affected != 1 {
+		return nil, ErrTokenUsed
+	}
+	assignedBoot, existingCollector, err := ensureRemoteRegistrationTx(ctx, tx, boot, now)
+	if err != nil {
+		return nil, err
+	}
+	if existingCollector {
+		if _, err := authenticateToken(ctx, tx, AuthenticateTokenRequest{
+			Plaintext:        existingIngestPlaintext,
+			AllowedTypes:     []string{TokenTypeIngest},
+			RequiredScopes:   []string{ScopeIngest},
+			NodeID:           assignedBoot.NodeID,
+			CollectorID:      assignedBoot.CollectorID,
+			SkipBindingCheck: true,
+		}, now); err != nil {
+			return nil, err
+		}
+	}
+	snapshot, err := snapshotFromQueryer(ctx, s.path, tx)
+	if err != nil {
+		return nil, err
+	}
+	nodeID, collectorID, sourceIDs, err := assignmentForEnrollment(snapshot, assignedBoot)
+	if err != nil {
+		return nil, err
+	}
+	ingest, err := insertToken(ctx, tx, CreateTokenRequest{
+		Type:        TokenTypeIngest,
+		Scopes:      []string{ScopeIngest},
+		NodeID:      nodeID,
+		CollectorID: collectorID,
+		SourceIDs:   sourceIDs,
+	}, now)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit remote enrollment transaction: %w", err)
+	}
+	return &EnrollmentResult{Snapshot: snapshot, IngestToken: *ingest}, nil
+}
+
+func (s *Store) RevokeOlderActiveIngestTokensForCollector(ctx context.Context, current TokenRecord) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("control-plane metadata store is nil")
+	}
+	return revokeOlderActiveIngestTokensForCollector(ctx, s.db, current, time.Now().UTC())
+}
+
 func (s *Store) HasActiveOwnerToken(ctx context.Context) (bool, error) {
 	if s == nil || s.db == nil {
 		return false, fmt.Errorf("control-plane metadata store is nil")
@@ -326,6 +416,70 @@ func insertToken(ctx context.Context, tx *sql.Tx, req CreateTokenRequest, now ti
 	return &CreatedToken{Record: record, Plaintext: plain}, nil
 }
 
+func revokeOlderActiveIngestTokensForCollector(ctx context.Context, db *sql.DB, current TokenRecord, now time.Time) error {
+	tokenID := strings.TrimSpace(current.ID)
+	collectorID := strings.TrimSpace(current.CollectorID)
+	if tokenID == "" || collectorID == "" || current.Type != TokenTypeIngest || current.CreatedAt.IsZero() {
+		return nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin revoke older ingest tokens for collector %q: %w", collectorID, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	rows, err := tx.QueryContext(ctx,
+		`SELECT token_id, created_at
+		 FROM tokens
+		 WHERE token_type = ? AND collector_id = ? AND status = ? AND token_id != ?`,
+		TokenTypeIngest,
+		collectorID,
+		TokenStatusActive,
+		tokenID,
+	)
+	if err != nil {
+		return fmt.Errorf("read older ingest tokens for collector %q: %w", collectorID, err)
+	}
+	var revokeIDs []string
+	for rows.Next() {
+		var id, createdRaw string
+		if err := rows.Scan(&id, &createdRaw); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan older ingest token for collector %q: %w", collectorID, err)
+		}
+		createdAt := parseTime(createdRaw)
+		if createdAt.IsZero() || !createdAt.Before(current.CreatedAt) {
+			continue
+		}
+		revokeIDs = append(revokeIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("read older ingest token rows for collector %q: %w", collectorID, err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close older ingest token rows for collector %q: %w", collectorID, err)
+	}
+	for _, id := range revokeIDs {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE tokens
+			 SET status = ?, revoked_at = ?, updated_at = ?
+			 WHERE token_id = ? AND status = ?`,
+			TokenStatusRevoked,
+			formatTime(now),
+			formatTime(now),
+			id,
+			TokenStatusActive,
+		); err != nil {
+			return fmt.Errorf("revoke older ingest token %q for collector %q: %w", id, collectorID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit revoke older ingest tokens for collector %q: %w", collectorID, err)
+	}
+	return nil
+}
+
 func authenticateToken(ctx context.Context, q tokenQueryer, req AuthenticateTokenRequest, now time.Time) (*TokenRecord, error) {
 	plain := strings.TrimSpace(req.Plaintext)
 	if plain == "" {
@@ -364,6 +518,7 @@ func authenticateToken(ctx context.Context, q tokenQueryer, req AuthenticateToke
 }
 
 func validateAuthenticatedToken(record TokenRecord, req AuthenticateTokenRequest, now time.Time) error {
+	reqSourceIDs := normalizeStringList(req.SourceIDs)
 	switch record.Status {
 	case TokenStatusActive:
 	case TokenStatusUsed:
@@ -384,8 +539,8 @@ func validateAuthenticatedToken(record TokenRecord, req AuthenticateTokenRequest
 			return ErrTokenScopeDenied
 		}
 	}
-	if tokenAuthRequiresIngestBindings(record, req) &&
-		(req.NodeID == "" || req.CollectorID == "" || req.SourceID == "" ||
+	if !req.SkipBindingCheck && tokenAuthRequiresIngestBindings(record, req) &&
+		(req.NodeID == "" || req.CollectorID == "" || (req.SourceID == "" && len(reqSourceIDs) == 0) ||
 			record.NodeID == "" || record.CollectorID == "" || len(record.SourceIDs) == 0) {
 		return ErrTokenBindingMismatch
 	}
@@ -397,6 +552,11 @@ func validateAuthenticatedToken(record TokenRecord, req AuthenticateTokenRequest
 	}
 	if req.SourceID != "" && !containsString(record.SourceIDs, req.SourceID) {
 		return ErrTokenBindingMismatch
+	}
+	for _, sourceID := range reqSourceIDs {
+		if !containsString(record.SourceIDs, sourceID) {
+			return ErrTokenBindingMismatch
+		}
 	}
 	return nil
 }

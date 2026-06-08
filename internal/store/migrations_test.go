@@ -65,6 +65,15 @@ func TestSchemaIncludesSourceMetadataColumns(t *testing.T) {
 		"payload_digest String",
 		"redaction_status LowCardinality(String)",
 		"state_json String DEFAULT ''",
+		"beacon.ingest_batches",
+		"beacon.capture_heartbeats",
+		"spool_bytes UInt64",
+		"ORDER BY (collector_id, source_id, created_at)",
+		"state_version UInt64",
+		"status LowCardinality(String)",
+		"committed_at Nullable(DateTime64(3, 'UTC'))",
+		"ORDER BY (collector_id, source_id, source_name, source_file)",
+		"ORDER BY (collector_id, batch_id, id)",
 	} {
 		if !strings.Contains(schema, expected) {
 			t.Fatalf("schema missing %s", expected)

@@ -158,18 +158,26 @@ type ToolPayload struct {
 }
 
 type CaptureError struct {
-	ID              string    `json:"id"`
-	SourceName      string    `json:"source_name"`
-	SourceFile      string    `json:"source_file"`
-	SourceLineNo    int       `json:"source_line_no"`
-	SourceOffset    int64     `json:"source_offset"`
-	ErrorClass      string    `json:"error_class"`
-	ErrorMessage    string    `json:"error_message"`
-	ContextFragment string    `json:"context_fragment"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID                string    `json:"id"`
+	NodeID            string    `json:"node_id,omitempty"`
+	CollectorID       string    `json:"collector_id,omitempty"`
+	SourceID          string    `json:"source_id,omitempty"`
+	SourceName        string    `json:"source_name"`
+	SourceFile        string    `json:"source_file"`
+	SourceLineNo      int       `json:"source_line_no"`
+	SourceOffset      int64     `json:"source_offset"`
+	BatchID           string    `json:"batch_id,omitempty"`
+	ControlPlaneEpoch string    `json:"control_plane_epoch,omitempty"`
+	ErrorClass        string    `json:"error_class"`
+	ErrorMessage      string    `json:"error_message"`
+	ContextFragment   string    `json:"context_fragment"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 type Checkpoint struct {
+	NodeID           string `json:"node_id,omitempty"`
+	CollectorID      string `json:"collector_id,omitempty"`
+	SourceID         string `json:"source_id,omitempty"`
 	SourceName       string `json:"source_name"`
 	SourceFile       string `json:"source_file"`
 	SourceInode      int64  `json:"source_inode"`
@@ -177,6 +185,21 @@ type Checkpoint struct {
 	LastOffset       int64  `json:"last_offset"`
 	LastLineNo       int    `json:"last_line_no"`
 	StateJSON        string `json:"state_json"`
+}
+
+type CaptureHeartbeat struct {
+	NodeID            string     `json:"node_id"`
+	CollectorID       string     `json:"collector_id"`
+	SourceID          string     `json:"source_id"`
+	SourceName        string     `json:"source_name"`
+	ControlPlaneEpoch string     `json:"control_plane_epoch"`
+	Status            string     `json:"status"`
+	QueueDepth        int        `json:"queue_depth"`
+	SpoolBytes        int64      `json:"spool_bytes"`
+	ActiveFiles       int        `json:"active_files"`
+	ErrorCount        int        `json:"error_count"`
+	LastEventAt       *time.Time `json:"last_event_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
 }
 
 type SearchDocument struct {

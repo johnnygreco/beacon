@@ -31,6 +31,9 @@ type lineParserCheckpointState struct {
 	ReplayStartOffset int64           `json:"replay_start_offset"`
 	ReplayStartLineNo int             `json:"replay_start_line_no"`
 	ReplayState       lineParserState `json:"replay_state"`
+	PendingLineOffset int64           `json:"pending_line_offset,omitempty"`
+	PendingLineNo     int             `json:"pending_line_no,omitempty"`
+	PendingEventIndex int             `json:"pending_event_index,omitempty"`
 }
 
 type lineParserState struct {
@@ -332,135 +335,25 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 	}
 
 	cp := cm.Get(file)
-	if src.FileParser != nil {
-		w.processWholeFile(ctx, src, file, fi, cp)
-		return
-	}
-
-	var offset int64
-	var lineNo int
-	var checkpointOffset int64
-	var initialState lineParserState
-	if cp != nil {
-		offset = cp.LastOffset
-		lineNo = cp.LastLineNo
-		checkpointOffset = cp.LastOffset
-		// Nothing new to read
-		if fi.Size() <= offset {
-			return
-		}
-
-		checkpointState, stateOK := decodeLineParserCheckpointState(cp.StateJSON, w.logger)
-		if stateOK && checkpointState.ReplayStartLineNo > 0 &&
-			checkpointState.ReplayStartLineNo <= cp.LastLineNo &&
-			checkpointState.ReplayStartOffset <= cp.LastOffset {
-			offset = checkpointState.ReplayStartOffset
-			lineNo = checkpointState.ReplayStartLineNo - 1
-			initialState = checkpointState.ReplayState.clone()
-		} else {
-			offset, lineNo = replayStartFromPrefix(file, offset, lineNo, incrementalReplayLines, w.logger)
-			// Legacy checkpoints do not know the parser state at the replay
-			// boundary. Use the replay window only as context, then emit new
-			// rows; subsequent checkpoints persist exact replay state.
-		}
-	}
-
-	f, err := os.Open(file)
+	result, err := ReadSourceFile(ctx, src, file, cp, w.logger)
 	if err != nil {
-		w.logger.Error("open file failed", "file", file, "error", err)
+		w.logger.Error("read source file failed", "file", file, "error", err)
 		return
 	}
-	defer f.Close()
-
-	if offset > 0 {
-		if _, err := f.Seek(offset, 0); err != nil {
-			w.logger.Error("seek failed", "file", file, "offset", offset, "error", err)
-			return
+	for _, errRow := range result.CaptureErrors {
+		if err := w.store.InsertCaptureError(ctx, errRow); err != nil {
+			w.logger.Error("record capture error failed", "error", err)
 		}
 	}
-
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, scannerMaxTokenBytes), scannerMaxTokenBytes)
-
-	var allEvents []NormalizedEvent
-	var replayLines []replayLine
-
-	for scanner.Scan() {
-		lineNo++
-		lineBytes := scanner.Bytes()
-		lineLen := int64(len(lineBytes)) + 1 // +1 for newline
-		replayLines = appendReplayLine(replayLines, replayLine{offset: offset, lineNo: lineNo}, incrementalReplayLines)
-
-		if len(lineBytes) == 0 {
-			offset += lineLen
-			continue
-		}
-
-		events, err := src.Parser(lineBytes, file, lineNo, offset)
-		if err != nil {
-			w.logger.Warn("parse error", "file", file, "line", lineNo, "error", err)
-			// Record capture error
-			ce := &models.CaptureError{
-				ID:              genID(),
-				SourceName:      src.Name,
-				SourceFile:      file,
-				SourceLineNo:    lineNo,
-				SourceOffset:    offset,
-				ErrorClass:      "parse_error",
-				ErrorMessage:    err.Error(),
-				ContextFragment: truncate(string(lineBytes), 500),
-			}
-			if err := w.store.InsertCaptureError(ctx, *ce); err != nil {
-				w.logger.Error("record capture error failed", "error", err)
-			}
-			offset += lineLen
-			continue
-		}
-
-		for i := range events {
-			applyWatchSourceMetadata(&events[i], src, cp)
-		}
-		allEvents = append(allEvents, events...)
-		offset += lineLen
-	}
-	if err := scanner.Err(); err != nil {
-		w.logger.Error("scan file failed", "file", file, "error", err)
-		return
-	}
-
-	// Propagate model from context events to events without a model. On safe
-	// incremental replays, seed from the parser state captured at the replay
-	// boundary.
-	PropagateModelWithInitial(allEvents, initialState.Models)
-
-	// Deduplicate tokens across JSONL lines from the same API call
-	// before sending to the batcher.
-	allEvents = DeduplicateTokensWithInitial(allEvents, initialState.TokenUsageTotals)
-
-	nextState := buildLineParserCheckpointState(initialState, allEvents, replayLines)
-
-	for _, evt := range allEvents {
-		if cp != nil && evt.SourceOffset < checkpointOffset {
-			continue
-		}
+	for _, evt := range result.Events {
 		if !w.sendEvent(ctx, BatchEvent{Insert: &InsertEvent{Normalized: evt}}) {
 			return
 		}
 	}
-
-	// Save checkpoint after processing
-	newCP := &models.Checkpoint{
-		SourceName:  src.Name,
-		SourceFile:  file,
-		SourceInode: fileInode(fi),
-		LastOffset:  offset,
-		LastLineNo:  lineNo,
-		StateJSON:   encodeLineParserCheckpointState(nextState, w.logger),
+	if result.Checkpoint == nil {
+		return
 	}
-	if cp != nil {
-		newCP.SourceGeneration = cp.SourceGeneration
-	}
-	if err := cm.Save(ctx, newCP); err != nil {
+	if err := cm.Save(ctx, result.Checkpoint); err != nil {
 		w.logger.Error("save checkpoint failed", "file", file, "error", err)
 	}
 }
@@ -614,16 +507,17 @@ func encodeLineParserCheckpointState(state lineParserCheckpointState, logger *sl
 
 func buildLineParserCheckpointState(initial lineParserState, events []NormalizedEvent, replayLines []replayLine) lineParserCheckpointState {
 	if len(replayLines) == 0 {
-		return lineParserCheckpointState{
-			Version:     1,
-			ReplayState: initial.clone(),
-		}
+		return lineParserCheckpointState{Version: 1}
 	}
 
 	replayStart := replayLines[0]
-	replayState := initial.clone()
+	replaySessionIDs := sessionIDsAtOrAfterOffset(events, replayStart.offset)
+	replayState := initial.filter(replaySessionIDs)
 	for _, event := range events {
 		if event.SourceOffset >= replayStart.offset {
+			continue
+		}
+		if _, ok := replaySessionIDs[event.SessionID]; !ok {
 			continue
 		}
 		replayState.apply(event)
@@ -637,10 +531,31 @@ func buildLineParserCheckpointState(initial lineParserState, events []Normalized
 	}
 }
 
+func sessionIDsAtOrAfterOffset(events []NormalizedEvent, offset int64) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, event := range events {
+		if event.SourceOffset < offset || event.SessionID == "" {
+			continue
+		}
+		out[event.SessionID] = struct{}{}
+	}
+	return out
+}
+
 func (s lineParserState) clone() lineParserState {
 	return lineParserState{
 		Models:           cloneStringMap(s.Models),
 		TokenUsageTotals: cloneStringMap(s.TokenUsageTotals),
+	}
+}
+
+func (s lineParserState) filter(sessionIDs map[string]struct{}) lineParserState {
+	if len(sessionIDs) == 0 {
+		return lineParserState{}
+	}
+	return lineParserState{
+		Models:           filterStringMap(s.Models, sessionIDs),
+		TokenUsageTotals: filterStringMap(s.TokenUsageTotals, sessionIDs),
 	}
 }
 
@@ -679,51 +594,24 @@ func cloneStringMap(in map[string]string) map[string]string {
 	return out
 }
 
-func (w *Watcher) processWholeFile(ctx context.Context, src WatchSource, file string, fi os.FileInfo, cp *models.Checkpoint) {
-	events, err := src.FileParser(file)
-	if err != nil {
-		w.logger.Warn("parse error", "file", file, "error", err)
-		ce := &models.CaptureError{
-			ID:              genID(),
-			SourceName:      src.Name,
-			SourceFile:      file,
-			ErrorClass:      "parse_error",
-			ErrorMessage:    err.Error(),
-			ContextFragment: file,
+func filterStringMap(in map[string]string, allowed map[string]struct{}) map[string]string {
+	if len(in) == 0 || len(allowed) == 0 {
+		return nil
+	}
+	out := make(map[string]string)
+	for key, value := range in {
+		if key == "" || value == "" {
+			continue
 		}
-		if err := w.store.InsertCaptureError(ctx, *ce); err != nil {
-			w.logger.Error("record capture error failed", "error", err)
+		if _, ok := allowed[key]; !ok {
+			continue
 		}
-		return
+		out[key] = value
 	}
-
-	for i := range events {
-		applyWatchSourceMetadata(&events[i], src, cp)
+	if len(out) == 0 {
+		return nil
 	}
-	PropagateModel(events)
-	events = DeduplicateTokens(events)
-
-	for _, evt := range events {
-		if !w.sendEvent(ctx, BatchEvent{Insert: &InsertEvent{Normalized: evt}}) {
-			return
-		}
-	}
-
-	newCP := &models.Checkpoint{
-		SourceName:  src.Name,
-		SourceFile:  file,
-		SourceInode: fileInode(fi),
-		// Whole-file parsers intentionally replay complete, mutable session
-		// stores. Stable per-row event IDs let ClickHouse replace prior rows.
-		LastOffset: 0,
-		LastLineNo: 0,
-	}
-	if cp != nil {
-		newCP.SourceGeneration = cp.SourceGeneration
-	}
-	if err := w.checkpoints[src.Name].Save(ctx, newCP); err != nil {
-		w.logger.Error("save checkpoint failed", "file", file, "error", err)
-	}
+	return out
 }
 
 func applyWatchSourceMetadata(evt *NormalizedEvent, src WatchSource, cp *models.Checkpoint) {

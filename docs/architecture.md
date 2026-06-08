@@ -55,8 +55,8 @@ For line-oriented files, checkpoints track source file, inode, generation,
 offset, line number, and parser state. The watcher detects rotation by inode and
 size, advances `source_generation` to keep event IDs unique, replays a small
 prefix window when needed to preserve parser context, and then emits only new
-rows. Parse failures are stored in `capture_errors` with source coordinates and
-a context fragment.
+rows. Parse failures are stored in `capture_errors` with source coordinates,
+fleet/batch identity when available, and a context fragment.
 
 ### 2. Normalization
 
@@ -118,9 +118,12 @@ Core write tables:
   links, raw linked IDs, cross-session scope, and unresolved-link status.
 - `tool_payloads` stores structured tool call/result input and output payloads
   apart from the event row.
-- `capture_errors` stores parser and capture failures.
-- `capture_checkpoints` stores per-source, per-file replay state.
-- `capture_heartbeats` is reserved for capture health telemetry.
+- `capture_errors` stores parser and capture failures with source, fleet, and
+  batch identity.
+- `capture_checkpoints` stores per-source, per-file replay state keyed by source
+  name as well as fleet source identity.
+- `capture_heartbeats` stores fleet-aware collector/source health samples from
+  remote ingest heartbeats and future local capture health telemetry.
 
 Search tables are built during ingest, not by a separate external indexer:
 

@@ -95,6 +95,170 @@ func TestEnrollmentTokenIsOneUseAndMintsBoundIngestToken(t *testing.T) {
 	}
 }
 
+func TestRemoteReEnrollmentRequiresExistingIngestTokenAndRetiresOldTokenAfterUse(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+
+	firstEnroll, err := store.CreateToken(context.Background(), CreateTokenRequest{Type: TokenTypeEnroll})
+	if err != nil {
+		t.Fatalf("CreateToken first enroll: %v", err)
+	}
+	first, err := store.CompleteRemoteEnrollment(context.Background(), firstEnroll.Plaintext, "", testBootstrap())
+	if err != nil {
+		t.Fatalf("CompleteRemoteEnrollment first: %v", err)
+	}
+	nodeID := first.IngestToken.Record.NodeID
+	collectorID := first.IngestToken.Record.CollectorID
+	sourceID := first.IngestToken.Record.SourceIDs[0]
+	if nodeID == "node-test" || collectorID == "collector-test" {
+		t.Fatalf("remote enrollment reused claimed IDs without existing collector: %#v", first.IngestToken.Record)
+	}
+
+	secondEnroll, err := store.CreateToken(context.Background(), CreateTokenRequest{Type: TokenTypeEnroll})
+	if err != nil {
+		t.Fatalf("CreateToken second enroll: %v", err)
+	}
+	claimed := testBootstrap()
+	claimed.NodeID = nodeID
+	claimed.CollectorID = collectorID
+	_, err = store.CompleteRemoteEnrollment(context.Background(), secondEnroll.Plaintext, "", claimed)
+	if !errors.Is(err, ErrTokenInvalid) {
+		t.Fatalf("remote re-enrollment without proof error = %v, want ErrTokenInvalid", err)
+	}
+	if _, err := store.AuthenticateToken(context.Background(), AuthenticateTokenRequest{
+		Plaintext:      secondEnroll.Plaintext,
+		AllowedTypes:   []string{TokenTypeEnroll},
+		RequiredScopes: []string{ScopeEnroll},
+	}); err != nil {
+		t.Fatalf("failed re-enrollment consumed enroll token: %v", err)
+	}
+
+	second, err := store.CompleteRemoteEnrollment(context.Background(), secondEnroll.Plaintext, first.IngestToken.Plaintext, claimed)
+	if err != nil {
+		t.Fatalf("CompleteRemoteEnrollment second: %v", err)
+	}
+	if second.IngestToken.Record.NodeID != nodeID || second.IngestToken.Record.CollectorID != collectorID {
+		t.Fatalf("second assignment = %#v, want existing node/collector", second.IngestToken.Record)
+	}
+	if _, err := store.AuthenticateToken(context.Background(), AuthenticateTokenRequest{
+		Plaintext:      first.IngestToken.Plaintext,
+		AllowedTypes:   []string{TokenTypeIngest},
+		RequiredScopes: []string{ScopeIngest},
+		NodeID:         nodeID,
+		CollectorID:    collectorID,
+		SourceID:       sourceID,
+	}); err != nil {
+		t.Fatalf("old ingest token before replacement use should still authenticate: %v", err)
+	}
+	if err := store.RevokeOlderActiveIngestTokensForCollector(context.Background(), second.IngestToken.Record); err != nil {
+		t.Fatalf("RevokeOlderActiveIngestTokensForCollector: %v", err)
+	}
+	_, err = store.AuthenticateToken(context.Background(), AuthenticateTokenRequest{
+		Plaintext:      first.IngestToken.Plaintext,
+		AllowedTypes:   []string{TokenTypeIngest},
+		RequiredScopes: []string{ScopeIngest},
+		NodeID:         nodeID,
+		CollectorID:    collectorID,
+		SourceID:       sourceID,
+	})
+	if !errors.Is(err, ErrTokenRevoked) {
+		t.Fatalf("old ingest AuthenticateToken error = %v, want ErrTokenRevoked", err)
+	}
+	if _, err := store.AuthenticateToken(context.Background(), AuthenticateTokenRequest{
+		Plaintext:      second.IngestToken.Plaintext,
+		AllowedTypes:   []string{TokenTypeIngest},
+		RequiredScopes: []string{ScopeIngest},
+		NodeID:         nodeID,
+		CollectorID:    collectorID,
+		SourceID:       second.IngestToken.Record.SourceIDs[0],
+	}); err != nil {
+		t.Fatalf("new ingest token should authenticate: %v", err)
+	}
+}
+
+func TestRevokeOlderActiveIngestTokensUsesChronologicalTimestamps(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+	snapshot, err := store.EnsureLocal(context.Background(), testBootstrap())
+	if err != nil {
+		t.Fatalf("EnsureLocal: %v", err)
+	}
+	sourceIDs := sourceIDsForCollector(snapshot, "collector-test")
+	oldToken, err := store.CreateToken(context.Background(), CreateTokenRequest{
+		Type:        TokenTypeIngest,
+		NodeID:      "node-test",
+		CollectorID: "collector-test",
+		SourceIDs:   sourceIDs,
+	})
+	if err != nil {
+		t.Fatalf("CreateToken old: %v", err)
+	}
+	currentToken, err := store.CreateToken(context.Background(), CreateTokenRequest{
+		Type:        TokenTypeIngest,
+		NodeID:      "node-test",
+		CollectorID: "collector-test",
+		SourceIDs:   sourceIDs,
+	})
+	if err != nil {
+		t.Fatalf("CreateToken current: %v", err)
+	}
+	oldCreated := parseTime("2026-06-08T12:00:00.1Z")
+	currentCreated := parseTime("2026-06-08T12:00:00.1001Z")
+	if !(formatTime(oldCreated) > formatTime(currentCreated)) {
+		t.Fatalf("test setup invalid: old timestamp %q must sort after current %q", formatTime(oldCreated), formatTime(currentCreated))
+	}
+	if _, err := store.db.ExecContext(context.Background(),
+		`UPDATE tokens
+		 SET created_at = CASE token_id WHEN ? THEN ? WHEN ? THEN ? ELSE created_at END,
+		     updated_at = CASE token_id WHEN ? THEN ? WHEN ? THEN ? ELSE updated_at END
+		 WHERE token_id IN (?, ?)`,
+		oldToken.Record.ID,
+		formatTime(oldCreated),
+		currentToken.Record.ID,
+		formatTime(currentCreated),
+		oldToken.Record.ID,
+		formatTime(oldCreated),
+		currentToken.Record.ID,
+		formatTime(currentCreated),
+		oldToken.Record.ID,
+		currentToken.Record.ID,
+	); err != nil {
+		t.Fatalf("update token timestamps: %v", err)
+	}
+	currentRecord := currentToken.Record
+	currentRecord.CreatedAt = currentCreated
+	if err := store.RevokeOlderActiveIngestTokensForCollector(context.Background(), currentRecord); err != nil {
+		t.Fatalf("RevokeOlderActiveIngestTokensForCollector: %v", err)
+	}
+	_, err = store.AuthenticateToken(context.Background(), AuthenticateTokenRequest{
+		Plaintext:      oldToken.Plaintext,
+		AllowedTypes:   []string{TokenTypeIngest},
+		RequiredScopes: []string{ScopeIngest},
+		NodeID:         "node-test",
+		CollectorID:    "collector-test",
+		SourceID:       sourceIDs[0],
+	})
+	if !errors.Is(err, ErrTokenRevoked) {
+		t.Fatalf("old token auth error = %v, want revoked", err)
+	}
+	if _, err := store.AuthenticateToken(context.Background(), AuthenticateTokenRequest{
+		Plaintext:      currentToken.Plaintext,
+		AllowedTypes:   []string{TokenTypeIngest},
+		RequiredScopes: []string{ScopeIngest},
+		NodeID:         "node-test",
+		CollectorID:    "collector-test",
+		SourceID:       sourceIDs[0],
+	}); err != nil {
+		t.Fatalf("current token should remain active: %v", err)
+	}
+}
+
 func TestEnrollmentTokensCannotIngest(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "control-plane.db"))
 	if err != nil {
@@ -234,10 +398,12 @@ func TestIngestTokenRejectsMissingBindingRequests(t *testing.T) {
 		nodeID      string
 		collectorID string
 		sourceID    string
+		sourceIDs   []string
 	}{
 		{name: "missing node", collectorID: "collector-a", sourceID: "source-a"},
 		{name: "missing collector", nodeID: "node-a", sourceID: "source-a"},
 		{name: "missing source", nodeID: "node-a", collectorID: "collector-a"},
+		{name: "blank source list", nodeID: "node-a", collectorID: "collector-a", sourceIDs: []string{" "}},
 		{name: "missing all"},
 	}
 	for _, tt := range tests {
@@ -249,6 +415,7 @@ func TestIngestTokenRejectsMissingBindingRequests(t *testing.T) {
 				NodeID:         tt.nodeID,
 				CollectorID:    tt.collectorID,
 				SourceID:       tt.sourceID,
+				SourceIDs:      tt.sourceIDs,
 			})
 			if !errors.Is(err, ErrTokenBindingMismatch) {
 				t.Fatalf("AuthenticateToken error = %v, want ErrTokenBindingMismatch", err)

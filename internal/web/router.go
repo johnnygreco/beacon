@@ -56,6 +56,13 @@ func NewRouter(
 	// JSON API endpoints
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", handlers.Health)
+		if opts.ingestHandlers != nil {
+			r.Route("/ingest/v1", func(r chi.Router) {
+				r.Post("/enroll", opts.ingestHandlers.Enroll)
+				r.Post("/batches", opts.ingestHandlers.Batch)
+				r.Post("/heartbeats", opts.ingestHandlers.Heartbeat)
+			})
+		}
 		r.Group(func(r chi.Router) {
 			if opts.authMiddleware != nil {
 				r.Use(opts.authMiddleware)
@@ -86,6 +93,7 @@ func NewRouter(
 type routerOptions struct {
 	globalMiddlewares []func(http.Handler) http.Handler
 	authMiddleware    func(http.Handler) http.Handler
+	ingestHandlers    *IngestHandlers
 }
 
 type RouterOption func(*routerOptions)
@@ -101,6 +109,12 @@ func WithGlobalMiddleware(middleware func(http.Handler) http.Handler) RouterOpti
 func WithAuthMiddleware(middleware func(http.Handler) http.Handler) RouterOption {
 	return func(opts *routerOptions) {
 		opts.authMiddleware = middleware
+	}
+}
+
+func WithIngestHandlers(handlers *IngestHandlers) RouterOption {
+	return func(opts *routerOptions) {
+		opts.ingestHandlers = handlers
 	}
 }
 

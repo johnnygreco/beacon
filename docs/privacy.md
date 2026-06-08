@@ -4,8 +4,10 @@ Beacon is a local observability tool. It reads agent session files that already
 exist on the machine, normalizes them, and stores derived rows in ClickHouse so
 the dashboard, search UI, and MCP tools can query them quickly.
 
-Beacon does not currently implement automatic redaction or retention expiry.
-Treat the Beacon database as sensitive local data.
+Beacon does not implement retention expiry. Local capture preserves source
+content by default, and remote collector mode applies only limited best-effort
+redaction before spool/ingest. Treat the Beacon database and collector spools as
+sensitive local data.
 
 ## Data Beacon stores
 
@@ -28,8 +30,10 @@ owner instance ID, schema epoch, node and collector IDs, source names, runtime
 metadata, platform, hostname, configured source roots, and token metadata for
 owner, enrollment, read/admin, and ingest access. Token metadata includes token
 hashes, non-secret prefixes, scopes, status, expiry, revocation timestamps, and
-node/collector/source bindings. Plain token values are shown once by CLI setup
-commands and are not stored. This metadata is separate from captured ClickHouse
+node/collector/source bindings. Plain control-plane token values are shown once
+by CLI setup commands and are not stored by the control plane. Remote collectors
+store their bound ingest token in the configured `[fleet].ingest_token_file`
+with owner-only permissions. This metadata is separate from captured ClickHouse
 data so reset/replay coordination can keep stable local identity.
 
 The ClickHouse schema and table ownership are documented in
@@ -49,6 +53,13 @@ sources when the metadata store has been initialized.
 `beacon init` prints owner and enrollment tokens once. `beacon enroll` accepts
 enrollment tokens through stdin or an environment variable name, not through
 command arguments, so tokens do not need to appear in process listings.
+
+Remote-safe `beacon collect` writes pending HTTP ingest batches under
+`~/.beacon/spool` by default. The spool directories are owner-only and batch
+files are checksummed owner-only JSON files. Collector-side redaction removes
+obvious Beacon tokens and common secret assignments before data is written to
+spool or sent to the control plane; broader captured-content hardening is
+tracked separately.
 
 When Beacon manages native ClickHouse, local database files are under
 `~/.beacon/clickhouse`, including:
@@ -105,12 +116,18 @@ unless those tools or the user delete them.
 
 ## Redaction policy
 
-Beacon currently preserves captured content rather than redacting it. This keeps
-transcripts, search, diagnostics, and MCP retrieval faithful to the source
-session data, but it also means secrets copied into prompts, responses, tool
-arguments, file paths, or tool outputs may be stored and indexed.
+Beacon's local capture path preserves captured content rather than redacting it.
+This keeps transcripts, search, diagnostics, and MCP retrieval faithful to the
+source session data, but it also means secrets copied into prompts, responses,
+tool arguments, file paths, or tool outputs may be stored and indexed.
 
-Any future redaction feature should define:
+Remote collector mode is different: `beacon collect` runs limited `redact-v1`
+filtering before writing spool files or sending HTTP ingest. It removes Beacon
+tokens and common `api_key`, `token`, `secret`, and `password` assignment
+patterns from normalized event text, tool/raw payloads, and capture-error
+fragments. This is a safety net, not a complete secret-scanning policy.
+
+Any broader redaction feature should define:
 
 - which fields are redacted before insertion into raw records, activity events,
   tool payloads, and search documents;
@@ -119,5 +136,5 @@ Any future redaction feature should define:
 - tests that prove redacted content does not appear in raw payloads, previews,
   search indexes, web API responses, or MCP tool output.
 
-Until such a feature exists, use Beacon only on machines and ClickHouse
-instances whose local data access is trusted.
+Until such a feature exists, use Beacon only on machines, collector spools, and
+ClickHouse instances whose local data access is trusted.

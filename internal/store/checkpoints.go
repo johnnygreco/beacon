@@ -21,7 +21,7 @@ func (s *Store) LoadCheckpoints(ctx context.Context, sourceName string) (map[str
 		        argMax(last_line_no, updated_at),
 		        argMax(state_json, updated_at)
 		 FROM capture_checkpoints
-		 WHERE source_name = ?
+		 WHERE source_name = ? AND collector_id = ''
 		 GROUP BY source_file`, sourceName)
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func (s *Store) LoadCheckpoints(ctx context.Context, sourceName string) (map[str
 
 func (s *Store) insertCheckpoints(ctx context.Context, checkpoints []models.Checkpoint) error {
 	batch, err := s.native.PrepareBatch(ctx, `INSERT INTO capture_checkpoints (
-		source_name, source_file, source_inode, source_generation,
+		node_id, collector_id, source_id, source_name, source_file, source_inode, source_generation,
 		last_offset, last_line_no, state_json, updated_at
 	)`)
 	if err != nil {
@@ -62,6 +62,9 @@ func (s *Store) insertCheckpoints(ctx context.Context, checkpoints []models.Chec
 	now := time.Now().UTC()
 	for _, cp := range checkpoints {
 		if err := batch.Append(
+			cp.NodeID,
+			cp.CollectorID,
+			cp.SourceID,
 			cp.SourceName,
 			cp.SourceFile,
 			uint64(nonNegativeInt64(cp.SourceInode)),

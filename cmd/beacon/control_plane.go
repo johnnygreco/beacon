@@ -15,7 +15,12 @@ func initializeControlPlane(ctx context.Context, cfg *config.Config, logger *slo
 	if err != nil {
 		return nil, nil, err
 	}
-	snapshot, err := store.EnsureLocal(ctx, controlPlaneBootstrap(cfg))
+	var snapshot *controlplane.Snapshot
+	if cfg.Fleet.Role == config.FleetRoleControlPlane {
+		snapshot, err = store.EnsureControlPlane(ctx)
+	} else {
+		snapshot, err = store.EnsureLocal(ctx, controlPlaneBootstrap(cfg))
+	}
 	if err != nil {
 		_ = store.Close()
 		return nil, nil, err
@@ -26,6 +31,33 @@ func initializeControlPlane(ctx context.Context, cfg *config.Config, logger *slo
 			"schema_epoch", snapshot.SchemaEpoch,
 			"nodes", len(snapshot.Nodes),
 			"collectors", len(snapshot.Collectors),
+			"sources", len(snapshot.Sources),
+		)
+	}
+	return store, snapshot, nil
+}
+
+func initializeCollectorControlPlane(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*controlplane.Store, *controlplane.Snapshot, error) {
+	store, err := controlplane.Open(cfg.Fleet.MetadataPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	boot := controlPlaneBootstrap(cfg)
+	if snapshot, err := store.Snapshot(ctx); err == nil && snapshot.LocalNodeID != "" && snapshot.LocalCollectorID != "" {
+		boot.NodeID = snapshot.LocalNodeID
+		boot.CollectorID = snapshot.LocalCollectorID
+	}
+	snapshot, err := store.EnsureLocal(ctx, boot)
+	if err != nil {
+		_ = store.Close()
+		return nil, nil, err
+	}
+	if logger != nil {
+		logger.Info("collector metadata initialized",
+			"path", snapshot.Path,
+			"schema_epoch", snapshot.SchemaEpoch,
+			"node_id", snapshot.LocalNodeID,
+			"collector_id", snapshot.LocalCollectorID,
 			"sources", len(snapshot.Sources),
 		)
 	}
