@@ -47,6 +47,10 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("initializing control-plane metadata: %w", err)
 	}
 	defer controlStore.Close()
+	authOptions, err := dashboardAuthOptions(context.Background(), cfg, controlStore)
+	if err != nil {
+		return fmt.Errorf("dashboard auth: %w", err)
+	}
 
 	storeOpts := storeOptionsFromConfig(cfg)
 	if err := ensureLocalClickHouse(storeOpts); err != nil {
@@ -143,7 +147,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		_ = bg.Wait()
 		return fmt.Errorf("preparing static filesystem: %w", err)
 	}
-	router := web.NewRouter(staticFS, broker, handlers, apiHandlers)
+	router := web.NewRouter(staticFS, broker, handlers, apiHandlers, authOptions...)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{

@@ -28,6 +28,7 @@ type Config struct {
 	MCP       MCPConfig
 	Dashboard DashboardConfig
 	Fleet     FleetConfig
+	Auth      AuthConfig
 }
 
 type ServerConfig struct {
@@ -86,6 +87,17 @@ const DashboardNameMaxLength = 80
 
 type DashboardConfig struct {
 	Name string
+}
+
+const (
+	AuthModeLoopback     = "loopback"
+	AuthModeOwnerToken   = "owner-token"
+	AuthModeReverseProxy = "reverse-proxy"
+)
+
+type AuthConfig struct {
+	Mode       string
+	CookieName string `mapstructure:"cookie_name"`
 }
 
 const (
@@ -150,7 +162,7 @@ func Load(cfgFile string) (*Config, error) {
 }
 
 func setDefaults(v *viper.Viper) {
-	v.SetDefault("server.host", "0.0.0.0")
+	v.SetDefault("server.host", "127.0.0.1")
 	v.SetDefault("server.port", 4600)
 	v.SetDefault("database.addrs", []string{"127.0.0.1:9000"})
 	v.SetDefault("database.database", "beacon")
@@ -171,6 +183,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("mcp.max_results", 25)
 	v.SetDefault("mcp.context_window", 3)
 	v.SetDefault("dashboard.name", "")
+	v.SetDefault("auth.mode", AuthModeLoopback)
+	v.SetDefault("auth.cookie_name", "beacon_owner_token")
 	v.SetDefault("fleet.role", FleetRoleBoth)
 	v.SetDefault("fleet.metadata_path", DefaultControlPlaneMetadataPath())
 	v.SetDefault("fleet.control_plane_url", "")
@@ -319,6 +333,9 @@ func Validate(cfg *Config) error {
 	if utf8.RuneCountInString(cfg.Dashboard.Name) > DashboardNameMaxLength {
 		return fmt.Errorf("dashboard.name must be <= %d characters", DashboardNameMaxLength)
 	}
+	if err := validateAuth(&cfg.Auth); err != nil {
+		return err
+	}
 	if err := validateFleet(&cfg.Fleet); err != nil {
 		return err
 	}
@@ -436,6 +453,23 @@ func validateFleet(fleet *FleetConfig) error {
 	fleet.CollectorID = strings.TrimSpace(fleet.CollectorID)
 	if fleet.CollectorID != "" && !fleetIDPattern.MatchString(fleet.CollectorID) {
 		return fmt.Errorf("fleet.collector_id %q must match %s", fleet.CollectorID, fleetIDPattern.String())
+	}
+	return nil
+}
+
+func validateAuth(auth *AuthConfig) error {
+	auth.Mode = strings.TrimSpace(auth.Mode)
+	switch auth.Mode {
+	case AuthModeLoopback, AuthModeOwnerToken, AuthModeReverseProxy:
+	default:
+		return fmt.Errorf("auth.mode must be one of %q, %q, or %q", AuthModeLoopback, AuthModeOwnerToken, AuthModeReverseProxy)
+	}
+	auth.CookieName = strings.TrimSpace(auth.CookieName)
+	if auth.CookieName == "" {
+		return fmt.Errorf("auth.cookie_name is required")
+	}
+	if strings.ContainsAny(auth.CookieName, " \t\r\n;,\x00") {
+		return fmt.Errorf("auth.cookie_name contains invalid characters")
 	}
 	return nil
 }

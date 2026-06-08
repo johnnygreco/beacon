@@ -1,5 +1,5 @@
 [server]
-host = "0.0.0.0"
+host = "127.0.0.1"
 port = 4600
 
 [database]
@@ -74,6 +74,10 @@ context_window = 3
 
 [dashboard]
 name = ""
+
+[auth]
+mode = "loopback"
+cookie_name = "beacon_owner_token"
 
 [fleet]
 role = "both"

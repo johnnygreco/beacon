@@ -41,12 +41,14 @@ type SourceRegistration struct {
 }
 
 type Snapshot struct {
-	Path            string
-	OwnerInstanceID string
-	SchemaEpoch     string
-	Nodes           []Node
-	Collectors      []Collector
-	Sources         []Source
+	Path             string
+	OwnerInstanceID  string
+	SchemaEpoch      string
+	LocalNodeID      string
+	LocalCollectorID string
+	Nodes            []Node
+	Collectors       []Collector
+	Sources          []Source
 }
 
 type Node struct {
@@ -197,6 +199,8 @@ func (s *Store) Snapshot(ctx context.Context) (*Snapshot, error) {
 	}
 	snap.OwnerInstanceID = metadata["owner_instance_id"]
 	snap.SchemaEpoch = metadata["schema_epoch"]
+	snap.LocalNodeID = metadata["local_node_id"]
+	snap.LocalCollectorID = metadata["local_collector_id"]
 	if snap.Nodes, err = readNodes(ctx, s.db); err != nil {
 		return nil, err
 	}
@@ -258,6 +262,24 @@ func (s *Store) migrate(ctx context.Context) error {
 			FOREIGN KEY(collector_id) REFERENCES collectors(collector_id)
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_sources_collector_name ON sources(collector_id, name)`,
+		`CREATE TABLE IF NOT EXISTS tokens (
+			token_id TEXT PRIMARY KEY,
+			token_type TEXT NOT NULL,
+			token_hash TEXT NOT NULL,
+			token_prefix TEXT NOT NULL,
+			status TEXT NOT NULL,
+			scopes TEXT NOT NULL,
+			node_id TEXT,
+			collector_id TEXT,
+			source_ids TEXT NOT NULL,
+			expires_at TEXT,
+			used_at TEXT,
+			revoked_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_tokens_prefix ON tokens(token_prefix)`,
+		`CREATE INDEX IF NOT EXISTS idx_tokens_status_type ON tokens(status, token_type)`,
 	}
 	for _, stmt := range statements {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {

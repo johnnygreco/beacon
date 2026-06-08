@@ -25,9 +25,12 @@ Beacon can store the following content from configured capture sources:
 
 Beacon also stores a small control-plane metadata database containing the local
 owner instance ID, schema epoch, node and collector IDs, source names, runtime
-metadata, platform, hostname, and configured source roots. This metadata is
-separate from captured ClickHouse data so reset/replay coordination can keep
-stable local identity.
+metadata, platform, hostname, configured source roots, and token metadata for
+owner, enrollment, read/admin, and ingest access. Token metadata includes token
+hashes, non-secret prefixes, scopes, status, expiry, revocation timestamps, and
+node/collector/source bindings. Plain token values are shown once by CLI setup
+commands and are not stored. This metadata is separate from captured ClickHouse
+data so reset/replay coordination can keep stable local identity.
 
 The ClickHouse schema and table ownership are documented in
 [clickhouse.md](clickhouse.md).
@@ -42,6 +45,10 @@ Beacon's default control-plane metadata database is
 uses WAL mode. Beacon creates these files owner-readable only. `beacon status`
 reports the metadata path, schema epoch, and counts for nodes, collectors, and
 sources when the metadata store has been initialized.
+
+`beacon init` prints owner and enrollment tokens once. `beacon enroll` accepts
+enrollment tokens through stdin or an environment variable name, not through
+command arguments, so tokens do not need to appear in process listings.
 
 When Beacon manages native ClickHouse, local database files are under
 `~/.beacon/clickhouse`, including:
