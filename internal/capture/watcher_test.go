@@ -14,6 +14,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/redaction"
 )
 
 var watcherTestLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -381,6 +382,49 @@ func TestProcessFileRecordsParseErrorsAndContinues(t *testing.T) {
 	}
 	if saved := fake.lastCheckpoint(t, file); saved.LastLineNo != 2 {
 		t.Fatalf("checkpoint after parse error = %#v, want line 2", saved)
+	}
+}
+
+func TestProcessFileRedactsCaptureErrorsBeforeInsert(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "private", "errors.jsonl")
+	if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("api_key=local-error-secret literal-fixture-secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeWatcherStore()
+	events := make(chan BatchEvent, 1)
+	src := WatchSource{
+		Name: "codex",
+		Parser: func([]byte, string, int, int64) ([]NormalizedEvent, error) {
+			return nil, errors.New("parse failed with password=parser-secret")
+		},
+	}
+	w := newFakeWatcher(src, fake, events)
+	w.redactor = redaction.NewPolicy(redaction.Config{
+		PathMasks:    []string{filepath.Dir(file)},
+		LiteralMasks: []string{"literal-fixture-secret"},
+	})
+
+	w.processFile(ctx, src, file)
+
+	if len(fake.captureErrors) != 1 {
+		t.Fatalf("capture errors = %#v, want one parse error", fake.captureErrors)
+	}
+	errRow := fake.captureErrors[0]
+	got := strings.Join([]string{errRow.SourceFile, errRow.ErrorMessage, errRow.ContextFragment}, "\n")
+	for _, leaked := range []string{filepath.Dir(file), "local-error-secret", "literal-fixture-secret", "parser-secret"} {
+		if strings.Contains(got, leaked) {
+			t.Fatalf("capture error leaked %q: %s", leaked, got)
+		}
+	}
+	for _, marker := range []string{redaction.PathMarker, redaction.SecretMarker, redaction.LiteralMarker} {
+		if !strings.Contains(got, marker) {
+			t.Fatalf("capture error missing marker %q: %s", marker, got)
+		}
 	}
 }
 

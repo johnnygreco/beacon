@@ -84,12 +84,14 @@ func TestChartContainerWithOptions_EmptyTitle(t *testing.T) {
 	}
 }
 
-func TestChartContainerWithOptions_ToggleScriptGenerated(t *testing.T) {
+func TestChartContainerWithOptions_ToggleUsesDataAttributes(t *testing.T) {
 	html := renderToString(t, ChartContainerWithOptions("myChart", "300px", "Test", true, false))
 
-	// The templ script component should generate JS for toggling
-	if !strings.Contains(html, "onclick") {
-		t.Error("expected onclick handler on toggle button")
+	if strings.Contains(html, "onclick") {
+		t.Error("log toggle should not use inline onclick handlers")
+	}
+	if !strings.Contains(html, `data-chart-id="myChart"`) {
+		t.Error("expected data-chart-id for delegated log toggle")
 	}
 }
 

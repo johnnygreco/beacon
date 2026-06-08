@@ -140,6 +140,7 @@ func buildCollectorService(ctx context.Context, cfg *config.Config, logger *slog
 		RetryMin:          cfg.Fleet.RetryMin,
 		RetryMax:          cfg.Fleet.RetryMax,
 		HeartbeatInterval: cfg.Fleet.HeartbeatInterval,
+		RedactionPolicy:   redactionPolicyFromConfig(cfg),
 		Logger:            logger,
 	})
 	if err != nil {

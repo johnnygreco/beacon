@@ -59,7 +59,7 @@ function fakeElement(initialClasses = []) {
       this.focusCalls += 1;
     },
     querySelector(selector) {
-      if (selector === "[aria-label=\"Close\"]") return fakeElement();
+      if (selector === "[data-inspector-close]" || selector === "[aria-label=\"Close\"]") return fakeElement();
       return null;
     },
     querySelectorAll() {
@@ -82,7 +82,7 @@ function loadInspectorSandbox(transcriptHTML = '<div id="chat-view" class="trans
     "timeline-sidebar": fakeElement(),
   };
   elements["session-inspector"].querySelector = (selector) => {
-    if (selector === "[aria-label=\"Close\"]") return closeButton;
+    if (selector === "[data-inspector-close]" || selector === "[aria-label=\"Close\"]") return closeButton;
     return null;
   };
   const listeners = {};

@@ -232,6 +232,13 @@
 		resizeChartsSoon();
 	};
 
+	var toggleButton = document.getElementById('timeline-toggle-btn');
+	if (toggleButton) {
+		toggleButton.addEventListener('click', function() {
+			window.toggleTimelineSidebar();
+		});
+	}
+
 	// Keyboard shortcut: T toggles collapsed/expanded
 	document.addEventListener('keydown', function(e) {
 		if (e.key === 'T' || e.key === 't') {

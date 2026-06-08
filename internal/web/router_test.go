@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -32,5 +33,40 @@ func TestStaticFilesDisableBrowserCaching(t *testing.T) {
 	}
 	if got := rec.Header().Get("Expires"); got != "0" {
 		t.Fatalf("Expires = %q", got)
+	}
+}
+
+func TestRouterSetsSecurityHeaders(t *testing.T) {
+	router := NewRouter(
+		fstest.MapFS{
+			"js/prelude.js": &fstest.MapFile{Data: []byte("window.beacon = true;")},
+		},
+		nil,
+		nil,
+		nil,
+	)
+	req := httptest.NewRequest(http.MethodGet, "/static/js/prelude.js?v=test", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "script-src 'self'") {
+		t.Fatalf("CSP = %q, want self-only scripts", csp)
+	}
+	if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") {
+		t.Fatalf("CSP allows inline scripts: %q", csp)
+	}
+	for header, want := range map[string]string{
+		"X-Content-Type-Options": "nosniff",
+		"Referrer-Policy":        "same-origin",
+		"X-Frame-Options":        "DENY",
+	} {
+		if got := rec.Header().Get(header); got != want {
+			t.Fatalf("%s = %q, want %q", header, got, want)
+		}
 	}
 }

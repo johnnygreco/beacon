@@ -16,7 +16,6 @@ templ ChartContainerWithOptions(id string, height string, title string, logToggl
 				<button
 					type="button"
 					id={ id + "-log-toggle" }
-					onclick={ toggleLogScale(id) }
 					class={ logToggleClass(defaultLog) }
 					data-chart-id={ id }
 					data-log-active={ strconv.FormatBool(defaultLog) }
@@ -42,7 +41,6 @@ templ CompactChartContainerWithOptions(id string, height string, title string, l
 				<button
 					type="button"
 					id={ id + "-log-toggle" }
-					onclick={ toggleLogScale(id) }
 					class={ logToggleClass(defaultLog) }
 					data-chart-id={ id }
 					data-log-active={ strconv.FormatBool(defaultLog) }
@@ -70,28 +68,4 @@ func chartAccessibleLabel(id string, title string) string {
 		return title + " chart"
 	}
 	return id + " chart"
-}
-
-script toggleLogScale(chartId string) {
-	var chart = window[chartId];
-	if (!chart) return;
-	var btn = document.getElementById(chartId + '-log-toggle');
-	var isLog = btn.getAttribute('data-log-active') === 'true';
-	var newType = isLog ? 'linear' : 'logarithmic';
-	chart.options.scales.y.type = newType;
-	if (newType === 'logarithmic') {
-		chart.options.scales.y.min = 1;
-	} else {
-		delete chart.options.scales.y.min;
-	}
-	chart.update('none');
-	btn.setAttribute('data-log-active', String(!isLog));
-	btn.setAttribute('aria-pressed', String(!isLog));
-	if (!isLog) {
-		btn.classList.add('bg-blue-500/20', 'text-blue-400', 'border-blue-500/40');
-		btn.classList.remove('text-gray-400', 'border-gray-600');
-	} else {
-		btn.classList.remove('bg-blue-500/20', 'text-blue-400', 'border-blue-500/40');
-		btn.classList.add('text-gray-400', 'border-gray-600');
-	}
 }

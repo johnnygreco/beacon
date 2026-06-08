@@ -528,7 +528,7 @@ function activeSortControl() {
 	var options = activeSortValues().map(function(value) {
 		return '<option value="' + escapeAttr(value) + '"' + (value === current ? ' selected' : '') + '>' + escapeHTML(activeSortLabels[value] || value) + '</option>';
 	}).join('');
-	return '<label class="active-session-sort"><span class="sr-only">Active session sort order</span><select id="active-session-sort" class="active-session-sort-select" aria-label="Active session sort order" onchange="setActiveSessionSort(this.value)">' + options + '</select></label>';
+	return '<label class="active-session-sort"><span class="sr-only">Active session sort order</span><select id="active-session-sort" class="active-session-sort-select" aria-label="Active session sort order">' + options + '</select></label>';
 }
 
 function currentActiveSessionPinnedIDs(items) {
@@ -1248,7 +1248,7 @@ async function loadDashboardFleet() {
 	if (result.error) {
 		renderFleet({totals: {}, nodes: []});
 		var strip = document.getElementById('dashboard-fleet-strip');
-		if (strip) setHTMLIfChanged(strip, '<div class="dashboard-fleet-empty dashboard-fleet-error">Unable to load fleet status. <button type="button" onclick="loadDashboardFleet()">Retry</button></div>');
+		if (strip) setHTMLIfChanged(strip, '<div class="dashboard-fleet-empty dashboard-fleet-error">Unable to load fleet status. <button type="button" data-dashboard-retry="fleet">Retry</button></div>');
 		return;
 	}
 	renderFleet(result.data);
@@ -1261,7 +1261,7 @@ async function loadActiveSessions() {
 		withDashboardScrollStability(function() {
 			var wrap = document.getElementById('active-sessions');
 			if (!wrap) return;
-			renderActiveShell(wrap, '<h2 id="active-sessions-title" class="text-lg font-semibold text-gray-200 flex items-center gap-2">Active Sessions</h2>' + activeSortControl(), '<div class="rounded border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">Unable to load active sessions. <button type="button" class="underline" onclick="loadActiveSessions()">Retry</button></div>');
+			renderActiveShell(wrap, '<h2 id="active-sessions-title" class="text-lg font-semibold text-gray-200 flex items-center gap-2">Active Sessions</h2>' + activeSortControl(), '<div class="rounded border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">Unable to load active sessions. <button type="button" class="underline" data-dashboard-retry="active">Retry</button></div>');
 		}, {anchorSelector: activeSessionScrollAnchorSelector});
 		return;
 	}
@@ -1294,7 +1294,7 @@ async function loadDashboardSearch(options) {
 			var title = document.getElementById('completed-table-title');
 			if (title) title.textContent = 'Search Results';
 			setCompletedTableMode('search');
-			setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-red-400">Unable to search table sessions and events. <button type="button" class="underline" onclick="loadDashboardSearch()">Retry</button></span></td></tr>');
+			setHTMLIfChanged(tbody, '<tr><td colspan="6" class="text-center py-4"><span class="text-sm text-red-400">Unable to search table sessions and events. <button type="button" class="underline" data-dashboard-retry="search">Retry</button></span></td></tr>');
 			setTextIfChanged(status, 'Search failed');
 		}, {completedRegion: true});
 		return;
@@ -1327,7 +1327,7 @@ async function loadCompletedSessions(offset, options) {
 		if (options.silent) return;
 		withDashboardScrollStability(function() {
 			var tbody = document.getElementById('completed-sessions');
-			setHTMLIfChanged(tbody, '<tr><td colspan="12" class="text-center py-4"><span class="text-sm text-red-400">Unable to load completed sessions. <button type="button" class="underline" onclick="loadCompletedSessions(currentCompletedOffset)">Retry</button></span></td></tr>');
+			setHTMLIfChanged(tbody, '<tr><td colspan="12" class="text-center py-4"><span class="text-sm text-red-400">Unable to load completed sessions. <button type="button" class="underline" data-dashboard-retry="completed">Retry</button></span></td></tr>');
 			setTextIfChanged(status, 'Unable to load completed sessions');
 		}, {completedRegion: true});
 		return;
@@ -1344,7 +1344,7 @@ async function loadActivity() {
 	}));
 	if (!result || result.stale) return;
 	if (result.error) {
-		setHTMLIfChanged(document.getElementById('activity-feed'), '<p class="text-sm text-red-400 text-center py-4">Unable to load activity. <button type="button" class="underline" onclick="loadActivity()">Retry</button></p>');
+		setHTMLIfChanged(document.getElementById('activity-feed'), '<p class="text-sm text-red-400 text-center py-4">Unable to load activity. <button type="button" class="underline" data-dashboard-retry="activity">Retry</button></p>');
 		return;
 	}
 	renderActivity(result.data);

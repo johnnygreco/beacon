@@ -1,6 +1,12 @@
 package capture
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/redaction"
+)
 
 func TestChangedSessionIDsDeduplicatesInFlushOrder(t *testing.T) {
 	got := changedSessionIDs([]NormalizedEvent{
@@ -17,6 +23,64 @@ func TestChangedSessionIDsDeduplicatesInFlushOrder(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("changedSessionIDs[%d] = %q, want %q in %#v", i, got[i], want[i], got)
 		}
+	}
+}
+
+func TestRedactNormalizedEventsCoversStoredEventFields(t *testing.T) {
+	policy := redaction.NewPolicy(redaction.Config{
+		PathMasks:    []string{"/Users/example/private"},
+		LiteralMasks: []string{"literal-fixture-secret"},
+	})
+	events := RedactNormalizedEvents([]NormalizedEvent{{
+		TextContent:  "token bcn_owner_fixture_0123456789abcdef literal-fixture-secret",
+		ToolInput:    `{"api_key":"tool-secret"}`,
+		ToolOutput:   "Authorization: Bearer bearer-secret-value",
+		ErrorMessage: "password=error-secret",
+		RawPayload:   `{"client_secret":"raw-secret","path":"/Users/example/private/project"}`,
+		CWD:          "/Users/example/private/project",
+		SourceFile:   "/Users/example/private/project/session.jsonl",
+	}}, policy)
+	got := strings.Join([]string{
+		events[0].TextContent,
+		events[0].ToolInput,
+		events[0].ToolOutput,
+		events[0].ErrorMessage,
+		events[0].RawPayload,
+		events[0].CWD,
+		events[0].SourceFile,
+	}, "\n")
+	for _, leaked := range []string{"0123456789abcdef", "literal-fixture-secret", "tool-secret", "bearer-secret-value", "error-secret", "raw-secret", "/Users/example/private"} {
+		if strings.Contains(got, leaked) {
+			t.Fatalf("redacted event leaked %q: %s", leaked, got)
+		}
+	}
+	for _, marker := range []string{redaction.TokenMarker, redaction.SecretMarker, redaction.PathMarker, redaction.LiteralMarker} {
+		if !strings.Contains(got, marker) {
+			t.Fatalf("redacted event missing marker %q: %s", marker, got)
+		}
+	}
+}
+
+func TestRedactCaptureErrorsAndCheckpointsCoverStoredFields(t *testing.T) {
+	policy := redaction.NewPolicy(redaction.Config{PathMasks: []string{"/Users/example/private"}})
+	errs := RedactCaptureErrors([]models.CaptureError{{
+		SourceFile:      "/Users/example/private/session.jsonl",
+		ErrorMessage:    `{"password":"message-secret"}`,
+		ContextFragment: "Bearer fragment-secret",
+	}}, policy)
+	checkpoints := RedactCheckpoints([]models.Checkpoint{{
+		SourceFile: "/Users/example/private/session.jsonl",
+		StateJSON:  `{"api_key":"state-secret","path":"/Users/example/private/session.jsonl"}`,
+	}}, policy)
+
+	got := errs[0].SourceFile + "\n" + errs[0].ErrorMessage + "\n" + errs[0].ContextFragment + "\n" + checkpoints[0].SourceFile + "\n" + checkpoints[0].StateJSON
+	for _, leaked := range []string{"/Users/example/private", "message-secret", "fragment-secret", "state-secret"} {
+		if strings.Contains(got, leaked) {
+			t.Fatalf("redacted rows leaked %q: %s", leaked, got)
+		}
+	}
+	if !strings.Contains(got, redaction.PathMarker) || !strings.Contains(got, redaction.SecretMarker) {
+		t.Fatalf("redacted rows missing expected markers: %s", got)
 	}
 }
 

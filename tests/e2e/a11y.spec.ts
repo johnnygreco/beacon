@@ -10,7 +10,7 @@ import {
 } from './fixtures/dashboard';
 
 async function axeSeriousOrCritical(page: Page) {
-  await page.addScriptTag({ content: axe.source });
+  await page.evaluate(axe.source);
   const result = await page.evaluate(async () => {
     return await (window as unknown as {
       axe: {

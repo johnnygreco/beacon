@@ -10,9 +10,7 @@ function activateSessionsPagination(offset) {
 }
 
 function activityButtonType(button) {
-	var action = button.getAttribute('onclick') || '';
-	var match = action.match(/filterActivity\(this,\s*'([^']+)'/);
-	return match ? match[1] : 'all';
+	return button.getAttribute('data-activity-filter') || 'all';
 }
 
 function syncActivityControls() {
@@ -26,9 +24,7 @@ function syncActivityControls() {
 }
 
 function rangeButtonValue(button) {
-	var action = button.getAttribute('onclick') || '';
-	var match = action.match(/setDashboardRange\(this,\s*'([^']*)'/);
-	return match ? match[1] : '';
+	return button.getAttribute('data-dashboard-range') || '';
 }
 
 function syncDashboardRangeControls() {
@@ -42,9 +38,7 @@ function syncDashboardRangeControls() {
 }
 
 function chartRangeButtonValue(button) {
-	var action = button.getAttribute('onclick') || '';
-	var match = action.match(/setDashboardChartRange\(this,\s*'([^']*)'/);
-	return match ? match[1] : '';
+	return button.getAttribute('data-dashboard-chart-range') || '';
 }
 
 function syncDashboardChartRangeControls() {
@@ -147,6 +141,49 @@ async function toggleJSONSubagents(button) {
 }
 
 document.addEventListener('click', function(evt) {
+	var completedRangeBtn = evt.target.closest && evt.target.closest('[data-dashboard-range]');
+	if (completedRangeBtn) {
+		evt.preventDefault();
+		setDashboardRange(completedRangeBtn, completedRangeBtn.getAttribute('data-dashboard-range') || '');
+		return;
+	}
+	var chartRangeBtn = evt.target.closest && evt.target.closest('[data-dashboard-chart-range]');
+	if (chartRangeBtn) {
+		evt.preventDefault();
+		setDashboardChartRange(chartRangeBtn, chartRangeBtn.getAttribute('data-dashboard-chart-range') || '');
+		return;
+	}
+	var actionBtn = evt.target.closest && evt.target.closest('[data-dashboard-action]');
+	if (actionBtn) {
+		evt.preventDefault();
+		var dashboardAction = actionBtn.getAttribute('data-dashboard-action') || '';
+		if (dashboardAction === 'refresh-charts') refreshDashboardCharts();
+		else if (dashboardAction === 'refresh-completed') refreshCompletedTable();
+		return;
+	}
+	var sortBtn = evt.target.closest && evt.target.closest('[data-dashboard-sort]');
+	if (sortBtn) {
+		evt.preventDefault();
+		sortCompletedTable(sortBtn, sortBtn.getAttribute('data-dashboard-sort') || '');
+		return;
+	}
+	var retryBtn = evt.target.closest && evt.target.closest('[data-dashboard-retry]');
+	if (retryBtn) {
+		evt.preventDefault();
+		var retry = retryBtn.getAttribute('data-dashboard-retry') || '';
+		if (retry === 'fleet') loadDashboardFleet();
+		else if (retry === 'active') loadActiveSessions();
+		else if (retry === 'search') loadDashboardSearch();
+		else if (retry === 'completed') loadCompletedSessions(currentCompletedOffset);
+		else if (retry === 'activity') loadActivity();
+		return;
+	}
+	var activityFilterBtn = evt.target.closest && evt.target.closest('[data-activity-filter]');
+	if (activityFilterBtn) {
+		evt.preventDefault();
+		filterActivity(activityFilterBtn, activityFilterBtn.getAttribute('data-activity-filter') || 'all');
+		return;
+	}
 	var scopeButton = evt.target.closest && evt.target.closest('[data-dashboard-scope-field]');
 	if (scopeButton) {
 		evt.preventDefault();
@@ -226,6 +263,18 @@ document.addEventListener('click', function(evt) {
 	if (row && !evt.target.closest('button')) {
 		evt.preventDefault();
 		window.goToSession(row.getAttribute('data-session-link'), row);
+	}
+});
+
+document.addEventListener('change', function(evt) {
+	var activeSort = evt.target && evt.target.closest && evt.target.closest('#active-session-sort');
+	if (activeSort) {
+		setActiveSessionSort(activeSort.value);
+		return;
+	}
+	var chartMetric = evt.target && evt.target.closest && evt.target.closest('#dashboard-chart-metric');
+	if (chartMetric) {
+		setDashboardChartMetric(chartMetric.value);
 	}
 });
 

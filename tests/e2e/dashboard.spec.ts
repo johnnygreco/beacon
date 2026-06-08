@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 import {
   ACTIVE_SESSION_ID,
   SEARCH_SESSION_ID,
@@ -407,7 +408,7 @@ test.describe('dashboard battle-tested workflows', () => {
         </body>
       </html>
     `);
-    await page.addScriptTag({ path: 'static/js/dashboard/name.js' });
+    await page.evaluate(await readFile('static/js/dashboard/name.js', 'utf8'));
 
     await expect(page).toHaveTitle('Configured Station | Beacon');
     await expect(page.locator('#dashboard-title')).toHaveText('Configured Station');

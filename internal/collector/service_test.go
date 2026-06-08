@@ -17,6 +17,7 @@ import (
 	"github.com/johnnygreco/beacon/internal/capture"
 	"github.com/johnnygreco/beacon/internal/ingest"
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/redaction"
 )
 
 func TestServiceRetryKeepsPendingUntilAckAndThenAdvancesCheckpoint(t *testing.T) {
@@ -188,6 +189,56 @@ func TestServiceSpoolFullPausesBeforeCheckpointAndSequenceAdvance(t *testing.T) 
 	status := service.Status()
 	if !status.BlockedSpoolFull {
 		t.Fatalf("BlockedSpoolFull = false, want true")
+	}
+}
+
+func TestServiceRedactsBeforeCollectorSpoolAndPreservesInternalCheckpointPath(t *testing.T) {
+	t.Setenv("BEACON_TEST_COLLECTOR_ENV", "env-fixture-secret")
+	line := `{"msg":"api_key=collector-secret literal-fixture-secret env-fixture-secret bcn_read_fixture_0123456789abcdef"}`
+	service, state, file := newTestServiceWithLines(t, "http://127.0.0.1:1", 1<<20, 500, []string{line})
+	service.cfg.RedactionPolicy = redaction.NewPolicy(redaction.Config{
+		PathMasks:    []string{filepath.Dir(file)},
+		EnvMasks:     []string{"BEACON_TEST_COLLECTOR_ENV"},
+		LiteralMasks: []string{"literal-fixture-secret"},
+	})
+
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("ScanOnce: %v", err)
+	}
+	pending, err := service.cfg.Spool.Pending()
+	if err != nil {
+		t.Fatalf("Pending: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending batches = %d, want 1", len(pending))
+	}
+	spoolBytes, err := os.ReadFile(pending[0].Path)
+	if err != nil {
+		t.Fatalf("read pending spool: %v", err)
+	}
+	spoolJSON := string(spoolBytes)
+	for _, leaked := range []string{
+		"collector-secret",
+		"literal-fixture-secret",
+		"env-fixture-secret",
+		"0123456789abcdef",
+		filepath.Dir(file),
+		file,
+	} {
+		if strings.Contains(spoolJSON, leaked) {
+			t.Fatalf("spool file leaked %q: %s", leaked, spoolJSON)
+		}
+	}
+	for _, marker := range []string{redaction.SecretMarker, redaction.LiteralMarker, redaction.EnvMarker, redaction.TokenMarker, redaction.PathMarker} {
+		if !strings.Contains(spoolJSON, marker) {
+			t.Fatalf("spool file missing marker %q: %s", marker, spoolJSON)
+		}
+	}
+	if len(pending[0].Request.Checkpoints) != 1 || !strings.Contains(pending[0].Request.Checkpoints[0].SourceFile, redaction.PathMarker) {
+		t.Fatalf("spooled request checkpoint was not redacted: %#v", pending[0].Request.Checkpoints)
+	}
+	if cp := state.SpooledCheckpoint("codex", file); cp == nil || cp.SourceFile != file || cp.LastLineNo != 1 {
+		t.Fatalf("internal spooled checkpoint = %#v, want original source path %q", cp, file)
 	}
 }
 

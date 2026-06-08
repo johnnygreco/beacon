@@ -425,7 +425,7 @@ templ toolCardGeneric(item views.ToolChainItem) {
 }
 
 templ copyButton() {
-	<button type="button" onclick="copyToClipboard(this)"
+	<button type="button" data-copy-to-clipboard
 		class="absolute top-2 right-2 p-1 rounded bg-gray-700/50 hover:bg-gray-600/50 text-gray-400 hover:text-gray-200 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
 		title="Copy to clipboard"
 		aria-label="Copy to clipboard">
@@ -621,6 +621,6 @@ templ truncatableBlock(fadeBg string, truncate bool) {
 			{ children... }
 		</div>
 		<div class="truncatable-fade"></div>
-		<button type="button" class="truncate-toggle" onclick="toggleTruncation(this.closest('.truncatable'))">Show more</button>
+		<button type="button" class="truncate-toggle" data-truncate-toggle>Show more</button>
 	</div>
 }

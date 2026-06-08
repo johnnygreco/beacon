@@ -24,6 +24,7 @@ func NewRouter(
 
 	r := chi.NewRouter()
 
+	r.Use(SecurityHeadersMiddleware)
 	for _, middleware := range opts.globalMiddlewares {
 		r.Use(middleware)
 	}

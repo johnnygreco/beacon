@@ -17,6 +17,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/fsnotify/fsnotify"
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/redaction"
 	"github.com/johnnygreco/beacon/internal/store"
 )
 
@@ -75,11 +76,22 @@ type Watcher struct {
 	backfillOnStart    bool
 	backfillWorkers    int
 	checkpoints        map[string]*CheckpointManager
+	redactor           *redaction.Policy
 	backpressuredSends atomic.Uint64
 }
 
+type WatcherOption func(*Watcher)
+
+func WithWatcherRedactionPolicy(policy *redaction.Policy) WatcherOption {
+	return func(w *Watcher) {
+		if policy != nil {
+			w.redactor = policy
+		}
+	}
+}
+
 // NewWatcher creates a new JSONL file watcher.
-func NewWatcher(sources []WatchSource, eventCh chan<- BatchEvent, ch *store.Store, logger *slog.Logger, debounce, reconcile time.Duration, backfillOnStart bool, backfillWorkers int) *Watcher {
+func NewWatcher(sources []WatchSource, eventCh chan<- BatchEvent, ch *store.Store, logger *slog.Logger, debounce, reconcile time.Duration, backfillOnStart bool, backfillWorkers int, options ...WatcherOption) *Watcher {
 	cps := make(map[string]*CheckpointManager)
 	for _, src := range sources {
 		cps[src.Name] = NewCheckpointManager(ch, src.Name)
@@ -87,7 +99,7 @@ func NewWatcher(sources []WatchSource, eventCh chan<- BatchEvent, ch *store.Stor
 	if backfillWorkers <= 0 {
 		backfillWorkers = 4
 	}
-	return &Watcher{
+	w := &Watcher{
 		sources:           sources,
 		eventCh:           eventCh,
 		store:             ch,
@@ -97,7 +109,12 @@ func NewWatcher(sources []WatchSource, eventCh chan<- BatchEvent, ch *store.Stor
 		backfillOnStart:   backfillOnStart,
 		backfillWorkers:   backfillWorkers,
 		checkpoints:       cps,
+		redactor:          redaction.DefaultPolicy(),
 	}
+	for _, option := range options {
+		option(w)
+	}
+	return w
 }
 
 // Run starts the watcher. It blocks until ctx is cancelled.
@@ -317,7 +334,7 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 
 	// Check for rotation
 	if cm.CheckRotation(file, fi) {
-		w.logger.Info("file rotation detected, resetting checkpoint", "file", file)
+		w.logger.Info("file rotation detected, resetting checkpoint", "file", w.redactionPolicy().RedactPath(file))
 		cp := &models.Checkpoint{
 			SourceName:       src.Name,
 			SourceFile:       file,
@@ -330,17 +347,17 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 			cp.SourceGeneration = existing.SourceGeneration + 1
 		}
 		if err := cm.Save(ctx, cp); err != nil {
-			w.logger.Error("save rotation checkpoint failed", "file", file, "error", err)
+			w.logger.Error("save rotation checkpoint failed", "file", w.redactionPolicy().RedactPath(file), "error", err)
 		}
 	}
 
 	cp := cm.Get(file)
 	result, err := ReadSourceFile(ctx, src, file, cp, w.logger)
 	if err != nil {
-		w.logger.Error("read source file failed", "file", file, "error", err)
+		w.logger.Error("read source file failed", "file", w.redactionPolicy().RedactPath(file), "error", err)
 		return
 	}
-	for _, errRow := range result.CaptureErrors {
+	for _, errRow := range RedactCaptureErrors(result.CaptureErrors, w.redactionPolicy()) {
 		if err := w.store.InsertCaptureError(ctx, errRow); err != nil {
 			w.logger.Error("record capture error failed", "error", err)
 		}
@@ -354,8 +371,15 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 		return
 	}
 	if err := cm.Save(ctx, result.Checkpoint); err != nil {
-		w.logger.Error("save checkpoint failed", "file", file, "error", err)
+		w.logger.Error("save checkpoint failed", "file", w.redactionPolicy().RedactPath(file), "error", err)
 	}
+}
+
+func (w *Watcher) redactionPolicy() *redaction.Policy {
+	if w != nil && w.redactor != nil {
+		return w.redactor
+	}
+	return redaction.DefaultPolicy()
 }
 
 func replayStartFromPrefix(file string, limitOffset int64, limitLineNo int, overlapLines int, logger *slog.Logger) (int64, int) {

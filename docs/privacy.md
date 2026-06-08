@@ -4,10 +4,10 @@ Beacon is a local observability tool. It reads agent session files that already
 exist on the machine, normalizes them, and stores derived rows in ClickHouse so
 the dashboard, search UI, and MCP tools can query them quickly.
 
-Beacon does not implement retention expiry. Local capture preserves source
-content by default, and remote collector mode applies only limited best-effort
-redaction before spool/ingest. Treat the Beacon database and collector spools as
-sensitive local data.
+Beacon does not implement retention expiry. Beacon applies a best-effort
+destructive redaction policy before local capture writes, collector spool files,
+and HTTP ingest commits. Treat the Beacon database and collector spools as
+sensitive local data even after redaction.
 
 ## Data Beacon stores
 
@@ -56,10 +56,8 @@ command arguments, so tokens do not need to appear in process listings.
 
 Remote-safe `beacon collect` writes pending HTTP ingest batches under
 `~/.beacon/spool` by default. The spool directories are owner-only and batch
-files are checksummed owner-only JSON files. Collector-side redaction removes
-obvious Beacon tokens and common secret assignments before data is written to
-spool or sent to the control plane; broader captured-content hardening is
-tracked separately.
+files are checksummed owner-only JSON files. Collector redaction runs before a
+batch is written to spool or sent to the control plane.
 
 When Beacon manages native ClickHouse, local database files are under
 `~/.beacon/clickhouse`, including:
@@ -91,6 +89,20 @@ Search results use a derived index, but the source content may still be present
 in raw records, activity events, tool payloads, previews, and transcript views.
 Deleting only search rows is not a privacy cleanup.
 
+## Dashboard browser hardening
+
+Beacon sets dashboard security headers including `Content-Security-Policy`,
+`X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, and a restrictive
+`Permissions-Policy`. The CSP uses `script-src 'self'` and does not allow inline
+JavaScript execution. Dashboard controls are wired through external scripts and
+server-rendered captured content is escaped by default.
+
+Current machine-to-machine POST routes are HTTP ingest and MCP JSON-RPC routes;
+they are protected by token authentication and are not browser form mutation
+surfaces. If Beacon adds browser-driven mutation routes such as token
+management, reset, enrollment approval, or admin settings, those routes should
+require same-origin proof or CSRF protection and must not mutate state via GET.
+
 ## Retention policy
 
 Beacon keeps captured data until the user removes it. There is no automatic TTL,
@@ -116,25 +128,29 @@ unless those tools or the user delete them.
 
 ## Redaction policy
 
-Beacon's local capture path preserves captured content rather than redacting it.
-This keeps transcripts, search, diagnostics, and MCP retrieval faithful to the
-source session data, but it also means secrets copied into prompts, responses,
-tool arguments, file paths, or tool outputs may be stored and indexed.
+Beacon runs `redact-v1` before data reaches durable capture storage:
 
-Remote collector mode is different: `beacon collect` runs limited `redact-v1`
-filtering before writing spool files or sending HTTP ingest. It removes Beacon
-tokens and common `api_key`, `token`, `secret`, and `password` assignment
-patterns from normalized event text, tool/raw payloads, and capture-error
-fragments. This is a safety net, not a complete secret-scanning policy.
+- local capture redacts normalized events before ClickHouse insert rows are
+  built;
+- `beacon collect` redacts normalized events, capture errors, and checkpoints
+  before writing collector spool files;
+- HTTP ingest redacts accepted batches before committing rows to ClickHouse.
 
-Any broader redaction feature should define:
+The policy is destructive and best effort. It covers Beacon token formats,
+common credential formats such as bearer/basic auth, GitHub/OpenAI/Anthropic/AWS
+style tokens, private-key blocks, URL credentials, common credential assignment
+keys, configured `[redaction].path_masks`, configured `[redaction].env_masks`,
+configured `[redaction].literal_masks`, and explicit fixture values used by
+tests.
 
-- which fields are redacted before insertion into raw records, activity events,
-  tool payloads, and search documents;
-- whether redaction is reversible or destructive;
-- how existing ClickHouse data is backfilled or invalidated;
-- tests that prove redacted content does not appear in raw payloads, previews,
-  search indexes, web API responses, or MCP tool output.
+This is personal-production hardening, not enterprise DLP. Beacon does not
+claim to detect every arbitrary secret pasted into a prompt, response, tool
+argument, path, or tool output. Data that does not match the configured policy
+can still be stored and indexed. Existing ClickHouse data is not automatically
+backfilled when the policy changes; reset/replay or reingest is required if you
+want old rows rewritten under a new policy.
 
-Until such a feature exists, use Beacon only on machines, collector spools, and
-ClickHouse instances whose local data access is trusted.
+Dashboard, API, MCP, raw-table, search, log, and spool leak-prevention tests are
+checks that protected surfaces do not re-expose values already matched by the
+configured write-boundary policy. They are not a second read-time classifier or
+policy engine.

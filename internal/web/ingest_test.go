@@ -17,6 +17,7 @@ import (
 	"github.com/johnnygreco/beacon/internal/controlplane"
 	"github.com/johnnygreco/beacon/internal/ingest"
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/redaction"
 	"github.com/johnnygreco/beacon/internal/store"
 )
 
@@ -65,6 +66,75 @@ func TestIngestBatchAuthenticatesWritesRowsAndReturnsAck(t *testing.T) {
 		committer.rows.CaptureErrors[0].SourceID != sourceID ||
 		committer.rows.CaptureErrors[0].BatchID != req.BatchID {
 		t.Fatalf("capture error rows = %#v", committer.rows.CaptureErrors)
+	}
+}
+
+func TestIngestBatchRedactsBeforeCommit(t *testing.T) {
+	control, token, sourceID := testIngestControlPlane(t)
+	committer := &fakeIngestCommitter{}
+	policy := redaction.NewPolicy(redaction.Config{
+		PathMasks:    []string{"/Users/example/private"},
+		LiteralMasks: []string{"literal-fixture-secret"},
+	})
+	handler := NewIngestHandlers(control, committer, 0, 0, nil, nil, WithIngestRedactionPolicy(policy))
+	req := testIngestBatchRequest(t, sourceID)
+	req.Events[0].TextContent = "token bcn_owner_fixture_0123456789abcdef literal-fixture-secret"
+	req.Events[0].ToolPhase = models.ToolPhaseCall
+	req.Events[0].ToolName = "bash"
+	req.Events[0].ToolInput = `{"api_key":"tool-input-secret"}`
+	req.Events[0].ToolOutput = "Authorization: Bearer tool-output-secret"
+	req.Events[0].ErrorMessage = "password=event-error-secret"
+	req.Events[0].RawPayload = `{"client_secret":"raw-payload-secret","cwd":"/Users/example/private/project"}`
+	req.Events[0].CWD = "/Users/example/private/project"
+	req.Events[0].SourceFile = "/Users/example/private/session.jsonl"
+	req.CaptureErrors = []models.CaptureError{{
+		ID:              "capture-error-redaction",
+		SourceName:      "codex",
+		SourceFile:      "/Users/example/private/session.jsonl",
+		ErrorClass:      "parse_error",
+		ErrorMessage:    `{"password":"capture-error-secret"}`,
+		ContextFragment: "literal-fixture-secret",
+	}}
+	req.Checkpoints[0].SourceFile = "/Users/example/private/session.jsonl"
+	req.Checkpoints[0].StateJSON = `{"api_key":"checkpoint-secret","path":"/Users/example/private/session.jsonl"}`
+	submittedDigest := computeTestBatchDigest(t, req)
+	req.PayloadDigest = submittedDigest
+
+	rec := postIngestJSON(t, handler.Batch, req, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if committer.calls != 1 {
+		t.Fatalf("committer calls = %d, want 1", committer.calls)
+	}
+	if committer.meta.PayloadDigest != submittedDigest {
+		t.Fatalf("payload digest = %q, want submitted digest %q", committer.meta.PayloadDigest, submittedDigest)
+	}
+	got := joinedRowBatchForLeakCheck(committer.rows)
+	for _, leaked := range []string{
+		"0123456789abcdef",
+		"literal-fixture-secret",
+		"tool-input-secret",
+		"tool-output-secret",
+		"event-error-secret",
+		"raw-payload-secret",
+		"capture-error-secret",
+		"checkpoint-secret",
+		"/Users/example/private",
+	} {
+		if strings.Contains(got, leaked) {
+			t.Fatalf("committed rows leaked %q: %s", leaked, got)
+		}
+	}
+	for _, marker := range []string{redaction.TokenMarker, redaction.SecretMarker, redaction.PathMarker, redaction.LiteralMarker} {
+		if !strings.Contains(got, marker) {
+			t.Fatalf("committed rows missing marker %q: %s", marker, got)
+		}
+	}
+	for _, event := range committer.rows.ActivityEvents {
+		if event.RedactionStatus != "redacted" || event.RedactionVersion != redaction.Version {
+			t.Fatalf("activity event redaction metadata = %#v", event)
+		}
 	}
 }
 
@@ -665,6 +735,38 @@ func (f *fakeIngestCommitter) CommitIngestBatch(_ context.Context, meta store.In
 func (f *fakeIngestCommitter) InsertCaptureHeartbeats(_ context.Context, heartbeats []models.CaptureHeartbeat) error {
 	f.heartbeats = append(f.heartbeats, heartbeats...)
 	return nil
+}
+
+func joinedRowBatchForLeakCheck(rows store.RowBatch) string {
+	var b strings.Builder
+	for _, event := range rows.ActivityEvents {
+		b.WriteString(event.TextContent)
+		b.WriteString(event.TextPreview)
+		b.WriteString(event.ErrorMessage)
+		b.WriteString(event.PayloadJSON)
+		b.WriteString(event.CWD)
+		b.WriteString(event.SourceFile)
+	}
+	for _, raw := range rows.RawRecords {
+		b.WriteString(raw.SourceFile)
+		b.WriteString(raw.PayloadJSON)
+	}
+	for _, payload := range rows.ToolPayloads {
+		b.WriteString(payload.InputJSON)
+		b.WriteString(payload.OutputJSON)
+		b.WriteString(payload.InputPreview)
+		b.WriteString(payload.OutputPreview)
+	}
+	for _, captureErr := range rows.CaptureErrors {
+		b.WriteString(captureErr.SourceFile)
+		b.WriteString(captureErr.ErrorMessage)
+		b.WriteString(captureErr.ContextFragment)
+	}
+	for _, checkpoint := range rows.Checkpoints {
+		b.WriteString(checkpoint.SourceFile)
+		b.WriteString(checkpoint.StateJSON)
+	}
+	return b.String()
 }
 
 func testIngestControlPlane(t *testing.T) (*controlplane.Store, string, string) {
