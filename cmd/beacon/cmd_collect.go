@@ -90,7 +90,7 @@ func buildCollectorService(ctx context.Context, cfg *config.Config, logger *slog
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("capture source config: %w", err)
 	}
-	controlStore, snapshot, err := initializeControlPlane(ctx, cfg, logger)
+	controlStore, snapshot, err := initializeCollectorControlPlane(ctx, cfg, logger)
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("initializing local collector metadata: %w", err)
 	}

@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,9 @@ import (
 
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/controlplane"
+	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/store"
+	"github.com/johnnygreco/beacon/internal/web"
 )
 
 func TestRunInitCreatesOwnerAndEnrollTokensWithoutUnsafeCommand(t *testing.T) {
@@ -178,6 +183,81 @@ func TestRunRemoteEnrollRejectsNonLoopbackHTTPBeforeRequest(t *testing.T) {
 	}
 }
 
+func TestRunRemoteEnrollPrintsConfigAndCollectorUsesAssignedMetadata(t *testing.T) {
+	configPath, metadataPath := writeInitTestConfig(t)
+	withConfigFile(t, configPath)
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load config: %v", err)
+	}
+	control, err := controlplane.Open(filepath.Join(t.TempDir(), "server-control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open server control-plane: %v", err)
+	}
+	defer control.Close()
+	if _, err := control.EnsureLocal(context.Background(), controlplane.Bootstrap{
+		NodeID:      "node-server",
+		NodeName:    "Server",
+		CollectorID: "collector-server",
+		Sources: []controlplane.SourceRegistration{{
+			Name:      "server-codex",
+			Runtime:   models.RuntimeCodex,
+			Provider:  models.ProviderOpenAI,
+			Format:    models.FormatJSONL,
+			WatchRoot: "~/.codex",
+		}},
+	}); err != nil {
+		t.Fatalf("EnsureLocal server: %v", err)
+	}
+	enroll, err := control.CreateToken(context.Background(), controlplane.CreateTokenRequest{Type: controlplane.TokenTypeEnroll})
+	if err != nil {
+		t.Fatalf("CreateToken enroll: %v", err)
+	}
+	handlers := web.NewIngestHandlers(control, cmdTestCommitter{}, 0, 0, nil, nil)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/ingest/v1/enroll", handlers.Enroll)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	cmd := newEnrollCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := runRemoteEnroll(cmd, cfg, server.URL, enroll.Plaintext); err != nil {
+		t.Fatalf("runRemoteEnroll: %v", err)
+	}
+	output := out.String()
+	wantCommand := "Run collector: beacon --config " + configPath + " collect --control-plane-url " + server.URL
+	if !strings.Contains(output, wantCommand) {
+		t.Fatalf("remote enroll output = %q, want command %q", output, wantCommand)
+	}
+	if strings.Contains(output, enroll.Plaintext) {
+		t.Fatalf("remote enroll output leaked enrollment token: %q", output)
+	}
+
+	local, err := controlplane.Open(metadataPath)
+	if err != nil {
+		t.Fatalf("Open local metadata: %v", err)
+	}
+	snapshot, err := local.Snapshot(context.Background())
+	_ = local.Close()
+	if err != nil {
+		t.Fatalf("local Snapshot: %v", err)
+	}
+	if snapshot.LocalNodeID == "node-cli" || snapshot.LocalCollectorID == "collector-cli" {
+		t.Fatalf("local metadata kept claimed IDs: node=%s collector=%s", snapshot.LocalNodeID, snapshot.LocalCollectorID)
+	}
+
+	cfg.Fleet.ControlPlaneURL = server.URL
+	service, cleanup, err := buildCollectorService(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("buildCollectorService after remote enroll: %v", err)
+	}
+	defer cleanup()
+	if got := service.Status().BlockedTerminal; got {
+		t.Fatalf("new collector service terminal blocked = true")
+	}
+}
+
 func TestWriteIngestTokenFileSecuresExistingFileWithoutChmodParent(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "custom")
 	if err := os.Mkdir(dir, 0755); err != nil {
@@ -223,17 +303,29 @@ func writeInitTestConfig(t *testing.T) (string, string) {
 host = "127.0.0.1"
 port = 4600
 
-[fleet]
-role = "both"
-metadata_path = "` + metadataPath + `"
-node_id = "node-cli"
-node_name = "CLI Node"
-collector_id = "collector-cli"
+	[fleet]
+	role = "both"
+	metadata_path = "` + metadataPath + `"
+	ingest_token_file = "` + filepath.Join(dir, "ingest-token") + `"
+	spool_dir = "` + filepath.Join(dir, "spool") + `"
+	node_id = "node-cli"
+	node_name = "CLI Node"
+	collector_id = "collector-cli"
 `
 	if err := os.WriteFile(configPath, []byte(body), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	return configPath, metadataPath
+}
+
+type cmdTestCommitter struct{}
+
+func (cmdTestCommitter) CommitIngestBatch(context.Context, store.IngestBatchMeta, store.RowBatch) (store.IngestBatchAck, error) {
+	return store.IngestBatchAck{}, nil
+}
+
+func (cmdTestCommitter) InsertCaptureHeartbeats(context.Context, []models.CaptureHeartbeat) error {
+	return nil
 }
 
 func withConfigFile(t *testing.T, path string) {

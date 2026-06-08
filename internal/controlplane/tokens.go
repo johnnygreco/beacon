@@ -75,13 +75,14 @@ type CreateTokenRequest struct {
 }
 
 type AuthenticateTokenRequest struct {
-	Plaintext      string
-	AllowedTypes   []string
-	RequiredScopes []string
-	NodeID         string
-	CollectorID    string
-	SourceID       string
-	SourceIDs      []string
+	Plaintext        string
+	AllowedTypes     []string
+	RequiredScopes   []string
+	NodeID           string
+	CollectorID      string
+	SourceID         string
+	SourceIDs        []string
+	SkipBindingCheck bool
 }
 
 type EnrollmentResult struct {
@@ -453,7 +454,7 @@ func validateAuthenticatedToken(record TokenRecord, req AuthenticateTokenRequest
 			return ErrTokenScopeDenied
 		}
 	}
-	if tokenAuthRequiresIngestBindings(record, req) &&
+	if !req.SkipBindingCheck && tokenAuthRequiresIngestBindings(record, req) &&
 		(req.NodeID == "" || req.CollectorID == "" || (req.SourceID == "" && len(req.SourceIDs) == 0) ||
 			record.NodeID == "" || record.CollectorID == "" || len(record.SourceIDs) == 0) {
 		return ErrTokenBindingMismatch

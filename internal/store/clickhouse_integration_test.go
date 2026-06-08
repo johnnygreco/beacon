@@ -314,6 +314,42 @@ func TestClickHouseSchemaVersionRecorded(t *testing.T) {
 	}
 }
 
+func TestClickHouseInsertCaptureHeartbeats(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	lastEventAt := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	if err := ch.InsertCaptureHeartbeats(ctx, []models.CaptureHeartbeat{{
+		NodeID:            "node-heartbeat",
+		CollectorID:       "collector-heartbeat",
+		SourceID:          "source-heartbeat",
+		SourceName:        "codex",
+		ControlPlaneEpoch: "1",
+		Status:            "healthy",
+		QueueDepth:        2,
+		SpoolBytes:        4096,
+		ActiveFiles:       3,
+		ErrorCount:        1,
+		LastEventAt:       &lastEventAt,
+	}}); err != nil {
+		t.Fatalf("InsertCaptureHeartbeats: %v", err)
+	}
+	var queueDepth uint32
+	var spoolBytes uint64
+	var status string
+	if err := ch.DB.QueryRowContext(ctx,
+		`SELECT argMax(queue_depth, created_at), argMax(spool_bytes, created_at), argMax(status, created_at)
+		 FROM capture_heartbeats
+		 WHERE collector_id = ? AND source_id = ?`,
+		"collector-heartbeat",
+		"source-heartbeat",
+	).Scan(&queueDepth, &spoolBytes, &status); err != nil {
+		t.Fatalf("query heartbeat: %v", err)
+	}
+	if queueDepth != 2 || spoolBytes != 4096 || status != "healthy" {
+		t.Fatalf("heartbeat = queue %d spool %d status %q", queueDepth, spoolBytes, status)
+	}
+}
+
 func TestClickHouseCommitIngestBatchIsIdempotent(t *testing.T) {
 	ch := setupLiveClickHouse(t)
 	ctx := context.Background()

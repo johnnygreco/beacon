@@ -122,7 +122,8 @@ Core write tables:
   batch identity.
 - `capture_checkpoints` stores per-source, per-file replay state keyed by source
   name as well as fleet source identity.
-- `capture_heartbeats` is reserved for capture health telemetry.
+- `capture_heartbeats` stores fleet-aware collector/source health samples from
+  remote ingest heartbeats and future local capture health telemetry.
 
 Search tables are built during ingest, not by a separate external indexer:
 

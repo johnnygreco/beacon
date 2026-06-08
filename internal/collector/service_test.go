@@ -106,15 +106,14 @@ func TestServiceSpoolFullDuringMultiChunkReadLeavesNoPartialBatch(t *testing.T) 
 		`{"msg":"api_key=second"}`,
 	})
 	source := service.cfg.Sources[0]
-	result, err := capture.ReadSourceFile(context.Background(), source, source.Globs[0], nil, nil)
+	result, err := capture.ReadSourceFileWindow(context.Background(), source, source.Globs[0], nil, nil, 1)
 	if err != nil {
 		t.Fatalf("ReadSourceFile: %v", err)
 	}
-	if len(result.Events) != 2 {
-		t.Fatalf("events = %d, want 2", len(result.Events))
+	if len(result.Events) != 1 || !result.HasMore {
+		t.Fatalf("window = events %d hasMore %v, want one event with more", len(result.Events), result.HasMore)
 	}
-	redacted := RedactEvents(result.Events)
-	firstReq, err := service.buildBatchRequest(1, "source-test", redacted[:1], nil, nil)
+	firstReq, err := service.buildBatchRequest(1, "source-test", RedactEvents(result.Events), nil, enrichCollectorCheckpoints(result.Checkpoint, service.cfg.Identity, source.Name, "source-test"))
 	if err != nil {
 		t.Fatalf("build first request: %v", err)
 	}
@@ -124,23 +123,28 @@ func TestServiceSpoolFullDuringMultiChunkReadLeavesNoPartialBatch(t *testing.T) 
 	}
 	service.cfg.Spool.maxBytes = int64(len(firstPayload)) + 1
 
-	if err := service.spoolReadResult(context.Background(), source, result); !errors.Is(err, ErrSpoolFull) {
-		t.Fatalf("spoolReadResult error = %v, want ErrSpoolFull", err)
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("ScanOnce: %v", err)
 	}
 	pending, err := service.cfg.Spool.Pending()
 	if err != nil {
 		t.Fatalf("Pending: %v", err)
 	}
-	if len(pending) != 0 {
-		t.Fatalf("pending after partial group failure = %d, want 0", len(pending))
+	if len(pending) != 1 {
+		t.Fatalf("pending after partial spool capacity = %d, want first window", len(pending))
 	}
-	if state.Next() != 1 {
-		t.Fatalf("next sequence after partial group failure = %d, want 1", state.Next())
+	if state.Next() != 2 {
+		t.Fatalf("next sequence after first window = %d, want 2", state.Next())
+	}
+	if cp := state.SpooledCheckpoint("codex", source.Globs[0]); cp == nil || cp.LastLineNo != 1 {
+		t.Fatalf("spooled checkpoint = %#v, want first line", cp)
 	}
 }
 
 func TestServiceTerminalSendErrorKeepsBatchPendingAndBlocksScan(t *testing.T) {
+	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts.Add(1)
 		http.Error(w, "forbidden", http.StatusForbidden)
 	}))
 	defer server.Close()
@@ -162,6 +166,12 @@ func TestServiceTerminalSendErrorKeepsBatchPendingAndBlocksScan(t *testing.T) {
 	}
 	if err := service.ScanOnce(context.Background()); err != nil {
 		t.Fatalf("ScanOnce with pending terminal batch: %v", err)
+	}
+	if err := service.SendPending(context.Background()); !errors.Is(err, ErrTerminalBlocked) {
+		t.Fatalf("second SendPending error = %v, want ErrTerminalBlocked", err)
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Fatalf("terminal batch send attempts = %d, want 1", got)
 	}
 	pending, err := service.cfg.Spool.Pending()
 	if err != nil {
@@ -220,6 +230,30 @@ func TestServiceRetryableOutageContinuesSpoolingFromSpooledCheckpoint(t *testing
 	}
 	if got := state.Next(); got != 3 {
 		t.Fatalf("next sequence = %d, want 3", got)
+	}
+}
+
+func TestServiceRunCancelsDuringRetryBackoff(t *testing.T) {
+	service, _, _ := newTestService(t, "http://127.0.0.1:1", 1<<20)
+	service.cfg.RetryMin = time.Hour
+	service.cfg.RetryMax = time.Hour
+	if _, err := service.cfg.Spool.WritePending(context.Background(), testBatchRequest(t, 1, "batch-cancel")); err != nil {
+		t.Fatalf("WritePending: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- service.Run(ctx)
+	}()
+	time.Sleep(25 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run error = %v, want context.Canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Run did not exit after context cancellation")
 	}
 }
 

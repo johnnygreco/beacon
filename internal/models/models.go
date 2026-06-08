@@ -187,6 +187,21 @@ type Checkpoint struct {
 	StateJSON        string `json:"state_json"`
 }
 
+type CaptureHeartbeat struct {
+	NodeID            string     `json:"node_id"`
+	CollectorID       string     `json:"collector_id"`
+	SourceID          string     `json:"source_id"`
+	SourceName        string     `json:"source_name"`
+	ControlPlaneEpoch string     `json:"control_plane_epoch"`
+	Status            string     `json:"status"`
+	QueueDepth        int        `json:"queue_depth"`
+	SpoolBytes        int64      `json:"spool_bytes"`
+	ActiveFiles       int        `json:"active_files"`
+	ErrorCount        int        `json:"error_count"`
+	LastEventAt       *time.Time `json:"last_event_at,omitempty"`
+	CreatedAt         time.Time  `json:"created_at"`
+}
+
 type SearchDocument struct {
 	EventUID       string    `json:"event_uid"`
 	SessionID      string    `json:"session_id"`

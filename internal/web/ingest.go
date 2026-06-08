@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/johnnygreco/beacon/internal/capture"
 	"github.com/johnnygreco/beacon/internal/controlplane"
@@ -24,17 +25,22 @@ type IngestBatchCommitter interface {
 	CommitIngestBatch(context.Context, store.IngestBatchMeta, store.RowBatch) (store.IngestBatchAck, error)
 }
 
+type IngestHeartbeatRecorder interface {
+	InsertCaptureHeartbeats(context.Context, []models.CaptureHeartbeat) error
+}
+
 type IngestHandlers struct {
-	control       *controlplane.Store
-	committer     IngestBatchCommitter
-	defaultInput  float64
-	defaultOutput float64
-	notify        func([]string)
-	logger        *slog.Logger
+	control           *controlplane.Store
+	committer         IngestBatchCommitter
+	heartbeatRecorder IngestHeartbeatRecorder
+	defaultInput      float64
+	defaultOutput     float64
+	notify            func([]string)
+	logger            *slog.Logger
 }
 
 func NewIngestHandlers(control *controlplane.Store, committer IngestBatchCommitter, defaultInput, defaultOutput float64, notify func([]string), logger *slog.Logger) *IngestHandlers {
-	return &IngestHandlers{
+	handlers := &IngestHandlers{
 		control:       control,
 		committer:     committer,
 		defaultInput:  defaultInput,
@@ -42,6 +48,10 @@ func NewIngestHandlers(control *controlplane.Store, committer IngestBatchCommitt
 		notify:        notify,
 		logger:        logger,
 	}
+	if recorder, ok := committer.(IngestHeartbeatRecorder); ok {
+		handlers.heartbeatRecorder = recorder
+	}
+	return handlers
 }
 
 func (h *IngestHandlers) Enroll(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +80,7 @@ func (h *IngestHandlers) Enroll(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, "invalid ingest schema", http.StatusBadRequest)
 		return
 	}
-	result, err := h.control.CompleteRemoteEnrollment(r.Context(), token, req.Bootstrap)
+	result, err := h.control.CompleteRemoteEnrollment(r.Context(), token, controlplaneBootstrapFromEnroll(req.Bootstrap))
 	if err != nil {
 		h.authError(w, err)
 		return
@@ -84,12 +94,11 @@ func (h *IngestHandlers) Enroll(w http.ResponseWriter, r *http.Request) {
 			ControlPlaneEpoch: result.Snapshot.SchemaEpoch,
 		},
 		IngestToken: result.IngestToken.Plaintext,
-		Token:       result.IngestToken.Record,
 	})
 }
 
 func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
-	if !h.requireBearer(w, r) {
+	if !h.requireIngestBearer(w, r) {
 		return
 	}
 	var req ingest.BatchRequest
@@ -181,7 +190,7 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *IngestHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
-	if !h.requireBearer(w, r) {
+	if !h.requireIngestBearer(w, r) {
 		return
 	}
 	var req ingest.HeartbeatRequest
@@ -209,6 +218,19 @@ func (h *IngestHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, "control_plane_epoch mismatch", http.StatusConflict)
 		return
 	}
+	_, sourceByID, err := validateCollectorBindings(snapshot, req.NodeID, req.CollectorID, sourceIDs)
+	if err != nil {
+		h.jsonError(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	if h.heartbeatRecorder == nil {
+		h.internalError(w, "heartbeat storage is not configured", errors.New("missing heartbeat recorder"))
+		return
+	}
+	if err := h.heartbeatRecorder.InsertCaptureHeartbeats(r.Context(), heartbeatRows(req, sourceByID)); err != nil {
+		h.internalError(w, "write collector heartbeat", err)
+		return
+	}
 	h.jsonResponse(w, ingest.HeartbeatResponse{
 		Schema:            ingest.SchemaV1,
 		Status:            "ok",
@@ -232,13 +254,43 @@ func (h *IngestHandlers) authenticateIngestToken(ctx context.Context, r *http.Re
 	return err
 }
 
-func (h *IngestHandlers) requireBearer(w http.ResponseWriter, r *http.Request) bool {
+func controlplaneBootstrapFromEnroll(boot ingest.EnrollBootstrap) controlplane.Bootstrap {
+	out := controlplane.Bootstrap{
+		NodeID:        strings.TrimSpace(boot.NodeID),
+		NodeName:      strings.TrimSpace(boot.NodeName),
+		CollectorID:   strings.TrimSpace(boot.CollectorID),
+		CollectorName: strings.TrimSpace(boot.CollectorName),
+		Sources:       make([]controlplane.SourceRegistration, 0, len(boot.Sources)),
+	}
+	for _, source := range boot.Sources {
+		out.Sources = append(out.Sources, controlplane.SourceRegistration{
+			Name:      strings.TrimSpace(source.Name),
+			Runtime:   strings.TrimSpace(source.Runtime),
+			Provider:  strings.TrimSpace(source.Provider),
+			Format:    strings.TrimSpace(source.Format),
+			WatchRoot: strings.TrimSpace(source.WatchRoot),
+		})
+	}
+	return out
+}
+
+func (h *IngestHandlers) requireIngestBearer(w http.ResponseWriter, r *http.Request) bool {
 	if h.control == nil || h.committer == nil {
 		h.internalError(w, "ingest is not configured", errors.New("missing ingest dependencies"))
 		return false
 	}
-	if bearerToken(r.Header.Get("Authorization")) == "" {
+	token := bearerToken(r.Header.Get("Authorization"))
+	if token == "" {
 		h.jsonError(w, "missing bearer token", http.StatusUnauthorized)
+		return false
+	}
+	if _, err := h.control.AuthenticateToken(r.Context(), controlplane.AuthenticateTokenRequest{
+		Plaintext:        token,
+		AllowedTypes:     []string{controlplane.TokenTypeIngest},
+		RequiredScopes:   []string{controlplane.ScopeIngest},
+		SkipBindingCheck: true,
+	}); err != nil {
+		h.authError(w, err)
 		return false
 	}
 	return true
@@ -344,6 +396,46 @@ func (h *IngestHandlers) log() *slog.Logger {
 		return h.logger
 	}
 	return slog.Default()
+}
+
+func heartbeatRows(req ingest.HeartbeatRequest, sourceByID map[string]controlplane.Source) []models.CaptureHeartbeat {
+	now := time.Now().UTC()
+	rows := make([]models.CaptureHeartbeat, 0, max(1, len(req.Sources)))
+	for _, source := range req.Sources {
+		registered := sourceByID[source.SourceID]
+		rows = append(rows, models.CaptureHeartbeat{
+			NodeID:            req.NodeID,
+			CollectorID:       req.CollectorID,
+			SourceID:          registered.ID,
+			SourceName:        registered.Name,
+			ControlPlaneEpoch: req.ControlPlaneEpoch,
+			Status:            strings.TrimSpace(source.Status),
+			QueueDepth:        req.QueueDepth,
+			SpoolBytes:        req.SpoolBytes,
+			ActiveFiles:       req.ActiveFiles,
+			ErrorCount:        source.ErrorCount,
+			LastEventAt:       source.LastEventAt,
+			CreatedAt:         now,
+		})
+	}
+	if len(rows) == 0 {
+		rows = append(rows, models.CaptureHeartbeat{
+			NodeID:            req.NodeID,
+			CollectorID:       req.CollectorID,
+			ControlPlaneEpoch: req.ControlPlaneEpoch,
+			Status:            "healthy",
+			QueueDepth:        req.QueueDepth,
+			SpoolBytes:        req.SpoolBytes,
+			ActiveFiles:       req.ActiveFiles,
+			CreatedAt:         now,
+		})
+	}
+	for i := range rows {
+		if rows[i].Status == "" {
+			rows[i].Status = "healthy"
+		}
+	}
+	return rows
 }
 
 func validateCollectorBindings(snapshot *controlplane.Snapshot, nodeID, collectorID string, sourceIDs []string) (map[string]controlplane.Source, map[string]controlplane.Source, error) {

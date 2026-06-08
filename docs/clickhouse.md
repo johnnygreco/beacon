@@ -28,9 +28,9 @@ fail with reset guidance before ingest starts.
 Migrations are intentionally simple: they create the current schema and record
 the supported schema version. Beacon does not mix old local identity layouts
 with the current fleet-aware identity schema; reset and reimport when changing
-between incompatible schema versions. The schema-4 advance adds durable ingest
-batch receipts, fleet/batch-aware capture errors, and checkpoint state keyed by
-collector, source, source name, and file.
+between incompatible schema versions. The schema-5 advance adds durable ingest
+batch receipts, fleet/batch-aware capture errors, collector/source heartbeat
+samples, and checkpoint state keyed by collector, source, source name, and file.
 
 ## Schema ownership
 
@@ -117,10 +117,13 @@ Owner: HTTP ingest through `Store.CommitIngestBatch`.
 
 ### `capture_heartbeats`
 
-Purpose: runtime capture health samples: queue depth, active file count, and
-append-to-visible latency.
+Purpose: runtime capture and remote collector health samples keyed by
+`collector_id` and `source_id`. Rows include node/collector/source identity,
+control-plane epoch, source status, queue depth, spool bytes, active file count,
+error count, optional last-event time, and append-to-visible latency.
 
-Owner: reserved for the capture service.
+Owner: remote HTTP ingest heartbeats through `Store.InsertCaptureHeartbeats`;
+local capture health can write the same table when that path is wired.
 
 ### `session_projection`
 

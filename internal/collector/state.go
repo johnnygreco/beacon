@@ -51,29 +51,6 @@ func (s *StateStore) Next() uint64 {
 	return s.NextSequence
 }
 
-func (s *StateStore) ReserveNext() (uint64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.NextSequence == 0 {
-		s.NextSequence = 1
-	}
-	seq := s.NextSequence
-	s.NextSequence++
-	return seq, s.saveLocked()
-}
-
-func (s *StateStore) AdvanceNext(nextSequence uint64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if nextSequence > s.NextSequence {
-		s.NextSequence = nextSequence
-	}
-	if s.NextSequence == 0 {
-		s.NextSequence = 1
-	}
-	return s.saveLocked()
-}
-
 func (s *StateStore) MarkSpooled(nextSequence uint64, checkpoints []models.Checkpoint) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

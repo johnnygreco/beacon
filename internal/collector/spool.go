@@ -109,46 +109,6 @@ func (s *Spool) WritePending(ctx context.Context, req ingest.BatchRequest) (*Spo
 	return &batch, nil
 }
 
-func (s *Spool) WritePendingGroup(ctx context.Context, reqs []ingest.BatchRequest) ([]SpoolBatch, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if len(reqs) == 0 {
-		return nil, nil
-	}
-	payloads := make([][]byte, len(reqs))
-	var totalBytes int64
-	for i, req := range reqs {
-		payload, err := encodeSpoolEnvelope(req)
-		if err != nil {
-			return nil, err
-		}
-		payloads[i] = payload
-		totalBytes += int64(len(payload))
-	}
-	activeBytes, err := s.activeBytes()
-	if err != nil {
-		return nil, err
-	}
-	if activeBytes+totalBytes > s.maxBytes {
-		return nil, ErrSpoolFull
-	}
-
-	written := make([]SpoolBatch, 0, len(reqs))
-	for i, req := range reqs {
-		batch, err := s.writePendingPayload(ctx, req, payloads[i])
-		if err != nil {
-			for _, prior := range written {
-				_ = os.Remove(prior.Path)
-			}
-			_ = syncDir(filepath.Join(s.root, spoolPending))
-			return nil, err
-		}
-		written = append(written, batch)
-	}
-	return written, nil
-}
-
 func (s *Spool) Pending() ([]SpoolBatch, error) {
 	batches, err := s.readBatches(spoolPending)
 	if err != nil {

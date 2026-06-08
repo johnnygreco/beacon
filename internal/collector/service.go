@@ -53,6 +53,8 @@ type Status struct {
 	BlockedTerminal    bool       `json:"blocked_terminal"`
 }
 
+var ErrTerminalBlocked = errors.New("collector is blocked on terminal ingest failure")
+
 func NewService(cfg ServiceConfig) (*Service, error) {
 	if cfg.Spool == nil {
 		return nil, fmt.Errorf("collector spool is required")
@@ -113,7 +115,9 @@ func (s *Service) Run(ctx context.Context) error {
 						s.setError(scanErr)
 					}
 				}
-				time.Sleep(s.retryDelay())
+				if err := s.sleepRetry(ctx); err != nil {
+					return err
+				}
 				continue
 			}
 			if err := s.ScanOnce(ctx); err != nil {
@@ -142,24 +146,29 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 	for _, src := range s.cfg.Sources {
 		files := resolveSourceGlobs(src.Globs)
 		for _, file := range files {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			cp := s.cfg.State.SpooledCheckpoint(src.Name, file)
-			result, err := capture.ReadSourceFile(ctx, src, file, cp, s.cfg.Logger)
-			if err != nil {
-				s.cfg.Logger.Warn("collector read source file failed", "source", src.Name, "file", file, "error", err)
-				continue
-			}
-			if len(result.Events) == 0 && len(result.CaptureErrors) == 0 && result.Checkpoint == nil {
-				continue
-			}
-			if err := s.spoolReadResult(ctx, src, result); err != nil {
-				if err == ErrSpoolFull {
-					s.setSpoolFull(true)
-					return nil
+			for {
+				if err := ctx.Err(); err != nil {
+					return err
 				}
-				return err
+				cp := s.cfg.State.SpooledCheckpoint(src.Name, file)
+				result, err := capture.ReadSourceFileWindow(ctx, src, file, cp, s.cfg.Logger, s.cfg.BatchSize)
+				if err != nil {
+					s.cfg.Logger.Warn("collector read source file failed", "source", src.Name, "file", file, "error", err)
+					break
+				}
+				if len(result.Events) == 0 && len(result.CaptureErrors) == 0 && result.Checkpoint == nil {
+					break
+				}
+				if err := s.spoolReadResult(ctx, src, result); err != nil {
+					if err == ErrSpoolFull {
+						s.setSpoolFull(true)
+						return nil
+					}
+					return err
+				}
+				if !result.HasMore {
+					break
+				}
 			}
 		}
 	}
@@ -175,7 +184,11 @@ func (s *Service) SendPending(ctx context.Context) error {
 		}
 		if len(pending) == 0 {
 			s.setSpoolFull(false)
+			s.clearTerminalBlocked()
 			return nil
+		}
+		if s.terminalBlocked() {
+			return ErrTerminalBlocked
 		}
 		batch := pending[0]
 		inflight, err := s.cfg.Spool.MarkInflight(batch)
@@ -272,37 +285,18 @@ func (s *Service) spoolReadResult(ctx context.Context, src capture.WatchSource, 
 	if len(events) == 0 && len(captureErrors) == 0 && len(checkpoints) == 0 {
 		return nil
 	}
-	chunks := chunkEvents(events, s.cfg.BatchSize)
-	if len(chunks) == 0 {
-		chunks = [][]capture.NormalizedEvent{{}}
-	}
 	sequence := s.cfg.State.Next()
-	requests := make([]ingest.BatchRequest, 0, len(chunks))
-	for i, chunk := range chunks {
-		last := i == len(chunks)-1
-		var batchErrors []models.CaptureError
-		var batchCheckpoints []models.Checkpoint
-		if last {
-			batchErrors = captureErrors
-			batchCheckpoints = checkpoints
-		}
-		req, err := s.buildBatchRequest(sequence+uint64(i), sourceID, chunk, batchErrors, batchCheckpoints)
-		if err != nil {
-			return err
-		}
-		requests = append(requests, req)
-	}
-	written, err := s.cfg.Spool.WritePendingGroup(ctx, requests)
+	req, err := s.buildBatchRequest(sequence, sourceID, events, captureErrors, checkpoints)
 	if err != nil {
 		return err
 	}
-	if len(requests) > 0 {
-		if err := s.cfg.State.MarkSpooled(sequence+uint64(len(requests)), checkpointsFromRequests(requests)); err != nil {
-			for _, batch := range written {
-				_ = s.cfg.Spool.Discard(batch)
-			}
-			return err
-		}
+	written, err := s.cfg.Spool.WritePending(ctx, req)
+	if err != nil {
+		return err
+	}
+	if err := s.cfg.State.MarkSpooled(sequence+1, req.Checkpoints); err != nil {
+		_ = s.cfg.Spool.Discard(*written)
+		return err
 	}
 	return nil
 }
@@ -330,24 +324,6 @@ func (s *Service) buildBatchRequest(sequence uint64, sourceID string, events []c
 	return req, nil
 }
 
-func chunkEvents(events []capture.NormalizedEvent, size int) [][]capture.NormalizedEvent {
-	if len(events) == 0 {
-		return nil
-	}
-	if size <= 0 || size >= len(events) {
-		return [][]capture.NormalizedEvent{events}
-	}
-	chunks := make([][]capture.NormalizedEvent, 0, (len(events)+size-1)/size)
-	for start := 0; start < len(events); start += size {
-		end := start + size
-		if end > len(events) {
-			end = len(events)
-		}
-		chunks = append(chunks, events[start:end])
-	}
-	return chunks
-}
-
 func (s *Service) recoverSpooledStateFromSpool() error {
 	active, err := s.cfg.Spool.Active()
 	if err != nil {
@@ -365,14 +341,6 @@ func (s *Service) recoverSpooledStateFromSpool() error {
 		return nil
 	}
 	return s.cfg.State.MarkSpooled(next, checkpoints)
-}
-
-func checkpointsFromRequests(requests []ingest.BatchRequest) []models.Checkpoint {
-	var checkpoints []models.Checkpoint
-	for _, req := range requests {
-		checkpoints = append(checkpoints, req.Checkpoints...)
-	}
-	return checkpoints
 }
 
 func enrichCollectorCheckpoints(cp *models.Checkpoint, identity capture.FleetIdentity, sourceName, sourceID string) []models.Checkpoint {
@@ -461,6 +429,21 @@ func (s *Service) retryDelay() time.Duration {
 	return delay
 }
 
+func (s *Service) sleepRetry(ctx context.Context) error {
+	delay := s.retryDelay()
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 func retryableSendError(err error) bool {
 	var sendErr *SendError
 	return err != nil && errors.As(err, &sendErr) && sendErr.Retryable
@@ -514,6 +497,12 @@ func (s *Service) setTerminalBlocked(err error) {
 	if err != nil {
 		s.status.LastError = err.Error()
 	}
+}
+
+func (s *Service) clearTerminalBlocked() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status.BlockedTerminal = false
 }
 
 func (s *Service) terminalBlocked() bool {

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/capture"
-	"github.com/johnnygreco/beacon/internal/controlplane"
 	"github.com/johnnygreco/beacon/internal/models"
 )
 
@@ -23,15 +22,30 @@ const (
 )
 
 type EnrollRequest struct {
-	Schema    string                 `json:"schema"`
-	Bootstrap controlplane.Bootstrap `json:"bootstrap"`
+	Schema    string          `json:"schema"`
+	Bootstrap EnrollBootstrap `json:"bootstrap"`
+}
+
+type EnrollBootstrap struct {
+	NodeID        string                     `json:"node_id,omitempty"`
+	NodeName      string                     `json:"node_name,omitempty"`
+	CollectorID   string                     `json:"collector_id,omitempty"`
+	CollectorName string                     `json:"collector_name,omitempty"`
+	Sources       []EnrollSourceRegistration `json:"sources,omitempty"`
+}
+
+type EnrollSourceRegistration struct {
+	Name      string `json:"name"`
+	Runtime   string `json:"runtime"`
+	Provider  string `json:"provider"`
+	Format    string `json:"format"`
+	WatchRoot string `json:"watch_root"`
 }
 
 type EnrollResponse struct {
-	Schema      string                   `json:"schema"`
-	Assignment  EnrollAssignment         `json:"assignment"`
-	IngestToken string                   `json:"ingest_token"`
-	Token       controlplane.TokenRecord `json:"token"`
+	Schema      string           `json:"schema"`
+	Assignment  EnrollAssignment `json:"assignment"`
+	IngestToken string           `json:"ingest_token"`
 }
 
 type EnrollAssignment struct {

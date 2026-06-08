@@ -128,11 +128,11 @@ func TestIngestEnrollCompletesRemoteEnrollment(t *testing.T) {
 	handler := NewIngestHandlers(control, committer, 0, 0, nil, nil)
 	req := ingest.EnrollRequest{
 		Schema: ingest.SchemaV1,
-		Bootstrap: controlplane.Bootstrap{
+		Bootstrap: ingest.EnrollBootstrap{
 			NodeID:      "node-claimed",
 			NodeName:    "Remote",
 			CollectorID: "collector-claimed",
-			Sources: []controlplane.SourceRegistration{{
+			Sources: []ingest.EnrollSourceRegistration{{
 				Name:      "codex",
 				Runtime:   models.RuntimeCodex,
 				Provider:  models.ProviderOpenAI,
@@ -149,12 +149,11 @@ func TestIngestEnrollCompletesRemoteEnrollment(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode enrollment: %v", err)
 	}
-	if resp.IngestToken == "" || resp.Token.CollectorID == "collector-claimed" || resp.Token.NodeID == "node-claimed" || len(resp.Token.SourceIDs) != 1 {
+	if resp.IngestToken == "" || resp.Assignment.CollectorID == "collector-claimed" || resp.Assignment.NodeID == "node-claimed" || len(resp.Assignment.SourceIDs) != 1 {
 		t.Fatalf("enrollment response = %#v", resp)
 	}
-	if resp.Assignment.NodeID != resp.Token.NodeID || resp.Assignment.CollectorID != resp.Token.CollectorID ||
-		len(resp.Assignment.SourceIDs) != 1 || resp.Assignment.ControlPlaneEpoch == "" {
-		t.Fatalf("assignment response = %#v token=%#v", resp.Assignment, resp.Token)
+	if resp.Assignment.ControlPlaneEpoch == "" {
+		t.Fatalf("assignment response = %#v", resp.Assignment)
 	}
 	var raw map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
@@ -163,10 +162,13 @@ func TestIngestEnrollCompletesRemoteEnrollment(t *testing.T) {
 	if _, ok := raw["snapshot"]; ok {
 		t.Fatalf("enrollment response leaked full snapshot: %s", rec.Body.String())
 	}
+	if _, ok := raw["token"]; ok {
+		t.Fatalf("enrollment response leaked token metadata: %s", rec.Body.String())
+	}
 }
 
 func TestIngestGzipRequiresBearerBeforeDecodeAndCapsDecompressedBody(t *testing.T) {
-	control, _, _ := testIngestControlPlane(t)
+	control, token, _ := testIngestControlPlane(t)
 	handler := NewIngestHandlers(control, &fakeIngestCommitter{}, 0, 0, nil, nil)
 	hugeCompressed := gzipBytes(t, []byte(strings.Repeat(" ", maxIngestBodyBytes+1)))
 
@@ -183,16 +185,60 @@ func TestIngestGzipRequiresBearerBeforeDecodeAndCapsDecompressedBody(t *testing.
 	withBearer.Header.Set("Authorization", "Bearer invalid")
 	rec = httptest.NewRecorder()
 	handler.Batch(rec, withBearer)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid auth status = %d body=%s, want 401", rec.Code, rec.Body.String())
+	}
+
+	validBearer := httptest.NewRequest(http.MethodPost, "/api/ingest/v1/batches", bytes.NewReader(hugeCompressed))
+	validBearer.Header.Set("Content-Encoding", "gzip")
+	validBearer.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	handler.Batch(rec, validBearer)
 	if rec.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("oversized gzip status = %d body=%s, want 413", rec.Code, rec.Body.String())
+		t.Fatalf("valid auth oversized gzip status = %d body=%s, want 413", rec.Code, rec.Body.String())
+	}
+}
+
+func TestIngestHeartbeatAuthenticatesAndPersists(t *testing.T) {
+	control, token, sourceID := testIngestControlPlane(t)
+	committer := &fakeIngestCommitter{}
+	handler := NewIngestHandlers(control, committer, 0, 0, nil, nil)
+	req := ingest.HeartbeatRequest{
+		Schema:            ingest.SchemaV1,
+		CollectorID:       "collector-web",
+		NodeID:            "node-web",
+		ControlPlaneEpoch: controlplane.InitialSchemaEpoch,
+		QueueDepth:        3,
+		SpoolBytes:        2048,
+		ActiveFiles:       2,
+		Sources: []ingest.HeartbeatSource{{
+			SourceID:   sourceID,
+			Status:     "degraded",
+			ErrorCount: 1,
+		}},
+	}
+
+	rec := postIngestJSON(t, handler.Heartbeat, req, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
+	}
+	if len(committer.heartbeats) != 1 {
+		t.Fatalf("heartbeats = %#v, want one row", committer.heartbeats)
+	}
+	row := committer.heartbeats[0]
+	if row.CollectorID != "collector-web" || row.NodeID != "node-web" || row.SourceID != sourceID ||
+		row.SourceName != "codex" || row.Status != "degraded" || row.QueueDepth != 3 || row.SpoolBytes != 2048 ||
+		row.ActiveFiles != 2 || row.ErrorCount != 1 {
+		t.Fatalf("heartbeat row = %#v", row)
 	}
 }
 
 type fakeIngestCommitter struct {
-	calls int
-	meta  store.IngestBatchMeta
-	rows  store.RowBatch
-	err   error
+	calls      int
+	meta       store.IngestBatchMeta
+	rows       store.RowBatch
+	heartbeats []models.CaptureHeartbeat
+	err        error
 }
 
 func (f *fakeIngestCommitter) CommitIngestBatch(_ context.Context, meta store.IngestBatchMeta, rows store.RowBatch) (store.IngestBatchAck, error) {
@@ -210,6 +256,11 @@ func (f *fakeIngestCommitter) CommitIngestBatch(_ context.Context, meta store.In
 		NextSequence:      meta.Sequence + 1,
 		ControlPlaneEpoch: meta.ControlPlaneEpoch,
 	}, nil
+}
+
+func (f *fakeIngestCommitter) InsertCaptureHeartbeats(_ context.Context, heartbeats []models.CaptureHeartbeat) error {
+	f.heartbeats = append(f.heartbeats, heartbeats...)
+	return nil
 }
 
 func testIngestControlPlane(t *testing.T) (*controlplane.Store, string, string) {

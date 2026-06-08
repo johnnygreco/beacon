@@ -117,3 +117,87 @@ func TestReadWholeSourceFileSkipsUnchangedCheckpoint(t *testing.T) {
 		t.Fatalf("unchanged read events=%d checkpoint=%#v parses=%d, want skipped", len(second.Events), second.Checkpoint, parses)
 	}
 }
+
+func TestReadSourceFileWindowAdvancesLineCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "session.jsonl")
+	if err := os.WriteFile(file, []byte("{\"msg\":\"one\"}\n{\"msg\":\"two\"}\n"), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	source := testLineWindowSource(file)
+
+	first, err := ReadSourceFileWindow(context.Background(), source, file, nil, nil, 1)
+	if err != nil {
+		t.Fatalf("first window: %v", err)
+	}
+	if len(first.Events) != 1 || !first.HasMore || first.Checkpoint == nil || first.Checkpoint.LastLineNo != 1 {
+		t.Fatalf("first window = events %d hasMore %v checkpoint %#v, want first line with more", len(first.Events), first.HasMore, first.Checkpoint)
+	}
+	second, err := ReadSourceFileWindow(context.Background(), source, file, first.Checkpoint, nil, 1)
+	if err != nil {
+		t.Fatalf("second window: %v", err)
+	}
+	if len(second.Events) != 1 || second.HasMore || second.Checkpoint == nil || second.Checkpoint.LastLineNo != 2 {
+		t.Fatalf("second window = events %d hasMore %v checkpoint %#v, want final line", len(second.Events), second.HasMore, second.Checkpoint)
+	}
+}
+
+func TestReadWholeSourceFileWindowUsesEventIndexCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "state.db")
+	if err := os.WriteFile(file, []byte("state"), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	source := WatchSource{
+		Name:     "hermes",
+		Runtime:  models.RuntimeHermesAgent,
+		Provider: models.ProviderMulti,
+		Format:   models.FormatSQLite,
+		FileParser: func(file string) ([]NormalizedEvent, error) {
+			return []NormalizedEvent{
+				{SessionID: "one", SourceName: "hermes", Runtime: models.RuntimeHermesAgent, Provider: models.ProviderMulti, Format: models.FormatSQLite, EventKind: models.EventKindMessage, ActorRole: models.ActorRoleAssistant, Timestamp: time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), SourceFile: file},
+				{SessionID: "two", SourceName: "hermes", Runtime: models.RuntimeHermesAgent, Provider: models.ProviderMulti, Format: models.FormatSQLite, EventKind: models.EventKindMessage, ActorRole: models.ActorRoleAssistant, Timestamp: time.Date(2026, 6, 8, 12, 0, 1, 0, time.UTC), SourceFile: file},
+			}, nil
+		},
+	}
+
+	first, err := ReadSourceFileWindow(context.Background(), source, file, nil, nil, 1)
+	if err != nil {
+		t.Fatalf("first window: %v", err)
+	}
+	if len(first.Events) != 1 || first.Events[0].SessionID != "one" || !first.HasMore || first.Checkpoint == nil || first.Checkpoint.LastLineNo != 1 || first.Checkpoint.LastOffset != 0 {
+		t.Fatalf("first whole-file window = %#v checkpoint=%#v hasMore=%v", first.Events, first.Checkpoint, first.HasMore)
+	}
+	second, err := ReadSourceFileWindow(context.Background(), source, file, first.Checkpoint, nil, 1)
+	if err != nil {
+		t.Fatalf("second window: %v", err)
+	}
+	if len(second.Events) != 1 || second.Events[0].SessionID != "two" || second.HasMore || second.Checkpoint == nil || second.Checkpoint.LastOffset == 0 {
+		t.Fatalf("second whole-file window = %#v checkpoint=%#v hasMore=%v", second.Events, second.Checkpoint, second.HasMore)
+	}
+}
+
+func testLineWindowSource(file string) WatchSource {
+	return WatchSource{
+		Name:     "codex",
+		Runtime:  models.RuntimeCodex,
+		Provider: models.ProviderOpenAI,
+		Format:   models.FormatJSONL,
+		Parser: func(line []byte, file string, lineNo int, offset int64) ([]NormalizedEvent, error) {
+			return []NormalizedEvent{{
+				SessionID:    "session",
+				SourceName:   "codex",
+				Runtime:      models.RuntimeCodex,
+				Provider:     models.ProviderOpenAI,
+				Format:       models.FormatJSONL,
+				EventKind:    models.EventKindMessage,
+				ActorRole:    models.ActorRoleAssistant,
+				Timestamp:    time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+				RawPayload:   string(line),
+				SourceFile:   file,
+				SourceLineNo: lineNo,
+				SourceOffset: offset,
+			}}, nil
+		},
+	}
+}

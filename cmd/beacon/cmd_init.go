@@ -140,7 +140,7 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	if err != nil {
 		return err
 	}
-	resp, err := postRemoteEnrollment(commandContext(cmd), normalizedURL, token, controlPlaneBootstrap(cfg))
+	resp, err := postRemoteEnrollment(commandContext(cmd), normalizedURL, token, enrollBootstrapFromControlPlane(controlPlaneBootstrap(cfg)))
 	if err != nil {
 		return err
 	}
@@ -151,8 +151,8 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	defer store.Close()
 
 	boot := controlPlaneBootstrap(cfg)
-	boot.NodeID = resp.Token.NodeID
-	boot.CollectorID = resp.Token.CollectorID
+	boot.NodeID = resp.Assignment.NodeID
+	boot.CollectorID = resp.Assignment.CollectorID
 	if _, err := store.EnsureLocal(commandContext(cmd), boot); err != nil {
 		return fmt.Errorf("write local collector metadata: %w", err)
 	}
@@ -163,14 +163,14 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "Beacon remote enrollment complete\n")
 	fmt.Fprintf(out, "Control plane: %s\n", normalizedURL)
-	fmt.Fprintf(out, "Node: %s\n", resp.Token.NodeID)
-	fmt.Fprintf(out, "Collector: %s\n", resp.Token.CollectorID)
+	fmt.Fprintf(out, "Node: %s\n", resp.Assignment.NodeID)
+	fmt.Fprintf(out, "Collector: %s\n", resp.Assignment.CollectorID)
 	fmt.Fprintf(out, "Ingest token file: %s\n", cfg.Fleet.IngestTokenFile)
-	fmt.Fprintf(out, "Run collector: beacon collect --control-plane-url %s\n", normalizedURL)
+	fmt.Fprintf(out, "Run collector: %s\n", remoteCollectCommand(normalizedURL))
 	return nil
 }
 
-func postRemoteEnrollment(ctx context.Context, controlPlaneURL, token string, boot controlplane.Bootstrap) (*ingest.EnrollResponse, error) {
+func postRemoteEnrollment(ctx context.Context, controlPlaneURL, token string, boot ingest.EnrollBootstrap) (*ingest.EnrollResponse, error) {
 	body, err := json.Marshal(ingest.EnrollRequest{Schema: ingest.SchemaV1, Bootstrap: boot})
 	if err != nil {
 		return nil, err
@@ -199,7 +199,63 @@ func postRemoteEnrollment(ctx context.Context, controlPlaneURL, token string, bo
 	if strings.TrimSpace(resp.IngestToken) == "" {
 		return nil, fmt.Errorf("remote enrollment response did not include an ingest token")
 	}
+	if strings.TrimSpace(resp.Assignment.NodeID) == "" || strings.TrimSpace(resp.Assignment.CollectorID) == "" || len(resp.Assignment.SourceIDs) == 0 {
+		return nil, fmt.Errorf("remote enrollment response did not include a complete assignment")
+	}
 	return &resp, nil
+}
+
+func enrollBootstrapFromControlPlane(boot controlplane.Bootstrap) ingest.EnrollBootstrap {
+	out := ingest.EnrollBootstrap{
+		NodeID:        boot.NodeID,
+		NodeName:      boot.NodeName,
+		CollectorID:   boot.CollectorID,
+		CollectorName: boot.CollectorName,
+		Sources:       make([]ingest.EnrollSourceRegistration, 0, len(boot.Sources)),
+	}
+	for _, source := range boot.Sources {
+		out.Sources = append(out.Sources, ingest.EnrollSourceRegistration{
+			Name:      source.Name,
+			Runtime:   source.Runtime,
+			Provider:  source.Provider,
+			Format:    source.Format,
+			WatchRoot: source.WatchRoot,
+		})
+	}
+	return out
+}
+
+func remoteCollectCommand(controlPlaneURL string) string {
+	parts := []string{"beacon"}
+	if strings.TrimSpace(cfgFile) != "" {
+		parts = append(parts, "--config", shellQuote(cfgFile))
+	}
+	parts = append(parts, "collect", "--control-plane-url", shellQuote(controlPlaneURL))
+	return strings.Join(parts, " ")
+}
+
+func shellQuote(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "''"
+	}
+	if strings.IndexFunc(value, func(r rune) bool {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return false
+		case r >= 'A' && r <= 'Z':
+			return false
+		case r >= '0' && r <= '9':
+			return false
+		case r == '/' || r == '.' || r == '_' || r == '-' || r == ':' || r == '@':
+			return false
+		default:
+			return true
+		}
+	}) == -1 {
+		return value
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func commandContext(cmd *cobra.Command) context.Context {
