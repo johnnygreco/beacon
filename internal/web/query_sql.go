@@ -45,44 +45,43 @@ func recentActivityEventsSubquery(where string) string {
 
 func recentActivityEventsJoinedSubquery(where, join string) string {
 	return fmt.Sprintf(`(SELECT event_uid,
-	               argMax(session_id, captured_at) AS session_id,
-	               argMax(node_id, captured_at) AS node_id,
-	               argMax(collector_id, captured_at) AS collector_id,
-	               argMax(source_id, captured_at) AS source_id,
-	               argMax(source_name, captured_at) AS source_name,
-	               argMax(runtime, captured_at) AS runtime,
-	               argMax(provider, captured_at) AS provider,
-	               argMax(timestamp, captured_at) AS timestamp,
-	               argMax(event_kind, captured_at) AS event_kind,
-	               argMax(actor_role, captured_at) AS actor_role,
-	               argMax(text_preview, captured_at) AS text_preview,
-	               argMax(tool_name, captured_at) AS tool_name,
-	               argMax(error_code, captured_at) AS error_code,
-	               argMax(error_message, captured_at) AS error_message,
-	               argMax(cwd, captured_at) AS cwd
+	               session_id,
+	               node_id,
+	               collector_id,
+	               source_id,
+	               source_name,
+	               runtime,
+	               provider,
+	               timestamp,
+	               event_kind,
+	               actor_role,
+	               text_preview,
+	               tool_name,
+	               error_code,
+	               error_message,
+	               cwd
 	        FROM (
-				SELECT event_uid,
-				       session_id,
-				       node_id,
-				       collector_id,
-				       source_id,
-				       source_name,
-				       runtime,
-				       provider,
-			       timestamp,
-			       event_kind,
-			       actor_role,
-			       text_preview,
-			       tool_name,
-			       error_code,
-			       error_message,
-			       cwd,
-			       captured_at
-			FROM activity_events AS ae `+join+` `+sqlWhereClause(where)+`
-			ORDER BY timestamp DESC
-			LIMIT %d
-	        )
-	        GROUP BY event_uid)`, recentActivityCandidates)
+			SELECT event_uid,
+			       argMax(session_id, captured_at) AS session_id,
+			       argMax(node_id, captured_at) AS node_id,
+			       argMax(collector_id, captured_at) AS collector_id,
+			       argMax(source_id, captured_at) AS source_id,
+			       argMax(source_name, captured_at) AS source_name,
+			       argMax(runtime, captured_at) AS runtime,
+			       argMax(provider, captured_at) AS provider,
+			       argMax(timestamp, captured_at) AS timestamp,
+			       argMax(event_kind, captured_at) AS event_kind,
+			       argMax(actor_role, captured_at) AS actor_role,
+			       argMax(text_preview, captured_at) AS text_preview,
+			       argMax(tool_name, captured_at) AS tool_name,
+			       argMax(error_code, captured_at) AS error_code,
+			       argMax(error_message, captured_at) AS error_message,
+			       argMax(cwd, captured_at) AS cwd
+			FROM activity_events
+			GROUP BY event_uid
+		) AS ae `+join+` `+sqlWhereClause(where)+`
+		ORDER BY timestamp DESC
+		LIMIT %d)`, recentActivityCandidates)
 }
 
 func sqlWhereClause(where string) string {

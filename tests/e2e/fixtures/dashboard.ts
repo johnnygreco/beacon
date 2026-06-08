@@ -560,13 +560,14 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
   const sessionID = (url.searchParams.get('session_id') || '').toLowerCase();
   const sort = url.searchParams.get('sort') || 'relevance';
   const limit = Number(url.searchParams.get('limit') || 30);
-	const active = query !== '' || eventKind !== '' || sessionID !== '' || sort !== 'relevance' || limit !== 30;
-	if (!active) {
-		return { state: 'idle', sort, limit, scope: scopeMetadata(url), has_more: false, items: [] };
-	}
-	if (scenario === 'empty') {
-		return { state: 'ready', query, range, event_kind: eventKind, session_id: sessionID, sort, limit, scope: scopeMetadata(url), has_more: false, items: [] };
-	}
+  const scope = scopeMetadata(url);
+  const active = query !== '' || eventKind !== '' || sessionID !== '' || sort !== 'relevance' || limit !== 30 || Object.keys(scope.filters).length > 0;
+  if (!active) {
+    return { state: 'idle', sort, limit, scope, has_more: false, items: [] };
+  }
+  if (scenario === 'empty') {
+    return { state: 'ready', query, range, event_kind: eventKind, session_id: sessionID, sort, limit, scope, has_more: false, items: [] };
+  }
   const denseSearchFixture = scenario === 'search-many';
   const source = denseSearchFixture || query.toLowerCase() === 'many'
     ? dashboardSearchManyResults(range)
@@ -629,13 +630,13 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
     query,
     range,
     event_kind: eventKind,
-		session_id: sessionID,
-		sort,
-		limit,
-		scope: scopeMetadata(url),
-		has_more: sorted.length > limit,
-		items: sorted.slice(0, limit),
-	};
+    session_id: sessionID,
+    sort,
+    limit,
+    scope,
+    has_more: sorted.length > limit,
+    items: sorted.slice(0, limit),
+  };
 }
 
 function completedForRequest(url: URL, scenario: Scenario) {

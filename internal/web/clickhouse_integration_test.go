@@ -224,6 +224,63 @@ func TestAPISessionEventsTailReturnsLatestBoundedSliceChronologically(t *testing
 	}
 }
 
+func TestSessionEventsAndTranscriptUseEventProjectBeforeSessionFallback(t *testing.T) {
+	ch := setupLiveWebStore(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	api := NewAPIHandlers(ch.DB, nil, logger)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	sessionID := "mixed-project-session"
+	otherEvent := liveEvent("mixed-project-other", sessionID, "message", "assistant", now, "openai", "gpt-5", "", 1, 1, 0)
+	otherEvent.CWD = "/Users/example/projects/other"
+	otherEvent.TextContent = "other project hidden"
+	otherEvent.TextPreview = "other project hidden"
+	beaconEvent := liveEvent("mixed-project-beacon", sessionID, "message", "assistant", now.Add(time.Second), "openai", "gpt-5", "", 1, 1, 0)
+	beaconEvent.CWD = "/Users/example/projects/beacon"
+	beaconEvent.TextContent = "beacon project visible"
+	beaconEvent.TextPreview = "beacon project visible"
+
+	batch := store.RowBatch{ActivityEvents: []models.Event{otherEvent, beaconEvent}}
+	for _, event := range batch.ActivityEvents {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush mixed project events: %v", err)
+	}
+
+	body := recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+sessionID+"/events?project_key=beacon", "id", sessionID)
+	var events []APISessionEvent
+	if err := json.Unmarshal([]byte(body), &events); err != nil {
+		t.Fatalf("decode beacon-scoped session events: %v\n%s", err, body)
+	}
+	if len(events) != 1 || events[0].EventUID != beaconEvent.EventUID {
+		t.Fatalf("beacon-scoped session events = %#v, want only %s", events, beaconEvent.EventUID)
+	}
+
+	body = recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+sessionID+"/events?project_key=other", "id", sessionID)
+	events = nil
+	if err := json.Unmarshal([]byte(body), &events); err != nil {
+		t.Fatalf("decode other-scoped session events: %v\n%s", err, body)
+	}
+	if len(events) != 1 || events[0].EventUID != otherEvent.EventUID {
+		t.Fatalf("other-scoped session events = %#v, want only %s", events, otherEvent.EventUID)
+	}
+
+	_, turns := QuerySessionConversationScoped(context.Background(), ch.DB, sessionID, APIScopeFilters{ProjectKeys: []string{"beacon"}})
+	seen := map[string]bool{}
+	for _, turn := range turns {
+		for _, event := range turn.Events {
+			seen[event.EventUID] = true
+			if strings.Contains(event.TextPreview, "other project hidden") || strings.Contains(event.TextContent, "other project hidden") {
+				t.Fatalf("beacon-scoped transcript leaked other project event: %#v", event)
+			}
+		}
+	}
+	if !seen[beaconEvent.EventUID] || seen[otherEvent.EventUID] {
+		t.Fatalf("beacon-scoped transcript event set = %#v", seen)
+	}
+}
+
 func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T) {
 	ch := setupLiveWebStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
@@ -506,6 +563,44 @@ func TestRecentActivityProjectScopeFiltersBeforeCandidateLimit(t *testing.T) {
 		if item.SessionID == outScopeID {
 			t.Fatalf("out-of-scope activity leaked into project-scoped result: %#v", items)
 		}
+	}
+}
+
+func TestRecentActivityProjectScopeUsesLatestReplayedEvent(t *testing.T) {
+	ch := setupLiveWebStore(t)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	sessionID := "activity-project-replay"
+	event := liveEvent("activity-project-replayed", sessionID, "message", "assistant", now, "openai", "gpt-5", "", 1, 1, 0)
+	event.CWD = "/Users/example/projects/beacon"
+	event.TextPreview = "replayed project activity"
+	if err := ch.Flush(context.Background(), store.RowBatch{
+		ActivityEvents: []models.Event{event},
+		RawRecords:     []models.RawRecord{store.NewRawRecord(event)},
+	}); err != nil {
+		t.Fatalf("initial flush: %v", err)
+	}
+
+	time.Sleep(5 * time.Millisecond)
+	replayed := event
+	replayed.CWD = "/Users/example/projects/other"
+	replayed.SourceOffset = 10
+	if err := ch.Flush(context.Background(), store.RowBatch{
+		ActivityEvents: []models.Event{replayed},
+		RawRecords:     []models.RawRecord{store.NewRawRecord(replayed)},
+	}); err != nil {
+		t.Fatalf("replay flush: %v", err)
+	}
+
+	items := QueryRecentActivityFilteredByKindScoped(context.Background(), ch.DB, nil, []string{"message"}, APIScopeFilters{ProjectKeys: []string{"beacon"}})
+	for _, item := range items {
+		if item.ID == event.EventUID {
+			t.Fatalf("stale beacon-scoped activity leaked after replay: %#v", items)
+		}
+	}
+	items = QueryRecentActivityFilteredByKindScoped(context.Background(), ch.DB, nil, []string{"message"}, APIScopeFilters{ProjectKeys: []string{"other"}})
+	if len(items) == 0 || items[0].ID != event.EventUID {
+		t.Fatalf("other-scoped replayed activity = %#v, want %s first", items, event.EventUID)
 	}
 }
 

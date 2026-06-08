@@ -666,10 +666,10 @@ func (a *APIHandlers) GetSessionEvents(w http.ResponseWriter, r *http.Request) {
 		eventOrder = "timestamp DESC, event_uid DESC"
 	}
 	scope := parseAPIScopeFilters(r.URL.Query())
-	sessionScopeClause, sessionScopeArgs := scope.sqlAndClause("")
-	rawScope := scope
-	rawScope.ProjectKeys = nil
-	eventScopeClause, eventScopeArgs := rawScope.eventSQLAndClause("ae", "")
+	sessionScope := scope
+	sessionScope.ProjectKeys = nil
+	sessionScopeClause, sessionScopeArgs := sessionScope.sqlAndClause("")
+	eventScopeClause, eventScopeArgs := scope.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
 	args := []any{id}
 	args = append(args, sessionScopeArgs...)
 	args = append(args, eventScopeArgs...)
@@ -682,26 +682,15 @@ func (a *APIHandlers) GetSessionEvents(w http.ResponseWriter, r *http.Request) {
 			LIMIT 1
 		 ),
 		 session_events AS (
-			SELECT event_uid, session_id, event_kind, payload_type, actor_role,
-			       timestamp, text_preview, tool_name, tool_use_id, model,
-			       tokens, duration_ms
-			FROM (
-				SELECT event_uid,
-				       argMax(ae.session_id, captured_at) AS session_id,
-				       argMax(event_kind, captured_at) AS event_kind,
-				       argMax(payload_type, captured_at) AS payload_type,
-				       argMax(actor_role, captured_at) AS actor_role,
-				       argMax(timestamp, captured_at) AS timestamp,
-				       argMax(text_preview, captured_at) AS text_preview,
-				       argMax(tool_name, captured_at) AS tool_name,
-				       argMax(tool_use_id, captured_at) AS tool_use_id,
-				       argMax(model, captured_at) AS model,
-				       argMax(input_tokens, captured_at) + argMax(output_tokens, captured_at) AS tokens,
-				       argMax(duration_ms, captured_at) AS duration_ms
-				FROM activity_events AS ae
-				WHERE ae.session_id IN (SELECT session_id FROM scoped_session)`+eventScopeClause+`
-				GROUP BY event_uid
-			)
+			SELECT e.event_uid, e.session_id, e.event_kind, e.payload_type, e.actor_role,
+			       e.timestamp, e.text_preview, e.tool_name, e.tool_use_id, e.model,
+			       e.input_tokens + e.output_tokens AS tokens, e.duration_ms
+			FROM `+latestActivityEventsSubquery("ae.session_id IN (SELECT session_id FROM scoped_session)")+` AS e
+			LEFT JOIN (
+				SELECT session_id, project_key
+				FROM session_projection FINAL
+			) AS s ON s.session_id = e.session_id
+			WHERE 1 = 1`+eventScopeClause+`
 			ORDER BY `+eventOrder+`
 			LIMIT ? OFFSET ?
 		 ),

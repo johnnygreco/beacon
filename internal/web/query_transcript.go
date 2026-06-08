@@ -17,10 +17,10 @@ func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]vie
 }
 
 func QuerySessionConversationScoped(ctx context.Context, db *sql.DB, id string, scope APIScopeFilters) ([]views.ChatTurn, []views.TurnDetail) {
-	sessionScopeClause, sessionScopeArgs := scope.sqlAndClause("")
-	rawScope := scope
-	rawScope.ProjectKeys = nil
-	eventScopeClause, eventScopeArgs := rawScope.eventSQLAndClause("ae", "")
+	sessionScope := scope
+	sessionScope.ProjectKeys = nil
+	sessionScopeClause, sessionScopeArgs := sessionScope.sqlAndClause("")
+	eventScopeClause, eventScopeArgs := scope.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
 	args := []any{id}
 	args = append(args, sessionScopeArgs...)
 	args = append(args, eventScopeArgs...)
@@ -36,7 +36,12 @@ func QuerySessionConversationScoped(ctx context.Context, db *sql.DB, id string, 
 			       row_number() OVER (PARTITION BY session_id ORDER BY timestamp, event_uid) AS event_order,
 			       sum(if(event_kind = 'message' AND actor_role = 'user', 1, 0))
 			         OVER (PARTITION BY session_id ORDER BY timestamp, event_uid) AS turn_seq
-			FROM `+latestActivityEventsSubquery("ae.session_id IN (SELECT session_id FROM scoped_session)"+eventScopeClause)+` e
+			FROM `+latestActivityEventsSubquery("ae.session_id IN (SELECT session_id FROM scoped_session)")+` e
+			LEFT JOIN (
+				SELECT session_id, project_key
+				FROM session_projection FINAL
+			) AS s ON s.session_id = e.session_id
+			WHERE 1 = 1`+eventScopeClause+`
 		),
 		payload_previews AS (
 			SELECT event_uid,

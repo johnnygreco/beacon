@@ -136,6 +136,14 @@ func TestSQLHelperSubqueries(t *testing.T) {
 	if !strings.Contains(recent, fmt.Sprintf("LIMIT %d", recentActivityCandidates)) {
 		t.Fatalf("recent activity subquery missing candidate limit: %s", recent)
 	}
+	for _, fragment := range []string{
+		"FROM activity_events\n\t\t\tGROUP BY event_uid",
+		"AS ae  WHERE ae.event_kind IN ('message')",
+	} {
+		if !strings.Contains(recent, fragment) {
+			t.Fatalf("recent activity subquery missing latest-row filter fragment %q: %s", fragment, recent)
+		}
+	}
 	if !strings.Contains(sessionProjectionSubquery("session_id = ?"), "FROM session_projection FINAL WHERE session_id = ?") {
 		t.Fatalf("session projection subquery did not apply where clause")
 	}
