@@ -24,6 +24,12 @@ func TestRunInitCreatesOwnerAndEnrollTokensWithoutUnsafeCommand(t *testing.T) {
 	}
 
 	output := out.String()
+	if strings.Contains(output, "On the collector") {
+		t.Fatalf("init output implies remote collector enrollment: %q", output)
+	}
+	if !strings.Contains(output, "configured metadata store") {
+		t.Fatalf("init output does not scope enrollment to the configured metadata store: %q", output)
+	}
 	tokens := tokensFromOutput(output)
 	if len(tokens) != 2 {
 		t.Fatalf("tokens in output = %v, want owner and enrollment tokens", tokens)

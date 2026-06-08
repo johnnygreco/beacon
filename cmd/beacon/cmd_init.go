@@ -84,9 +84,10 @@ func runInit(cmd *cobra.Command, enrollTTL time.Duration) error {
 	fmt.Fprintf(out, "Beacon initialized at %s\n", snapshot.Path)
 	fmt.Fprintf(out, "Owner token (shown once):\n%s\n\n", owner.Plaintext)
 	fmt.Fprintf(out, "Enrollment token (shown once, expires %s):\n%s\n\n", expiresAt.Format(time.RFC3339), enroll.Plaintext)
-	fmt.Fprintln(out, "On the collector, pass the enrollment token through stdin or an environment variable name:")
+	fmt.Fprintln(out, "For this configured metadata store, pass the enrollment token through stdin or an environment variable name:")
 	fmt.Fprintf(out, "  printf '%%s\\n' \"$BEACON_ENROLL_TOKEN\" | beacon enroll --token-stdin\n")
 	fmt.Fprintln(out, "  beacon enroll --token-env BEACON_ENROLL_TOKEN")
+	fmt.Fprintln(out, "Remote collector enrollment over fleet.control_plane_url will land with HTTPS ingest.")
 	return nil
 }
 
