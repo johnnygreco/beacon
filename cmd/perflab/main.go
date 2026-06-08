@@ -161,7 +161,7 @@ func main() {
 func parseFlags() labConfig {
 	var cfg labConfig
 	flag.StringVar(&cfg.OutputDir, "output-dir", envString("PERF_LAB_OUTPUT_DIR", "test-results/perf/lab/latest"), "Report output directory")
-	flag.StringVar(&cfg.Size, "size", envString("PERF_LAB_SIZE", "small"), "Dataset size: small, medium, large, fleet")
+	flag.StringVar(&cfg.Size, "size", envString("PERF_LAB_SIZE", "small"), "Dataset size: small, medium, large, fleet (fleet is heavy/manual)")
 	flag.StringVar(&cfg.ClickHouse, "clickhouse", envString("PERF_LAB_CLICKHOUSE", "127.0.0.1:9000"), "ClickHouse address")
 	flag.StringVar(&cfg.Database, "database", envString("PERF_LAB_DATABASE", "beacon_perf_lab"), "Disposable ClickHouse database for the served lab app")
 	flag.IntVar(&cfg.Port, "port", envInt("PERF_LAB_PORT", 4611), "Port for a lab-started Beacon server")
