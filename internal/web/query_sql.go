@@ -9,7 +9,12 @@ func latestActivityEventsSubquery(where string) string {
 	return `(SELECT event_uid,
 	               argMax(session_id, captured_at) AS session_id,
 	               argMax(parent_session_id, captured_at) AS parent_session_id,
+	               argMax(node_id, captured_at) AS node_id,
+	               argMax(collector_id, captured_at) AS collector_id,
+	               argMax(source_id, captured_at) AS source_id,
 	               argMax(source_name, captured_at) AS source_name,
+	               argMax(runtime, captured_at) AS runtime,
+	               argMax(format, captured_at) AS format,
 	               argMax(provider, captured_at) AS provider,
 	               argMax(timestamp, captured_at) AS timestamp,
 	               argMax(event_kind, captured_at) AS event_kind,
@@ -37,6 +42,11 @@ func latestActivityEventsSubquery(where string) string {
 func recentActivityEventsSubquery(where string) string {
 	return fmt.Sprintf(`(SELECT event_uid,
 	               argMax(session_id, captured_at) AS session_id,
+	               argMax(node_id, captured_at) AS node_id,
+	               argMax(collector_id, captured_at) AS collector_id,
+	               argMax(source_id, captured_at) AS source_id,
+	               argMax(source_name, captured_at) AS source_name,
+	               argMax(runtime, captured_at) AS runtime,
 	               argMax(provider, captured_at) AS provider,
 	               argMax(timestamp, captured_at) AS timestamp,
 	               argMax(event_kind, captured_at) AS event_kind,
@@ -46,9 +56,14 @@ func recentActivityEventsSubquery(where string) string {
 	               argMax(error_code, captured_at) AS error_code,
 	               argMax(error_message, captured_at) AS error_message
 	        FROM (
-			SELECT event_uid,
-			       session_id,
-			       provider,
+				SELECT event_uid,
+				       session_id,
+				       node_id,
+				       collector_id,
+				       source_id,
+				       source_name,
+				       runtime,
+				       provider,
 			       timestamp,
 			       event_kind,
 			       actor_role,
@@ -83,8 +98,15 @@ var sessionProjectionSQL = sessionProjectionSubquery("")
 func sessionProjectionSubquery(where string) string {
 	return `(SELECT
 		session_id,
+		node_id,
+		collector_id,
+		source_id,
 		source_name,
+		runtime,
 		provider,
+		format,
+		project_key,
+		project_path,
 		started_at,
 		ended_at,
 		event_count,
@@ -100,7 +122,15 @@ func sessionProjectionSubquery(where string) string {
 		last_model,
 		working_dir,
 		parent_session_id,
-		has_session_end
+		has_session_end,
+		completion_state,
+		total_cost_usd,
+		cost_event_count,
+		cost_provenance,
+		attention_score,
+		attention_reasons,
+		archive_reason,
+		archived_at
 	FROM session_projection FINAL ` + sqlWhereClause(where) + `)`
 }
 
@@ -146,6 +176,14 @@ var analyticsProjectionSQL = analyticsProjectionSubquery("")
 func analyticsProjectionSubquery(where string) string {
 	return `(SELECT
 		session_id,
+		node_id,
+		collector_id,
+		source_id,
+		source_name,
+		runtime,
+		format,
+		project_key,
+		project_path,
 		minute,
 		provider,
 		model,
@@ -160,12 +198,17 @@ func analyticsProjectionSubquery(where string) string {
 		cache_read_tokens,
 		cache_create_tokens,
 		total_tokens,
-		duration_ms_sum
+		duration_ms_sum,
+		cost_usd_sum
 	FROM analytics_projection FINAL ` + sqlWhereClause(where) + `)`
 }
 
 // sessionSummaryColumns is the shared SELECT column list for session projection queries.
-const sessionSummaryColumns = `session_id, COALESCE(source_name, ''), started_at, ended_at,
+const sessionSummaryColumns = `session_id,
+		COALESCE(node_id, ''), COALESCE(collector_id, ''), COALESCE(source_id, ''),
+		COALESCE(source_name, ''), COALESCE(runtime, ''), COALESCE(provider, ''),
+		COALESCE(format, ''), COALESCE(project_key, ''), COALESCE(project_path, ''),
+		started_at, ended_at,
 		COALESCE(turn_count, 0), COALESCE(total_tokens, 0),
 		COALESCE(total_input_tokens, 0), COALESCE(total_output_tokens, 0),
 		COALESCE(total_cache_read_tokens, 0), COALESCE(total_cache_create_tokens, 0),
@@ -175,4 +218,11 @@ const sessionSummaryColumns = `session_id, COALESCE(source_name, ''), started_at
 		COALESCE(working_dir, ''),
 		COALESCE(parent_session_id, ''),
 		COALESCE(has_session_end, 0),
-		COALESCE(provider, '')`
+		COALESCE(completion_state, ''),
+		COALESCE(total_cost_usd, 0),
+		COALESCE(cost_event_count, 0),
+		COALESCE(cost_provenance, ''),
+		COALESCE(attention_score, 0),
+		attention_reasons,
+		COALESCE(archive_reason, ''),
+		archived_at`

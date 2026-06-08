@@ -232,8 +232,10 @@ func (s *Store) insertCaptureErrors(ctx context.Context, errors []models.Capture
 
 func (s *Store) insertSearchDocuments(ctx context.Context, docs []models.SearchDocument) error {
 	batch, err := s.native.PrepareBatch(ctx, `INSERT INTO search_documents (
-		event_uid, session_id, event_kind, timestamp, text_preview, tool_name,
-		model, provider, searchable_text, document_len, updated_at
+		event_uid, session_id, node_id, collector_id, source_id, source_name,
+		runtime, format, project_key, project_path, event_kind, timestamp,
+		text_preview, tool_name, model, provider, searchable_text, document_len,
+		updated_at
 	)`)
 	if err != nil {
 		return err
@@ -244,6 +246,14 @@ func (s *Store) insertSearchDocuments(ctx context.Context, docs []models.SearchD
 		if err := batch.Append(
 			doc.EventUID,
 			doc.SessionID,
+			doc.NodeID,
+			doc.CollectorID,
+			doc.SourceID,
+			doc.SourceName,
+			doc.Runtime,
+			doc.Format,
+			doc.ProjectKey,
+			doc.ProjectPath,
 			doc.EventKind,
 			nonZeroTime(doc.Timestamp, time.Unix(0, 0).UTC()),
 			doc.TextPreview,
@@ -262,8 +272,10 @@ func (s *Store) insertSearchDocuments(ctx context.Context, docs []models.SearchD
 
 func (s *Store) insertSearchPostings(ctx context.Context, postings []models.SearchPosting) error {
 	batch, err := s.native.PrepareBatch(ctx, `INSERT INTO search_postings (
-		token, event_uid, session_id, event_kind, timestamp, term_frequency,
-		document_len, text_preview, tool_name, model, provider, updated_at
+		token, event_uid, session_id, node_id, collector_id, source_id,
+		source_name, runtime, format, project_key, project_path, event_kind,
+		timestamp, term_frequency, document_len, text_preview, tool_name, model,
+		provider, updated_at
 	)`)
 	if err != nil {
 		return err
@@ -275,6 +287,14 @@ func (s *Store) insertSearchPostings(ctx context.Context, postings []models.Sear
 			p.Token,
 			p.EventUID,
 			p.SessionID,
+			p.NodeID,
+			p.CollectorID,
+			p.SourceID,
+			p.SourceName,
+			p.Runtime,
+			p.Format,
+			p.ProjectKey,
+			p.ProjectPath,
 			p.EventKind,
 			nonZeroTime(p.Timestamp, time.Unix(0, 0).UTC()),
 			uint32(nonNegativeInt(p.TermFrequency)),

@@ -129,6 +129,13 @@ type MetricData struct {
 type SessionSummary struct {
 	ID                string
 	Actor             string
+	NodeID            string
+	CollectorID       string
+	SourceID          string
+	Runtime           string
+	Format            string
+	ProjectKey        string
+	ProjectPath       string
 	Provider          string // "anthropic", "openai", etc.
 	Status            string // "active", "idle", "completed"
 	StartedAt         time.Time
@@ -148,7 +155,15 @@ type SessionSummary struct {
 	ParentSessionID   string           // non-empty if this is a subagent session
 	ChildSessions     []SessionSummary // subagent sessions spawned from this session
 	HasSessionEnd     bool             // true if session has a definitive end signal
-	SubagentCount     int              // number of subagent sessions for this parent (completed table)
+	CompletionState   string           // deterministic event-backed state: active or completed
+	TotalCostUSD      float64
+	CostEventCount    int64
+	CostProvenance    string
+	AttentionScore    int
+	AttentionReasons  []string
+	ArchiveReason     string
+	ArchivedAt        time.Time
+	SubagentCount     int // number of subagent sessions for this parent (completed table)
 }
 
 // IsSubagent returns true if this session is a subagent of another session.
@@ -361,12 +376,17 @@ type SearchResult struct {
 }
 
 type ActivityItem struct {
-	ID        string
-	Type      string // event_kind: "message", "tool_call", "tool_result", "error"
-	Summary   string
-	SessionID string
-	Provider  string // "anthropic", "openai", etc.
-	Timestamp time.Time
+	ID          string
+	Type        string // event_kind: "message", "tool_call", "tool_result", "error"
+	Summary     string
+	SessionID   string
+	NodeID      string
+	CollectorID string
+	SourceID    string
+	SourceName  string
+	Runtime     string
+	Provider    string // "anthropic", "openai", etc.
+	Timestamp   time.Time
 }
 
 type EventSummary struct {

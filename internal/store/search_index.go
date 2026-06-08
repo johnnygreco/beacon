@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -27,10 +28,19 @@ func buildSearchRows(events []models.Event, payloads []models.ToolPayload) ([]mo
 		if len(tokens) == 0 {
 			continue
 		}
+		projectPath, projectKey := searchProject(event.CWD)
 		preview := searchPreview(event, payloadByEvent[event.EventUID])
 		doc := models.SearchDocument{
 			EventUID:       event.EventUID,
 			SessionID:      event.SessionID,
+			NodeID:         event.NodeID,
+			CollectorID:    event.CollectorID,
+			SourceID:       event.SourceID,
+			SourceName:     event.SourceName,
+			Runtime:        event.Runtime,
+			Format:         event.Format,
+			ProjectKey:     projectKey,
+			ProjectPath:    projectPath,
 			EventKind:      event.EventKind,
 			Timestamp:      event.Timestamp,
 			TextPreview:    preview,
@@ -47,6 +57,14 @@ func buildSearchRows(events []models.Event, payloads []models.ToolPayload) ([]mo
 				Token:          token,
 				EventUID:       event.EventUID,
 				SessionID:      event.SessionID,
+				NodeID:         event.NodeID,
+				CollectorID:    event.CollectorID,
+				SourceID:       event.SourceID,
+				SourceName:     event.SourceName,
+				Runtime:        event.Runtime,
+				Format:         event.Format,
+				ProjectKey:     projectKey,
+				ProjectPath:    projectPath,
 				EventKind:      event.EventKind,
 				Timestamp:      event.Timestamp,
 				TermFrequency:  frequency,
@@ -60,6 +78,21 @@ func buildSearchRows(events []models.Event, payloads []models.ToolPayload) ([]mo
 		}
 	}
 	return docs, postings
+}
+
+func searchProject(cwd string) (string, string) {
+	projectPath := strings.TrimRight(strings.TrimSpace(cwd), "/")
+	if projectPath == "" {
+		return "", ""
+	}
+	if idx := strings.Index(projectPath, "/.claude/worktrees/"); idx >= 0 {
+		projectPath = strings.TrimRight(projectPath[:idx], "/")
+	}
+	key := path.Base(projectPath)
+	if key == "." || key == "/" {
+		key = ""
+	}
+	return projectPath, key
 }
 
 func searchPreview(event models.Event, payload models.ToolPayload) string {
@@ -175,6 +208,12 @@ func (s *Store) RefreshSearchIndex(ctx context.Context, batchSize int) (int, err
 	rows, err := s.DB.QueryContext(ctx, `SELECT
 			event_uid,
 			argMax(session_id, captured_at),
+			argMax(node_id, captured_at),
+			argMax(collector_id, captured_at),
+			argMax(source_id, captured_at),
+			argMax(source_name, captured_at),
+			argMax(runtime, captured_at),
+			argMax(format, captured_at),
 			argMax(provider, captured_at),
 			argMax(event_kind, captured_at),
 			argMax(payload_type, captured_at),
@@ -186,7 +225,8 @@ func (s *Store) RefreshSearchIndex(ctx context.Context, batchSize int) (int, err
 			argMax(model, captured_at),
 			argMax(error_code, captured_at),
 			argMax(error_message, captured_at),
-			argMax(payload_json, captured_at)
+			argMax(payload_json, captured_at),
+			argMax(cwd, captured_at)
 		FROM activity_events
 		WHERE session_id != ''
 		GROUP BY event_uid
@@ -227,6 +267,12 @@ func (s *Store) RefreshSearchIndex(ctx context.Context, batchSize int) (int, err
 		if err := rows.Scan(
 			&event.EventUID,
 			&event.SessionID,
+			&event.NodeID,
+			&event.CollectorID,
+			&event.SourceID,
+			&event.SourceName,
+			&event.Runtime,
+			&event.Format,
 			&event.Provider,
 			&event.EventKind,
 			&event.PayloadType,
@@ -239,6 +285,7 @@ func (s *Store) RefreshSearchIndex(ctx context.Context, batchSize int) (int, err
 			&event.ErrorCode,
 			&event.ErrorMessage,
 			&event.PayloadJSON,
+			&event.CWD,
 		); err != nil {
 			return total, err
 		}

@@ -58,7 +58,7 @@ const (
 	// activeThreshold: session is "active" (green Live badge) if last event within this window.
 	activeThreshold = 90 * time.Second
 	// idleThreshold: session is "idle" (amber badge) between activeThreshold and this.
-	// Beyond this, or if has_session_end is true, session is "completed".
+	// Beyond this, sessions without an end signal are "archived".
 	idleThreshold = 5 * time.Minute
 )
 
@@ -87,9 +87,15 @@ func setSessionTiming(s *views.SessionSummary, startedAt, endedAt, now time.Time
 		s.Status = "idle"
 		s.Duration = formatDuration(lastActivity.Sub(startedAt))
 	} else {
-		// Timed out without explicit end signal.
-		s.Status = "completed"
+		// Timed out without explicit end signal; keep completion_state event-backed.
+		s.Status = "archived"
 		s.Duration = formatDuration(lastActivity.Sub(startedAt))
+		if s.ArchiveReason == "" {
+			s.ArchiveReason = "idle_timeout"
+		}
+		if s.ArchivedAt.IsZero() {
+			s.ArchivedAt = lastActivity.Add(idleThreshold)
+		}
 	}
 }
 

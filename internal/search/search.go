@@ -19,6 +19,12 @@ type SearchQuery struct {
 	MinScore       float64
 	SessionID      string
 	EventKinds     []string
+	NodeIDs        []string
+	CollectorIDs   []string
+	SourceIDs      []string
+	SourceNames    []string
+	Runtimes       []string
+	ProjectKeys    []string
 	FromTime       time.Time
 	ToTime         time.Time
 	ExcludeMCPSelf bool
@@ -29,6 +35,13 @@ type SearchQuery struct {
 type SearchResult struct {
 	EventUID    string    `json:"event_uid"`
 	SessionID   string    `json:"session_id"`
+	NodeID      string    `json:"node_id,omitempty"`
+	CollectorID string    `json:"collector_id,omitempty"`
+	SourceID    string    `json:"source_id,omitempty"`
+	SourceName  string    `json:"source_name,omitempty"`
+	Runtime     string    `json:"runtime,omitempty"`
+	ProjectKey  string    `json:"project_key,omitempty"`
+	ProjectPath string    `json:"project_path,omitempty"`
 	EventKind   string    `json:"event_kind"`
 	TextPreview string    `json:"text_preview"`
 	Score       float64   `json:"score"`
@@ -177,6 +190,13 @@ func (s *Searcher) postingsSearch(ctx context.Context, q SearchQuery, tokens []s
 		SELECT
 			p.event_uid,
 			any(p.session_id) AS session_id,
+			any(p.node_id) AS node_id,
+			any(p.collector_id) AS collector_id,
+			any(p.source_id) AS source_id,
+			any(p.source_name) AS source_name,
+			any(p.runtime) AS runtime,
+			any(p.project_key) AS project_key,
+			any(p.project_path) AS project_path,
 			any(p.event_kind) AS event_kind,
 			any(p.text_preview) AS text_preview,
 			sum(log(1 + ((greatest(total_docs, p.doc_freq) - p.doc_freq + 0.5) / (p.doc_freq + 0.5))) *
@@ -192,9 +212,8 @@ func (s *Searcher) postingsSearch(ctx context.Context, q SearchQuery, tokens []s
 			FROM (SELECT * FROM search_postings FINAL) AS p
 			INNER JOIN (SELECT event_uid, updated_at FROM search_documents FINAL) AS d ON d.event_uid = p.event_uid
 			WHERE p.token IN (%s)
-			  AND p.updated_at >= d.updated_at
+			  AND p.updated_at >= d.updated_at %s
 		) p
-		WHERE 1 = 1 %s
 		GROUP BY p.event_uid
 		HAVING score >= ?
 		ORDER BY %s
@@ -268,7 +287,8 @@ func (s *Searcher) Browse(ctx context.Context, q SearchQuery) ([]SearchResult, e
 	filterSQL, args := buildDocumentFilters(q)
 
 	query := fmt.Sprintf(`
-		SELECT event_uid, session_id, event_kind, text_preview, 0.0 AS score,
+		SELECT event_uid, session_id, node_id, collector_id, source_id, source_name,
+		       runtime, project_key, project_path, event_kind, text_preview, 0.0 AS score,
 		       timestamp, tool_name, model, provider
 		FROM search_documents FINAL
 		WHERE 1 = 1 %s
@@ -328,6 +348,12 @@ func buildFilters(alias string, q SearchQuery) (string, []any) {
 			args = append(args, kind)
 		}
 	}
+	appendInFilter(&clauses, &args, prefix+"node_id", q.NodeIDs)
+	appendInFilter(&clauses, &args, prefix+"collector_id", q.CollectorIDs)
+	appendInFilter(&clauses, &args, prefix+"source_id", q.SourceIDs)
+	appendInFilter(&clauses, &args, prefix+"source_name", q.SourceNames)
+	appendInFilter(&clauses, &args, prefix+"runtime", q.Runtimes)
+	appendInFilter(&clauses, &args, prefix+"project_key", q.ProjectKeys)
 
 	if !q.FromTime.IsZero() {
 		clauses = append(clauses, "AND "+prefix+"timestamp >= ?")
@@ -344,6 +370,17 @@ func buildFilters(alias string, q SearchQuery) (string, []any) {
 	}
 
 	return " " + strings.Join(clauses, " "), args
+}
+
+func appendInFilter(clauses *[]string, args *[]any, column string, values []string) {
+	values = compactStrings(values)
+	if len(values) == 0 {
+		return
+	}
+	*clauses = append(*clauses, "AND "+column+" IN ("+placeholders(len(values))+")")
+	for _, value := range values {
+		*args = append(*args, value)
+	}
 }
 
 func searchSortOrder(sortBy string) string {
@@ -376,12 +413,32 @@ func scanResults(rows resultRows) ([]SearchResult, error) {
 	var results []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		if err := rows.Scan(&r.EventUID, &r.SessionID, &r.EventKind, &r.TextPreview, &r.Score, &r.Timestamp, &r.ToolName, &r.Model, &r.Provider); err != nil {
+		if err := rows.Scan(&r.EventUID, &r.SessionID, &r.NodeID, &r.CollectorID, &r.SourceID, &r.SourceName, &r.Runtime, &r.ProjectKey, &r.ProjectPath, &r.EventKind, &r.TextPreview, &r.Score, &r.Timestamp, &r.ToolName, &r.Model, &r.Provider); err != nil {
 			return results, fmt.Errorf("scan search result: %w", err)
 		}
 		results = append(results, r)
 	}
 	return results, rows.Err()
+}
+
+func compactStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func (s *Searcher) LastIndexBuild() time.Time {

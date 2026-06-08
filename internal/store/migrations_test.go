@@ -103,9 +103,12 @@ func TestSchemaIncludesAnalyticsProjection(t *testing.T) {
 	for _, expected := range []string{
 		"beacon.analytics_projection",
 		"minute DateTime64(3, 'UTC')",
+		"collector_id String",
+		"project_key String",
 		"call_count UInt64",
 		"duration_ms_sum UInt64",
-		"ORDER BY (session_id, minute, provider, model, tool_name, event_kind)",
+		"cost_usd_sum Float64",
+		"ORDER BY (collector_id, source_id, project_key, session_id, minute, provider, model, tool_name, event_kind)",
 	} {
 		if !strings.Contains(schema, expected) {
 			t.Fatalf("schema missing %s", expected)

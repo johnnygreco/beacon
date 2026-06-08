@@ -13,17 +13,25 @@ import (
 // QueryActiveSessions returns active session summaries only.
 // Active sessions are those with recent activity and no definitive end signal.
 func QueryActiveSessions(ctx context.Context, db *sql.DB) []views.SessionSummary {
-	return queryActiveSessions(ctx, db, 0)
+	return queryActiveSessions(ctx, db, 0, APIScopeFilters{})
 }
 
 func QueryActiveSessionsLimited(ctx context.Context, db *sql.DB, limit int) []views.SessionSummary {
+	return QueryActiveSessionsLimitedScoped(ctx, db, limit, APIScopeFilters{})
+}
+
+func QueryActiveSessionsLimitedScoped(ctx context.Context, db *sql.DB, limit int, scope APIScopeFilters) []views.SessionSummary {
 	if limit <= 0 || limit > 200 {
 		limit = 200
 	}
-	return queryActiveSessions(ctx, db, limit)
+	return queryActiveSessions(ctx, db, limit, scope)
 }
 
-func queryActiveSessions(ctx context.Context, db *sql.DB, limit int) []views.SessionSummary {
+func QueryActiveSessionsScoped(ctx context.Context, db *sql.DB, scope APIScopeFilters) []views.SessionSummary {
+	return queryActiveSessions(ctx, db, 0, scope)
+}
+
+func queryActiveSessions(ctx context.Context, db *sql.DB, limit int, scope APIScopeFilters) []views.SessionSummary {
 	now := time.Now()
 	// Use Go's time.Now() (UTC-aware) instead of SQL current_timestamp to avoid
 	// timezone mismatch — stored timestamps are UTC but current_timestamp is local.
@@ -35,8 +43,13 @@ func queryActiveSessions(ctx context.Context, db *sql.DB, limit int) []views.Ses
 	query := `SELECT ` + sessionSummaryColumns + `
 		 FROM ` + sessionProjectionSQL + `
 		 WHERE ` + activeSessionPredicate() + `
-		 ORDER BY ended_at DESC`
+		`
 	args := []any{cutoff, cutoff}
+	if clause, scopeArgs := scope.sqlAndClause(""); clause != "" {
+		query += clause
+		args = append(args, scopeArgs...)
+	}
+	query += ` ORDER BY ended_at DESC`
 	if limit > 0 {
 		query += ` LIMIT ?`
 		args = append(args, limit)
@@ -84,10 +97,10 @@ func QueryCompletedSessions(ctx context.Context, db *sql.DB, since *time.Time, o
 // time and text filters. Search matches session metadata plus session IDs
 // discovered by the tokenized event search path.
 func QueryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int, searchText string, eventSessionIDs []string, sortKey string, sortAsc bool) ([]views.SessionSummary, bool) {
-	return queryCompletedSessionsFiltered(ctx, db, since, offset, limit, searchText, eventSessionIDs, sortKey, sortAsc, "")
+	return queryCompletedSessionsFiltered(ctx, db, since, offset, limit, searchText, eventSessionIDs, sortKey, sortAsc, "", APIScopeFilters{})
 }
 
-func queryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int, searchText string, eventSessionIDs []string, sortKey string, sortAsc bool, sessionIDPrefix string) ([]views.SessionSummary, bool) {
+func queryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time.Time, offset, limit int, searchText string, eventSessionIDs []string, sortKey string, sortAsc bool, sessionIDPrefix string, scope APIScopeFilters) ([]views.SessionSummary, bool) {
 	cutoff := time.Now().Add(-idleThreshold)
 	query := `SELECT ` + sessionSummaryColumns + `
 		 FROM ` + sessionProjectionSQL + `
@@ -101,6 +114,10 @@ func queryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time
 	if clause, prefixArgs := completedSessionIDPrefixClause(sessionIDPrefix); clause != "" {
 		query += clause
 		args = append(args, prefixArgs...)
+	}
+	if clause, scopeArgs := scope.sqlAndClause(""); clause != "" {
+		query += clause
+		args = append(args, scopeArgs...)
 	}
 	if searchText = strings.TrimSpace(searchText); searchText != "" {
 		clause, searchArgs := completedSessionSearchClause(searchText, eventSessionIDs)
@@ -142,7 +159,7 @@ func queryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time
 	if hasMore {
 		sessions = sessions[:limit]
 	}
-	attachSubagentCounts(ctx, db, sessions)
+	attachSubagentCounts(ctx, db, sessions, scope)
 	return sessions, hasMore
 }
 
@@ -154,7 +171,7 @@ func completedSessionIDPrefixClause(prefix string) (string, []any) {
 	return " AND positionCaseInsensitive(session_id, ?) = 1", []any{prefix}
 }
 
-func queryCompletedSessionContentMatchIDs(ctx context.Context, db *sql.DB, since *time.Time, searchText, sessionIDPrefix string, limit int) ([]string, error) {
+func queryCompletedSessionContentMatchIDs(ctx context.Context, db *sql.DB, since *time.Time, searchText, sessionIDPrefix string, limit int, scope APIScopeFilters) ([]string, error) {
 	searchText = strings.TrimSpace(searchText)
 	if db == nil || searchText == "" {
 		return nil, nil
@@ -179,6 +196,10 @@ func queryCompletedSessionContentMatchIDs(ctx context.Context, db *sql.DB, since
 	if sessionIDPrefix = strings.TrimSpace(sessionIDPrefix); sessionIDPrefix != "" {
 		query += " AND positionCaseInsensitive(s.session_id, ?) = 1"
 		args = append(args, sessionIDPrefix)
+	}
+	if clause, scopeArgs := scope.sqlAndClause("s"); clause != "" {
+		query += clause
+		args = append(args, scopeArgs...)
 	}
 	contentColumns := []string{
 		"COALESCE(s.session_id, '')",
@@ -307,7 +328,7 @@ func completedSessionSearchClause(searchText string, eventSessionIDs []string) (
 }
 
 // attachSubagentCounts queries subagent counts for the given sessions and attaches them.
-func attachSubagentCounts(ctx context.Context, db *sql.DB, sessions []views.SessionSummary) {
+func attachSubagentCounts(ctx context.Context, db *sql.DB, sessions []views.SessionSummary, scope APIScopeFilters) {
 	if len(sessions) == 0 {
 		return
 	}
@@ -320,8 +341,12 @@ func attachSubagentCounts(ctx context.Context, db *sql.DB, sessions []views.Sess
 	}
 	query := `SELECT parent_session_id, COUNT(*)
 		 FROM ` + sessionProjectionSQL + `
-		 WHERE parent_session_id IN (` + strings.Join(placeholders, ",") + `)
-		 GROUP BY parent_session_id`
+		 WHERE parent_session_id IN (` + strings.Join(placeholders, ",") + `)`
+	if clause, scopeArgs := scope.sqlAndClause(""); clause != "" {
+		query += clause
+		args = append(args, scopeArgs...)
+	}
+	query += ` GROUP BY parent_session_id`
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		logQueryError("subagent counts", err)
@@ -408,11 +433,15 @@ func scanSessionSummaryBase(scanner interface{ Scan(dest ...any) error }, now ti
 	var source, model string
 	var startedAt, endedAt time.Time
 	var hasSessionEnd int
-	dest := []any{&s.ID, &source, &startedAt, &endedAt,
+	var attentionScore int
+	dest := []any{&s.ID, &s.NodeID, &s.CollectorID, &s.SourceID, &source, &s.Runtime, &s.Provider,
+		&s.Format, &s.ProjectKey, &s.ProjectPath, &startedAt, &endedAt,
 		&s.TurnCount, &s.TotalTokens, &s.InputTokens, &s.OutputTokens,
 		&s.CacheReadTokens, &s.CacheCreateTokens,
 		&s.ToolCallCount, &s.MCPCallCount, &s.ErrorCount, &model, &s.WorkingDir,
-		&s.ParentSessionID, &hasSessionEnd, &s.Provider}
+		&s.ParentSessionID, &hasSessionEnd, &s.CompletionState, &s.TotalCostUSD,
+		&s.CostEventCount, &s.CostProvenance, &attentionScore, &s.AttentionReasons,
+		&s.ArchiveReason, &s.ArchivedAt}
 	if reopened != nil {
 		dest = append(dest, reopened)
 	}
@@ -423,6 +452,10 @@ func scanSessionSummaryBase(scanner interface{ Scan(dest ...any) error }, now ti
 	s.Actor = source
 	s.ActiveModel = model
 	s.HasSessionEnd = hasSessionEnd > 0
+	s.AttentionScore = attentionScore
+	if s.ProjectPath == "" {
+		s.ProjectPath = s.WorkingDir
+	}
 	setSessionTiming(&s, startedAt, endedAt, now)
 	return s, nil
 }

@@ -764,7 +764,15 @@ func TestScanSessionSummaryIncludesErrorCount(t *testing.T) {
 	end := now.Add(-6 * time.Minute)
 	scanner := stubScanner{values: []any{
 		"session-1",
+		"node-1",
+		"collector-1",
+		"source-1",
 		"codex",
+		"codex",
+		"openai",
+		"sqlite",
+		"beacon",
+		"/repo",
 		start,
 		end,
 		int64(3),
@@ -780,7 +788,14 @@ func TestScanSessionSummaryIncludesErrorCount(t *testing.T) {
 		"/repo",
 		"parent-1",
 		1,
-		"openai",
+		"completed",
+		float64(0.42),
+		int64(1),
+		"event_cost_usd",
+		int64(150),
+		[]string{"errors"},
+		"",
+		time.Time{},
 	}}
 
 	s, err := scanSessionSummary(scanner, now)
@@ -793,6 +808,12 @@ func TestScanSessionSummaryIncludesErrorCount(t *testing.T) {
 	if s.ActiveModel != "gpt-5.4" || s.Provider != "openai" || !s.HasSessionEnd {
 		t.Fatalf("summary fields shifted during scan: %#v", s)
 	}
+	if s.NodeID != "node-1" || s.CollectorID != "collector-1" || s.ProjectKey != "beacon" {
+		t.Fatalf("fleet fields shifted during scan: %#v", s)
+	}
+	if s.TotalCostUSD != 0.42 || s.CostProvenance != "event_cost_usd" || s.AttentionScore != 150 {
+		t.Fatalf("cost/attention fields shifted during scan: %#v", s)
+	}
 }
 
 func TestScanSessionSummaryIncludingReopenedClearsTerminalEnd(t *testing.T) {
@@ -801,7 +822,15 @@ func TestScanSessionSummaryIncludingReopenedClearsTerminalEnd(t *testing.T) {
 	end := now.Add(-30 * time.Second)
 	scanner := stubScanner{values: []any{
 		"session-reopened",
+		"node-1",
+		"collector-1",
+		"source-1",
 		"codex",
+		"codex",
+		"openai",
+		"sqlite",
+		"beacon",
+		"/repo",
 		start,
 		end,
 		int64(3),
@@ -817,7 +846,14 @@ func TestScanSessionSummaryIncludingReopenedClearsTerminalEnd(t *testing.T) {
 		"/repo",
 		"",
 		1,
-		"openai",
+		"completed",
+		float64(0),
+		int64(0),
+		"none",
+		int64(0),
+		[]string{},
+		"",
+		time.Time{},
 		1,
 	}}
 
@@ -885,6 +921,23 @@ func (s stubScanner) Scan(dest ...any) error {
 			default:
 				return fmt.Errorf("value %d is %T, want int64", i, value)
 			}
+		case *float64:
+			switch v := value.(type) {
+			case float64:
+				*d = v
+			case int:
+				*d = float64(v)
+			case int64:
+				*d = float64(v)
+			default:
+				return fmt.Errorf("value %d is %T, want float64", i, value)
+			}
+		case *[]string:
+			v, ok := value.([]string)
+			if !ok {
+				return fmt.Errorf("value %d is %T, want []string", i, value)
+			}
+			*d = v
 		default:
 			return fmt.Errorf("unsupported destination %d: %T", i, dest[i])
 		}
@@ -894,8 +947,9 @@ func (s stubScanner) Scan(dest ...any) error {
 
 func TestSetSessionTiming_Completed(t *testing.T) {
 	var s views.SessionSummary
+	s.HasSessionEnd = true
 	start := time.Now().Add(-20 * time.Minute)
-	end := time.Now().Add(-10 * time.Minute) // ended 10 min ago — completed
+	end := time.Now().Add(-10 * time.Minute) // explicit end signal 10 min ago
 
 	setSessionTiming(&s, start, end, time.Now())
 
@@ -928,13 +982,16 @@ func TestSetSessionTiming_RecentlyActive(t *testing.T) {
 		t.Errorf("expected status 'idle' at 2 minutes, got '%s'", s2.Status)
 	}
 
-	// Past idle threshold — completed
+	// Past idle threshold without an end signal — archived
 	var s3 views.SessionSummary
 	end3 := time.Now().Add(-5*time.Minute - 1*time.Second)
 	setSessionTiming(&s3, start, end3, time.Now())
 
-	if s3.Status != "completed" {
-		t.Errorf("expected status 'completed' past 5 minutes, got '%s'", s3.Status)
+	if s3.Status != "archived" {
+		t.Errorf("expected status 'archived' past 5 minutes, got '%s'", s3.Status)
+	}
+	if s3.ArchiveReason != "idle_timeout" || s3.ArchivedAt.IsZero() {
+		t.Errorf("expected archive metadata, got reason=%q archived_at=%v", s3.ArchiveReason, s3.ArchivedAt)
 	}
 }
 

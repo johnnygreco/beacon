@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 5
+	CurrentSchemaVersion = 6
 
 	schemaVersionTable = "schema_version"
 	schemaVersionRowID = 1
@@ -47,15 +47,19 @@ func Migrate(ctx context.Context, db *sql.DB, database string) error {
 	if state.hasVersionRow {
 		switch state.version {
 		case 2:
-			if err := migrateSchemaV2ToV5(ctx, db, database); err != nil {
+			if err := migrateSchemaV2ToV6(ctx, db, database); err != nil {
 				return err
 			}
 		case 3:
-			if err := migrateSchemaV3ToV5(ctx, db, database); err != nil {
+			if err := migrateSchemaV3ToV6(ctx, db, database); err != nil {
 				return err
 			}
 		case 4:
-			if err := migrateSchemaV4ToV5(ctx, db, database); err != nil {
+			if err := migrateSchemaV4ToV6(ctx, db, database); err != nil {
+				return err
+			}
+		case 5:
+			if err := migrateSchemaV5ToV6(ctx, db, database); err != nil {
 				return err
 			}
 		}
@@ -217,49 +221,75 @@ func writeSchemaVersion(ctx context.Context, db *sql.DB, database string) error 
 	return err
 }
 
-func migrateSchemaV2ToV5(ctx context.Context, db *sql.DB, database string) error {
+func migrateSchemaV2ToV6(ctx context.Context, db *sql.DB, database string) error {
 	for _, stmt := range []string{
 		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_checkpoints`, database),
 		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_errors`, database),
 		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_heartbeats`, database),
 		fmt.Sprintf(`DROP TABLE IF EXISTS %s.ingest_batches`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.session_projection`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.analytics_projection`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_documents`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_postings`, database),
 		captureErrorsSchema(database),
 		captureCheckpointsSchema(database),
 		captureHeartbeatsSchema(database),
 		ingestBatchesSchema(database),
 	} {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("advance schema v2 to v5: %w", err)
+			return fmt.Errorf("advance schema v2 to v6: %w", err)
 		}
 	}
 	return writeSchemaVersion(ctx, db, database)
 }
 
-func migrateSchemaV3ToV5(ctx context.Context, db *sql.DB, database string) error {
+func migrateSchemaV3ToV6(ctx context.Context, db *sql.DB, database string) error {
 	for _, stmt := range []string{
 		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_checkpoints`, database),
 		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_errors`, database),
 		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_heartbeats`, database),
 		fmt.Sprintf(`DROP TABLE IF EXISTS %s.ingest_batches`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.session_projection`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.analytics_projection`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_documents`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_postings`, database),
 		captureErrorsSchema(database),
 		captureCheckpointsSchema(database),
 		captureHeartbeatsSchema(database),
 		ingestBatchesSchema(database),
 	} {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("advance schema v3 to v5: %w", err)
+			return fmt.Errorf("advance schema v3 to v6: %w", err)
 		}
 	}
 	return writeSchemaVersion(ctx, db, database)
 }
 
-func migrateSchemaV4ToV5(ctx context.Context, db *sql.DB, database string) error {
+func migrateSchemaV4ToV6(ctx context.Context, db *sql.DB, database string) error {
 	for _, stmt := range []string{
 		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_heartbeats`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.session_projection`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.analytics_projection`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_documents`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_postings`, database),
 		captureHeartbeatsSchema(database),
 	} {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("advance schema v4 to v5: %w", err)
+			return fmt.Errorf("advance schema v4 to v6: %w", err)
+		}
+	}
+	return writeSchemaVersion(ctx, db, database)
+}
+
+func migrateSchemaV5ToV6(ctx context.Context, db *sql.DB, database string) error {
+	for _, stmt := range []string{
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.session_projection`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.analytics_projection`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_documents`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_postings`, database),
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("advance schema v5 to v6: %w", err)
 		}
 	}
 	return writeSchemaVersion(ctx, db, database)
@@ -413,8 +443,15 @@ func Schema(database string) []string {
 
 		`CREATE TABLE IF NOT EXISTS ` + db("session_projection") + ` (
 			session_id String,
+			node_id String,
+			collector_id String,
+			source_id String,
 			source_name LowCardinality(String),
+			runtime LowCardinality(String),
 			provider LowCardinality(String),
+			format LowCardinality(String),
+			project_key String,
+			project_path String,
 			started_at DateTime64(3, 'UTC'),
 			ended_at DateTime64(3, 'UTC'),
 			event_count UInt64,
@@ -431,6 +468,14 @@ func Schema(database string) []string {
 			working_dir String,
 			parent_session_id String,
 			has_session_end UInt8,
+			completion_state LowCardinality(String),
+			total_cost_usd Float64,
+			cost_event_count UInt64,
+			cost_provenance LowCardinality(String),
+			attention_score UInt16,
+			attention_reasons Array(String),
+			archive_reason LowCardinality(String),
+			archived_at DateTime64(3, 'UTC'),
 			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
 		)
 		ENGINE = ReplacingMergeTree(updated_at)
@@ -438,6 +483,14 @@ func Schema(database string) []string {
 
 		`CREATE TABLE IF NOT EXISTS ` + db("analytics_projection") + ` (
 			session_id String,
+			node_id String,
+			collector_id String,
+			source_id String,
+			source_name LowCardinality(String),
+			runtime LowCardinality(String),
+			format LowCardinality(String),
+			project_key String,
+			project_path String,
 			minute DateTime64(3, 'UTC'),
 			provider LowCardinality(String),
 			model LowCardinality(String),
@@ -453,15 +506,24 @@ func Schema(database string) []string {
 			cache_create_tokens UInt64,
 			total_tokens UInt64,
 			duration_ms_sum UInt64,
+			cost_usd_sum Float64,
 			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
 		)
 		ENGINE = ReplacingMergeTree(updated_at)
 		PARTITION BY toYYYYMM(minute)
-		ORDER BY (session_id, minute, provider, model, tool_name, event_kind)`,
+		ORDER BY (collector_id, source_id, project_key, session_id, minute, provider, model, tool_name, event_kind)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("search_documents") + ` (
 			event_uid String,
 			session_id String,
+			node_id String,
+			collector_id String,
+			source_id String,
+			source_name LowCardinality(String),
+			runtime LowCardinality(String),
+			format LowCardinality(String),
+			project_key String,
+			project_path String,
 			event_kind LowCardinality(String),
 			timestamp DateTime64(3, 'UTC'),
 			text_preview String,
@@ -471,7 +533,10 @@ func Schema(database string) []string {
 			searchable_text String CODEC(ZSTD(3)),
 			document_len UInt32,
 			updated_at DateTime64(3, 'UTC') DEFAULT now64(3),
-			INDEX idx_search_text searchable_text TYPE tokenbf_v1(8192, 3, 0) GRANULARITY 4
+			INDEX idx_search_text searchable_text TYPE tokenbf_v1(8192, 3, 0) GRANULARITY 4,
+			INDEX idx_collector collector_id TYPE bloom_filter(0.01) GRANULARITY 2,
+			INDEX idx_source source_id TYPE bloom_filter(0.01) GRANULARITY 2,
+			INDEX idx_project project_key TYPE set(1024) GRANULARITY 4
 		)
 		ENGINE = ReplacingMergeTree(updated_at)
 		PARTITION BY toYYYYMM(timestamp)
@@ -481,6 +546,14 @@ func Schema(database string) []string {
 			token String,
 			event_uid String,
 			session_id String,
+			node_id String,
+			collector_id String,
+			source_id String,
+			source_name LowCardinality(String),
+			runtime LowCardinality(String),
+			format LowCardinality(String),
+			project_key String,
+			project_path String,
 			event_kind LowCardinality(String),
 			timestamp DateTime64(3, 'UTC'),
 			term_frequency UInt32,
@@ -492,7 +565,7 @@ func Schema(database string) []string {
 			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
 		)
 		ENGINE = ReplacingMergeTree(updated_at)
-		ORDER BY (token, event_uid)`,
+		ORDER BY (token, collector_id, source_id, project_key, event_uid)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("search_query_log") + ` (
 			query String,

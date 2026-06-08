@@ -98,6 +98,10 @@ func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 	var totalSessions, activeCount, toolCalls, mcpCalls int
 	var inputTokens, outputTokens int64
 	activeCutoff := time.Now().Add(-idleThreshold)
+	scope := parseAPIScopeFilters(r.URL.Query())
+	scopeClause, scopeArgs := scope.sqlAndClause("")
+	args := []any{activeCutoff, activeCutoff}
+	args = append(args, scopeArgs...)
 
 	if err := a.db.QueryRowContext(r.Context(),
 		`SELECT count(),
@@ -106,7 +110,8 @@ func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(SUM(total_output_tokens), 0),
 		        COALESCE(SUM(tool_call_count), 0),
 		        COALESCE(SUM(mcp_call_count), 0)
-		 FROM `+sessionProjectionSQL, activeCutoff, activeCutoff,
+		 FROM `+sessionProjectionSQL+`
+		 WHERE 1 = 1`+scopeClause, args...,
 	).Scan(&totalSessions, &activeCount, &inputTokens, &outputTokens, &toolCalls, &mcpCalls); err != nil {
 		a.internalError(w, "failed to query metrics", err)
 		return
@@ -134,11 +139,16 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	activeCutoff := now.Add(-idleThreshold)
-	rows, err := a.db.QueryContext(r.Context(),
-		`SELECT `+sessionSummaryColumnsWithReopenedFlag()+`
-		 FROM `+sessionProjectionSQL+`
+	scopeClause, scopeArgs := req.Scope.sqlAndClause("")
+	query := `SELECT ` + sessionSummaryColumnsWithReopenedFlag() + `
+		 FROM ` + sessionProjectionSQL + `
+		 WHERE 1 = 1` + scopeClause + `
 		 ORDER BY started_at DESC
-		 LIMIT ?`, activeCutoff, req.Limit)
+		 LIMIT ?`
+	args := []any{activeCutoff}
+	args = append(args, scopeArgs...)
+	args = append(args, req.Limit)
+	rows, err := a.db.QueryContext(r.Context(), query, args...)
 	if err != nil {
 		a.internalError(w, "failed to query sessions", err)
 		return
@@ -176,14 +186,14 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 	hasMore := false
 	switch req.State {
 	case "active":
-		sessions = QueryActiveSessions(r.Context(), a.db)
+		sessions = QueryActiveSessionsScoped(r.Context(), a.db, req.Scope)
 	default:
-		eventSessionIDs, err := a.completedSessionContentSearchSessionIDs(r.Context(), req.Query, req.Range, req.SessionID)
+		eventSessionIDs, err := a.completedSessionContentSearchSessionIDs(r.Context(), req.Query, req.Range, req.SessionID, req.Scope)
 		if err != nil {
 			a.internalError(w, "search failed", err)
 			return
 		}
-		sessions, hasMore = queryCompletedSessionsFiltered(r.Context(), a.db, parseRange(req.Range), req.Offset, req.Limit, req.Query, eventSessionIDs, req.SortKey, req.SortAsc, req.SessionID)
+		sessions, hasMore = queryCompletedSessionsFiltered(r.Context(), a.db, parseRange(req.Range), req.Offset, req.Limit, req.Query, eventSessionIDs, req.SortKey, req.SortAsc, req.SessionID, req.Scope)
 		req.State = "completed"
 	}
 
@@ -197,16 +207,17 @@ func (a *APIHandlers) GetDashboardSessions(w http.ResponseWriter, r *http.Reques
 		Query:   req.Query,
 		Offset:  req.Offset,
 		Limit:   req.Limit,
+		Scope:   req.Scope.metadata(),
 		HasMore: hasMore,
 		Items:   items,
 	})
 }
 
 func (a *APIHandlers) completedSessionEventSearchSessionIDs(ctx context.Context, query string) ([]string, error) {
-	return a.completedSessionContentSearchSessionIDs(ctx, query, "", "")
+	return a.completedSessionContentSearchSessionIDs(ctx, query, "", "", APIScopeFilters{})
 }
 
-func (a *APIHandlers) completedSessionContentSearchSessionIDs(ctx context.Context, query, rangeVal, sessionIDPrefix string) ([]string, error) {
+func (a *APIHandlers) completedSessionContentSearchSessionIDs(ctx context.Context, query, rangeVal, sessionIDPrefix string, scope APIScopeFilters) ([]string, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
@@ -219,6 +230,7 @@ func (a *APIHandlers) completedSessionContentSearchSessionIDs(ctx context.Contex
 			SessionID:    sessionIDPrefix,
 			SkipQueryLog: true,
 		}
+		scope.applyToSearchQuery(&sq)
 		if t := parseRange(rangeVal); t != nil {
 			sq.FromTime = *t
 		}
@@ -234,7 +246,7 @@ func (a *APIHandlers) completedSessionContentSearchSessionIDs(ctx context.Contex
 		}
 	}
 	dbSucceeded := false
-	dbIDs, err := queryCompletedSessionContentMatchIDs(ctx, a.db, parseRange(rangeVal), query, sessionIDPrefix, completedSessionEventSearchLimit)
+	dbIDs, err := queryCompletedSessionContentMatchIDs(ctx, a.db, parseRange(rangeVal), query, sessionIDPrefix, completedSessionEventSearchLimit, scope)
 	if err != nil {
 		if firstErr == nil {
 			firstErr = err
@@ -288,6 +300,7 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 			State: "idle",
 			Sort:  req.SortBy,
 			Limit: req.Limit,
+			Scope: req.Scope.metadata(),
 			Items: []APIDashboardSearchResult{},
 		})
 		return
@@ -301,6 +314,7 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 			SessionID: req.SessionID,
 			Sort:      req.SortBy,
 			Limit:     req.Limit,
+			Scope:     req.Scope.metadata(),
 			Items:     []APIDashboardSearchResult{},
 		})
 		return
@@ -317,6 +331,7 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 			SortBy:       req.SortBy,
 			SkipQueryLog: true,
 		}
+		req.Scope.applyToSearchQuery(&sq)
 		if t := parseRange(req.Range); t != nil {
 			sq.FromTime = *t
 		}
@@ -344,6 +359,13 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 				ResultType:   "event",
 				EventUID:     result.EventUID,
 				SessionID:    result.SessionID,
+				NodeID:       result.NodeID,
+				CollectorID:  result.CollectorID,
+				SourceID:     result.SourceID,
+				SourceName:   result.SourceName,
+				Runtime:      result.Runtime,
+				ProjectKey:   result.ProjectKey,
+				ProjectPath:  result.ProjectPath,
 				EventKind:    result.EventKind,
 				Snippet:      dashboardSearchSnippet(result),
 				ToolName:     result.ToolName,
@@ -361,13 +383,13 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 	if req.EventKind == "session" || (req.Query != "" && req.EventKind == "") {
 		var eventSessionIDs []string
 		if req.EventKind == "session" {
-			eventSessionIDs, err = a.completedSessionContentSearchSessionIDs(r.Context(), req.Query, req.Range, req.SessionID)
+			eventSessionIDs, err = a.completedSessionContentSearchSessionIDs(r.Context(), req.Query, req.Range, req.SessionID, req.Scope)
 			if err != nil {
 				a.internalError(w, "search failed", err)
 				return
 			}
 		}
-		sessionItems, sessionHasMore := a.dashboardSearchSessionMetadataResults(r.Context(), req.Query, req.Range, req.SessionID, req.SortBy, seenSessions, eventSessionIDs, req.Limit+1)
+		sessionItems, sessionHasMore := a.dashboardSearchSessionMetadataResults(r.Context(), req.Query, req.Range, req.SessionID, req.SortBy, seenSessions, eventSessionIDs, req.Limit+1, req.Scope)
 		if sessionHasMore {
 			hasMore = true
 		}
@@ -387,6 +409,7 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 		SessionID: req.SessionID,
 		Sort:      req.SortBy,
 		Limit:     req.Limit,
+		Scope:     req.Scope.metadata(),
 		HasMore:   hasMore,
 		Items:     items,
 	})
@@ -417,13 +440,13 @@ func dashboardSearchSnippet(result search.SearchResult) string {
 	return snippet
 }
 
-func (a *APIHandlers) dashboardSearchSessionMetadataResults(ctx context.Context, query, rangeVal, sessionIDPrefix, sortBy string, seenSessions map[string]struct{}, eventSessionIDs []string, limit int) ([]APIDashboardSearchResult, bool) {
+func (a *APIHandlers) dashboardSearchSessionMetadataResults(ctx context.Context, query, rangeVal, sessionIDPrefix, sortBy string, seenSessions map[string]struct{}, eventSessionIDs []string, limit int, scope APIScopeFilters) ([]APIDashboardSearchResult, bool) {
 	if a.db == nil || limit <= 0 {
 		return nil, false
 	}
 	fetchLimit := limit + len(seenSessions) + 1
 	sortKey, sortAsc := dashboardSearchMetadataSort(sortBy)
-	sessions, storeHasMore := queryCompletedSessionsFiltered(ctx, a.db, parseRange(rangeVal), 0, fetchLimit, query, eventSessionIDs, sortKey, sortAsc, sessionIDPrefix)
+	sessions, storeHasMore := queryCompletedSessionsFiltered(ctx, a.db, parseRange(rangeVal), 0, fetchLimit, query, eventSessionIDs, sortKey, sortAsc, sessionIDPrefix, scope)
 	items := make([]APIDashboardSearchResult, 0, min(limit, len(sessions)))
 	for _, session := range sessions {
 		if _, ok := seenSessions[session.ID]; ok {
@@ -475,6 +498,13 @@ func dashboardSearchSessionResult(session views.SessionSummary) APIDashboardSear
 	return APIDashboardSearchResult{
 		ResultType:   "session",
 		SessionID:    session.ID,
+		NodeID:       session.NodeID,
+		CollectorID:  session.CollectorID,
+		SourceID:     session.SourceID,
+		SourceName:   session.Actor,
+		Runtime:      session.Runtime,
+		ProjectKey:   session.ProjectKey,
+		ProjectPath:  session.ProjectPath,
 		EventKind:    "session",
 		Snippet:      snippet,
 		Provider:     session.Provider,
@@ -553,7 +583,7 @@ func (a *APIHandlers) GetActivity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := parseActivityAPIRequest(r.URL.Query())
-	items := QueryRecentActivityFilteredByKind(r.Context(), a.db, req.Since, req.EventKinds)
+	items := QueryRecentActivityFilteredByKindScoped(r.Context(), a.db, req.Since, req.EventKinds, req.Scope)
 	result := make([]APIActivityItem, 0, len(items))
 	for _, item := range items {
 		result = append(result, APIActivityItem{
@@ -561,6 +591,11 @@ func (a *APIHandlers) GetActivity(w http.ResponseWriter, r *http.Request) {
 			Type:         item.Type,
 			Summary:      item.Summary,
 			SessionID:    item.SessionID,
+			NodeID:       item.NodeID,
+			CollectorID:  item.CollectorID,
+			SourceID:     item.SourceID,
+			SourceName:   item.SourceName,
+			Runtime:      item.Runtime,
 			Provider:     item.Provider,
 			Timestamp:    item.Timestamp,
 			RelativeTime: views.RelativeTime(item.Timestamp),
@@ -575,10 +610,11 @@ func (a *APIHandlers) GetDashboardCharts(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	req := parseDashboardChartsAPIRequest(r.URL.Query())
-	tokenCumulative, modelActivity := QueryDashboardModelAnalytics(r.Context(), a.db, parseRange(req.Range), req.Range)
+	tokenCumulative, modelActivity := QueryDashboardModelAnalyticsScoped(r.Context(), a.db, parseRange(req.Range), req.Range, req.Scope)
 
 	a.jsonResponse(w, APIDashboardCharts{
 		Range:           req.Range,
+		Scope:           req.Scope.metadata(),
 		TokenCumulative: tokenCumulative,
 		ModelActivity:   modelActivity,
 	})
@@ -765,7 +801,9 @@ func (a *APIHandlers) SearchEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := a.searcher.Search(r.Context(), search.SearchQuery{Query: req.Query, Limit: req.Limit})
+	sq := search.SearchQuery{Query: req.Query, Limit: req.Limit}
+	req.Scope.applyToSearchQuery(&sq)
+	results, err := a.searcher.Search(r.Context(), sq)
 	if err != nil {
 		a.internalError(w, "search failed", err)
 		return
@@ -775,6 +813,8 @@ func (a *APIHandlers) SearchEvents(w http.ResponseWriter, r *http.Request) {
 
 // GetTokensPerMinute returns time-series token data with breakdown.
 func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request) {
+	scope := parseAPIScopeFilters(r.URL.Query())
+	scopeClause, scopeArgs := scope.sqlAndClause("")
 	rows, err := a.db.QueryContext(r.Context(),
 		`SELECT minute, total_input, total_output, total_cache_read, tokens_total, call_count FROM (
 			SELECT minute,
@@ -784,10 +824,11 @@ func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request)
 			       sum(total_tokens) AS tokens_total,
 			       sum(call_count) AS call_count
 			FROM `+analyticsProjectionSQL+`
+			WHERE 1 = 1`+scopeClause+`
 			GROUP BY minute
 			ORDER BY minute DESC
 			LIMIT 60
-		 ) ORDER BY minute ASC`)
+		 ) ORDER BY minute ASC`, scopeArgs...)
 	if err != nil {
 		a.internalError(w, "failed to query token data", err)
 		return
@@ -814,6 +855,8 @@ func (a *APIHandlers) GetTokensPerMinute(w http.ResponseWriter, r *http.Request)
 
 // GetToolStats returns tool usage statistics.
 func (a *APIHandlers) GetToolStats(w http.ResponseWriter, r *http.Request) {
+	scope := parseAPIScopeFilters(r.URL.Query())
+	scopeClause, scopeArgs := scope.sqlAndClause("")
 	rows, err := a.db.QueryContext(r.Context(),
 		`SELECT tool_name,
 		        sum(tool_call_count) AS calls,
@@ -821,9 +864,9 @@ func (a *APIHandlers) GetToolStats(w http.ResponseWriter, r *http.Request) {
 		        sum(event_count) AS total,
 		        if(sum(tool_call_count) > 0, sumIf(duration_ms_sum, event_kind = 'tool_call') / sum(tool_call_count), 0) AS avg_duration_ms
 		 FROM `+analyticsProjectionSQL+`
-		 WHERE tool_name != ''
+		 WHERE tool_name != ''`+scopeClause+`
 		 GROUP BY tool_name
-		 ORDER BY total DESC`)
+		 ORDER BY total DESC`, scopeArgs...)
 	if err != nil {
 		a.internalError(w, "failed to query tool stats", err)
 		return
@@ -849,6 +892,8 @@ func (a *APIHandlers) GetToolStats(w http.ResponseWriter, r *http.Request) {
 
 // GetTokensByModel returns token usage broken down by model.
 func (a *APIHandlers) GetTokensByModel(w http.ResponseWriter, r *http.Request) {
+	scope := parseAPIScopeFilters(r.URL.Query())
+	scopeClause, scopeArgs := scope.sqlAndClause("")
 	rows, err := a.db.QueryContext(r.Context(),
 		`SELECT model,
 		        sum(input_tokens) AS total_input,
@@ -858,9 +903,9 @@ func (a *APIHandlers) GetTokensByModel(w http.ResponseWriter, r *http.Request) {
 		        sum(total_tokens) AS tokens_total,
 		        sum(call_count) AS call_count
 		 FROM `+analyticsProjectionSQL+`
-		 WHERE model != '' AND model != '<synthetic>'
+		 WHERE model != '' AND model != '<synthetic>'`+scopeClause+`
 		 GROUP BY model
-		 ORDER BY tokens_total DESC`)
+		 ORDER BY tokens_total DESC`, scopeArgs...)
 	if err != nil {
 		a.internalError(w, "failed to query model tokens", err)
 		return
@@ -892,6 +937,13 @@ func apiSessionSummaryFromView(s views.SessionSummary) APISessionSummary {
 		ID:                s.ID,
 		Title:             views.SessionTitle(s, false),
 		Source:            s.Actor,
+		NodeID:            s.NodeID,
+		CollectorID:       s.CollectorID,
+		SourceID:          s.SourceID,
+		Runtime:           s.Runtime,
+		Format:            s.Format,
+		ProjectKey:        s.ProjectKey,
+		ProjectPath:       s.ProjectPath,
 		Provider:          s.Provider,
 		Status:            s.Status,
 		StartedAt:         s.StartedAt,
@@ -910,6 +962,14 @@ func apiSessionSummaryFromView(s views.SessionSummary) APISessionSummary {
 		WorkingDir:        s.WorkingDir,
 		ParentSessionID:   s.ParentSessionID,
 		HasSessionEnd:     s.HasSessionEnd,
+		CompletionState:   s.CompletionState,
+		TotalCostUSD:      s.TotalCostUSD,
+		CostEventCount:    s.CostEventCount,
+		CostProvenance:    s.CostProvenance,
+		AttentionScore:    s.AttentionScore,
+		AttentionReasons:  s.AttentionReasons,
+		ArchiveReason:     s.ArchiveReason,
+		ArchivedAt:        s.ArchivedAt,
 		SubagentCount:     s.SubagentCount,
 		ChildSessions:     children,
 	}
