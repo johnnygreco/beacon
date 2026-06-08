@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -171,11 +172,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Handler: router,
 	}
 
-	pidPath, err := writePIDFile()
+	pidFile, err := acquirePIDFile()
 	if err != nil {
-		logger.Warn("failed to write pidfile", "path", pidPath, "error", err)
+		return fmt.Errorf("acquire beacon pidfile: %w", err)
 	} else {
-		defer removePIDFile(pidPath)
+		defer pidFile.Close()
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -211,32 +212,62 @@ func pidfilePath() string {
 	return filepath.Join(home, ".beacon", "beacon.pid")
 }
 
-func writePIDFile() (string, error) {
-	path := pidfilePath()
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return path, err
-	}
-	if existing := readPidFromFile(); existing > 0 && existing != os.Getpid() {
-		return path, fmt.Errorf("beacon process already running with pid %d", existing)
-	}
-	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
-		return path, err
-	}
-	return path, nil
+type pidFileLock struct {
+	path string
+	lock *os.File
 }
 
-func removePIDFile(path string) {
-	if strings.TrimSpace(path) == "" {
-		return
+func acquirePIDFile() (*pidFileLock, error) {
+	path := pidfilePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	lockPath := path + ".lock"
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
-		return
+		return nil, err
 	}
-	if strings.TrimSpace(string(data)) != strconv.Itoa(os.Getpid()) {
-		return
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = lock.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
+			return nil, fmt.Errorf("beacon pidfile is locked by another process")
+		}
+		return nil, err
 	}
-	_ = os.Remove(path)
+	if existing := readPidFromFile(); existing > 0 && existing != os.Getpid() {
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		_ = lock.Close()
+		return nil, fmt.Errorf("beacon process already running with pid %d", existing)
+	}
+	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		_ = lock.Close()
+		return nil, err
+	}
+	return &pidFileLock{path: path, lock: lock}, nil
+}
+
+func (p *pidFileLock) Close() error {
+	if p == nil {
+		return nil
+	}
+	if strings.TrimSpace(p.path) != "" {
+		data, err := os.ReadFile(p.path)
+		if err == nil && strings.TrimSpace(string(data)) == strconv.Itoa(os.Getpid()) {
+			_ = os.Remove(p.path)
+		}
+	}
+	var err error
+	if p.lock != nil {
+		if flockErr := syscall.Flock(int(p.lock.Fd()), syscall.LOCK_UN); flockErr != nil {
+			err = flockErr
+		}
+		if closeErr := p.lock.Close(); err == nil {
+			err = closeErr
+		}
+		p.lock = nil
+	}
+	return err
 }
 
 type captureParserKey struct {

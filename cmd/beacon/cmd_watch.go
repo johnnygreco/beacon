@@ -82,11 +82,11 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
-	pidPath, err := writePIDFile()
+	pidFile, err := acquirePIDFile()
 	if err != nil {
-		logger.Warn("failed to write pidfile", "path", pidPath, "error", err)
+		return fmt.Errorf("acquire beacon pidfile: %w", err)
 	} else {
-		defer removePIDFile(pidPath)
+		defer pidFile.Close()
 	}
 
 	bg := newBackgroundGroup(ctx, cancel, logger)

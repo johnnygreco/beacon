@@ -97,7 +97,7 @@ func TestReadPidReturnsLivePID(t *testing.T) {
 	}
 }
 
-func TestWritePIDFileRejectsOtherLivePID(t *testing.T) {
+func TestAcquirePIDFileRejectsOtherLivePID(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	proc := exec.Command("sleep", "5")
@@ -116,12 +116,39 @@ func TestWritePIDFileRejectsOtherLivePID(t *testing.T) {
 		t.Fatalf("write pidfile: %v", err)
 	}
 
-	if _, err := writePIDFile(); err == nil || !strings.Contains(err.Error(), "already running") {
-		t.Fatalf("writePIDFile error = %v, want already-running rejection", err)
+	if _, err := acquirePIDFile(); err == nil || !strings.Contains(err.Error(), "already running") {
+		t.Fatalf("acquirePIDFile error = %v, want already-running rejection", err)
 	}
 }
 
-func TestRemovePIDFileKeepsForeignPIDFile(t *testing.T) {
+func TestAcquirePIDFileRejectsConcurrentStart(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	first, err := acquirePIDFile()
+	if err != nil {
+		t.Fatalf("first acquirePIDFile: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := first.Close(); err != nil {
+			t.Fatalf("close first pidfile: %v", err)
+		}
+	})
+
+	second, err := acquirePIDFile()
+	if err == nil {
+		t.Cleanup(func() {
+			if err := second.Close(); err != nil {
+				t.Fatalf("close second pidfile: %v", err)
+			}
+		})
+		t.Fatal("second acquirePIDFile succeeded, want lock rejection")
+	}
+	if !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("second acquirePIDFile error = %v, want lock rejection", err)
+	}
+}
+
+func TestPIDFileCloseKeepsForeignPIDFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	path := pidfilePath()
@@ -132,7 +159,9 @@ func TestRemovePIDFileKeepsForeignPIDFile(t *testing.T) {
 		t.Fatalf("write pidfile: %v", err)
 	}
 
-	removePIDFile(path)
+	if err := (&pidFileLock{path: path}).Close(); err != nil {
+		t.Fatalf("close pidfile lock: %v", err)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read pidfile after foreign remove: %v", err)
