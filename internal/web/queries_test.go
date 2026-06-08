@@ -50,6 +50,36 @@ func TestCompletedSessionSearchClause(t *testing.T) {
 	}
 }
 
+func TestAPIScopeEventProjectKeyDerivesFromCWD(t *testing.T) {
+	clause, args := APIScopeFilters{ProjectKeys: []string{"beacon"}}.eventSQLAndClause("ae", "")
+	if strings.Contains(clause, "ae.project_key") {
+		t.Fatalf("event project scope should not reference raw event project_key: %s", clause)
+	}
+	for _, want := range []string{"ae.cwd", "replaceRegexpOne", "IN (?)"} {
+		if !strings.Contains(clause, want) {
+			t.Fatalf("event project scope missing %q: %s", want, clause)
+		}
+	}
+	if fmt.Sprint(args) != "[beacon]" {
+		t.Fatalf("scope args = %#v, want [beacon]", args)
+	}
+}
+
+func TestAPIScopeEventAndSessionProjectKeyUsesSingleProjectFallback(t *testing.T) {
+	clause, args := APIScopeFilters{ProjectKeys: []string{"beacon"}}.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
+	for _, want := range []string{"COALESCE(NULLIF(if(e.cwd", "COALESCE(s.project_count, 0) <= 1", "NULLIF(s.project_key, '')", "IN (?)"} {
+		if !strings.Contains(clause, want) {
+			t.Fatalf("event/session project scope missing %q: %s", want, clause)
+		}
+	}
+	if strings.Index(clause, "if(e.cwd") > strings.Index(clause, "s.project_key") {
+		t.Fatalf("event cwd project must be preferred before session fallback: %s", clause)
+	}
+	if fmt.Sprint(args) != "[beacon]" {
+		t.Fatalf("scope args = %#v, want [beacon]", args)
+	}
+}
+
 func TestCompletedSessionSearchClause_MetadataOnly(t *testing.T) {
 	clause, args := completedSessionSearchClause("metadata", nil)
 	if strings.Contains(clause, "session_id IN") {
@@ -106,11 +136,64 @@ func TestSQLHelperSubqueries(t *testing.T) {
 	if !strings.Contains(recent, fmt.Sprintf("LIMIT %d", recentActivityCandidates)) {
 		t.Fatalf("recent activity subquery missing candidate limit: %s", recent)
 	}
+	for _, fragment := range []string{
+		"FROM activity_events\n\t\t\tWHERE event_uid IN",
+		"SELECT DISTINCT ae.event_uid",
+		"AS ae WHERE ae.event_kind IN ('message')",
+		"GROUP BY event_uid",
+		"AS ae  WHERE ae.event_kind IN ('message')",
+	} {
+		if !strings.Contains(recent, fragment) {
+			t.Fatalf("recent activity subquery missing latest-row filter fragment %q: %s", fragment, recent)
+		}
+	}
 	if !strings.Contains(sessionProjectionSubquery("session_id = ?"), "FROM session_projection FINAL WHERE session_id = ?") {
 		t.Fatalf("session projection subquery did not apply where clause")
 	}
-	if !strings.Contains(analyticsProjectionSubquery("session_id = ?"), "FROM analytics_projection FINAL WHERE session_id = ?") {
+	analytics := analyticsProjectionSubquery("session_id = ?")
+	for _, fragment := range []string{
+		"FROM analytics_projection FINAL",
+		") AS ap",
+		"argMax(refresh_id, updated_at) AS refresh_id",
+		"latest.session_id = ap.session_id AND latest.refresh_id = ap.refresh_id",
+		"WHERE session_id = ?",
+	} {
+		if !strings.Contains(analytics, fragment) {
+			t.Fatalf("analytics projection subquery missing %q: %s", fragment, analytics)
+		}
+	}
+}
+
+func TestSessionProjectionSubqueryForProjectScopeUsesScopedEventAggregates(t *testing.T) {
+	subquery, args := sessionProjectionSubqueryForScope("session_id = ?", APIScopeFilters{ProjectKeys: []string{"beacon"}})
+	if fmt.Sprint(args) != "[beacon]" {
+		t.Fatalf("scoped session projection args = %#v, want project key", args)
+	}
+	for _, fragment := range []string{
+		"WITH scoped_activity AS",
+		latestActivityEventsSubquery("ae.session_id != ''"),
+		"INNER JOIN scoped_activity AS sa ON sa.session_id = sp.session_id",
+		"sa.total_tokens",
+		"COALESCE(NULLIF(sa.scoped_working_dir, ''), sp.working_dir) AS working_dir",
+		"WHERE session_id = ?",
+	} {
+		if !strings.Contains(subquery, fragment) {
+			t.Fatalf("scoped session projection missing %q: %s", fragment, subquery)
+		}
+	}
+	if strings.Contains(subquery, "sp.project_key IN (?)") {
+		t.Fatalf("project scope should be applied through scoped events, not only session projection: %s", subquery)
+	}
+}
+
+func TestAnalyticsProjectionSubqueryAppliesWhereAfterLatestRefresh(t *testing.T) {
+	analytics := analyticsProjectionSubquery("session_id = ?")
+	if !strings.Contains(analytics, "FROM analytics_projection FINAL") || !strings.Contains(analytics, ") AS ap") || !strings.Contains(analytics, "WHERE session_id = ?") {
 		t.Fatalf("analytics projection subquery did not apply where clause")
+	}
+	filtered := analyticsProjectionSubqueryWithLatestWhere("session_id = ?", "session_id = ?")
+	if strings.Count(filtered, "session_id = ?") != 3 {
+		t.Fatalf("filtered analytics projection should constrain ap, latest, and outer scopes: %s", filtered)
 	}
 }
 
@@ -153,6 +236,17 @@ func TestReopenedSessionPredicatesUseActivityAfterLatestEnd(t *testing.T) {
 	}
 	if got := strings.Count(completed, "?"); got != 2 {
 		t.Fatalf("completed predicate placeholders = %d, want idle cutoff plus reopened cutoff: %s", got, completed)
+	}
+
+	projectScope := APIScopeFilters{ProjectKeys: []string{"beacon"}}
+	if got := strings.Count(activeSessionPredicateScoped(projectScope), "?"); got != 1 {
+		t.Fatalf("project-scoped active predicate placeholders = %d, want one cutoff", got)
+	}
+	if got := strings.Count(completedSessionPredicateScoped(projectScope), "?"); got != 1 {
+		t.Fatalf("project-scoped completed predicate placeholders = %d, want one cutoff", got)
+	}
+	if !strings.Contains(sessionSummaryColumnsWithReopenedFlagScoped(projectScope), ", 0") {
+		t.Fatalf("project-scoped summaries should not use global reopened predicate")
 	}
 }
 
@@ -764,7 +858,15 @@ func TestScanSessionSummaryIncludesErrorCount(t *testing.T) {
 	end := now.Add(-6 * time.Minute)
 	scanner := stubScanner{values: []any{
 		"session-1",
+		"node-1",
+		"collector-1",
+		"source-1",
 		"codex",
+		"codex",
+		"openai",
+		"sqlite",
+		"beacon",
+		"/repo",
 		start,
 		end,
 		int64(3),
@@ -780,7 +882,14 @@ func TestScanSessionSummaryIncludesErrorCount(t *testing.T) {
 		"/repo",
 		"parent-1",
 		1,
-		"openai",
+		"completed",
+		float64(0.42),
+		int64(1),
+		"event_cost_usd",
+		int64(150),
+		[]string{"errors"},
+		"",
+		time.Time{},
 	}}
 
 	s, err := scanSessionSummary(scanner, now)
@@ -793,6 +902,12 @@ func TestScanSessionSummaryIncludesErrorCount(t *testing.T) {
 	if s.ActiveModel != "gpt-5.4" || s.Provider != "openai" || !s.HasSessionEnd {
 		t.Fatalf("summary fields shifted during scan: %#v", s)
 	}
+	if s.NodeID != "node-1" || s.CollectorID != "collector-1" || s.ProjectKey != "beacon" {
+		t.Fatalf("fleet fields shifted during scan: %#v", s)
+	}
+	if s.TotalCostUSD != 0.42 || s.CostProvenance != "event_cost_usd" || s.AttentionScore != 150 {
+		t.Fatalf("cost/attention fields shifted during scan: %#v", s)
+	}
 }
 
 func TestScanSessionSummaryIncludingReopenedClearsTerminalEnd(t *testing.T) {
@@ -801,7 +916,15 @@ func TestScanSessionSummaryIncludingReopenedClearsTerminalEnd(t *testing.T) {
 	end := now.Add(-30 * time.Second)
 	scanner := stubScanner{values: []any{
 		"session-reopened",
+		"node-1",
+		"collector-1",
+		"source-1",
 		"codex",
+		"codex",
+		"openai",
+		"sqlite",
+		"beacon",
+		"/repo",
 		start,
 		end,
 		int64(3),
@@ -817,7 +940,14 @@ func TestScanSessionSummaryIncludingReopenedClearsTerminalEnd(t *testing.T) {
 		"/repo",
 		"",
 		1,
-		"openai",
+		"completed",
+		float64(0),
+		int64(0),
+		"none",
+		int64(0),
+		[]string{},
+		"",
+		time.Time{},
 		1,
 	}}
 
@@ -831,6 +961,9 @@ func TestScanSessionSummaryIncludingReopenedClearsTerminalEnd(t *testing.T) {
 	if s.Status != "active" {
 		t.Fatalf("Status = %q, want active", s.Status)
 	}
+	if s.CompletionState != "active" {
+		t.Fatalf("CompletionState = %q, want active", s.CompletionState)
+	}
 }
 
 func TestAPISessionSummaryFromViewIncludesErrorCount(t *testing.T) {
@@ -842,6 +975,28 @@ func TestAPISessionSummaryFromViewIncludesErrorCount(t *testing.T) {
 	})
 	if api.ErrorCount != 2 {
 		t.Fatalf("ErrorCount = %d, want 2", api.ErrorCount)
+	}
+}
+
+func TestAPISessionSummaryFromViewOnlyEmitsArchivedAtForArchivedSessions(t *testing.T) {
+	sentinel := time.Unix(0, 0).UTC()
+	completed := apiSessionSummaryFromView(views.SessionSummary{
+		ID:         "completed-session",
+		Status:     "completed",
+		ArchivedAt: sentinel,
+	})
+	if completed.ArchivedAt != nil {
+		t.Fatalf("completed ArchivedAt = %v, want omitted", completed.ArchivedAt)
+	}
+
+	archivedTime := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	archived := apiSessionSummaryFromView(views.SessionSummary{
+		ID:         "archived-session",
+		Status:     "archived",
+		ArchivedAt: archivedTime,
+	})
+	if archived.ArchivedAt == nil || !archived.ArchivedAt.Equal(archivedTime) {
+		t.Fatalf("archived ArchivedAt = %v, want %v", archived.ArchivedAt, archivedTime)
 	}
 }
 
@@ -885,6 +1040,23 @@ func (s stubScanner) Scan(dest ...any) error {
 			default:
 				return fmt.Errorf("value %d is %T, want int64", i, value)
 			}
+		case *float64:
+			switch v := value.(type) {
+			case float64:
+				*d = v
+			case int:
+				*d = float64(v)
+			case int64:
+				*d = float64(v)
+			default:
+				return fmt.Errorf("value %d is %T, want float64", i, value)
+			}
+		case *[]string:
+			v, ok := value.([]string)
+			if !ok {
+				return fmt.Errorf("value %d is %T, want []string", i, value)
+			}
+			*d = v
 		default:
 			return fmt.Errorf("unsupported destination %d: %T", i, dest[i])
 		}
@@ -894,8 +1066,9 @@ func (s stubScanner) Scan(dest ...any) error {
 
 func TestSetSessionTiming_Completed(t *testing.T) {
 	var s views.SessionSummary
+	s.HasSessionEnd = true
 	start := time.Now().Add(-20 * time.Minute)
-	end := time.Now().Add(-10 * time.Minute) // ended 10 min ago — completed
+	end := time.Now().Add(-10 * time.Minute) // explicit end signal 10 min ago
 
 	setSessionTiming(&s, start, end, time.Now())
 
@@ -928,13 +1101,16 @@ func TestSetSessionTiming_RecentlyActive(t *testing.T) {
 		t.Errorf("expected status 'idle' at 2 minutes, got '%s'", s2.Status)
 	}
 
-	// Past idle threshold — completed
+	// Past idle threshold without an end signal — archived
 	var s3 views.SessionSummary
 	end3 := time.Now().Add(-5*time.Minute - 1*time.Second)
 	setSessionTiming(&s3, start, end3, time.Now())
 
-	if s3.Status != "completed" {
-		t.Errorf("expected status 'completed' past 5 minutes, got '%s'", s3.Status)
+	if s3.Status != "archived" {
+		t.Errorf("expected status 'archived' past 5 minutes, got '%s'", s3.Status)
+	}
+	if s3.ArchiveReason != "idle_timeout" || s3.ArchivedAt.IsZero() {
+		t.Errorf("expected archive metadata, got reason=%q archived_at=%v", s3.ArchiveReason, s3.ArchivedAt)
 	}
 }
 

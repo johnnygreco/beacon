@@ -68,7 +68,7 @@ function fakeElement(initialClasses = []) {
   };
 }
 
-function loadInspectorSandbox(transcriptHTML = '<div id="chat-view" class="transcript-chat-view"><p>Loaded transcript</p></div>') {
+function loadInspectorSandbox(transcriptHTML = '<div id="chat-view" class="transcript-chat-view"><p>Loaded transcript</p></div>', options = {}) {
   const closeButton = fakeElement();
   const elements = {
     "session-inspector": fakeElement(["hidden"]),
@@ -122,7 +122,7 @@ function loadInspectorSandbox(transcriptHTML = '<div id="chat-view" class="trans
     },
     fetch: async (url) => {
       fetches.push(String(url));
-      if (url === "/sessions/session-xss/conversation") {
+      if (url === (options.transcriptURL || "/sessions/session-xss/conversation")) {
         return { ok: true, text: async () => transcriptHTML };
       }
       throw new Error(`unexpected fetch ${url}`);
@@ -155,6 +155,30 @@ test("inspector loads transcript conversation partial", async () => {
   const html = elements["inspector-events"].innerHTML;
   assert.equal(html, transcriptHTML);
   assert.deepEqual(fetches, ["/sessions/session-xss/conversation"]);
+});
+
+test("inspector preserves dashboard scope when loading transcript partial", async () => {
+  const previousLocation = global.location;
+  global.location = { search: "?project_key=beacon&source_id=remote" };
+  try {
+    const transcriptHTML = '<div id="chat-view" class="transcript-chat-view"><p>Scoped transcript</p></div>';
+    const { sandbox, elements, fetches } = loadInspectorSandbox(transcriptHTML, {
+      transcriptURL: "/sessions/session-xss/conversation?source_id=remote&project_key=beacon",
+    });
+
+    sandbox.window.goToSession("/sessions/session-xss", null);
+    await flushPromises();
+
+    assert.equal(elements["inspector-events"].innerHTML, transcriptHTML);
+    assert.equal(elements["inspector-full-link"].href, "/sessions/session-xss?source_id=remote&project_key=beacon");
+    assert.deepEqual(fetches, ["/sessions/session-xss/conversation?source_id=remote&project_key=beacon"]);
+  } finally {
+    if (previousLocation === undefined) {
+      delete global.location;
+    } else {
+      global.location = previousLocation;
+    }
+  }
 });
 
 test("outside inspector click closes quick view without swallowing dashboard click", async () => {

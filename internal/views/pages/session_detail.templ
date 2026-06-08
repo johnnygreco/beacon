@@ -7,6 +7,13 @@ import (
 	"github.com/johnnygreco/beacon/internal/views/components"
 )
 
+func scopedSessionPath(path, query string) string {
+	if strings.TrimSpace(query) == "" {
+		return path
+	}
+	return path + "?" + query
+}
+
 templ SessionDetail(data views.SessionDetailData) {
 	@views.Layout("Session " + data.Session.ID) {
 		<script>document.body.setAttribute('data-page', 'transcript');</script>
@@ -16,7 +23,7 @@ templ SessionDetail(data views.SessionDetailData) {
 				<div class="flex flex-wrap items-start justify-between gap-4">
 					<div class="min-w-0 flex-1">
 						<div class="transcript-breadcrumb">
-							<a href="/" class="transcript-back-link">
+							<a href={ templ.SafeURL(scopedSessionPath("/", data.ScopeQuery)) } class="transcript-back-link">
 								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
 								</svg>
@@ -35,7 +42,7 @@ templ SessionDetail(data views.SessionDetailData) {
 							}
 						</div>
 						if data.Session.IsSubagent() {
-							<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", data.Session.ParentSessionID)) }
+							<a href={ templ.SafeURL(scopedSessionPath(fmt.Sprintf("/sessions/%s", data.Session.ParentSessionID), data.ScopeQuery)) }
 							   class="text-sm text-blue-400/70 hover:text-blue-300 transition-colors mt-1 inline-flex items-center gap-1">
 								<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16l-4-4m0 0l4-4m-4 4h18"></path>
@@ -172,7 +179,7 @@ templ SessionDetail(data views.SessionDetailData) {
 					</div>
 				</div>
 				<div id="conversation-container"
-					 hx-get={ fmt.Sprintf("/sessions/%s/conversation", data.Session.ID) }
+					 hx-get={ scopedSessionPath(fmt.Sprintf("/sessions/%s/conversation", data.Session.ID), data.ScopeQuery) }
 					 hx-trigger="load, sse:conversation-update"
 					 hx-swap="innerHTML">
 					<div class="flex items-center justify-center py-12 text-gray-500">

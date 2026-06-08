@@ -24,7 +24,22 @@
       "subagent_count": "integer"
     },
     "optional": {
+      "node_id": "string",
+      "collector_id": "string",
+      "source_id": "string",
+      "runtime": "string",
+      "format": "string",
+      "project_key": "string",
+      "project_path": "string",
       "parent_session_id": "string",
+      "completion_state": "string",
+      "total_cost_usd": "number",
+      "cost_event_count": "integer",
+      "cost_provenance": "string",
+      "attention_score": "integer",
+      "attention_reasons": "string[]",
+      "archive_reason": "string",
+      "archived_at": "string",
       "child_sessions": "APISessionSummary[]"
     }
   },
@@ -34,6 +49,7 @@
       "range": "string",
       "offset": "integer",
       "limit": "integer",
+      "scope": "APIScopeMetadata",
       "has_more": "boolean",
       "items": "APISessionSummary[]"
     },
@@ -52,6 +68,13 @@
     },
     "optional": {
       "result_type": "string",
+      "node_id": "string",
+      "collector_id": "string",
+      "source_id": "string",
+      "source_name": "string",
+      "runtime": "string",
+      "project_key": "string",
+      "project_path": "string",
       "tool_name": "string",
       "provider": "string",
       "model": "string",
@@ -65,6 +88,7 @@
       "state": "string",
       "sort": "string",
       "limit": "integer",
+      "scope": "APIScopeMetadata",
       "has_more": "boolean",
       "items": "APIDashboardSearchResult[]"
     },
@@ -73,6 +97,24 @@
       "range": "string",
       "event_kind": "string",
       "session_id": "string"
+    }
+  },
+  "APIScopeMetadata": {
+    "required": {
+      "auth_scope_applied": "boolean",
+      "filters": "APIScopeFilters"
+    },
+    "optional": {}
+  },
+  "APIScopeFilters": {
+    "required": {},
+    "optional": {
+      "node_ids": "string[]",
+      "collector_ids": "string[]",
+      "source_ids": "string[]",
+      "source_names": "string[]",
+      "runtimes": "string[]",
+      "project_keys": "string[]"
     }
   },
   "APIActivityItem": {
@@ -85,11 +127,18 @@
       "timestamp": "string",
       "relative_time": "string"
     },
-    "optional": {}
+    "optional": {
+      "node_id": "string",
+      "collector_id": "string",
+      "source_id": "string",
+      "source_name": "string",
+      "runtime": "string"
+    }
   },
   "APIDashboardCharts": {
     "required": {
       "range": "string",
+      "scope": "APIScopeMetadata",
       "token_cumulative": "ModelSeriesChart",
       "model_activity": "ModelMetricChart"
     },

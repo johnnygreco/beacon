@@ -25,11 +25,27 @@
       if (transcriptPath) {
         var transcriptURL = new URL(transcriptPath, window.location.origin);
         if (transcriptURL.origin !== window.location.origin || transcriptURL.pathname !== window.location.pathname) return '';
+        if (normalizedSearch(transcriptURL.search) !== normalizedSearch(window.location.search || '')) return '';
       }
       return dashboardURL.pathname + dashboardURL.search;
     } catch (err) {
       return '';
     }
+  }
+
+  function normalizedSearch(search) {
+    var params = new URLSearchParams(search || '');
+    var pairs = [];
+    params.forEach(function(value, key) {
+      pairs.push([key, value]);
+    });
+    pairs.sort(function(a, b) {
+      if (a[0] === b[0]) return a[1] < b[1] ? -1 : (a[1] > b[1] ? 1 : 0);
+      return a[0] < b[0] ? -1 : 1;
+    });
+    return pairs.map(function(pair) {
+      return encodeURIComponent(pair[0]) + '=' + encodeURIComponent(pair[1]);
+    }).join('&');
   }
 
   function initDashboardReturnLinks() {

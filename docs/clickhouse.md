@@ -28,9 +28,9 @@ fail with reset guidance before ingest starts.
 Migrations are intentionally simple: they create the current schema and record
 the supported schema version. Beacon does not mix old local identity layouts
 with the current fleet-aware identity schema; reset and reimport when changing
-between incompatible schema versions. The schema-5 advance adds durable ingest
-batch receipts, fleet/batch-aware capture errors, collector/source heartbeat
-samples, and checkpoint state keyed by collector, source, source name, and file.
+between incompatible schema versions. The schema-6 advance preserves raw capture
+tables, drops only derived projection/search tables, and rebuilds them with
+fleet, source, runtime, and project fields from captured events.
 
 ## Schema ownership
 
@@ -127,32 +127,40 @@ local capture health can write the same table when that path is wired.
 
 ### `session_projection`
 
-Purpose: application-maintained session summary: start/end time, event and turn
-counts, token totals, tool and error counts, latest model, working directory,
-parent session, and completion marker.
+Purpose: application-maintained session summary: fleet/source identity, runtime,
+provider, format, project key/path, start/end time, event and turn counts, token
+totals, cost, attention/archive metadata, tool and error counts, latest model,
+working directory, parent session, and completion marker.
 
 Owner: `Store.RefreshSessionProjections`, called after event ingest.
 
 ### `analytics_projection`
 
-Purpose: application-maintained minute-level rollup by session, provider, model,
-tool, and event kind. Used by dashboard token and activity charts.
+Purpose: application-maintained minute-level rollup by fleet/source identity,
+runtime, format, project key/path, session, provider, model, tool, and event
+kind. Used by dashboard token, model, and activity charts.
 
 Owner: `Store.RefreshAnalyticsProjections`, called after event ingest.
 
 ### `search_documents`
 
-Purpose: one searchable document per indexed event, including searchable text,
-preview, event metadata, and document length.
+Purpose: one searchable document per indexed event, including fleet/source
+identity, runtime, project key/path, searchable text, preview, event metadata,
+and document length.
 
-Owner: ingest-time search row builder in `Store.Flush`.
+Owner: `Store.RefreshSearchIndexForEvents` for ordinary ingest,
+`Store.RefreshSearchIndexForSessions` when project metadata changes, and
+`Store.RefreshSearchIndex` for full rebuilds.
 
 ### `search_postings`
 
 Purpose: token postings for Beacon's built-in BM25-style search: token, event
-id, term frequency, document length, preview, and metadata.
+id, fleet/source identity, runtime, project key/path, term frequency, document
+length, preview, and metadata.
 
-Owner: ingest-time search row builder in `Store.Flush`.
+Owner: `Store.RefreshSearchIndexForEvents` for ordinary ingest,
+`Store.RefreshSearchIndexForSessions` when project metadata changes, and
+`Store.RefreshSearchIndex` for full rebuilds.
 
 ### `search_query_log`
 
@@ -175,17 +183,27 @@ views. They are Beacon-owned tables that the application refreshes after ingest.
 On each flush with activity events, Beacon:
 
 1. inserts the raw normalized rows;
-2. builds search documents and postings for those events;
-3. refreshes `session_projection` for the affected session ids;
-4. refreshes `analytics_projection` for the affected session ids.
+2. refreshes `session_projection` for the affected session ids;
+3. refreshes `analytics_projection` for the affected session ids with a new
+   refresh id, so reads can ignore older rollup generations without synchronous
+   ClickHouse delete mutations;
+4. refreshes search documents and postings for changed events from the latest
+   deduplicated event stream. If the flush changes session project metadata,
+   Beacon refreshes search rows for the affected session ids so project-scoped
+   search keeps its session-level working-directory fallback.
 
 On startup, Beacon repairs stale or missing projection rows and refreshes the
 derived search index when existing search documents were built by an older index
-format or are missing rows for captured events.
+format or are missing rows for captured events. Schema-6 migrations intentionally
+drop only `session_projection`, `analytics_projection`, `search_documents`, and
+`search_postings`; raw records, normalized events, links, payloads, checkpoints,
+capture errors, heartbeats, ingest receipts, and query logs remain intact.
 
 Because the projection tables are derived from `activity_events`, they can be
 dropped and rebuilt from captured source files by resetting the database and
-letting Beacon backfill. They should not be edited by hand.
+letting Beacon backfill. To rebuild derived rows without dropping raw capture
+tables, run `beacon db refresh-projections` or restart `beacon up` and let the
+startup repair pass refresh stale rows. They should not be edited by hand.
 
 ## Store integration tests
 

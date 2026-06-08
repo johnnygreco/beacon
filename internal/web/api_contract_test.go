@@ -24,6 +24,8 @@ func TestAPIContractsMatchGoStructTags(t *testing.T) {
 		"APIDashboardSessionsResponse": reflect.TypeOf(APIDashboardSessionsResponse{}),
 		"APIDashboardSearchResult":     reflect.TypeOf(APIDashboardSearchResult{}),
 		"APIDashboardSearchResponse":   reflect.TypeOf(APIDashboardSearchResponse{}),
+		"APIScopeMetadata":             reflect.TypeOf(APIScopeMetadata{}),
+		"APIScopeFilters":              reflect.TypeOf(APIScopeFilters{}),
 		"APIActivityItem":              reflect.TypeOf(APIActivityItem{}),
 		"APIDashboardCharts":           reflect.TypeOf(APIDashboardCharts{}),
 		"ModelSeriesChart":             reflect.TypeOf(views.ModelSeriesChart{}),
@@ -158,6 +160,8 @@ func jsonContractType(t *testing.T, typ reflect.Type) string {
 		return "integer"
 	case reflect.Float32, reflect.Float64:
 		return "number"
+	case reflect.Pointer:
+		return jsonContractType(t, typ.Elem())
 	case reflect.Slice, reflect.Array:
 		return jsonContractType(t, typ.Elem()) + "[]"
 	case reflect.Map:

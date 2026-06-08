@@ -205,6 +205,14 @@ type CaptureHeartbeat struct {
 type SearchDocument struct {
 	EventUID       string    `json:"event_uid"`
 	SessionID      string    `json:"session_id"`
+	NodeID         string    `json:"node_id,omitempty"`
+	CollectorID    string    `json:"collector_id,omitempty"`
+	SourceID       string    `json:"source_id,omitempty"`
+	SourceName     string    `json:"source_name,omitempty"`
+	Runtime        string    `json:"runtime,omitempty"`
+	Format         string    `json:"format,omitempty"`
+	ProjectKey     string    `json:"project_key,omitempty"`
+	ProjectPath    string    `json:"project_path,omitempty"`
 	EventKind      string    `json:"event_kind"`
 	Timestamp      time.Time `json:"timestamp"`
 	TextPreview    string    `json:"text_preview"`
@@ -220,6 +228,14 @@ type SearchPosting struct {
 	Token          string    `json:"token"`
 	EventUID       string    `json:"event_uid"`
 	SessionID      string    `json:"session_id"`
+	NodeID         string    `json:"node_id,omitempty"`
+	CollectorID    string    `json:"collector_id,omitempty"`
+	SourceID       string    `json:"source_id,omitempty"`
+	SourceName     string    `json:"source_name,omitempty"`
+	Runtime        string    `json:"runtime,omitempty"`
+	Format         string    `json:"format,omitempty"`
+	ProjectKey     string    `json:"project_key,omitempty"`
+	ProjectPath    string    `json:"project_path,omitempty"`
 	EventKind      string    `json:"event_kind"`
 	Timestamp      time.Time `json:"timestamp"`
 	TermFrequency  int       `json:"term_frequency"`

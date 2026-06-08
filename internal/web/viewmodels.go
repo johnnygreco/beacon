@@ -45,6 +45,13 @@ type APISessionSummary struct {
 	ID                string              `json:"id"`
 	Title             string              `json:"title"`
 	Source            string              `json:"source"`
+	NodeID            string              `json:"node_id,omitempty"`
+	CollectorID       string              `json:"collector_id,omitempty"`
+	SourceID          string              `json:"source_id,omitempty"`
+	Runtime           string              `json:"runtime,omitempty"`
+	Format            string              `json:"format,omitempty"`
+	ProjectKey        string              `json:"project_key,omitempty"`
+	ProjectPath       string              `json:"project_path,omitempty"`
 	Provider          string              `json:"provider"`
 	Status            string              `json:"status"`
 	StartedAt         time.Time           `json:"started_at"`
@@ -63,6 +70,14 @@ type APISessionSummary struct {
 	WorkingDir        string              `json:"working_dir"`
 	ParentSessionID   string              `json:"parent_session_id,omitempty"`
 	HasSessionEnd     bool                `json:"has_session_end"`
+	CompletionState   string              `json:"completion_state,omitempty"`
+	TotalCostUSD      float64             `json:"total_cost_usd,omitempty"`
+	CostEventCount    int64               `json:"cost_event_count,omitempty"`
+	CostProvenance    string              `json:"cost_provenance,omitempty"`
+	AttentionScore    int                 `json:"attention_score,omitempty"`
+	AttentionReasons  []string            `json:"attention_reasons,omitempty"`
+	ArchiveReason     string              `json:"archive_reason,omitempty"`
+	ArchivedAt        *time.Time          `json:"archived_at,omitempty"`
 	SubagentCount     int                 `json:"subagent_count"`
 	ChildSessions     []APISessionSummary `json:"child_sessions,omitempty"`
 }
@@ -73,6 +88,7 @@ type APIDashboardSessionsResponse struct {
 	Query   string              `json:"query,omitempty"`
 	Offset  int                 `json:"offset"`
 	Limit   int                 `json:"limit"`
+	Scope   APIScopeMetadata    `json:"scope"`
 	HasMore bool                `json:"has_more"`
 	Items   []APISessionSummary `json:"items"`
 }
@@ -85,6 +101,7 @@ type APIDashboardSearchResponse struct {
 	SessionID string                     `json:"session_id,omitempty"`
 	Sort      string                     `json:"sort"`
 	Limit     int                        `json:"limit"`
+	Scope     APIScopeMetadata           `json:"scope"`
 	HasMore   bool                       `json:"has_more"`
 	Items     []APIDashboardSearchResult `json:"items"`
 }
@@ -93,6 +110,13 @@ type APIDashboardSearchResult struct {
 	ResultType   string    `json:"result_type,omitempty"`
 	EventUID     string    `json:"event_uid"`
 	SessionID    string    `json:"session_id"`
+	NodeID       string    `json:"node_id,omitempty"`
+	CollectorID  string    `json:"collector_id,omitempty"`
+	SourceID     string    `json:"source_id,omitempty"`
+	SourceName   string    `json:"source_name,omitempty"`
+	Runtime      string    `json:"runtime,omitempty"`
+	ProjectKey   string    `json:"project_key,omitempty"`
+	ProjectPath  string    `json:"project_path,omitempty"`
 	EventKind    string    `json:"event_kind"`
 	Snippet      string    `json:"snippet"`
 	ToolName     string    `json:"tool_name,omitempty"`
@@ -110,6 +134,11 @@ type APIActivityItem struct {
 	Type         string    `json:"type"`
 	Summary      string    `json:"summary"`
 	SessionID    string    `json:"session_id"`
+	NodeID       string    `json:"node_id,omitempty"`
+	CollectorID  string    `json:"collector_id,omitempty"`
+	SourceID     string    `json:"source_id,omitempty"`
+	SourceName   string    `json:"source_name,omitempty"`
+	Runtime      string    `json:"runtime,omitempty"`
 	Provider     string    `json:"provider"`
 	Timestamp    time.Time `json:"timestamp"`
 	RelativeTime string    `json:"relative_time"`
@@ -117,6 +146,7 @@ type APIActivityItem struct {
 
 type APIDashboardCharts struct {
 	Range           string                 `json:"range"`
+	Scope           APIScopeMetadata       `json:"scope"`
 	TokenCumulative views.ModelSeriesChart `json:"token_cumulative"`
 	ModelActivity   views.ModelMetricChart `json:"model_activity"`
 }

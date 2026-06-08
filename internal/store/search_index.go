@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 
@@ -27,10 +28,19 @@ func buildSearchRows(events []models.Event, payloads []models.ToolPayload) ([]mo
 		if len(tokens) == 0 {
 			continue
 		}
+		projectPath, projectKey := searchProject(event.CWD)
 		preview := searchPreview(event, payloadByEvent[event.EventUID])
 		doc := models.SearchDocument{
 			EventUID:       event.EventUID,
 			SessionID:      event.SessionID,
+			NodeID:         event.NodeID,
+			CollectorID:    event.CollectorID,
+			SourceID:       event.SourceID,
+			SourceName:     event.SourceName,
+			Runtime:        event.Runtime,
+			Format:         event.Format,
+			ProjectKey:     projectKey,
+			ProjectPath:    projectPath,
 			EventKind:      event.EventKind,
 			Timestamp:      event.Timestamp,
 			TextPreview:    preview,
@@ -47,6 +57,14 @@ func buildSearchRows(events []models.Event, payloads []models.ToolPayload) ([]mo
 				Token:          token,
 				EventUID:       event.EventUID,
 				SessionID:      event.SessionID,
+				NodeID:         event.NodeID,
+				CollectorID:    event.CollectorID,
+				SourceID:       event.SourceID,
+				SourceName:     event.SourceName,
+				Runtime:        event.Runtime,
+				Format:         event.Format,
+				ProjectKey:     projectKey,
+				ProjectPath:    projectPath,
 				EventKind:      event.EventKind,
 				Timestamp:      event.Timestamp,
 				TermFrequency:  frequency,
@@ -60,6 +78,41 @@ func buildSearchRows(events []models.Event, payloads []models.ToolPayload) ([]mo
 		}
 	}
 	return docs, postings
+}
+
+func eventUIDs(events []models.Event) []string {
+	if len(events) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(events))
+	result := make([]string, 0, len(events))
+	for _, event := range events {
+		uid := strings.TrimSpace(event.EventUID)
+		if uid == "" {
+			continue
+		}
+		if _, ok := seen[uid]; ok {
+			continue
+		}
+		seen[uid] = struct{}{}
+		result = append(result, uid)
+	}
+	return result
+}
+
+func searchProject(cwd string) (string, string) {
+	projectPath := strings.TrimRight(strings.TrimSpace(cwd), "/")
+	if projectPath == "" {
+		return "", ""
+	}
+	if idx := strings.Index(projectPath, "/.claude/worktrees/"); idx >= 0 {
+		projectPath = strings.TrimRight(projectPath[:idx], "/")
+	}
+	key := path.Base(projectPath)
+	if key == "." || key == "/" {
+		key = ""
+	}
+	return projectPath, key
 }
 
 func searchPreview(event models.Event, payload models.ToolPayload) string {
@@ -166,31 +219,125 @@ func (s *Store) RefreshOutdatedSearchIndex(ctx context.Context) (int, bool, erro
 }
 
 func (s *Store) RefreshSearchIndex(ctx context.Context, batchSize int) (int, error) {
+	return s.refreshSearchIndex(ctx, batchSize, "ae.session_id != ''", nil, nil)
+}
+
+func (s *Store) RefreshSearchIndexForSessions(ctx context.Context, ids []string, batchSize int) (int, error) {
+	ids = uniqStrings(ids)
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	where := "ae.session_id != '' AND ae.session_id IN (" + placeholders(len(ids)) + ")"
+	args := make([]any, 0, len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	return s.refreshSearchIndex(ctx, batchSize, where, args, ids)
+}
+
+func (s *Store) RefreshSearchIndexForEvents(ctx context.Context, events []models.Event, batchSize int) (int, error) {
+	uids := eventUIDs(events)
+	if len(uids) == 0 {
+		return 0, nil
+	}
+	where := "ae.session_id != '' AND ae.event_uid IN (" + placeholders(len(uids)) + ")"
+	args := make([]any, 0, len(uids))
+	for _, uid := range uids {
+		args = append(args, uid)
+	}
+	return s.refreshSearchIndex(ctx, batchSize, where, args, sessionIDs(events))
+}
+
+func (s *Store) refreshSearchIndex(ctx context.Context, batchSize int, where string, args []any, projectSessionIDs []string) (int, error) {
 	if s == nil || s.DB == nil || s.native == nil {
 		return 0, nil
 	}
 	if batchSize <= 0 {
 		batchSize = defaultProjectionRefreshBatch
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT
-			event_uid,
-			argMax(session_id, captured_at),
-			argMax(provider, captured_at),
-			argMax(event_kind, captured_at),
-			argMax(payload_type, captured_at),
-			argMax(actor_role, captured_at),
-			argMax(timestamp, captured_at),
-			argMax(text_content, captured_at),
-			argMax(text_preview, captured_at),
-			argMax(tool_name, captured_at),
-			argMax(model, captured_at),
-			argMax(error_code, captured_at),
-			argMax(error_message, captured_at),
-			argMax(payload_json, captured_at)
-		FROM activity_events
-		WHERE session_id != ''
-		GROUP BY event_uid
-		ORDER BY argMax(session_id, captured_at), event_uid`)
+	sessionProjectsCTE := `SELECT
+				session_id,
+				if(project_count = 1, single_project_path, '') AS session_project_path
+			FROM (
+				SELECT
+					session_id,
+					uniqExactIf(project_key, project_key != '') AS project_count,
+					minIf(project_path, project_key != '') AS single_project_path
+				FROM (
+					SELECT
+						session_id,
+						cwd AS project_path,
+						` + projectKeySQL("cwd") + ` AS project_key
+					FROM latest_events
+				)
+				GROUP BY session_id
+			)`
+	if len(projectSessionIDs) > 0 {
+		projectArgs := make([]any, 0, len(projectSessionIDs))
+		for _, id := range projectSessionIDs {
+			projectArgs = append(projectArgs, id)
+		}
+		sessionProjectsCTE = `SELECT
+				session_id,
+				project_path AS session_project_path
+			FROM ` + sessionProjectFallbackSQL(placeholders(len(projectSessionIDs))) + ` AS fallback`
+		args = append(args, projectArgs...)
+	}
+	rows, err := s.DB.QueryContext(ctx, fmt.Sprintf(`WITH latest_events AS (
+			SELECT
+				event_uid,
+				argMax(session_id, captured_at) AS session_id,
+				argMax(node_id, captured_at) AS node_id,
+				argMax(collector_id, captured_at) AS collector_id,
+				argMax(source_id, captured_at) AS source_id,
+				argMax(source_name, captured_at) AS source_name,
+				argMax(runtime, captured_at) AS runtime,
+				argMax(format, captured_at) AS format,
+				argMax(provider, captured_at) AS provider,
+				argMax(event_kind, captured_at) AS event_kind,
+				argMax(payload_type, captured_at) AS payload_type,
+				argMax(actor_role, captured_at) AS actor_role,
+				argMax(timestamp, captured_at) AS timestamp,
+				argMax(text_content, captured_at) AS text_content,
+				argMax(text_preview, captured_at) AS text_preview,
+				argMax(tool_name, captured_at) AS tool_name,
+				argMax(model, captured_at) AS model,
+				argMax(error_code, captured_at) AS error_code,
+				argMax(error_message, captured_at) AS error_message,
+				argMax(payload_json, captured_at) AS payload_json,
+				argMax(cwd, captured_at) AS cwd
+			FROM activity_events AS ae
+			WHERE %s
+			GROUP BY event_uid
+		),
+		session_projects AS (
+			%s
+		)
+		SELECT
+			e.event_uid,
+			e.session_id,
+			e.node_id,
+			e.collector_id,
+			e.source_id,
+			e.source_name,
+			e.runtime,
+			e.format,
+			e.provider,
+			e.event_kind,
+			e.payload_type,
+			e.actor_role,
+			e.timestamp,
+			e.text_content,
+			e.text_preview,
+			e.tool_name,
+			e.model,
+			e.error_code,
+			e.error_message,
+			e.payload_json,
+			if(e.cwd != '', e.cwd, sp.session_project_path)
+		FROM latest_events AS e
+		LEFT JOIN session_projects AS sp ON sp.session_id = e.session_id
+		ORDER BY e.session_id, e.event_uid`, where, sessionProjectsCTE), args...)
 	if err != nil {
 		return 0, err
 	}
@@ -227,6 +374,12 @@ func (s *Store) RefreshSearchIndex(ctx context.Context, batchSize int) (int, err
 		if err := rows.Scan(
 			&event.EventUID,
 			&event.SessionID,
+			&event.NodeID,
+			&event.CollectorID,
+			&event.SourceID,
+			&event.SourceName,
+			&event.Runtime,
+			&event.Format,
 			&event.Provider,
 			&event.EventKind,
 			&event.PayloadType,
@@ -239,6 +392,7 @@ func (s *Store) RefreshSearchIndex(ctx context.Context, batchSize int) (int, err
 			&event.ErrorCode,
 			&event.ErrorMessage,
 			&event.PayloadJSON,
+			&event.CWD,
 		); err != nil {
 			return total, err
 		}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/search"
 )
 
 func setupLiveClickHouse(t *testing.T) *Store {
@@ -104,6 +106,521 @@ func TestClickHouseResetDropsRowsAndRecreatesTables(t *testing.T) {
 	if got := countRows("session_projection"); got != 1 {
 		t.Fatalf("session_projection after post-reset flush = %d, want 1", got)
 	}
+}
+
+func TestAnalyticsProjectionProjectFallbackReplacesChangedRows(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	sessionID := "analytics-project-fallback"
+	meta := models.Event{
+		EventUID:     "analytics-project-meta",
+		SessionID:    sessionID,
+		SourceName:   "codex",
+		Runtime:      "codex",
+		Provider:     "openai",
+		Format:       models.FormatJSONL,
+		EventKind:    models.EventKindSessionMeta,
+		ActorRole:    models.ActorRoleSystem,
+		Timestamp:    now,
+		TextPreview:  "session started",
+		CWD:          "/Users/example/projects/beacon",
+		EventVersion: 1,
+		SourceFile:   "analytics-project.jsonl",
+		SourceLineNo: 1,
+	}
+	message := models.Event{
+		EventUID:     "analytics-project-message",
+		SessionID:    sessionID,
+		SourceName:   "codex",
+		Runtime:      "codex",
+		Provider:     "openai",
+		Format:       models.FormatJSONL,
+		EventKind:    models.EventKindMessage,
+		ActorRole:    models.ActorRoleAssistant,
+		Timestamp:    now.Add(time.Second),
+		TextContent:  "analytics fallback message",
+		TextPreview:  "analytics fallback message",
+		InputTokens:  3,
+		OutputTokens: 4,
+		EventVersion: 1,
+		SourceFile:   "analytics-project.jsonl",
+		SourceLineNo: 2,
+		SourceOffset: 1,
+	}
+	flushEvents := func(events ...models.Event) {
+		t.Helper()
+		batch := RowBatch{ActivityEvents: events}
+		for _, event := range events {
+			batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+		}
+		if err := ch.Flush(ctx, batch); err != nil {
+			t.Fatalf("flush: %v", err)
+		}
+	}
+	analyticsTotals := func(projectKey string) (uint64, uint64) {
+		t.Helper()
+		var rows, tokens uint64
+		if err := ch.DB.QueryRowContext(ctx, `SELECT count(), COALESCE(sum(total_tokens), 0)
+			FROM (
+				SELECT *
+				FROM analytics_projection FINAL
+			) AS ap
+			INNER JOIN (
+				SELECT session_id, argMax(refresh_id, updated_at) AS refresh_id
+				FROM analytics_projection FINAL
+				WHERE session_id = ?
+				GROUP BY session_id
+			) AS latest ON latest.session_id = ap.session_id AND latest.refresh_id = ap.refresh_id
+			WHERE ap.session_id = ? AND ap.project_key = ?`, sessionID, sessionID, projectKey).Scan(&rows, &tokens); err != nil {
+			t.Fatalf("analytics totals %q: %v", projectKey, err)
+		}
+		return rows, tokens
+	}
+
+	flushEvents(meta, message)
+	rows, tokens := analyticsTotals("beacon")
+	if rows == 0 || tokens != 7 {
+		t.Fatalf("beacon analytics rows/tokens = %d/%d, want fallback rows with 7 tokens", rows, tokens)
+	}
+
+	updatedMeta := meta
+	updatedMeta.CWD = "/Users/example/projects/other"
+	updatedMeta.SourceOffset = 10
+	flushEvents(updatedMeta)
+	rows, tokens = analyticsTotals("beacon")
+	if rows != 0 || tokens != 0 {
+		t.Fatalf("old beacon analytics remained after project change: rows/tokens=%d/%d", rows, tokens)
+	}
+	rows, tokens = analyticsTotals("other")
+	if rows == 0 || tokens != 7 {
+		t.Fatalf("other analytics rows/tokens = %d/%d, want recalculated rows with 7 tokens", rows, tokens)
+	}
+}
+
+func TestAnalyticsProjectionProjectsBlankCWDEventsOnlyForSingleProjectSessions(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 8, 12, 30, 0, 0, time.UTC)
+	mixedSessionID := "analytics-mixed-project"
+	events := []models.Event{
+		{
+			EventUID:     "analytics-mixed-beacon",
+			SessionID:    mixedSessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now,
+			TextContent:  "analytics beacon project",
+			TextPreview:  "analytics beacon project",
+			InputTokens:  2,
+			OutputTokens: 3,
+			CWD:          "/Users/example/projects/beacon",
+			EventVersion: 1,
+			SourceFile:   "analytics-mixed.jsonl",
+			SourceLineNo: 1,
+		},
+		{
+			EventUID:     "analytics-mixed-other",
+			SessionID:    mixedSessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(time.Second),
+			TextContent:  "analytics other project",
+			TextPreview:  "analytics other project",
+			InputTokens:  4,
+			OutputTokens: 6,
+			CWD:          "/Users/example/projects/other",
+			EventVersion: 1,
+			SourceFile:   "analytics-mixed.jsonl",
+			SourceLineNo: 2,
+			SourceOffset: 1,
+		},
+		{
+			EventUID:     "analytics-mixed-blank",
+			SessionID:    mixedSessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(2 * time.Second),
+			TextContent:  "analytics blank project",
+			TextPreview:  "analytics blank project",
+			InputTokens:  7,
+			OutputTokens: 8,
+			EventVersion: 1,
+			SourceFile:   "analytics-mixed.jsonl",
+			SourceLineNo: 3,
+			SourceOffset: 2,
+		},
+	}
+	batch := RowBatch{ActivityEvents: events}
+	for _, event := range events {
+		batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+	}
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("flush mixed project analytics events: %v", err)
+	}
+	rows, tokens := analyticsProjectionTotals(t, ch.DB, mixedSessionID, "beacon")
+	if rows == 0 || tokens != 5 {
+		t.Fatalf("beacon analytics rows/tokens = %d/%d, want only beacon event tokens", rows, tokens)
+	}
+	rows, tokens = analyticsProjectionTotals(t, ch.DB, mixedSessionID, "other")
+	if rows == 0 || tokens != 10 {
+		t.Fatalf("other analytics rows/tokens = %d/%d, want only other event tokens", rows, tokens)
+	}
+	rows, tokens = analyticsProjectionTotals(t, ch.DB, mixedSessionID, "")
+	if rows == 0 || tokens != 15 {
+		t.Fatalf("blank analytics rows/tokens = %d/%d, want mixed-project blank-cwd tokens", rows, tokens)
+	}
+
+	singleSessionID := "analytics-single-project"
+	singleEvents := []models.Event{
+		{
+			EventUID:     "analytics-single-beacon",
+			SessionID:    singleSessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(3 * time.Second),
+			TextContent:  "analytics single beacon",
+			TextPreview:  "analytics single beacon",
+			InputTokens:  1,
+			OutputTokens: 2,
+			CWD:          "/Users/example/projects/beacon",
+			EventVersion: 1,
+			SourceFile:   "analytics-single.jsonl",
+			SourceLineNo: 1,
+		},
+		{
+			EventUID:     "analytics-single-blank",
+			SessionID:    singleSessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(4 * time.Second),
+			TextContent:  "analytics single blank",
+			TextPreview:  "analytics single blank",
+			InputTokens:  5,
+			OutputTokens: 6,
+			EventVersion: 1,
+			SourceFile:   "analytics-single.jsonl",
+			SourceLineNo: 2,
+			SourceOffset: 1,
+		},
+	}
+	batch = RowBatch{ActivityEvents: singleEvents}
+	for _, event := range singleEvents {
+		batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+	}
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("flush single project analytics events: %v", err)
+	}
+	rows, tokens = analyticsProjectionTotals(t, ch.DB, singleSessionID, "beacon")
+	if rows == 0 || tokens != 14 {
+		t.Fatalf("single-project beacon analytics rows/tokens = %d/%d, want project and blank-cwd tokens", rows, tokens)
+	}
+	rows, tokens = analyticsProjectionTotals(t, ch.DB, singleSessionID, "")
+	if rows != 0 || tokens != 0 {
+		t.Fatalf("single-project blank analytics rows/tokens = %d/%d, want none", rows, tokens)
+	}
+}
+
+func analyticsProjectionTotals(t *testing.T, db *sql.DB, sessionID, projectKey string) (uint64, uint64) {
+	t.Helper()
+	var rows, tokens uint64
+	if err := db.QueryRowContext(context.Background(), `SELECT count(), COALESCE(sum(total_tokens), 0)
+		FROM (
+			SELECT *
+			FROM analytics_projection FINAL
+		) AS ap
+		INNER JOIN (
+			SELECT session_id, argMax(refresh_id, updated_at) AS refresh_id
+			FROM analytics_projection FINAL
+			WHERE session_id = ?
+			GROUP BY session_id
+		) AS latest ON latest.session_id = ap.session_id AND latest.refresh_id = ap.refresh_id
+		WHERE ap.session_id = ? AND ap.project_key = ?`, sessionID, sessionID, projectKey).Scan(&rows, &tokens); err != nil {
+		t.Fatalf("analytics totals %q: %v", projectKey, err)
+	}
+	return rows, tokens
+}
+
+func TestSearchIndexProjectsBlankCWDEventsOnlyForSingleProjectSessions(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 8, 13, 0, 0, 0, time.UTC)
+	sessionID := "search-mixed-project"
+	events := []models.Event{
+		{
+			EventUID:     "search-mixed-beacon",
+			SessionID:    sessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now,
+			TextContent:  "beacon project search text",
+			TextPreview:  "beacon project search text",
+			CWD:          "/Users/example/projects/beacon",
+			EventVersion: 1,
+			SourceFile:   "search-mixed.jsonl",
+			SourceLineNo: 1,
+		},
+		{
+			EventUID:     "search-mixed-other",
+			SessionID:    sessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(time.Second),
+			TextContent:  "other project search text",
+			TextPreview:  "other project search text",
+			CWD:          "/Users/example/projects/other",
+			EventVersion: 1,
+			SourceFile:   "search-mixed.jsonl",
+			SourceLineNo: 2,
+			SourceOffset: 1,
+		},
+		{
+			EventUID:     "search-mixed-blank",
+			SessionID:    sessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(2 * time.Second),
+			TextContent:  "blank cwd search text",
+			TextPreview:  "blank cwd search text",
+			EventVersion: 1,
+			SourceFile:   "search-mixed.jsonl",
+			SourceLineNo: 3,
+			SourceOffset: 2,
+		},
+	}
+	batch := RowBatch{ActivityEvents: events}
+	for _, event := range events {
+		batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+	}
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("flush mixed project search events: %v", err)
+	}
+
+	var beaconKey, blankKey string
+	if err := ch.DB.QueryRowContext(ctx,
+		`SELECT
+			maxIf(project_key, event_uid = 'search-mixed-beacon'),
+			maxIf(project_key, event_uid = 'search-mixed-blank')
+		 FROM search_documents FINAL
+		 WHERE session_id = ?`, sessionID).Scan(&beaconKey, &blankKey); err != nil {
+		t.Fatalf("search document project query: %v", err)
+	}
+	if beaconKey != "beacon" || blankKey != "" {
+		t.Fatalf("search document project keys = beacon %q blank %q, want beacon/empty", beaconKey, blankKey)
+	}
+
+	singleSessionID := "search-single-project"
+	singleEvents := []models.Event{
+		{
+			EventUID:     "search-single-beacon",
+			SessionID:    singleSessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(3 * time.Second),
+			TextContent:  "single project beacon text",
+			TextPreview:  "single project beacon text",
+			CWD:          "/Users/example/projects/beacon",
+			EventVersion: 1,
+			SourceFile:   "search-single.jsonl",
+			SourceLineNo: 1,
+		},
+		{
+			EventUID:     "search-single-blank",
+			SessionID:    singleSessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(4 * time.Second),
+			TextContent:  "single project blank cwd text",
+			TextPreview:  "single project blank cwd text",
+			EventVersion: 1,
+			SourceFile:   "search-single.jsonl",
+			SourceLineNo: 2,
+			SourceOffset: 1,
+		},
+	}
+	batch = RowBatch{ActivityEvents: singleEvents}
+	for _, event := range singleEvents {
+		batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+	}
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("flush single project search events: %v", err)
+	}
+
+	var singleBlankKey string
+	if err := ch.DB.QueryRowContext(ctx,
+		`SELECT maxIf(project_key, event_uid = 'search-single-blank')
+		 FROM search_documents FINAL
+		 WHERE session_id = ?`, singleSessionID).Scan(&singleBlankKey); err != nil {
+		t.Fatalf("single search document project query: %v", err)
+	}
+	if singleBlankKey != "beacon" {
+		t.Fatalf("single-project blank search document project key = %q, want beacon", singleBlankKey)
+	}
+}
+
+func TestSearchIndexRefreshesBlankCWDFallbackWhenSessionBecomesMixedProject(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 8, 14, 0, 0, 0, time.UTC)
+	sessionID := "search-fallback-refresh"
+	firstEvents := []models.Event{
+		{
+			EventUID:     "search-refresh-beacon",
+			SessionID:    sessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now,
+			TextContent:  "refresh beacon project text",
+			TextPreview:  "refresh beacon project text",
+			CWD:          "/Users/example/projects/beacon",
+			EventVersion: 1,
+			SourceFile:   "search-refresh.jsonl",
+			SourceLineNo: 1,
+		},
+		{
+			EventUID:     "search-refresh-blank",
+			SessionID:    sessionID,
+			SourceName:   "codex",
+			Runtime:      "codex",
+			Provider:     "openai",
+			Format:       models.FormatJSONL,
+			EventKind:    models.EventKindMessage,
+			ActorRole:    models.ActorRoleAssistant,
+			Timestamp:    now.Add(time.Second),
+			TextContent:  "refresh blank cwd unique needle",
+			TextPreview:  "refresh blank cwd unique needle",
+			EventVersion: 1,
+			SourceFile:   "search-refresh.jsonl",
+			SourceLineNo: 2,
+			SourceOffset: 1,
+		},
+	}
+	batch := RowBatch{ActivityEvents: firstEvents}
+	for _, event := range firstEvents {
+		batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+	}
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("flush initial search refresh events: %v", err)
+	}
+
+	blankProjectKey := searchDocumentProjectKey(t, ch.DB, "search-refresh-blank")
+	if blankProjectKey != "beacon" {
+		t.Fatalf("initial blank-cwd search project key = %q, want beacon", blankProjectKey)
+	}
+	searcher := search.NewSearcher(ch.DB, slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})), 25, 0)
+	results, err := searcher.Search(ctx, search.SearchQuery{
+		Query:       "unique needle",
+		ProjectKeys: []string{"beacon"},
+	})
+	if err != nil {
+		t.Fatalf("initial scoped search: %v", err)
+	}
+	if !searchResultsContain(results, "search-refresh-blank") {
+		t.Fatalf("initial beacon-scoped search results = %#v, want blank-cwd event", results)
+	}
+
+	otherEvent := models.Event{
+		EventUID:     "search-refresh-other",
+		SessionID:    sessionID,
+		SourceName:   "codex",
+		Runtime:      "codex",
+		Provider:     "openai",
+		Format:       models.FormatJSONL,
+		EventKind:    models.EventKindMessage,
+		ActorRole:    models.ActorRoleAssistant,
+		Timestamp:    now.Add(-time.Minute),
+		TextContent:  "refresh other project text",
+		TextPreview:  "refresh other project text",
+		CWD:          "/Users/example/projects/other",
+		EventVersion: 1,
+		SourceFile:   "search-refresh.jsonl",
+		SourceLineNo: 3,
+		SourceOffset: 2,
+	}
+	batch = RowBatch{ActivityEvents: []models.Event{otherEvent}, RawRecords: []models.RawRecord{NewRawRecord(otherEvent)}}
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("flush second project search refresh event: %v", err)
+	}
+
+	blankProjectKey = searchDocumentProjectKey(t, ch.DB, "search-refresh-blank")
+	if blankProjectKey != "" {
+		t.Fatalf("mixed-project blank-cwd search project key = %q, want empty", blankProjectKey)
+	}
+	results, err = searcher.Search(ctx, search.SearchQuery{
+		Query:       "unique needle",
+		ProjectKeys: []string{"beacon"},
+	})
+	if err != nil {
+		t.Fatalf("post-refresh scoped search: %v", err)
+	}
+	if searchResultsContain(results, "search-refresh-blank") {
+		t.Fatalf("post-refresh beacon-scoped search results = %#v, want blank-cwd event excluded", results)
+	}
+}
+
+func searchDocumentProjectKey(t *testing.T, db *sql.DB, eventUID string) string {
+	t.Helper()
+	var projectKey string
+	if err := db.QueryRowContext(context.Background(),
+		`SELECT COALESCE(max(project_key), '')
+		 FROM search_documents FINAL
+		 WHERE event_uid = ?`, eventUID).Scan(&projectKey); err != nil {
+		t.Fatalf("query search document project key for %s: %v", eventUID, err)
+	}
+	return projectKey
+}
+
+func searchResultsContain(results []search.SearchResult, eventUID string) bool {
+	for _, result := range results {
+		if result.EventUID == eventUID {
+			return true
+		}
+	}
+	return false
 }
 
 func TestClickHouseRefreshOutdatedProjectionsRepairsMissingAndStaleProjection(t *testing.T) {
@@ -832,16 +1349,22 @@ func TestClickHouseFlushRefreshesDeduplicatedProjection(t *testing.T) {
 		        sum(tool_call_count),
 		        sum(duration_ms_sum)
 		 FROM (
-			SELECT session_id, minute, provider, model, tool_name, event_kind,
-			       argMax(event_count, updated_at) AS event_count,
-			       argMax(total_tokens, updated_at) AS total_tokens,
-			       argMax(call_count, updated_at) AS call_count,
-			       argMax(tool_call_count, updated_at) AS tool_call_count,
-			       argMax(duration_ms_sum, updated_at) AS duration_ms_sum
-			FROM analytics_projection
-			WHERE session_id = ?
-			GROUP BY session_id, minute, provider, model, tool_name, event_kind
-		 )`, sessionID).Scan(&analyticsEvents, &analyticsTokens, &analyticsCalls, &analyticsToolCalls, &analyticsDuration); err != nil {
+			SELECT ap.session_id, ap.minute, ap.provider, ap.model, ap.tool_name, ap.event_kind,
+			       argMax(ap.event_count, ap.updated_at) AS event_count,
+			       argMax(ap.total_tokens, ap.updated_at) AS total_tokens,
+			       argMax(ap.call_count, ap.updated_at) AS call_count,
+			       argMax(ap.tool_call_count, ap.updated_at) AS tool_call_count,
+			       argMax(ap.duration_ms_sum, ap.updated_at) AS duration_ms_sum
+			FROM analytics_projection AS ap
+			INNER JOIN (
+				SELECT session_id, argMax(refresh_id, updated_at) AS refresh_id
+				FROM analytics_projection
+				WHERE session_id = ?
+				GROUP BY session_id
+			) AS latest ON latest.session_id = ap.session_id AND latest.refresh_id = ap.refresh_id
+			WHERE ap.session_id = ?
+			GROUP BY ap.session_id, ap.minute, ap.provider, ap.model, ap.tool_name, ap.event_kind
+		 )`, sessionID, sessionID).Scan(&analyticsEvents, &analyticsTokens, &analyticsCalls, &analyticsToolCalls, &analyticsDuration); err != nil {
 		t.Fatalf("analytics projection query: %v", err)
 	}
 	if analyticsEvents != 2 || analyticsTokens != 7 || analyticsCalls != 1 || analyticsToolCalls != 1 || analyticsDuration != 42 {
@@ -1356,21 +1879,27 @@ func TestClickHouseFlushProjectsSessionStatesSubagentsErrorsAndSearchRows(t *tes
 		        sum(total_tokens),
 		        sum(duration_ms_sum)
 		 FROM (
-			SELECT session_id, minute, provider, model, tool_name, event_kind,
-			       argMax(event_count, updated_at) AS event_count,
-			       argMax(call_count, updated_at) AS call_count,
-			       argMax(tool_call_count, updated_at) AS tool_call_count,
-			       argMax(tool_result_count, updated_at) AS tool_result_count,
-			       argMax(input_tokens, updated_at) AS input_tokens,
-			       argMax(output_tokens, updated_at) AS output_tokens,
-			       argMax(cache_read_tokens, updated_at) AS cache_read_tokens,
-			       argMax(cache_create_tokens, updated_at) AS cache_create_tokens,
-			       argMax(total_tokens, updated_at) AS total_tokens,
-			       argMax(duration_ms_sum, updated_at) AS duration_ms_sum
-			FROM analytics_projection
-			WHERE session_id = ?
-			GROUP BY session_id, minute, provider, model, tool_name, event_kind
-		 )`, parentID).Scan(
+			SELECT ap.session_id, ap.minute, ap.provider, ap.model, ap.tool_name, ap.event_kind,
+			       argMax(ap.event_count, ap.updated_at) AS event_count,
+			       argMax(ap.call_count, ap.updated_at) AS call_count,
+			       argMax(ap.tool_call_count, ap.updated_at) AS tool_call_count,
+			       argMax(ap.tool_result_count, ap.updated_at) AS tool_result_count,
+			       argMax(ap.input_tokens, ap.updated_at) AS input_tokens,
+			       argMax(ap.output_tokens, ap.updated_at) AS output_tokens,
+			       argMax(ap.cache_read_tokens, ap.updated_at) AS cache_read_tokens,
+			       argMax(ap.cache_create_tokens, ap.updated_at) AS cache_create_tokens,
+			       argMax(ap.total_tokens, ap.updated_at) AS total_tokens,
+			       argMax(ap.duration_ms_sum, ap.updated_at) AS duration_ms_sum
+			FROM analytics_projection AS ap
+			INNER JOIN (
+				SELECT session_id, argMax(refresh_id, updated_at) AS refresh_id
+				FROM analytics_projection
+				WHERE session_id = ?
+				GROUP BY session_id
+			) AS latest ON latest.session_id = ap.session_id AND latest.refresh_id = ap.refresh_id
+			WHERE ap.session_id = ?
+			GROUP BY ap.session_id, ap.minute, ap.provider, ap.model, ap.tool_name, ap.event_kind
+		 )`, parentID, parentID).Scan(
 		&analyticsEvents,
 		&analyticsCalls,
 		&analyticsToolCalls,

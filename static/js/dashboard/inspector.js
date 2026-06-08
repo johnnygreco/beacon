@@ -20,6 +20,7 @@
 	var cssEscape = utils.cssEscape;
 	var formatTokens = utils.formatTokens;
 	var shortID = utils.shortID;
+	var requestURL = utils.requestURL;
 
 	function validInspectorRestoreTarget(el) {
 		if (!el || !el.isConnected || typeof el.focus !== 'function') return null;
@@ -42,7 +43,7 @@
 			title.textContent = 'Session quick view';
 			subtitle.textContent = selectedSessionId;
 		}
-		fullLink.href = '/sessions/' + encodeURIComponent(selectedSessionId);
+		fullLink.href = requestURL('/sessions/' + encodeURIComponent(selectedSessionId), {});
 		if (!session) {
 			// Summary markup is static; values go through metric(), which escapes text.
 			summary.innerHTML = metric('Status', 'Loading') + metric('Events', 'Loading');
@@ -128,7 +129,7 @@
 			sessionsLoaded = true;
 			return;
 		}
-		var res = await fetch('/api/sessions?limit=500', {headers: {'Accept': 'application/json'}});
+		var res = await fetch(requestURL('/api/sessions', {limit: 500}), {headers: {'Accept': 'application/json'}});
 		if (!res.ok) throw new Error('sessions failed');
 		sessionsStore = await res.json();
 		sessionsLoaded = true;
@@ -141,7 +142,7 @@
 		}
 		var cached = sessionsStore.find(function(s) { return s.id === id; });
 		if (cached) return cached;
-		var res = await fetch('/api/sessions/' + encodeURIComponent(id), fetchOpts || {headers: {'Accept': 'application/json'}});
+		var res = await fetch(requestURL('/api/sessions/' + encodeURIComponent(id), {}), fetchOpts || {headers: {'Accept': 'application/json'}});
 		if (!res.ok) throw new Error('session failed');
 		var detail = await res.json();
 		var normalized = normalizeSessionDetail(detail);
@@ -153,7 +154,7 @@
 	}
 
 	async function loadSessionTranscript(id, fetchOpts) {
-		var res = await fetch('/sessions/' + encodeURIComponent(id) + '/conversation', fetchOpts || {headers: {'Accept': 'text/html'}});
+		var res = await fetch(requestURL('/sessions/' + encodeURIComponent(id) + '/conversation', {}), fetchOpts || {headers: {'Accept': 'text/html'}});
 		if (!res.ok) throw new Error('transcript failed');
 		return res.text();
 	}
@@ -209,7 +210,7 @@
 		if (restoreFocus) {
 			var restoreTarget = validInspectorRestoreTarget(inspectorLauncher);
 			if (!restoreTarget && inspectorLauncherSession) {
-				var sessionURL = '/sessions/' + encodeURIComponent(inspectorLauncherSession);
+				var sessionURL = requestURL('/sessions/' + encodeURIComponent(inspectorLauncherSession), {});
 				var matches = Array.from(document.querySelectorAll('.session-row-open[data-session-link="' + cssEscape(sessionURL) + '"], a[href="' + cssEscape(sessionURL) + '"]'));
 				restoreTarget = matches.map(validInspectorRestoreTarget).find(Boolean) || null;
 			}
@@ -265,7 +266,7 @@
 		if (payloadController) payloadControllers.push(payloadController);
 		var payloadOpts = {headers: {'Accept': 'application/json'}};
 		if (payloadController) payloadOpts.signal = payloadController.signal;
-		fetch('/api/tool-payloads/' + encodeURIComponent(btn.getAttribute('data-event-id')), payloadOpts)
+		fetch(requestURL('/api/tool-payloads/' + encodeURIComponent(btn.getAttribute('data-event-id')), {}), payloadOpts)
 			.then(function(res) { return res.ok ? res.json() : Promise.reject(new Error('payload failed')); })
 			.then(function(payload) {
 				if (payloadSeq !== inspectorSeq || !target.isConnected) return;

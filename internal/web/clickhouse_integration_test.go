@@ -55,6 +55,9 @@ func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 	event := models.Event{
 		EventUID:     eventID,
 		SessionID:    sessionID,
+		NodeID:       "api-node",
+		CollectorID:  "api-collector",
+		SourceID:     "api-source",
 		SourceName:   "test-source",
 		Runtime:      "test-runtime",
 		Provider:     "test-provider",
@@ -70,6 +73,7 @@ func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 		Model:        "gpt-4",
 		InputTokens:  4,
 		OutputTokens: 5,
+		CWD:          "/Users/example/projects/beacon",
 		EventVersion: 1,
 		PayloadJSON:  `{"event":"preview"}`,
 		SourceFile:   "api-live.jsonl",
@@ -112,6 +116,22 @@ func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 	if events[0].EventUID != eventID || events[0].InputPreview != inputPreview || events[0].OutputPreview != outputPreview {
 		t.Fatalf("unexpected event preview payload: %#v", events[0])
 	}
+	scopedEventsBody := recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+sessionID+"/events?limit=10&collector_id=api-collector&source_id=api-source&project_key=beacon", "id", sessionID)
+	events = nil
+	if err := json.Unmarshal([]byte(scopedEventsBody), &events); err != nil {
+		t.Fatalf("decode scoped session events: %v\n%s", err, scopedEventsBody)
+	}
+	if len(events) != 1 || events[0].EventUID != eventID {
+		t.Fatalf("scoped session events = %#v, want only %s", events, eventID)
+	}
+	outScopedEventsBody := recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+sessionID+"/events?limit=10&project_key=other", "id", sessionID)
+	events = nil
+	if err := json.Unmarshal([]byte(outScopedEventsBody), &events); err != nil {
+		t.Fatalf("decode out-of-scope session events: %v\n%s", err, outScopedEventsBody)
+	}
+	if len(events) != 0 {
+		t.Fatalf("out-of-scope session events leaked: %#v", events)
+	}
 
 	eventBody := recordAPIResponse(t, api.GetEvent, "/api/events/"+eventID, "event_id", eventID)
 	if strings.Contains(eventBody, fullMarker) {
@@ -124,6 +144,14 @@ func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 	if single.EventUID != eventID || single.InputPreview != inputPreview || single.OutputPreview != outputPreview {
 		t.Fatalf("unexpected single event preview payload: %#v", single)
 	}
+	scopedEventBody := recordAPIResponse(t, api.GetEvent, "/api/events/"+eventID+"?collector_id=api-collector&source_id=api-source&project_key=beacon", "event_id", eventID)
+	if err := json.Unmarshal([]byte(scopedEventBody), &single); err != nil {
+		t.Fatalf("decode scoped event: %v\n%s", err, scopedEventBody)
+	}
+	if single.EventUID != eventID {
+		t.Fatalf("scoped event = %#v, want %s", single, eventID)
+	}
+	recordAPIStatus(t, api.GetEvent, "/api/events/"+eventID+"?project_key=other", http.StatusNotFound, "event_id", eventID)
 
 	payloadBody := recordAPIResponse(t, api.GetToolPayload, "/api/tool-payloads/"+eventID, "event_id", eventID)
 	if !strings.Contains(payloadBody, fullMarker) {
@@ -136,6 +164,14 @@ func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 	if full.EventUID != eventID || !strings.Contains(full.InputJSON, fullMarker) || !strings.Contains(full.OutputJSON, fullMarker) {
 		t.Fatalf("unexpected full tool payload: %#v", full)
 	}
+	scopedPayloadBody := recordAPIResponse(t, api.GetToolPayload, "/api/tool-payloads/"+eventID+"?collector_id=api-collector&source_id=api-source&project_key=beacon", "event_id", eventID)
+	if err := json.Unmarshal([]byte(scopedPayloadBody), &full); err != nil {
+		t.Fatalf("decode scoped tool payload: %v\n%s", err, scopedPayloadBody)
+	}
+	if full.EventUID != eventID || !strings.Contains(full.InputJSON, fullMarker) {
+		t.Fatalf("scoped tool payload = %#v, want full payload for %s", full, eventID)
+	}
+	recordAPIStatus(t, api.GetToolPayload, "/api/tool-payloads/"+eventID+"?project_key=other", http.StatusNotFound, "event_id", eventID)
 }
 
 func TestAPISessionEventsTailReturnsLatestBoundedSliceChronologically(t *testing.T) {
@@ -185,6 +221,192 @@ func TestAPISessionEventsTailReturnsLatestBoundedSliceChronologically(t *testing
 	}
 	if len(got) != 3 || got[0].EventUID != "tail-event-000" || got[2].EventUID != "tail-event-002" {
 		t.Fatalf("default events should remain oldest-first paginated, got %#v", got)
+	}
+}
+
+func TestSessionEventsAndTranscriptUseEventProjectBeforeSessionFallback(t *testing.T) {
+	ch := setupLiveWebStore(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	api := NewAPIHandlers(ch.DB, nil, logger)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	sessionID := "mixed-project-session"
+	beaconEvent := liveEvent("mixed-project-beacon", sessionID, "message", "assistant", now, "openai", "gpt-5", "", 1, 1, 0)
+	beaconEvent.SourceID = "remote-source"
+	beaconEvent.CWD = "/Users/example/projects/beacon"
+	beaconEvent.TextContent = "beacon project visible"
+	beaconEvent.TextPreview = "beacon project visible"
+	otherEvent := liveEvent("mixed-project-other", sessionID, "message", "assistant", now.Add(time.Second), "openai", "gpt-5", "", 1, 1, 0)
+	otherEvent.SourceID = "local-source"
+	otherEvent.CWD = "/Users/example/projects/other"
+	otherEvent.TextContent = "other project hidden"
+	otherEvent.TextPreview = "other project hidden"
+	blankProjectEvent := liveEvent("mixed-project-blank", sessionID, "message", "assistant", now.Add(2*time.Second), "openai", "gpt-5", "", 1, 1, 0)
+	blankProjectEvent.SourceID = "remote-source"
+	blankProjectEvent.TextContent = "blank project hidden"
+	blankProjectEvent.TextPreview = "blank project hidden"
+
+	batch := store.RowBatch{ActivityEvents: []models.Event{beaconEvent, otherEvent, blankProjectEvent}}
+	for _, event := range batch.ActivityEvents {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush mixed project events: %v", err)
+	}
+
+	body := recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+sessionID+"/events?project_key=beacon", "id", sessionID)
+	var events []APISessionEvent
+	if err := json.Unmarshal([]byte(body), &events); err != nil {
+		t.Fatalf("decode beacon-scoped session events: %v\n%s", err, body)
+	}
+	if len(events) != 1 || events[0].EventUID != beaconEvent.EventUID {
+		t.Fatalf("beacon-scoped session events = %#v, want only %s", events, beaconEvent.EventUID)
+	}
+	body = recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+sessionID+"/events?project_key=beacon&source_id=remote-source", "id", sessionID)
+	events = nil
+	if err := json.Unmarshal([]byte(body), &events); err != nil {
+		t.Fatalf("decode remote beacon-scoped session events: %v\n%s", err, body)
+	}
+	if len(events) != 1 || events[0].EventUID != beaconEvent.EventUID {
+		t.Fatalf("remote beacon-scoped session events = %#v, want %s despite global source fallback", events, beaconEvent.EventUID)
+	}
+
+	body = recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+sessionID+"/events?project_key=other", "id", sessionID)
+	events = nil
+	if err := json.Unmarshal([]byte(body), &events); err != nil {
+		t.Fatalf("decode other-scoped session events: %v\n%s", err, body)
+	}
+	if len(events) != 1 || events[0].EventUID != otherEvent.EventUID {
+		t.Fatalf("other-scoped session events = %#v, want only %s", events, otherEvent.EventUID)
+	}
+	recordAPIStatus(t, api.GetEvent, "/api/events/"+blankProjectEvent.EventUID+"?project_key=beacon", http.StatusNotFound, "event_id", blankProjectEvent.EventUID)
+	recordAPIStatus(t, api.GetEvent, "/api/events/"+blankProjectEvent.EventUID+"?project_key=other", http.StatusNotFound, "event_id", blankProjectEvent.EventUID)
+
+	_, turns := QuerySessionConversationScoped(context.Background(), ch.DB, sessionID, APIScopeFilters{ProjectKeys: []string{"beacon"}})
+	seen := map[string]bool{}
+	for _, turn := range turns {
+		for _, event := range turn.Events {
+			seen[event.EventUID] = true
+			if strings.Contains(event.TextPreview, "hidden") || strings.Contains(event.TextContent, "hidden") {
+				t.Fatalf("beacon-scoped transcript leaked out-of-project event: %#v", event)
+			}
+		}
+	}
+	if !seen[beaconEvent.EventUID] || seen[otherEvent.EventUID] || seen[blankProjectEvent.EventUID] {
+		t.Fatalf("beacon-scoped transcript event set = %#v", seen)
+	}
+	_, turns = QuerySessionConversationScoped(context.Background(), ch.DB, sessionID, APIScopeFilters{ProjectKeys: []string{"beacon"}, SourceIDs: []string{"remote-source"}})
+	seen = map[string]bool{}
+	for _, turn := range turns {
+		for _, event := range turn.Events {
+			seen[event.EventUID] = true
+		}
+	}
+	if !seen[beaconEvent.EventUID] || seen[otherEvent.EventUID] || seen[blankProjectEvent.EventUID] {
+		t.Fatalf("remote beacon-scoped transcript event set = %#v", seen)
+	}
+
+	singleSessionID := "single-project-session"
+	singleBeaconEvent := liveEvent("single-project-beacon", singleSessionID, "message", "assistant", now.Add(3*time.Second), "openai", "gpt-5", "", 1, 1, 0)
+	singleBeaconEvent.CWD = "/Users/example/projects/beacon"
+	singleBlankEvent := liveEvent("single-project-blank", singleSessionID, "message", "assistant", now.Add(4*time.Second), "openai", "gpt-5", "", 1, 1, 0)
+	singleBlankEvent.TextContent = "blank project inherits single project"
+	singleBlankEvent.TextPreview = "blank project inherits single project"
+	batch = store.RowBatch{ActivityEvents: []models.Event{singleBeaconEvent, singleBlankEvent}}
+	for _, event := range batch.ActivityEvents {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush single project events: %v", err)
+	}
+	body = recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+singleSessionID+"/events?project_key=beacon", "id", singleSessionID)
+	events = nil
+	if err := json.Unmarshal([]byte(body), &events); err != nil {
+		t.Fatalf("decode single-project session events: %v\n%s", err, body)
+	}
+	if len(events) != 2 {
+		t.Fatalf("single-project scoped events = %#v, want both project and blank-cwd events", events)
+	}
+	recordAPIResponse(t, api.GetEvent, "/api/events/"+singleBlankEvent.EventUID+"?project_key=beacon", "event_id", singleBlankEvent.EventUID)
+	recordAPIStatus(t, api.GetEvent, "/api/events/"+singleBlankEvent.EventUID+"?project_key=other", http.StatusNotFound, "event_id", singleBlankEvent.EventUID)
+
+	_, turns = QuerySessionConversationScoped(context.Background(), ch.DB, singleSessionID, APIScopeFilters{ProjectKeys: []string{"beacon"}})
+	seen = map[string]bool{}
+	for _, turn := range turns {
+		for _, event := range turn.Events {
+			seen[event.EventUID] = true
+		}
+	}
+	if !seen[singleBeaconEvent.EventUID] || !seen[singleBlankEvent.EventUID] {
+		t.Fatalf("single-project transcript event set = %#v, want project and blank-cwd events", seen)
+	}
+}
+
+func TestProjectScopedSessionSummariesUseMatchingEventRows(t *testing.T) {
+	ch := setupLiveWebStore(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	api := NewAPIHandlers(ch.DB, nil, logger)
+
+	now := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
+	sessionID := "mixed-project-summary"
+	otherEvent := liveEvent("summary-other-message", sessionID, "message", "assistant", now, "openai", "", "", 11, 13, 0)
+	otherEvent.CWD = "/Users/example/projects/other"
+	otherEvent.TextContent = "other-scoped needle"
+	otherEvent.TextPreview = "other-scoped needle"
+	beaconEvent := liveEvent("summary-beacon-message", sessionID, "message", "assistant", now.Add(time.Minute), "openai", "gpt-beacon", "", 2, 3, 0)
+	beaconEvent.CWD = "/Users/example/projects/beacon"
+	endEvent := liveEvent("summary-session-end", sessionID, "session_end", "system", now.Add(2*time.Minute), "openai", "", "", 0, 0, 0)
+	endEvent.CWD = "/Users/example/projects/beacon"
+
+	batch := store.RowBatch{ActivityEvents: []models.Event{otherEvent, beaconEvent, endEvent}}
+	for _, event := range batch.ActivityEvents {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush mixed project summary events: %v", err)
+	}
+
+	otherScope := APIScopeFilters{ProjectKeys: []string{"other"}}
+	detail, err := QuerySessionDetailScoped(context.Background(), ch.DB, sessionID, otherScope)
+	if err != nil {
+		t.Fatalf("other-scoped detail should find session through event project: %v", err)
+	}
+	if detail.Session.TotalTokens != 24 || detail.Session.ProjectKey != "other" || detail.Session.WorkingDir != "/Users/example/projects/other" {
+		t.Fatalf("other-scoped detail summary = %#v, want 24 tokens in other project", detail.Session)
+	}
+	if !detail.Session.EndedAt.Equal(otherEvent.Timestamp) || detail.Session.HasSessionEnd || detail.Session.CompletionState != "active" {
+		t.Fatalf("other-scoped lifecycle = ended %s hasEnd %v state %q, want latest other event only", detail.Session.EndedAt, detail.Session.HasSessionEnd, detail.Session.CompletionState)
+	}
+	recordAPIResponse(t, api.GetSessionDetail, "/api/sessions/"+sessionID+"?project_key=other", "id", sessionID)
+
+	beaconDetail, err := QuerySessionDetailScoped(context.Background(), ch.DB, sessionID, APIScopeFilters{ProjectKeys: []string{"beacon"}})
+	if err != nil {
+		t.Fatalf("beacon-scoped detail: %v", err)
+	}
+	if beaconDetail.Session.TotalTokens != 5 || beaconDetail.Session.ProjectKey != "beacon" {
+		t.Fatalf("beacon-scoped detail summary = %#v, want only beacon tokens", beaconDetail.Session)
+	}
+	if !beaconDetail.Session.EndedAt.Equal(endEvent.Timestamp) || !beaconDetail.Session.HasSessionEnd || beaconDetail.Session.CompletionState != "completed" {
+		t.Fatalf("beacon-scoped lifecycle = ended %s hasEnd %v state %q, want scoped session_end", beaconDetail.Session.EndedAt, beaconDetail.Session.HasSessionEnd, beaconDetail.Session.CompletionState)
+	}
+
+	eventSessionIDs, err := queryCompletedSessionContentMatchIDs(context.Background(), ch.DB, nil, "other-scoped needle", "", 10, otherScope)
+	if err != nil {
+		t.Fatalf("other-scoped content search ids: %v", err)
+	}
+	if len(eventSessionIDs) != 1 || eventSessionIDs[0] != sessionID {
+		t.Fatalf("other-scoped content search ids = %#v, want %s", eventSessionIDs, sessionID)
+	}
+	leakedIDs, err := queryCompletedSessionContentMatchIDs(context.Background(), ch.DB, nil, "gpt-beacon", "", 10, otherScope)
+	if err != nil {
+		t.Fatalf("other-scoped metadata leak search ids: %v", err)
+	}
+	if len(leakedIDs) != 0 {
+		t.Fatalf("other-scoped content search matched out-of-scope session metadata: %#v", leakedIDs)
+	}
+	completed, _ := queryCompletedSessionsFiltered(context.Background(), ch.DB, nil, 0, 10, "other-scoped needle", eventSessionIDs, "ended", false, "", otherScope)
+	if len(completed) != 1 || completed[0].ID != sessionID || completed[0].TotalTokens != 24 {
+		t.Fatalf("other-scoped completed search = %#v, want scoped summary for %s", completed, sessionID)
 	}
 }
 
@@ -318,6 +540,112 @@ func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T)
 	}
 }
 
+func TestDashboardAnalyticsAPIsUseGuardedProjectFallback(t *testing.T) {
+	ch := setupLiveWebStore(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	api := NewAPIHandlers(ch.DB, nil, logger)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	mixedSessionID := "dashboard-analytics-mixed-project"
+	mixedEvents := []models.Event{
+		liveEvent("dashboard-analytics-mixed-beacon", mixedSessionID, "message", "assistant", now, "openai", "gpt-beacon", "", 2, 3, 0),
+		liveEvent("dashboard-analytics-mixed-other", mixedSessionID, "message", "assistant", now.Add(time.Second), "openai", "gpt-other", "", 4, 6, 0),
+		liveEvent("dashboard-analytics-mixed-blank", mixedSessionID, "tool_call", "assistant", now.Add(2*time.Second), "openai", "gpt-blank", "mcp__blank__leak", 7, 8, 90),
+	}
+	mixedEvents[0].CWD = "/Users/example/projects/beacon"
+	mixedEvents[1].CWD = "/Users/example/projects/other"
+	for i := range mixedEvents {
+		mixedEvents[i].SourceID = "analytics-mixed-source"
+		mixedEvents[i].SourceLineNo = i + 1
+		mixedEvents[i].SourceOffset = int64(i)
+	}
+	singleSessionID := "dashboard-analytics-single-project"
+	singleEvents := []models.Event{
+		liveEvent("dashboard-analytics-single-beacon", singleSessionID, "message", "assistant", now.Add(3*time.Second), "openai", "gpt-single", "", 1, 2, 0),
+		liveEvent("dashboard-analytics-single-blank", singleSessionID, "tool_call", "assistant", now.Add(4*time.Second), "openai", "gpt-single-blank", "mcp__single__read", 5, 6, 40),
+	}
+	singleEvents[0].CWD = "/Users/example/projects/beacon"
+	for i := range singleEvents {
+		singleEvents[i].SourceID = "analytics-single-source"
+		singleEvents[i].SourceLineNo = i + 1
+		singleEvents[i].SourceOffset = int64(i)
+	}
+	events := append(mixedEvents, singleEvents...)
+	batch := store.RowBatch{ActivityEvents: events}
+	for _, event := range events {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush guarded analytics events: %v", err)
+	}
+
+	mixedScope := "project_key=beacon&source_id=analytics-mixed-source"
+	chartsBody := recordAPIResponse(t, api.GetDashboardCharts, "/api/dashboard/charts?"+mixedScope)
+	var charts APIDashboardCharts
+	if err := json.Unmarshal([]byte(chartsBody), &charts); err != nil {
+		t.Fatalf("decode mixed charts: %v\n%s", err, chartsBody)
+	}
+	if charts.TokenCumulative.Summary.TotalTokens != 5 || modelSeriesSum(charts.TokenCumulative.Datasets, "gpt-blank") != 0 {
+		t.Fatalf("mixed beacon-scoped chart leaked blank-cwd analytics: %#v", charts.TokenCumulative)
+	}
+	if got := metricSeriesTotal(charts.ModelActivity.Metrics["tool_calls"].Datasets); got != 0 {
+		t.Fatalf("mixed beacon-scoped tool-call chart = %v, want blank-cwd tool excluded", got)
+	}
+	tokensBody := recordAPIResponse(t, api.GetTokensPerMinute, "/api/tokens-per-minute?"+mixedScope)
+	var perMinute []APITokensPerMinute
+	if err := json.Unmarshal([]byte(tokensBody), &perMinute); err != nil {
+		t.Fatalf("decode mixed tokens per minute: %v\n%s", err, tokensBody)
+	}
+	if tokenSum, callSum := tokenMinuteTotals(perMinute); tokenSum != 5 || callSum != 1 {
+		t.Fatalf("mixed beacon-scoped tokens per minute = tokens %d calls %d", tokenSum, callSum)
+	}
+	toolBody := recordAPIResponse(t, api.GetToolStats, "/api/tool-stats?"+mixedScope)
+	var tools []APIToolStats
+	if err := json.Unmarshal([]byte(toolBody), &tools); err != nil {
+		t.Fatalf("decode mixed tool stats: %v\n%s", err, toolBody)
+	}
+	if len(tools) != 0 {
+		t.Fatalf("mixed beacon-scoped tool stats leaked blank-cwd tool: %#v", tools)
+	}
+	modelBody := recordAPIResponse(t, api.GetTokensByModel, "/api/tokens-by-model?"+mixedScope)
+	var modelRows []APITokensByModel
+	if err := json.Unmarshal([]byte(modelBody), &modelRows); err != nil {
+		t.Fatalf("decode mixed tokens by model: %v\n%s", err, modelBody)
+	}
+	if len(modelRows) != 1 || modelRows[0].Model != "gpt-beacon" || modelRows[0].TotalTokens != 5 {
+		t.Fatalf("mixed beacon-scoped tokens by model = %#v", modelRows)
+	}
+
+	singleScope := "project_key=beacon&source_id=analytics-single-source"
+	chartsBody = recordAPIResponse(t, api.GetDashboardCharts, "/api/dashboard/charts?"+singleScope)
+	charts = APIDashboardCharts{}
+	if err := json.Unmarshal([]byte(chartsBody), &charts); err != nil {
+		t.Fatalf("decode single charts: %v\n%s", err, chartsBody)
+	}
+	if charts.TokenCumulative.Summary.TotalTokens != 14 || modelSeriesSum(charts.TokenCumulative.Datasets, "gpt-single-blank") != 11 {
+		t.Fatalf("single beacon-scoped chart did not include blank-cwd analytics: %#v", charts.TokenCumulative)
+	}
+	if got := metricSeriesTotal(charts.ModelActivity.Metrics["tool_calls"].Datasets); got != 1 {
+		t.Fatalf("single beacon-scoped tool-call chart = %v, want blank-cwd tool included", got)
+	}
+	toolBody = recordAPIResponse(t, api.GetToolStats, "/api/tool-stats?"+singleScope)
+	tools = nil
+	if err := json.Unmarshal([]byte(toolBody), &tools); err != nil {
+		t.Fatalf("decode single tool stats: %v\n%s", err, toolBody)
+	}
+	if len(tools) != 1 || tools[0].ToolName != "mcp__single__read" || tools[0].Calls != 1 {
+		t.Fatalf("single beacon-scoped tool stats = %#v", tools)
+	}
+	modelBody = recordAPIResponse(t, api.GetTokensByModel, "/api/tokens-by-model?"+singleScope)
+	modelRows = nil
+	if err := json.Unmarshal([]byte(modelBody), &modelRows); err != nil {
+		t.Fatalf("decode single tokens by model: %v\n%s", err, modelBody)
+	}
+	if apiModelTokenTotal(modelRows, "gpt-single") != 3 || apiModelTokenTotal(modelRows, "gpt-single-blank") != 11 {
+		t.Fatalf("single beacon-scoped tokens by model = %#v", modelRows)
+	}
+}
+
 func TestQuerySessionDetailKeepsUnattributedModelTokensSeparate(t *testing.T) {
 	ch := setupLiveWebStore(t)
 
@@ -426,6 +754,91 @@ func TestDashboardChartsAttributeBlankModelsFromSessionTimeline(t *testing.T) {
 	}
 }
 
+func TestRecentActivityProjectScopeFiltersBeforeCandidateLimit(t *testing.T) {
+	ch := setupLiveWebStore(t)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	inScopeID := "activity-project-in-scope"
+	outScopeID := "activity-project-out-scope"
+	events := []models.Event{
+		liveEvent("activity-in-meta", inScopeID, "session_meta", "system", now.Add(-time.Hour), "openai", "", "", 0, 0, 0),
+		liveEvent("activity-in-message", inScopeID, "message", "assistant", now.Add(-30*time.Minute), "openai", "gpt-5", "", 1, 1, 0),
+		liveEvent("activity-out-meta", outScopeID, "session_meta", "system", now.Add(-time.Hour), "openai", "", "", 0, 0, 0),
+	}
+	events[0].CWD = "/Users/example/projects/beacon"
+	events[1].TextPreview = "scoped project activity"
+	events[2].CWD = "/Users/example/projects/other"
+	for i := 0; i < recentActivityCandidates+5; i++ {
+		uid := fmt.Sprintf("activity-out-message-%04d", i)
+		event := liveEvent(uid, outScopeID, "message", "assistant", now.Add(time.Duration(i)*time.Second), "openai", "gpt-5", "", 1, 1, 0)
+		event.TextPreview = "newer out of scope activity"
+		events = append(events, event)
+	}
+	for i := range events {
+		events[i].SourceLineNo = i + 1
+		events[i].SourceOffset = int64(i * 10)
+	}
+
+	batch := store.RowBatch{ActivityEvents: events}
+	for _, event := range events {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	items := QueryRecentActivityFilteredByKindScoped(context.Background(), ch.DB, nil, []string{"message"}, APIScopeFilters{ProjectKeys: []string{"beacon"}})
+	if len(items) == 0 {
+		t.Fatalf("expected scoped project activity despite newer out-of-scope candidates")
+	}
+	if items[0].ID != "activity-in-message" || items[0].SessionID != inScopeID {
+		t.Fatalf("activity = %#v, want in-scope message first", items)
+	}
+	for _, item := range items {
+		if item.SessionID == outScopeID {
+			t.Fatalf("out-of-scope activity leaked into project-scoped result: %#v", items)
+		}
+	}
+}
+
+func TestRecentActivityProjectScopeUsesLatestReplayedEvent(t *testing.T) {
+	ch := setupLiveWebStore(t)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	sessionID := "activity-project-replay"
+	event := liveEvent("activity-project-replayed", sessionID, "message", "assistant", now, "openai", "gpt-5", "", 1, 1, 0)
+	event.CWD = "/Users/example/projects/beacon"
+	event.TextPreview = "replayed project activity"
+	if err := ch.Flush(context.Background(), store.RowBatch{
+		ActivityEvents: []models.Event{event},
+		RawRecords:     []models.RawRecord{store.NewRawRecord(event)},
+	}); err != nil {
+		t.Fatalf("initial flush: %v", err)
+	}
+
+	time.Sleep(5 * time.Millisecond)
+	replayed := event
+	replayed.CWD = "/Users/example/projects/other"
+	replayed.SourceOffset = 10
+	if err := ch.Flush(context.Background(), store.RowBatch{
+		ActivityEvents: []models.Event{replayed},
+		RawRecords:     []models.RawRecord{store.NewRawRecord(replayed)},
+	}); err != nil {
+		t.Fatalf("replay flush: %v", err)
+	}
+
+	items := QueryRecentActivityFilteredByKindScoped(context.Background(), ch.DB, nil, []string{"message"}, APIScopeFilters{ProjectKeys: []string{"beacon"}})
+	for _, item := range items {
+		if item.ID == event.EventUID {
+			t.Fatalf("stale beacon-scoped activity leaked after replay: %#v", items)
+		}
+	}
+	items = QueryRecentActivityFilteredByKindScoped(context.Background(), ch.DB, nil, []string{"message"}, APIScopeFilters{ProjectKeys: []string{"other"}})
+	if len(items) == 0 || items[0].ID != event.EventUID {
+		t.Fatalf("other-scoped replayed activity = %#v, want %s first", items, event.EventUID)
+	}
+}
+
 func liveEvent(uid, sessionID, kind, role string, ts time.Time, provider, model, tool string, input, output, duration int64) models.Event {
 	return models.Event{
 		EventUID:     uid,
@@ -460,6 +873,25 @@ func modelTokenTotal(items []views.ModelTokens, model string) int64 {
 		}
 	}
 	return 0
+}
+
+func apiModelTokenTotal(items []APITokensByModel, model string) int64 {
+	for _, item := range items {
+		if item.Model == model {
+			return item.TotalTokens
+		}
+	}
+	return 0
+}
+
+func tokenMinuteTotals(points []APITokensPerMinute) (int64, int) {
+	var tokenSum int64
+	var callSum int
+	for _, point := range points {
+		tokenSum += point.TotalTokens
+		callSum += point.CallCount
+	}
+	return tokenSum, callSum
 }
 
 func containsSession(items []APISessionSummary, id string) bool {
@@ -520,6 +952,24 @@ func metricSeriesTotal(datasets []views.ModelSeriesDataset) float64 {
 
 func recordAPIResponse(t *testing.T, handler http.HandlerFunc, target string, routeParams ...string) string {
 	t.Helper()
+	rec := recordAPI(t, handler, target, routeParams...)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%s returned %d: %s", target, rec.Code, rec.Body.String())
+	}
+	return rec.Body.String()
+}
+
+func recordAPIStatus(t *testing.T, handler http.HandlerFunc, target string, want int, routeParams ...string) string {
+	t.Helper()
+	rec := recordAPI(t, handler, target, routeParams...)
+	if rec.Code != want {
+		t.Fatalf("%s returned %d, want %d: %s", target, rec.Code, want, rec.Body.String())
+	}
+	return rec.Body.String()
+}
+
+func recordAPI(t *testing.T, handler http.HandlerFunc, target string, routeParams ...string) *httptest.ResponseRecorder {
+	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, target, nil)
 	if len(routeParams)%2 != 0 {
 		t.Fatalf("route params must be key/value pairs")
@@ -534,8 +984,5 @@ func recordAPIResponse(t *testing.T, handler http.HandlerFunc, target string, ro
 
 	rec := httptest.NewRecorder()
 	handler(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("%s returned %d: %s", target, rec.Code, rec.Body.String())
-	}
-	return rec.Body.String()
+	return rec
 }

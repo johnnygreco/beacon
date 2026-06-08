@@ -129,6 +129,36 @@ func TestDashboardSearch_FilterOnlyUsesBrowseAndExpandsErrors(t *testing.T) {
 	}
 }
 
+func TestDashboardSearchPropagatesScopeFilters(t *testing.T) {
+	fake := &fakeAPISearcher{
+		results: []search.SearchResult{{EventUID: "event-1", SessionID: "session-1", EventKind: "message"}},
+	}
+	handlers := &APIHandlers{searcher: fake, logger: testLogger()}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/api/dashboard/search?q=dashboard&collector_id=collector-a&source_id=source-a&runtime=codex&project_key=beacon", nil)
+	handlers.GetDashboardSearch(w, r)
+
+	if fake.searchCalls != 1 {
+		t.Fatalf("search calls = %d, want 1", fake.searchCalls)
+	}
+	if fmt.Sprint(fake.query.CollectorIDs) != "[collector-a]" || fmt.Sprint(fake.query.SourceIDs) != "[source-a]" ||
+		fmt.Sprint(fake.query.Runtimes) != "[codex]" || fmt.Sprint(fake.query.ProjectKeys) != "[beacon]" {
+		t.Fatalf("scope not propagated to search query: %#v", fake.query)
+	}
+
+	var got APIDashboardSearchResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if got.Scope.AuthScopeApplied {
+		t.Fatalf("auth scope should be false for query-param scope")
+	}
+	if fmt.Sprint(got.Scope.Filters.CollectorIDs) != "[collector-a]" || fmt.Sprint(got.Scope.Filters.ProjectKeys) != "[beacon]" {
+		t.Fatalf("response scope = %#v, want echoed filters", got.Scope)
+	}
+}
+
 func TestDashboardSearchSessionResultFormatsMetadataMatch(t *testing.T) {
 	session := views.SessionSummary{
 		ID:          "session-meta-001",

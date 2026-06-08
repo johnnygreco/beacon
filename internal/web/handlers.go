@@ -43,10 +43,16 @@ func (h *Handlers) Sessions(w http.ResponseWriter, r *http.Request) {
 // The conversation trace is loaded lazily via SessionConversation.
 func (h *Handlers) SessionDetail(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	data, err := QuerySessionDetail(r.Context(), h.db, id)
+	scope := parseAPIScopeFilters(r.URL.Query())
+	data, err := QuerySessionDetailScoped(r.Context(), h.db, id, scope)
 	if err != nil {
 		http.Error(w, "Session not found", http.StatusNotFound)
 		return
+	}
+	data.ScopeQuery = scopeQueryString(r.URL.Query())
+	data.Session.ScopeQuery = data.ScopeQuery
+	for i := range data.Session.ChildSessions {
+		data.Session.ChildSessions[i].ScopeQuery = data.ScopeQuery
 	}
 	if err := pages.SessionDetail(data).Render(r.Context(), w); err != nil {
 		h.logger.Debug("render session detail failed", "error", err)
@@ -57,9 +63,14 @@ func (h *Handlers) SessionDetail(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) SessionConversation(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	id := chi.URLParam(r, "id")
-	chatTurns, turns := QuerySessionConversation(r.Context(), h.db, id)
-	childSessions := QueryChildSessions(r.Context(), h.db, id)
-	ctx := views.ChatContext{ChildSessions: childSessions}
+	scope := parseAPIScopeFilters(r.URL.Query())
+	scopeQuery := scopeQueryString(r.URL.Query())
+	chatTurns, turns := QuerySessionConversationScoped(r.Context(), h.db, id, scope)
+	childSessions := QueryChildSessionsScoped(r.Context(), h.db, id, scope)
+	for i := range childSessions {
+		childSessions[i].ScopeQuery = scopeQuery
+	}
+	ctx := views.ChatContext{ChildSessions: childSessions, ScopeQuery: scopeQuery}
 	if err := partials.SessionConversationWithContext(chatTurns, turns, ctx).Render(r.Context(), w); err != nil {
 		h.logger.Debug("render conversation failed", "error", err)
 	}

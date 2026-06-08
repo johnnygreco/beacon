@@ -38,6 +38,16 @@ func QueryDashboardData(ctx context.Context, db *sql.DB) views.DashboardData {
 
 // QueryTokensByModelSummary returns token counts broken down by model.
 func QueryTokensByModelSummary(ctx context.Context, db *sql.DB) []views.ModelTokens {
+	return QueryTokensByModelSummaryScoped(ctx, db, APIScopeFilters{})
+}
+
+func QueryTokensByModelSummaryScoped(ctx context.Context, db *sql.DB, scope APIScopeFilters) []views.ModelTokens {
+	where := "model IS NOT NULL AND model != '' AND model != '<synthetic>'"
+	args := []any{}
+	if clause, scopeArgs := scope.sqlAndClause(""); clause != "" {
+		where += clause
+		args = append(args, scopeArgs...)
+	}
 	rows, err := db.QueryContext(ctx,
 		`SELECT COALESCE(model, 'unknown'),
 		        COALESCE(provider, ''),
@@ -46,10 +56,10 @@ func QueryTokensByModelSummary(ctx context.Context, db *sql.DB) []views.ModelTok
 		        COALESCE(SUM(cache_read_tokens), 0),
 		        COALESCE(SUM(total_tokens), 0)
 		 FROM `+analyticsProjectionSQL+`
-		 WHERE model IS NOT NULL AND model != '' AND model != '<synthetic>'
+		 WHERE `+where+`
 		 GROUP BY provider, model
 		 ORDER BY COALESCE(SUM(total_tokens), 0) DESC
-		 LIMIT 10`)
+		 LIMIT 10`, args...)
 	if err != nil {
 		logQueryError("tokens by model summary", err)
 		return nil
@@ -94,11 +104,16 @@ type dashboardModelKey struct {
 // dashboard charts. Tokens and activity metrics remain per bucket so volume,
 // rates, and spikes stay visible inside the selected range.
 func QueryDashboardModelAnalytics(ctx context.Context, db *sql.DB, since *time.Time, rangeVal string) (views.ModelSeriesChart, views.ModelMetricChart) {
+	return QueryDashboardModelAnalyticsScoped(ctx, db, since, rangeVal, APIScopeFilters{})
+}
+
+func QueryDashboardModelAnalyticsScoped(ctx context.Context, db *sql.DB, since *time.Time, rangeVal string, scope APIScopeFilters) (views.ModelSeriesChart, views.ModelMetricChart) {
 	bucketMinutes := dashboardBucketMinutes(rangeVal)
 	timeUnit := dashboardTimeUnit(bucketMinutes)
 	tokenChart, metricChart := emptyDashboardModelCharts(bucketMinutes, timeUnit)
 
 	rangeSessionFilter := "WHERE model != '<synthetic>'"
+	sessionAnalyticsScopeClause := ""
 	rangeResultFilter := ""
 	args := []any{}
 	if since != nil {
@@ -106,6 +121,16 @@ func QueryDashboardModelAnalytics(ctx context.Context, db *sql.DB, since *time.T
 		args = append(args, *since)
 		rangeResultFilter = "WHERE a.minute >= ?"
 	}
+	if clause, scopeArgs := scope.sqlAndClause(""); clause != "" {
+		rangeSessionFilter += clause
+		args = append(args, scopeArgs...)
+	}
+	sessionAnalyticsScopeArgs := []any{}
+	if clause, scopeArgs := scope.sqlAndClause(""); clause != "" {
+		sessionAnalyticsScopeClause = clause
+		sessionAnalyticsScopeArgs = scopeArgs
+	}
+	args = append(args, sessionAnalyticsScopeArgs...)
 
 	query := fmt.Sprintf(`WITH range_sessions AS (
 			SELECT session_id
@@ -118,6 +143,7 @@ func QueryDashboardModelAnalytics(ctx context.Context, db *sql.DB, since *time.T
 			FROM `+analyticsProjectionSQL+`
 			WHERE model != '<synthetic>'
 			  AND session_id IN (SELECT session_id FROM range_sessions)
+			  %s
 		),
 		session_model_fallbacks AS (
 			SELECT session_id,
@@ -216,7 +242,7 @@ func QueryDashboardModelAnalytics(ctx context.Context, db *sql.DB, since *time.T
 			SELECT provider_key, model_key FROM top_models
 		  )
 		GROUP BY bucket, provider_key, model_key
-		ORDER BY bucket ASC`, rangeSessionFilter, rangeResultFilter, dashboardModelLimit, bucketMinutes)
+		ORDER BY bucket ASC`, rangeSessionFilter, sessionAnalyticsScopeClause, rangeResultFilter, dashboardModelLimit, bucketMinutes)
 	if since != nil {
 		args = append(args, *since)
 	}
@@ -448,20 +474,30 @@ func modelDisplayLabel(provider, model string, labelCounts map[string]int) strin
 
 // QueryDashboardMetrics returns the top-level metric cards.
 func QueryDashboardMetrics(ctx context.Context, db *sql.DB) []views.MetricData {
+	return QueryDashboardMetricsScoped(ctx, db, APIScopeFilters{})
+}
+
+func QueryDashboardMetricsScoped(ctx context.Context, db *sql.DB, scope APIScopeFilters) []views.MetricData {
 	var totalSessions, activeSessions int
 	var inputTokens, outputTokens, cacheReadTokens int64
 	var toolCalls, mcpCalls int
 	activeCutoff := time.Now().Add(-idleThreshold)
+	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", scope)
+	scopeClause, scopeArgs := scope.withoutProjectKeys().sqlAndClause("")
+	args := activeSessionPredicateArgs(scope, activeCutoff)
+	args = append(args, sourceArgs...)
+	args = append(args, scopeArgs...)
 
 	if err := db.QueryRowContext(ctx,
 		`SELECT count(),
-		        countIf(`+activeSessionPredicate()+`),
+		        countIf(`+activeSessionPredicateScoped(scope)+`),
 		        COALESCE(SUM(total_input_tokens), 0),
 		        COALESCE(SUM(total_output_tokens), 0),
 		        COALESCE(SUM(total_cache_read_tokens), 0),
 		        COALESCE(SUM(tool_call_count), 0),
 		        COALESCE(SUM(mcp_call_count), 0)
-		 FROM `+sessionProjectionSQL, activeCutoff, activeCutoff,
+		 FROM `+sessionSource+`
+		 WHERE 1 = 1`+scopeClause, args...,
 	).Scan(&totalSessions, &activeSessions, &inputTokens, &outputTokens, &cacheReadTokens, &toolCalls, &mcpCalls); err != nil {
 		logQueryError("dashboard metrics", err)
 		return nil

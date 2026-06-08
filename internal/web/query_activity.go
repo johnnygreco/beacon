@@ -63,22 +63,52 @@ func recentActivityKindFilter(eventKinds []string) (string, []any) {
 // When eventKinds is non-empty, only those event types are returned (enables server-side filtering
 // so that low-volume event types like errors aren't crowded out by high-volume types).
 func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *time.Time, eventKinds []string) []views.ActivityItem {
+	return QueryRecentActivityFilteredByKindScoped(ctx, db, since, eventKinds, APIScopeFilters{})
+}
+
+func QueryRecentActivityFilteredByKindScoped(ctx context.Context, db *sql.DB, since *time.Time, eventKinds []string, scope APIScopeFilters) []views.ActivityItem {
 	where, args := recentActivityKindFilter(eventKinds)
+	candidateWhere := where
+	candidateArgs := append([]any{}, args...)
 	if since != nil {
 		where += " AND ae.timestamp >= ?"
 		args = append(args, *since)
+		candidateWhere += " AND ae.timestamp >= ?"
+		candidateArgs = append(candidateArgs, *since)
+	}
+	rawScope := scope.withoutProjectKeys()
+	if clause, scopeArgs := rawScope.eventSQLAndClause("ae", ""); clause != "" {
+		where += clause
+		args = append(args, scopeArgs...)
+		candidateWhere += clause
+		candidateArgs = append(candidateArgs, scopeArgs...)
+	}
+	projectKeys := compactScopeValues(scope.ProjectKeys)
+	join := ""
+	if len(projectKeys) > 0 {
+		join = `LEFT JOIN ` + sessionProjectFallbackSubquery("") + ` AS s ON s.session_id = ae.session_id`
+		where += ` AND COALESCE(NULLIF(` + projectKeyExpr("ae.cwd") + `, ''), if(COALESCE(s.project_count, 0) <= 1, NULLIF(s.project_key, ''), '')) IN (` + sqlPlaceholders(len(projectKeys)) + `)`
+		for _, projectKey := range projectKeys {
+			args = append(args, projectKey)
+		}
 	}
 
-	query := `SELECT event_uid,
-		        event_kind,
+	query := `SELECT e.event_uid,
+		        e.event_kind,
 		        ` + activitySummaryExpr + ` AS summary,
-		        COALESCE(session_id, ''),
-		        COALESCE(provider, ''),
-		        timestamp
-		 FROM ` + recentActivityEventsSubquery(where)
+		        COALESCE(e.session_id, ''),
+		        COALESCE(e.node_id, ''),
+		        COALESCE(e.collector_id, ''),
+		        COALESCE(e.source_id, ''),
+		        COALESCE(e.source_name, ''),
+		        COALESCE(e.runtime, ''),
+		        COALESCE(e.provider, ''),
+		        e.timestamp
+		 FROM ` + recentActivityEventsJoinedSubquery(where, join, candidateWhere) + ` AS e`
 	query += ` ORDER BY timestamp DESC LIMIT 200`
 
-	rows, err := db.QueryContext(ctx, query, args...)
+	queryArgs := append(candidateArgs, args...)
+	rows, err := db.QueryContext(ctx, query, queryArgs...)
 	if err != nil {
 		logQueryError("recent activity", err)
 		return nil
@@ -88,7 +118,8 @@ func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *t
 	var items []views.ActivityItem
 	for rows.Next() {
 		var item views.ActivityItem
-		if err := rows.Scan(&item.ID, &item.Type, &item.Summary, &item.SessionID, &item.Provider, &item.Timestamp); err != nil {
+		if err := rows.Scan(&item.ID, &item.Type, &item.Summary, &item.SessionID, &item.NodeID,
+			&item.CollectorID, &item.SourceID, &item.SourceName, &item.Runtime, &item.Provider, &item.Timestamp); err != nil {
 			logQueryScanError("recent activity", err)
 			continue
 		}

@@ -12,14 +12,29 @@ import (
 // QuerySessionDetail returns header, chart, and tool data for a session.
 // The conversation trace is loaded separately via QuerySessionConversation.
 func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.SessionDetailData, error) {
+	return QuerySessionDetailScoped(ctx, db, id, APIScopeFilters{})
+}
+
+func QuerySessionDetailScoped(ctx context.Context, db *sql.DB, id string, scope APIScopeFilters) (views.SessionDetailData, error) {
 	var data views.SessionDetailData
 	now := time.Now()
 	activeCutoff := now.Add(-idleThreshold)
 
 	// Session info from view
+	sessionWhere := "session_id = ?"
+	sessionArgs := []any{id}
+	sessionScope := scope.withoutProjectKeys()
+	if clause, scopeArgs := sessionScope.sqlAndClause(""); clause != "" {
+		sessionWhere += clause
+		sessionArgs = append(sessionArgs, scopeArgs...)
+	}
+	sessionSource, sourceArgs := sessionProjectionSubqueryForScopeWithPrefilter(sessionWhere, "ae.session_id = ?", []any{id}, scope)
+	queryArgs := reopenedFlagArgs(scope, activeCutoff)
+	queryArgs = append(queryArgs, sourceArgs...)
+	queryArgs = append(queryArgs, sessionArgs...)
 	row := db.QueryRowContext(ctx,
-		`SELECT `+sessionSummaryColumnsWithReopenedFlag()+`
-		 FROM `+sessionProjectionSubquery("session_id = ?"), activeCutoff, id)
+		`SELECT `+sessionSummaryColumnsWithReopenedFlagScoped(scope)+`
+		 FROM `+sessionSource, queryArgs...)
 	session, err := scanSessionSummaryIncludingReopened(row, now)
 	if err != nil {
 		return data, err
@@ -27,16 +42,26 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 	data.Session = session
 
 	// Query child subagent sessions
-	data.Session.ChildSessions = QueryChildSessions(ctx, db, id)
+	data.Session.ChildSessions = QueryChildSessionsScoped(ctx, db, id, scope)
 
 	// Single CTE query for chart, tool stats, and model breakdown
 	data.TokensChart = views.MultiSeriesChart{
 		Datasets: []views.ChartDataset{{Label: "Total Tokens"}},
 	}
 
+	analyticsWhere := "session_id = ?"
+	analyticsArgs := []any{id}
+	if clause, scopeArgs := scope.sqlAndClause(""); clause != "" {
+		analyticsWhere += clause
+		analyticsArgs = append(analyticsArgs, scopeArgs...)
+	}
+	analyticsSourceArgs := []any{id, id}
+	analyticsSourceArgs = append(analyticsSourceArgs, analyticsArgs...)
+	analyticsArgs = analyticsSourceArgs
+	analyticsArgs = append(analyticsArgs, session.Provider)
 	rows, err := db.QueryContext(ctx,
 		`WITH session_analytics AS (
-			SELECT * FROM `+analyticsProjectionSubquery("session_id = ?")+`
+			SELECT * FROM `+analyticsProjectionSubqueryWithLatestWhere(analyticsWhere, "session_id = ?")+`
 		),
 		token_series AS (
 			SELECT minute AS timestamp, sum(total_tokens) AS tokens_total
@@ -77,7 +102,7 @@ func QuerySessionDetail(ctx context.Context, db *sql.DB, id string) (views.Sessi
 		UNION ALL
 		SELECT 'tool', toDateTime64(0, 3), toInt64(0), tool_name, toInt64(calls), toFloat64(avg_duration), '', '', toInt64(0), toInt64(0), toInt64(0) FROM tool_stats
 		UNION ALL
-		SELECT 'model', toDateTime64(0, 3), toInt64(total), '', toInt64(0), toFloat64(0), model, provider, toInt64(input), toInt64(output), toInt64(cache_read) FROM model_breakdown`, id, session.Provider)
+		SELECT 'model', toDateTime64(0, 3), toInt64(total), '', toInt64(0), toFloat64(0), model, provider, toInt64(input), toInt64(output), toInt64(cache_read) FROM model_breakdown`, analyticsArgs...)
 	if err != nil {
 		logQueryError("session detail analytics", err)
 		return data, nil // Return partial data on query error

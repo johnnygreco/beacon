@@ -134,7 +134,7 @@ async function toggleJSONSubagents(button) {
 	}
 	button.querySelector('svg').style.transform = 'rotate(90deg)';
 	button.setAttribute('aria-expanded', 'true');
-	var res = await fetch('/api/sessions/' + encodeURIComponent(sessionID) + '/subagents', {headers: {'Accept': 'application/json'}});
+	var res = await fetch(requestURL('/api/sessions/' + encodeURIComponent(sessionID) + '/subagents', {}), {headers: {'Accept': 'application/json'}});
 	if (!res.ok) {
 		button.querySelector('svg').style.transform = '';
 		button.setAttribute('aria-expanded', 'false');

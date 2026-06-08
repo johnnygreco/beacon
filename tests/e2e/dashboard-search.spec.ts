@@ -190,6 +190,19 @@ test.describe('dashboard search workflows', () => {
     expect(searchRequests).toEqual([]);
   });
 
+  test('treats scope-only dashboard search requests as active filtered searches', async ({ page }) => {
+    await installDashboardFixtures(page);
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+
+    const payload = await page.evaluate(async () => {
+      const response = await fetch('/api/dashboard/search?project_key=beacon');
+      return response.json();
+    });
+
+    expect(payload.state).toBe('ready');
+    expect(payload.scope.filters.project_keys).toEqual(['beacon']);
+  });
+
   test('ignores stale search sort params when no table filter is active', async ({ page }) => {
     await installDashboardFixtures(page);
     const searchRequests: string[] = [];

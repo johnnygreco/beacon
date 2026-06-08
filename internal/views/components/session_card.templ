@@ -2,11 +2,21 @@ package components
 
 import (
 	"fmt"
+	"strings"
 	"github.com/johnnygreco/beacon/internal/views"
 )
 
+func sessionCardPath(id string, queryParts ...string) string {
+	for _, query := range queryParts {
+		if strings.TrimSpace(query) != "" {
+			return fmt.Sprintf("/sessions/%s?%s", id, query)
+		}
+	}
+	return fmt.Sprintf("/sessions/%s", id)
+}
+
 templ SessionCard(s views.SessionSummary) {
-	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="block bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-blue-500/70 hover:shadow-lg hover:shadow-blue-500/5 transition-all cursor-pointer">
+	<a href={ templ.SafeURL(sessionCardPath(s.ID, s.ScopeQuery)) } class="block bg-gray-800 rounded-lg p-4 border border-gray-700 hover:border-blue-500/70 hover:shadow-lg hover:shadow-blue-500/5 transition-all cursor-pointer">
 		<div class="flex items-center justify-between mb-1">
 			<span class="font-medium text-gray-100 truncate">{ views.SessionTitle(s, false) }</span>
 			if s.Status == "active" {
@@ -57,7 +67,7 @@ templ ActiveSessionCard(s views.SessionSummary) {
 
 templ parentActiveCard(s views.SessionSummary) {
 	<div class={ "rounded-lg overflow-hidden border-l-2", templ.KV("bg-gray-800/60 border-green-500/50", s.Status == "active"), templ.KV("bg-gray-800/40 border-red-500/30 border-dashed", s.Status == "idle") }>
-		<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="block px-4 py-3 hover:bg-gray-700/20 transition-colors">
+		<a href={ templ.SafeURL(sessionCardPath(s.ID, s.ScopeQuery)) } class="block px-4 py-3 hover:bg-gray-700/20 transition-colors">
 			<div class="flex items-center justify-between">
 				<div class="flex items-center gap-2 min-w-0">
 					if s.Status == "active" {
@@ -104,7 +114,7 @@ templ parentActiveCard(s views.SessionSummary) {
 					{ views.Pluralize(len(s.ChildSessions), "subagent") }
 				</div>
 				for _, child := range s.ChildSessions {
-					<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", child.ID)) }
+					<a href={ templ.SafeURL(sessionCardPath(child.ID, child.ScopeQuery, s.ScopeQuery)) }
 					   class="flex items-center gap-2 text-xs py-1 px-2 -mx-1 rounded hover:bg-gray-700/30 transition-colors">
 						<span class="w-1.5 h-1.5 rounded-full bg-blue-400/50 flex-shrink-0"></span>
 						<span class="text-gray-500 font-mono flex-shrink-0">{ views.TruncateID(child.ID) }</span>
@@ -124,7 +134,7 @@ templ parentActiveCard(s views.SessionSummary) {
 }
 
 templ orphanSubagentCard(s views.SessionSummary) {
-	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class={ "block rounded-lg overflow-hidden bg-gray-800/40 border-l-2 px-4 py-3 hover:bg-gray-700/20 transition-colors", templ.KV("border-blue-500/50", s.Status == "active"), templ.KV("border-red-500/40", s.Status == "idle") }>
+	<a href={ templ.SafeURL(sessionCardPath(s.ID, s.ScopeQuery)) } class={ "block rounded-lg overflow-hidden bg-gray-800/40 border-l-2 px-4 py-3 hover:bg-gray-700/20 transition-colors", templ.KV("border-blue-500/50", s.Status == "active"), templ.KV("border-red-500/40", s.Status == "idle") }>
 		<div class="flex items-center justify-between">
 			<div class="flex items-center gap-2 min-w-0">
 				if s.Status == "active" {
@@ -161,7 +171,7 @@ templ orphanSubagentCard(s views.SessionSummary) {
 }
 
 templ SubagentSessionCard(s views.SessionSummary) {
-	<a href={ templ.SafeURL(fmt.Sprintf("/sessions/%s", s.ID)) } class="block bg-gray-900 rounded-lg p-4 border border-blue-500/20 hover:border-blue-400/50 hover:shadow-lg hover:shadow-blue-500/5 transition-all cursor-pointer">
+	<a href={ templ.SafeURL(sessionCardPath(s.ID, s.ScopeQuery)) } class="block bg-gray-900 rounded-lg p-4 border border-blue-500/20 hover:border-blue-400/50 hover:shadow-lg hover:shadow-blue-500/5 transition-all cursor-pointer">
 		<div class="flex items-center justify-between mb-2">
 			<div class="flex items-center gap-2">
 				<svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -209,4 +219,3 @@ templ providerBadge(provider string) {
 		<span class={ "px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded", views.ProviderBadgeClasses(provider) } title={ views.ProviderLabel(provider) }>{ views.ProviderShort(provider) }</span>
 	}
 }
-

@@ -84,6 +84,7 @@ func parseAPICSVParam(values url.Values, name string) []string {
 
 type sessionsAPIRequest struct {
 	Limit int
+	Scope APIScopeFilters
 }
 
 func parseSessionsAPIRequest(values url.Values) (sessionsAPIRequest, error) {
@@ -93,7 +94,7 @@ func parseSessionsAPIRequest(values url.Values) (sessionsAPIRequest, error) {
 		Min:     1,
 		Max:     maxSessionsAPILimit,
 	})
-	return sessionsAPIRequest{Limit: limit}, err
+	return sessionsAPIRequest{Limit: limit, Scope: parseAPIScopeFilters(values)}, err
 }
 
 type dashboardSessionsAPIRequest struct {
@@ -105,6 +106,7 @@ type dashboardSessionsAPIRequest struct {
 	SortAsc   bool
 	Offset    int
 	Limit     int
+	Scope     APIScopeFilters
 }
 
 func parseDashboardSessionsAPIRequest(values url.Values) (dashboardSessionsAPIRequest, error) {
@@ -135,6 +137,7 @@ func parseDashboardSessionsAPIRequest(values url.Values) (dashboardSessionsAPIRe
 		SortAsc:   strings.EqualFold(strings.TrimSpace(values.Get("direction")), "asc"),
 		Offset:    offset,
 		Limit:     limit,
+		Scope:     parseAPIScopeFilters(values),
 	}, nil
 }
 
@@ -145,6 +148,7 @@ type dashboardSearchAPIRequest struct {
 	SessionID string
 	SortBy    string
 	Limit     int
+	Scope     APIScopeFilters
 }
 
 func parseDashboardSearchAPIRequest(values url.Values) (dashboardSearchAPIRequest, error) {
@@ -169,17 +173,19 @@ func parseDashboardSearchAPIRequest(values url.Values) (dashboardSearchAPIReques
 		SessionID: strings.TrimSpace(values.Get("session_id")),
 		SortBy:    sortBy,
 		Limit:     limit,
+		Scope:     parseAPIScopeFilters(values),
 	}, nil
 }
 
 func (r dashboardSearchAPIRequest) active() bool {
-	return r.Query != "" || r.Range != "" || r.EventKind != "" || r.SessionID != ""
+	return r.Query != "" || r.Range != "" || r.EventKind != "" || r.SessionID != "" || len(r.Scope.NodeIDs) > 0 || len(r.Scope.CollectorIDs) > 0 || len(r.Scope.SourceIDs) > 0 || len(r.Scope.SourceNames) > 0 || len(r.Scope.Runtimes) > 0 || len(r.Scope.ProjectKeys) > 0
 }
 
 type activityAPIRequest struct {
 	Range      string
 	Since      *time.Time
 	EventKinds []string
+	Scope      APIScopeFilters
 }
 
 func parseActivityAPIRequest(values url.Values) activityAPIRequest {
@@ -188,15 +194,17 @@ func parseActivityAPIRequest(values url.Values) activityAPIRequest {
 		Range:      rangeVal,
 		Since:      parseRange(rangeVal),
 		EventKinds: parseAPICSVParam(values, "event_kind"),
+		Scope:      parseAPIScopeFilters(values),
 	}
 }
 
 type dashboardChartsAPIRequest struct {
 	Range string
+	Scope APIScopeFilters
 }
 
 func parseDashboardChartsAPIRequest(values url.Values) dashboardChartsAPIRequest {
-	return dashboardChartsAPIRequest{Range: parseAPIRangeParam(values, "", "chart_range", "range")}
+	return dashboardChartsAPIRequest{Range: parseAPIRangeParam(values, "", "chart_range", "range"), Scope: parseAPIScopeFilters(values)}
 }
 
 type sessionEventsAPIRequest struct {
@@ -227,6 +235,7 @@ func parseSessionEventsAPIRequest(values url.Values) (sessionEventsAPIRequest, e
 type searchEventsAPIRequest struct {
 	Query string
 	Limit int
+	Scope APIScopeFilters
 }
 
 func parseSearchEventsAPIRequest(values url.Values) (searchEventsAPIRequest, error) {
@@ -243,5 +252,5 @@ func parseSearchEventsAPIRequest(values url.Values) (searchEventsAPIRequest, err
 	if err != nil {
 		return searchEventsAPIRequest{}, err
 	}
-	return searchEventsAPIRequest{Query: query, Limit: limit}, nil
+	return searchEventsAPIRequest{Query: query, Limit: limit, Scope: parseAPIScopeFilters(values)}, nil
 }

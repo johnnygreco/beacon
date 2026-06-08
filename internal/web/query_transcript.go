@@ -13,13 +13,39 @@ import (
 
 // QuerySessionConversation returns the conversation trace for a session.
 func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]views.ChatTurn, []views.TurnDetail) {
+	return QuerySessionConversationScoped(ctx, db, id, APIScopeFilters{})
+}
+
+func QuerySessionConversationScoped(ctx context.Context, db *sql.DB, id string, scope APIScopeFilters) ([]views.ChatTurn, []views.TurnDetail) {
+	sessionScope := scope.withoutProjectKeys()
+	sessionScopeClause := ""
+	sessionScopeArgs := []any{}
+	scopedSessionSQL := "SELECT ? AS session_id"
+	if len(compactScopeValues(scope.ProjectKeys)) == 0 {
+		sessionScopeClause, sessionScopeArgs = sessionScope.sqlAndClause("")
+		scopedSessionSQL = `SELECT session_id
+			FROM session_projection FINAL
+			WHERE session_id = ?` + sessionScopeClause + `
+			LIMIT 1`
+	}
+	args := []any{id}
+	if len(sessionScopeArgs) > 0 {
+		args = append(args, sessionScopeArgs...)
+	}
+	eventScopeClause, eventScopeArgs := scope.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
+	args = append(args, eventScopeArgs...)
 	traceRows, err := db.QueryContext(ctx,
-		`WITH trace AS (
+		`WITH scoped_session AS (
+			`+scopedSessionSQL+`
+		),
+		trace AS (
 			SELECT e.*,
 			       row_number() OVER (PARTITION BY session_id ORDER BY timestamp, event_uid) AS event_order,
 			       sum(if(event_kind = 'message' AND actor_role = 'user', 1, 0))
 			         OVER (PARTITION BY session_id ORDER BY timestamp, event_uid) AS turn_seq
-			FROM `+latestActivityEventsSubquery("ae.session_id = ?")+` e
+			FROM `+latestActivityEventsSubquery("ae.session_id IN (SELECT session_id FROM scoped_session)")+` e
+			LEFT JOIN `+sessionProjectFallbackSubquery("ae.session_id IN (SELECT session_id FROM scoped_session)")+` AS s ON s.session_id = e.session_id
+			WHERE 1 = 1`+eventScopeClause+`
 		),
 		payload_previews AS (
 			SELECT event_uid,
@@ -37,7 +63,7 @@ func QuerySessionConversation(ctx context.Context, db *sql.DB, id string) ([]vie
 		        '' AS input_json, '' AS output_json
 		 FROM trace e
 		 LEFT JOIN payload_previews tio ON e.event_uid = tio.event_uid
-		 ORDER BY event_order`, id)
+		 ORDER BY event_order`, args...)
 	if err != nil {
 		logQueryError("session conversation", err)
 		return nil, nil

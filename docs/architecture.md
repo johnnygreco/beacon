@@ -9,8 +9,8 @@ coding-agent sessions. The runtime shape is intentionally simple:
    source format into `NormalizedEvent` values.
 3. The capture batcher converts normalized events into storage rows and flushes
    them through `internal/store`.
-4. `internal/store` inserts raw records, canonical activity events, tool
-   payloads, search rows, and refreshed projections into ClickHouse.
+4. `internal/store` inserts raw records, canonical activity events, and tool
+   payloads, refreshes projections, then refreshes search rows into ClickHouse.
 5. `internal/web`, `internal/search`, and `internal/mcp` read from those tables
    and projections to serve the dashboard, JSON APIs, search, and MCP tools.
 6. `internal/web.Updater` and `internal/sse` notify connected browsers after
@@ -26,8 +26,8 @@ Configured source files
   -> capture.Batcher
   -> store.RowBatch
   -> ClickHouse raw_records, activity_events, event_links, tool_payloads
-  -> ingest-time search_documents and search_postings
   -> refreshed session_projection and analytics_projection
+  -> ingest-time search_documents and search_postings
   -> web query handlers, search.Searcher, and MCP tools
   -> SSE invalidation for open dashboard/session pages
 ```
@@ -141,11 +141,12 @@ Projection tables summarize the event stream for fast UI/API reads:
   model, tool, and event kind.
 
 `store.Flush` inserts the batch tables first. When activity events were written,
-it builds search documents/postings from event text and tool previews, inserts
-those rows, and refreshes `session_projection` and `analytics_projection` for
-only the affected session IDs. The projection tables use `ReplacingMergeTree`
-plus `argMax` query patterns so repeated deterministic event inserts and
-projection refreshes remain idempotent.
+it refreshes `session_projection` and `analytics_projection` for only the
+affected session IDs, then refreshes search documents/postings from the latest
+event text, tool previews, and current session project fallback metadata. The
+projection tables use `ReplacingMergeTree`, `argMax` query patterns, and an
+analytics refresh id filter so repeated deterministic event inserts and
+projection refreshes remain idempotent without per-flush delete mutations.
 
 ### 5. Query and rendering paths
 
