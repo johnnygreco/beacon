@@ -224,7 +224,7 @@ func (s *Store) CompleteEnrollment(ctx context.Context, enrollPlaintext string, 
 	return &EnrollmentResult{Snapshot: snapshot, IngestToken: *ingest}, nil
 }
 
-func (s *Store) CompleteRemoteEnrollment(ctx context.Context, enrollPlaintext string, boot Bootstrap) (*EnrollmentResult, error) {
+func (s *Store) CompleteRemoteEnrollment(ctx context.Context, enrollPlaintext, existingIngestPlaintext string, boot Bootstrap) (*EnrollmentResult, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("control-plane metadata store is nil")
 	}
@@ -264,9 +264,21 @@ func (s *Store) CompleteRemoteEnrollment(ctx context.Context, enrollPlaintext st
 	if affected != 1 {
 		return nil, ErrTokenUsed
 	}
-	assignedBoot, err := ensureRemoteRegistrationTx(ctx, tx, boot, now)
+	assignedBoot, existingCollector, err := ensureRemoteRegistrationTx(ctx, tx, boot, now)
 	if err != nil {
 		return nil, err
+	}
+	if existingCollector {
+		if _, err := authenticateToken(ctx, tx, AuthenticateTokenRequest{
+			Plaintext:        existingIngestPlaintext,
+			AllowedTypes:     []string{TokenTypeIngest},
+			RequiredScopes:   []string{ScopeIngest},
+			NodeID:           assignedBoot.NodeID,
+			CollectorID:      assignedBoot.CollectorID,
+			SkipBindingCheck: true,
+		}, now); err != nil {
+			return nil, err
+		}
 	}
 	snapshot, err := snapshotFromQueryer(ctx, s.path, tx)
 	if err != nil {
@@ -275,6 +287,11 @@ func (s *Store) CompleteRemoteEnrollment(ctx context.Context, enrollPlaintext st
 	nodeID, collectorID, sourceIDs, err := assignmentForEnrollment(snapshot, assignedBoot)
 	if err != nil {
 		return nil, err
+	}
+	if existingCollector {
+		if err := revokeActiveIngestTokensForCollector(ctx, tx, collectorID, now); err != nil {
+			return nil, err
+		}
 	}
 	ingest, err := insertToken(ctx, tx, CreateTokenRequest{
 		Type:        TokenTypeIngest,
@@ -395,6 +412,27 @@ func insertToken(ctx context.Context, tx *sql.Tx, req CreateTokenRequest, now ti
 		return nil, fmt.Errorf("insert token %q: %w", record.ID, err)
 	}
 	return &CreatedToken{Record: record, Plaintext: plain}, nil
+}
+
+func revokeActiveIngestTokensForCollector(ctx context.Context, tx *sql.Tx, collectorID string, now time.Time) error {
+	collectorID = strings.TrimSpace(collectorID)
+	if collectorID == "" {
+		return fmt.Errorf("collector id is required")
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tokens
+		 SET status = ?, revoked_at = ?, updated_at = ?
+		 WHERE token_type = ? AND collector_id = ? AND status = ?`,
+		TokenStatusRevoked,
+		formatTime(now),
+		formatTime(now),
+		TokenTypeIngest,
+		collectorID,
+		TokenStatusActive,
+	); err != nil {
+		return fmt.Errorf("revoke active ingest tokens for collector %q: %w", collectorID, err)
+	}
+	return nil
 }
 
 func authenticateToken(ctx context.Context, q tokenQueryer, req AuthenticateTokenRequest, now time.Time) (*TokenRecord, error) {

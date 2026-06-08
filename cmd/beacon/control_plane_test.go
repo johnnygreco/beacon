@@ -81,6 +81,37 @@ func TestInitializeControlPlaneCreatesSnapshot(t *testing.T) {
 	}
 }
 
+func TestInitializeControlPlaneRoleDoesNotCreateLocalCollector(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control-plane.db")
+	cfg := &config.Config{
+		Fleet: config.FleetConfig{
+			Role:         config.FleetRoleControlPlane,
+			MetadataPath: path,
+			NodeID:       "node-test",
+			NodeName:     "Test Node",
+			CollectorID:  "collector-test",
+		},
+		Capture: config.CaptureConfig{
+			Sources: []config.SourceConfig{
+				{Name: "claude", Runtime: "claude-code", Provider: "anthropic", Format: "jsonl", WatchRoot: "/tmp/claude"},
+			},
+		},
+	}
+
+	store, snapshot, err := initializeControlPlane(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("initializeControlPlane: %v", err)
+	}
+	defer store.Close()
+	if snapshot.SchemaEpoch != controlplane.InitialSchemaEpoch {
+		t.Fatalf("schema epoch = %q, want %q", snapshot.SchemaEpoch, controlplane.InitialSchemaEpoch)
+	}
+	if snapshot.LocalNodeID != "" || snapshot.LocalCollectorID != "" ||
+		len(snapshot.Nodes) != 0 || len(snapshot.Collectors) != 0 || len(snapshot.Sources) != 0 {
+		t.Fatalf("control-plane role snapshot created local collector data: %#v", snapshot)
+	}
+}
+
 func TestCaptureFleetIdentityOnlyUsesLocalCollectorSources(t *testing.T) {
 	snapshot := &controlplane.Snapshot{
 		LocalNodeID:      "node-local",

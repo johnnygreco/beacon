@@ -280,6 +280,24 @@ func TestRunRemoteEnrollPrintsConfigAndCollectorUsesAssignedMetadata(t *testing.
 	if string(secondToken) == string(firstToken) {
 		t.Fatal("second remote enrollment did not rotate ingest token")
 	}
+	serverSnapshot, err := control.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("server Snapshot after second enroll: %v", err)
+	}
+	firstSourceID := sourceIDByCollectorName(serverSnapshot, firstCollectorID, "codex")
+	if firstSourceID == "" {
+		t.Fatalf("server snapshot missing codex source for %s: %#v", firstCollectorID, serverSnapshot.Sources)
+	}
+	if _, err := control.AuthenticateToken(context.Background(), controlplane.AuthenticateTokenRequest{
+		Plaintext:      strings.TrimSpace(string(firstToken)),
+		AllowedTypes:   []string{controlplane.TokenTypeIngest},
+		RequiredScopes: []string{controlplane.ScopeIngest},
+		NodeID:         firstNodeID,
+		CollectorID:    firstCollectorID,
+		SourceID:       firstSourceID,
+	}); err == nil || !strings.Contains(err.Error(), controlplane.ErrTokenRevoked.Error()) {
+		t.Fatalf("old ingest token auth error = %v, want revoked", err)
+	}
 
 	cfg.Fleet.ControlPlaneURL = server.URL
 	service, cleanup, err := buildCollectorService(context.Background(), cfg, nil)
@@ -369,6 +387,18 @@ func withConfigFile(t *testing.T, path string) {
 	t.Cleanup(func() {
 		cfgFile = old
 	})
+}
+
+func sourceIDByCollectorName(snapshot *controlplane.Snapshot, collectorID, name string) string {
+	if snapshot == nil {
+		return ""
+	}
+	for _, source := range snapshot.Sources {
+		if source.CollectorID == collectorID && source.Name == name {
+			return source.ID
+		}
+	}
+	return ""
 }
 
 func tokensFromOutput(output string) []string {

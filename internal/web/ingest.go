@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -78,7 +79,7 @@ func (h *IngestHandlers) Enroll(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, "invalid ingest schema", http.StatusBadRequest)
 		return
 	}
-	result, err := h.control.CompleteRemoteEnrollment(r.Context(), token, controlplaneBootstrapFromEnroll(req.Bootstrap))
+	result, err := h.control.CompleteRemoteEnrollment(r.Context(), token, req.ExistingIngestToken, controlplaneBootstrapFromEnroll(req.Bootstrap))
 	if err != nil {
 		h.enrollmentError(w, err)
 		return
@@ -90,6 +91,7 @@ func (h *IngestHandlers) Enroll(w http.ResponseWriter, r *http.Request) {
 			CollectorID:       result.IngestToken.Record.CollectorID,
 			SourceIDs:         result.IngestToken.Record.SourceIDs,
 			ControlPlaneEpoch: result.Snapshot.SchemaEpoch,
+			Sources:           enrollmentSourceAssignments(result.Snapshot, result.IngestToken.Record.CollectorID),
 		},
 		IngestToken: result.IngestToken.Plaintext,
 	})
@@ -269,6 +271,26 @@ func controlplaneBootstrapFromEnroll(boot ingest.EnrollBootstrap) controlplane.B
 			WatchRoot: strings.TrimSpace(source.WatchRoot),
 		})
 	}
+	return out
+}
+
+func enrollmentSourceAssignments(snapshot *controlplane.Snapshot, collectorID string) []ingest.EnrollSourceAssignment {
+	if snapshot == nil || collectorID == "" {
+		return nil
+	}
+	var out []ingest.EnrollSourceAssignment
+	for _, source := range snapshot.Sources {
+		if source.CollectorID != collectorID {
+			continue
+		}
+		out = append(out, ingest.EnrollSourceAssignment{
+			Name:     source.Name,
+			SourceID: source.ID,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Name < out[j].Name
+	})
 	return out
 }
 

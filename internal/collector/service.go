@@ -489,10 +489,7 @@ func (s *Service) recoverSpooledStateFromSpool() error {
 		}
 		checkpoints = append(checkpoints, batch.Request.Checkpoints...)
 	}
-	if next == 0 && len(checkpoints) == 0 {
-		return nil
-	}
-	return s.cfg.State.MarkSpooled(next, checkpoints)
+	return s.cfg.State.ReplaceSpooled(next, checkpoints)
 }
 
 func enrichCollectorCheckpoints(cp *models.Checkpoint, identity capture.FleetIdentity, sourceName, sourceID string) []models.Checkpoint {

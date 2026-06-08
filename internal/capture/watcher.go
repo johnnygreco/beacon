@@ -614,16 +614,17 @@ func encodeLineParserCheckpointState(state lineParserCheckpointState, logger *sl
 
 func buildLineParserCheckpointState(initial lineParserState, events []NormalizedEvent, replayLines []replayLine) lineParserCheckpointState {
 	if len(replayLines) == 0 {
-		return lineParserCheckpointState{
-			Version:     1,
-			ReplayState: initial.clone(),
-		}
+		return lineParserCheckpointState{Version: 1}
 	}
 
 	replayStart := replayLines[0]
-	replayState := initial.clone()
+	replaySessionIDs := sessionIDsAtOrAfterOffset(events, replayStart.offset)
+	replayState := initial.filter(replaySessionIDs)
 	for _, event := range events {
 		if event.SourceOffset >= replayStart.offset {
+			continue
+		}
+		if _, ok := replaySessionIDs[event.SessionID]; !ok {
 			continue
 		}
 		replayState.apply(event)
@@ -637,10 +638,31 @@ func buildLineParserCheckpointState(initial lineParserState, events []Normalized
 	}
 }
 
+func sessionIDsAtOrAfterOffset(events []NormalizedEvent, offset int64) map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, event := range events {
+		if event.SourceOffset < offset || event.SessionID == "" {
+			continue
+		}
+		out[event.SessionID] = struct{}{}
+	}
+	return out
+}
+
 func (s lineParserState) clone() lineParserState {
 	return lineParserState{
 		Models:           cloneStringMap(s.Models),
 		TokenUsageTotals: cloneStringMap(s.TokenUsageTotals),
+	}
+}
+
+func (s lineParserState) filter(sessionIDs map[string]struct{}) lineParserState {
+	if len(sessionIDs) == 0 {
+		return lineParserState{}
+	}
+	return lineParserState{
+		Models:           filterStringMap(s.Models, sessionIDs),
+		TokenUsageTotals: filterStringMap(s.TokenUsageTotals, sessionIDs),
 	}
 }
 
@@ -669,6 +691,26 @@ func cloneStringMap(in map[string]string) map[string]string {
 	out := make(map[string]string, len(in))
 	for key, value := range in {
 		if key == "" || value == "" {
+			continue
+		}
+		out[key] = value
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func filterStringMap(in map[string]string, allowed map[string]struct{}) map[string]string {
+	if len(in) == 0 || len(allowed) == 0 {
+		return nil
+	}
+	out := make(map[string]string)
+	for key, value := range in {
+		if key == "" || value == "" {
+			continue
+		}
+		if _, ok := allowed[key]; !ok {
 			continue
 		}
 		out[key] = value

@@ -159,6 +159,32 @@ func (s *Store) EnsureLocal(ctx context.Context, boot Bootstrap) (*Snapshot, err
 	return s.Snapshot(ctx)
 }
 
+func (s *Store) EnsureControlPlane(ctx context.Context) (*Snapshot, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("control-plane metadata store is nil")
+	}
+	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin control-plane metadata transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	if _, err := ensureMetadataValue(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
+		return nil, err
+	}
+	if _, err := ensureMetadataValue(ctx, tx, "schema_epoch", InitialSchemaEpoch, now); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit control-plane metadata: %w", err)
+	}
+	if err := restrictMetadataFiles(s.path); err != nil {
+		return nil, err
+	}
+	return s.Snapshot(ctx)
+}
+
 func ensureLocalTx(ctx context.Context, tx *sql.Tx, boot Bootstrap, now time.Time) (Bootstrap, error) {
 	if _, err := ensureMetadataValue(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
 		return Bootstrap{}, err
@@ -193,39 +219,39 @@ func ensureLocalTx(ctx context.Context, tx *sql.Tx, boot Bootstrap, now time.Tim
 	return boot, nil
 }
 
-func ensureRemoteRegistrationTx(ctx context.Context, tx *sql.Tx, boot Bootstrap, now time.Time) (Bootstrap, error) {
+func ensureRemoteRegistrationTx(ctx context.Context, tx *sql.Tx, boot Bootstrap, now time.Time) (Bootstrap, bool, error) {
 	if _, err := ensureMetadataValue(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
-		return Bootstrap{}, err
+		return Bootstrap{}, false, err
 	}
 	if _, err := ensureMetadataValue(ctx, tx, "schema_epoch", InitialSchemaEpoch, now); err != nil {
-		return Bootstrap{}, err
+		return Bootstrap{}, false, err
 	}
 	if err := validateRemoteBootstrap(boot); err != nil {
-		return Bootstrap{}, err
+		return Bootstrap{}, false, err
 	}
 	existing, err := existingRemoteCollector(ctx, tx, boot)
 	if err != nil {
-		return Bootstrap{}, err
+		return Bootstrap{}, false, err
 	}
 	if !existing {
 		boot.NodeID = generatedID("node")
 		boot.CollectorID = generatedID("collector")
 	}
 	if err := upsertNode(ctx, tx, boot, now); err != nil {
-		return Bootstrap{}, err
+		return Bootstrap{}, false, err
 	}
 	if err := upsertCollector(ctx, tx, boot, now); err != nil {
-		return Bootstrap{}, err
+		return Bootstrap{}, false, err
 	}
 	for _, source := range boot.Sources {
 		if err := upsertSource(ctx, tx, boot.CollectorID, source, now); err != nil {
-			return Bootstrap{}, err
+			return Bootstrap{}, false, err
 		}
 	}
 	if err := reconcileSources(ctx, tx, boot.CollectorID, boot.Sources); err != nil {
-		return Bootstrap{}, err
+		return Bootstrap{}, false, err
 	}
-	return boot, nil
+	return boot, existing, nil
 }
 
 func validateRemoteBootstrap(boot Bootstrap) error {

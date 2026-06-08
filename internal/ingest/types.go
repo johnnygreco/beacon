@@ -26,8 +26,9 @@ const (
 )
 
 type EnrollRequest struct {
-	Schema    string          `json:"schema"`
-	Bootstrap EnrollBootstrap `json:"bootstrap"`
+	Schema              string          `json:"schema"`
+	Bootstrap           EnrollBootstrap `json:"bootstrap"`
+	ExistingIngestToken string          `json:"existing_ingest_token,omitempty"`
 }
 
 type EnrollBootstrap struct {
@@ -53,10 +54,16 @@ type EnrollResponse struct {
 }
 
 type EnrollAssignment struct {
-	NodeID            string   `json:"node_id"`
-	CollectorID       string   `json:"collector_id"`
-	SourceIDs         []string `json:"source_ids"`
-	ControlPlaneEpoch string   `json:"control_plane_epoch"`
+	NodeID            string                   `json:"node_id"`
+	CollectorID       string                   `json:"collector_id"`
+	SourceIDs         []string                 `json:"source_ids"`
+	ControlPlaneEpoch string                   `json:"control_plane_epoch"`
+	Sources           []EnrollSourceAssignment `json:"sources"`
+}
+
+type EnrollSourceAssignment struct {
+	Name     string `json:"name"`
+	SourceID string `json:"source_id"`
 }
 
 type BatchRequest struct {

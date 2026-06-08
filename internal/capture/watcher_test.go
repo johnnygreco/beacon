@@ -550,6 +550,37 @@ func TestLineParserCheckpointStateSeedsReplayModel(t *testing.T) {
 	}
 }
 
+func TestLineParserCheckpointStateDropsSessionsOutsideReplayWindow(t *testing.T) {
+	initial := lineParserState{
+		Models: map[string]string{
+			"old-session":    "gpt-old",
+			"replay-session": "gpt-replay",
+		},
+		TokenUsageTotals: map[string]string{
+			"old-session":    "1:0:0:1",
+			"replay-session": "2:0:0:2",
+		},
+	}
+	events := []NormalizedEvent{
+		{SessionID: "old-session", SourceOffset: 0, SourceLineNo: 1},
+		{SessionID: "replay-session", SourceOffset: 20, SourceLineNo: 2},
+	}
+
+	state := buildLineParserCheckpointState(initial, events, []replayLine{{offset: 20, lineNo: 2}})
+	if _, ok := state.ReplayState.Models["old-session"]; ok {
+		t.Fatalf("old-session model was retained outside replay window: %#v", state.ReplayState.Models)
+	}
+	if _, ok := state.ReplayState.TokenUsageTotals["old-session"]; ok {
+		t.Fatalf("old-session token total was retained outside replay window: %#v", state.ReplayState.TokenUsageTotals)
+	}
+	if state.ReplayState.Models["replay-session"] != "gpt-replay" {
+		t.Fatalf("replay-session model = %q, want gpt-replay", state.ReplayState.Models["replay-session"])
+	}
+	if state.ReplayState.TokenUsageTotals["replay-session"] != "2:0:0:2" {
+		t.Fatalf("replay-session token total = %q, want retained", state.ReplayState.TokenUsageTotals["replay-session"])
+	}
+}
+
 func TestLineParserCheckpointStateSeedsReplayTokenTotal(t *testing.T) {
 	events := []NormalizedEvent{
 		{

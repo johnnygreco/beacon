@@ -15,7 +15,12 @@ func initializeControlPlane(ctx context.Context, cfg *config.Config, logger *slo
 	if err != nil {
 		return nil, nil, err
 	}
-	snapshot, err := store.EnsureLocal(ctx, controlPlaneBootstrap(cfg))
+	var snapshot *controlplane.Snapshot
+	if cfg.Fleet.Role == config.FleetRoleControlPlane {
+		snapshot, err = store.EnsureControlPlane(ctx)
+	} else {
+		snapshot, err = store.EnsureLocal(ctx, controlPlaneBootstrap(cfg))
+	}
 	if err != nil {
 		_ = store.Close()
 		return nil, nil, err

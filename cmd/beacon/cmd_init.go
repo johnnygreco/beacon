@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -140,8 +141,21 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	if err != nil {
 		return err
 	}
-	boot := remoteEnrollmentBootstrap(commandContext(cmd), cfg)
-	resp, err := postRemoteEnrollment(commandContext(cmd), normalizedURL, token, enrollBootstrapFromControlPlane(boot))
+	if err := preflightRemoteEnrollmentPersistence(cfg); err != nil {
+		return err
+	}
+	boot, hasLocalIdentity, err := remoteEnrollmentBootstrap(commandContext(cmd), cfg)
+	if err != nil {
+		return err
+	}
+	var existingIngestToken string
+	if hasLocalIdentity {
+		existingIngestToken, err = readIngestToken(cfg)
+		if err != nil {
+			return fmt.Errorf("read existing ingest token for re-enrollment: %w", err)
+		}
+	}
+	resp, err := postRemoteEnrollment(commandContext(cmd), normalizedURL, token, existingIngestToken, enrollBootstrapFromControlPlane(boot))
 	if err != nil {
 		return err
 	}
@@ -154,8 +168,12 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	localBoot := controlPlaneBootstrap(cfg)
 	localBoot.NodeID = resp.Assignment.NodeID
 	localBoot.CollectorID = resp.Assignment.CollectorID
-	if _, err := store.EnsureLocal(commandContext(cmd), localBoot); err != nil {
+	snapshot, err := store.EnsureLocal(commandContext(cmd), localBoot)
+	if err != nil {
 		return fmt.Errorf("write local collector metadata: %w", err)
+	}
+	if err := verifyRemoteSourceAssignments(snapshot, resp.Assignment); err != nil {
+		return err
 	}
 	if err := writeIngestTokenFile(cfg.Fleet.IngestTokenFile, resp.IngestToken); err != nil {
 		return fmt.Errorf("write ingest token file: %w", err)
@@ -171,29 +189,90 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	return nil
 }
 
-func remoteEnrollmentBootstrap(ctx context.Context, cfg *config.Config) controlplane.Bootstrap {
-	boot := controlPlaneBootstrap(cfg)
-	if !controlplane.Exists(cfg.Fleet.MetadataPath) {
-		return boot
+func preflightRemoteEnrollmentPersistence(cfg *config.Config) error {
+	if strings.TrimSpace(cfg.Fleet.IngestTokenFile) == "" {
+		return fmt.Errorf("fleet.ingest_token_file is required for remote enrollment")
 	}
 	store, err := controlplane.Open(cfg.Fleet.MetadataPath)
 	if err != nil {
-		return boot
+		return fmt.Errorf("open local collector metadata: %w", err)
+	}
+	if err := store.Close(); err != nil {
+		return fmt.Errorf("close local collector metadata: %w", err)
+	}
+	if err := preflightIngestTokenFile(cfg.Fleet.IngestTokenFile); err != nil {
+		return fmt.Errorf("preflight ingest token file: %w", err)
+	}
+	return nil
+}
+
+func preflightIngestTokenFile(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("ingest token file path is required")
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".preflight.*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if _, err := tmp.Write([]byte("preflight\n")); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+	if err := os.Remove(tmpPath); err != nil {
+		return err
+	}
+	return syncFileDir(dir)
+}
+
+func remoteEnrollmentBootstrap(ctx context.Context, cfg *config.Config) (controlplane.Bootstrap, bool, error) {
+	boot := controlPlaneBootstrap(cfg)
+	if !controlplane.Exists(cfg.Fleet.MetadataPath) {
+		return boot, false, nil
+	}
+	store, err := controlplane.Open(cfg.Fleet.MetadataPath)
+	if err != nil {
+		return controlplane.Bootstrap{}, false, fmt.Errorf("open local collector metadata: %w", err)
 	}
 	defer store.Close()
 	snapshot, err := store.Snapshot(ctx)
 	if err != nil {
-		return boot
+		return controlplane.Bootstrap{}, false, fmt.Errorf("read local collector metadata: %w", err)
 	}
 	if snapshot.LocalNodeID != "" && snapshot.LocalCollectorID != "" {
 		boot.NodeID = snapshot.LocalNodeID
 		boot.CollectorID = snapshot.LocalCollectorID
+		return boot, true, nil
 	}
-	return boot
+	return boot, false, nil
 }
 
-func postRemoteEnrollment(ctx context.Context, controlPlaneURL, token string, boot ingest.EnrollBootstrap) (*ingest.EnrollResponse, error) {
-	body, err := json.Marshal(ingest.EnrollRequest{Schema: ingest.SchemaV1, Bootstrap: boot})
+func postRemoteEnrollment(ctx context.Context, controlPlaneURL, token, existingIngestToken string, boot ingest.EnrollBootstrap) (*ingest.EnrollResponse, error) {
+	body, err := json.Marshal(ingest.EnrollRequest{
+		Schema:              ingest.SchemaV1,
+		Bootstrap:           boot,
+		ExistingIngestToken: strings.TrimSpace(existingIngestToken),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +300,7 @@ func postRemoteEnrollment(ctx context.Context, controlPlaneURL, token string, bo
 	if strings.TrimSpace(resp.IngestToken) == "" {
 		return nil, fmt.Errorf("remote enrollment response did not include an ingest token")
 	}
-	if strings.TrimSpace(resp.Assignment.NodeID) == "" || strings.TrimSpace(resp.Assignment.CollectorID) == "" || len(resp.Assignment.SourceIDs) == 0 {
+	if strings.TrimSpace(resp.Assignment.NodeID) == "" || strings.TrimSpace(resp.Assignment.CollectorID) == "" || len(resp.Assignment.SourceIDs) == 0 || len(resp.Assignment.Sources) == 0 {
 		return nil, fmt.Errorf("remote enrollment response did not include a complete assignment")
 	}
 	return &resp, nil
@@ -245,6 +324,41 @@ func enrollBootstrapFromControlPlane(boot controlplane.Bootstrap) ingest.EnrollB
 		})
 	}
 	return out
+}
+
+func verifyRemoteSourceAssignments(snapshot *controlplane.Snapshot, assignment ingest.EnrollAssignment) error {
+	if snapshot == nil {
+		return fmt.Errorf("local collector metadata snapshot is nil")
+	}
+	if len(assignment.Sources) == 0 {
+		return fmt.Errorf("remote enrollment response did not include source assignments")
+	}
+	byName := make(map[string]string, len(assignment.Sources))
+	for _, source := range assignment.Sources {
+		name := strings.TrimSpace(source.Name)
+		sourceID := strings.TrimSpace(source.SourceID)
+		if name == "" || sourceID == "" {
+			return fmt.Errorf("remote enrollment response included an incomplete source assignment")
+		}
+		byName[name] = sourceID
+	}
+	for _, source := range snapshot.Sources {
+		if source.CollectorID != assignment.CollectorID {
+			continue
+		}
+		want, ok := byName[source.Name]
+		if !ok {
+			return fmt.Errorf("remote enrollment response omitted source assignment for %q", source.Name)
+		}
+		if source.ID != want {
+			return fmt.Errorf("remote source assignment mismatch for %q: local %s remote %s", source.Name, source.ID, want)
+		}
+		delete(byName, source.Name)
+	}
+	if len(byName) > 0 {
+		return fmt.Errorf("remote enrollment response included unknown source assignments")
+	}
+	return nil
 }
 
 func remoteCollectCommand(controlPlaneURL string) string {
