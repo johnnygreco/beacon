@@ -215,9 +215,38 @@ func (s *Store) RefreshOutdatedProjections(ctx context.Context) (int, bool, erro
 			FROM session_projection FINAL
 			WHERE session_id != ''
 		) AS projected ON events.session_id = projected.projected_session_id
+		LEFT JOIN (
+			SELECT session_id AS analytics_session_id,
+			       sum(event_count) AS analytics_event_count,
+			       max(updated_at) AS analytics_updated_at
+			FROM (
+				SELECT ap.session_id,
+				       ap.event_count,
+				       ap.updated_at
+				FROM (
+					SELECT session_id,
+					       refresh_id,
+					       event_count,
+					       updated_at
+					FROM analytics_projection FINAL
+					WHERE session_id != ''
+				) AS ap
+				INNER JOIN (
+					SELECT session_id,
+					       argMax(refresh_id, updated_at) AS refresh_id
+					FROM analytics_projection FINAL
+					WHERE session_id != ''
+					GROUP BY session_id
+				) AS latest ON latest.session_id = ap.session_id AND latest.refresh_id = ap.refresh_id
+			)
+			GROUP BY session_id
+		) AS analytics ON events.session_id = analytics.analytics_session_id
 		WHERE projected.projected_session_id = ''
 		   OR events.event_count != projected.projected_event_count
-		   OR events.latest_captured_at > projected.projected_updated_at`)
+		   OR events.latest_captured_at > projected.projected_updated_at
+		   OR analytics.analytics_session_id = ''
+		   OR events.event_count != analytics.analytics_event_count
+		   OR events.latest_captured_at > analytics.analytics_updated_at`)
 	if err != nil {
 		return 0, false, err
 	}
