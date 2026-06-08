@@ -146,6 +146,43 @@ func TestFleetNodeStatusMarksActiveSessionOnlyNodes(t *testing.T) {
 	}
 }
 
+func TestFleetCollectorStatusSurfacesMixedSourceHealth(t *testing.T) {
+	builder := &fleetNodeBuilder{
+		node: APIDashboardFleetNode{},
+		collectors: map[string]struct{}{
+			"collector-1": {},
+			"collector-2": {},
+			"collector-3": {},
+		},
+		onlineCollectors: map[string]struct{}{
+			"collector-1": {},
+			"collector-3": {},
+		},
+		staleCollectors: map[string]struct{}{
+			"collector-2": {},
+		},
+		offlineCollectors: map[string]struct{}{
+			"collector-1": {},
+		},
+	}
+
+	if status := fleetCollectorStatus(builder, "collector-1"); status != "stale" {
+		t.Fatalf("mixed online/offline collector status = %q, want stale", status)
+	}
+	if status := fleetCollectorStatus(builder, "collector-2"); status != "stale" {
+		t.Fatalf("stale collector status = %q, want stale", status)
+	}
+	if status := fleetCollectorStatus(builder, "collector-3"); status != "online" {
+		t.Fatalf("online collector status = %q, want online", status)
+	}
+	if status := fleetNodeStatus(builder); status != "stale" {
+		t.Fatalf("mixed source node status = %q, want stale", status)
+	}
+	if status := mergeFleetCollectorStatus("online", "offline"); status != "stale" {
+		t.Fatalf("merged online/offline status = %q, want stale", status)
+	}
+}
+
 func TestCompletedSessionSearchClause_MetadataOnly(t *testing.T) {
 	clause, args := completedSessionSearchClause("metadata", nil)
 	if strings.Contains(clause, "session_id IN") {

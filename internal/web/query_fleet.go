@@ -395,13 +395,25 @@ func fleetNodeStatus(builder *fleetNodeBuilder) string {
 	if builder == nil {
 		return "offline"
 	}
-	if len(builder.onlineCollectors) > 0 {
-		return "online"
+	hasOnline := false
+	hasOffline := false
+	for collector := range builder.collectors {
+		switch fleetCollectorStatus(builder, collector) {
+		case "stale":
+			return "stale"
+		case "online":
+			hasOnline = true
+		case "offline":
+			hasOffline = true
+		}
 	}
-	if len(builder.staleCollectors) > 0 {
+	if hasOnline && hasOffline {
 		return "stale"
 	}
-	if builder.node.LastHeartbeatAt != nil {
+	if hasOnline {
+		return "online"
+	}
+	if hasOffline || builder.node.LastHeartbeatAt != nil {
 		return "offline"
 	}
 	if builder.node.ActiveSessions > 0 {
@@ -414,13 +426,18 @@ func fleetCollectorStatus(builder *fleetNodeBuilder, collector string) string {
 	if builder == nil {
 		return "offline"
 	}
-	if _, ok := builder.onlineCollectors[collector]; ok {
-		return "online"
-	}
 	if _, ok := builder.staleCollectors[collector]; ok {
 		return "stale"
 	}
-	if _, ok := builder.offlineCollectors[collector]; ok {
+	_, online := builder.onlineCollectors[collector]
+	_, offline := builder.offlineCollectors[collector]
+	if online && offline {
+		return "stale"
+	}
+	if online {
+		return "online"
+	}
+	if offline {
 		return "offline"
 	}
 	return "missing"
@@ -437,11 +454,14 @@ func fleetMissingHeartbeatCollectorCount(builder *fleetNodeBuilder, collectors [
 }
 
 func mergeFleetCollectorStatus(current, next string) string {
-	if current == "online" || next == "online" {
-		return "online"
-	}
 	if current == "stale" || next == "stale" {
 		return "stale"
+	}
+	if (current == "online" && next == "offline") || (current == "offline" && next == "online") {
+		return "stale"
+	}
+	if current == "online" || next == "online" {
+		return "online"
 	}
 	return "offline"
 }

@@ -162,7 +162,8 @@ document.addEventListener('click', function(evt) {
 		evt.stopPropagation();
 		if (typeof clearDashboardScope === 'function') {
 			var field = scopeClear.getAttribute('data-dashboard-scope-clear') || '';
-			clearDashboardScope(field === 'all' ? '' : field);
+			var value = scopeClear.getAttribute('data-dashboard-scope-value') || '';
+			clearDashboardScope(field === 'all' ? '' : field, value);
 		}
 		return;
 	}

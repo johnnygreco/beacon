@@ -820,7 +820,7 @@ function renderFleetHeader(totals) {
 }
 
 function activeScopeChip(field, value, label) {
-	return '<button type="button" class="dashboard-scope-chip" data-dashboard-scope-clear="' + escapeAttr(field) + '" aria-label="Clear ' + escapeAttr(label) + ' filter ' + escapeAttr(value) + '" title="Clear ' + escapeAttr(label) + ' filter"><span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(value) + '</strong></button>';
+	return '<button type="button" class="dashboard-scope-chip" data-dashboard-scope-clear="' + escapeAttr(field) + '" data-dashboard-scope-value="' + escapeAttr(value) + '" aria-label="Clear ' + escapeAttr(label) + ' filter ' + escapeAttr(value) + '" title="Clear ' + escapeAttr(label) + ' filter"><span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(value) + '</strong></button>';
 }
 
 function syncDashboardScopeControls() {
@@ -864,9 +864,22 @@ function fleetNodeCard(node) {
 	var projectText = projects.length ? projects.join(', ') : 'All projects';
 	var missing = nonNegativeInt(node.missing_heartbeat_collectors);
 	var missingHealth = missing > 0 ? '<span><strong>' + missing + '</strong> missing heartbeat</span>' : '';
+	var nodeName = node.label || nodeLabel(nodeID);
+	var healthLabel = [
+		'Filter dashboard to node ' + nodeName,
+		fleetStatusLabel(status),
+		nonNegativeInt(node.active_sessions) + ' active sessions',
+		nonNegativeInt(node.attention_sessions) + ' attention sessions',
+		formatTokens(node.total_tokens) + ' tokens',
+		nonNegativeInt(node.collector_count) + ' collectors',
+		formatBytes(node.spool_bytes) + ' spool',
+		nonNegativeInt(node.queue_depth) + ' queued',
+		missing > 0 ? missing + ' missing heartbeat collectors' : '',
+		node.last_seen_label || 'not seen'
+	].filter(function(part) { return !!part; }).join('; ');
 	return '<article class="dashboard-fleet-node ' + fleetStatusClass(status) + '">' +
-		'<button type="button" class="dashboard-fleet-node-main" data-dashboard-scope-field="node_id" data-dashboard-scope-value="' + escapeAttr(nodeID) + '" aria-label="Filter dashboard to node ' + escapeAttr(node.label || nodeLabel(nodeID)) + '">' +
-			'<span class="dashboard-fleet-node-top"><strong>' + escapeHTML(node.label || nodeLabel(nodeID)) + '</strong><span>' + escapeHTML(fleetStatusLabel(status)) + '</span></span>' +
+		'<button type="button" class="dashboard-fleet-node-main" data-dashboard-scope-field="node_id" data-dashboard-scope-value="' + escapeAttr(nodeID) + '" aria-label="' + escapeAttr(healthLabel) + '">' +
+			'<span class="dashboard-fleet-node-top"><strong>' + escapeHTML(nodeName) + '</strong><span>' + escapeHTML(fleetStatusLabel(status)) + '</span></span>' +
 			'<span class="dashboard-fleet-node-stats">' +
 				'<span><strong>' + nonNegativeInt(node.active_sessions) + '</strong> active</span>' +
 				'<span><strong>' + nonNegativeInt(node.attention_sessions) + '</strong> attention</span>' +

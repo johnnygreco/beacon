@@ -318,13 +318,40 @@ function setDashboardScope(field, value) {
 function clearDashboardScope(field) {
 	var url = dashboardCurrentURL();
 	var fields = field && dashboardScopeFields[field] ? [field] : Object.keys(dashboardScopeFields);
-	fields.forEach(function(name) {
-		dashboardScopeFields[name].forEach(function(param) { url.searchParams.delete(param); });
-	});
+	var value = String(arguments.length > 1 ? arguments[1] : '').trim();
+	if (field && dashboardScopeFields[field] && value) {
+		removeDashboardScopeValue(url, field, value);
+	} else {
+		fields.forEach(function(name) {
+			dashboardScopeFields[name].forEach(function(param) { url.searchParams.delete(param); });
+		});
+	}
 	url.searchParams.delete('offset');
 	currentCompletedOffset = 0;
 	dashboardApplyURL(url);
 	refreshDashboardForScopeChange();
+}
+
+function removeDashboardScopeValue(url, field, value) {
+	var names = dashboardScopeFields[field] || [];
+	names.forEach(function(param) {
+		var entries = url.searchParams.getAll(param);
+		url.searchParams.delete(param);
+		entries.forEach(function(raw) {
+			var rawText = String(raw || '');
+			var parts = rawText.split(',').map(function(part) {
+				return part.trim();
+			}).filter(function(part) {
+				return part && part !== value;
+			});
+			if (parts.length === 0) return;
+			if (rawText.indexOf(',') >= 0) {
+				url.searchParams.append(param, parts.join(','));
+			} else {
+				parts.forEach(function(part) { url.searchParams.append(param, part); });
+			}
+		});
+	});
 }
 
 function refreshDashboardForScopeChange() {
