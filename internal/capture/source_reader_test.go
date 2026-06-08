@@ -143,6 +143,70 @@ func TestReadSourceFileWindowAdvancesLineCheckpoint(t *testing.T) {
 	}
 }
 
+func TestReadSourceFileWindowAdvancesWithinMultiEventLine(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "session.jsonl")
+	line := `{"msg":"multi"}`
+	if err := os.WriteFile(file, []byte(line+"\n"), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	source := WatchSource{
+		Name:     "codex",
+		Runtime:  models.RuntimeCodex,
+		Provider: models.ProviderOpenAI,
+		Format:   models.FormatJSONL,
+		Parser: func(line []byte, file string, lineNo int, offset int64) ([]NormalizedEvent, error) {
+			return []NormalizedEvent{
+				{SessionID: "session", EventKind: models.EventKindMessage, ActorRole: models.ActorRoleAssistant, Timestamp: time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC), TextContent: "first", SourceFile: file, SourceLineNo: lineNo, SourceOffset: offset, RawPayload: string(line), Model: "gpt-5.5"},
+				{SessionID: "session", EventKind: models.EventKindMessage, ActorRole: models.ActorRoleAssistant, Timestamp: time.Date(2026, 6, 8, 12, 0, 1, 0, time.UTC), TextContent: "second", SourceFile: file, SourceLineNo: lineNo, SourceOffset: offset, RawPayload: string(line)},
+				{SessionID: "session", EventKind: models.EventKindMessage, ActorRole: models.ActorRoleAssistant, Timestamp: time.Date(2026, 6, 8, 12, 0, 2, 0, time.UTC), TextContent: "third", SourceFile: file, SourceLineNo: lineNo, SourceOffset: offset, RawPayload: string(line)},
+			}, nil
+		},
+	}
+
+	first, err := ReadSourceFileWindow(context.Background(), source, file, nil, nil, 1)
+	if err != nil {
+		t.Fatalf("first window: %v", err)
+	}
+	if len(first.Events) != 1 || first.Events[0].TextContent != "first" || !first.HasMore || first.Checkpoint == nil {
+		t.Fatalf("first window events=%#v checkpoint=%#v hasMore=%v", first.Events, first.Checkpoint, first.HasMore)
+	}
+	if first.Checkpoint.LastOffset != 0 || first.Checkpoint.LastLineNo != 1 {
+		t.Fatalf("first checkpoint = %#v, want pending line at offset 0 line 1", first.Checkpoint)
+	}
+	state, ok := decodeLineParserCheckpointState(first.Checkpoint.StateJSON, nil)
+	if !ok || state.PendingLineNo != 1 || state.PendingLineOffset != 0 || state.PendingEventIndex != 1 {
+		t.Fatalf("first pending state = %#v ok=%v, want event index 1", state, ok)
+	}
+
+	second, err := ReadSourceFileWindow(context.Background(), source, file, first.Checkpoint, nil, 1)
+	if err != nil {
+		t.Fatalf("second window: %v", err)
+	}
+	if len(second.Events) != 1 || second.Events[0].TextContent != "second" || second.Events[0].Model != "gpt-5.5" || !second.HasMore || second.Checkpoint == nil {
+		t.Fatalf("second window events=%#v checkpoint=%#v hasMore=%v", second.Events, second.Checkpoint, second.HasMore)
+	}
+	state, ok = decodeLineParserCheckpointState(second.Checkpoint.StateJSON, nil)
+	if !ok || state.PendingEventIndex != 2 {
+		t.Fatalf("second pending state = %#v ok=%v, want event index 2", state, ok)
+	}
+
+	third, err := ReadSourceFileWindow(context.Background(), source, file, second.Checkpoint, nil, 1)
+	if err != nil {
+		t.Fatalf("third window: %v", err)
+	}
+	if len(third.Events) != 1 || third.Events[0].TextContent != "third" || third.Events[0].Model != "gpt-5.5" || third.HasMore || third.Checkpoint == nil {
+		t.Fatalf("third window events=%#v checkpoint=%#v hasMore=%v", third.Events, third.Checkpoint, third.HasMore)
+	}
+	if third.Checkpoint.LastOffset != int64(len(line)+1) || third.Checkpoint.LastLineNo != 1 {
+		t.Fatalf("third checkpoint = %#v, want line end", third.Checkpoint)
+	}
+	state, ok = decodeLineParserCheckpointState(third.Checkpoint.StateJSON, nil)
+	if !ok || state.PendingEventIndex != 0 || state.PendingLineNo != 0 {
+		t.Fatalf("third pending state = %#v ok=%v, want cleared cursor", state, ok)
+	}
+}
+
 func TestReadSourceFileSkipsNoProgressCheckpointForPartialLine(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "session.jsonl")

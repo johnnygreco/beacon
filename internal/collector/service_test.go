@@ -149,6 +149,31 @@ func TestServiceSendPendingPausesWhenCorruptEarlierBatchIsQuarantined(t *testing
 	}
 }
 
+func TestClientDoesNotForwardBearerTokenAcrossRedirect(t *testing.T) {
+	var redirected atomic.Int32
+	attacker := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		redirected.Add(1)
+	}))
+	defer attacker.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, attacker.URL+"/stolen", http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(server.URL, "secret-token", time.Second)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	_, err = client.SendBatch(context.Background(), testBatchRequest(t, 1, "batch-redirect"))
+	var sendErr *SendError
+	if !errors.As(err, &sendErr) || sendErr.StatusCode != http.StatusTemporaryRedirect {
+		t.Fatalf("SendBatch error = %v, want 307 SendError", err)
+	}
+	if got := redirected.Load(); got != 0 {
+		t.Fatalf("redirect target received %d requests, want none", got)
+	}
+}
+
 func TestServiceSpoolFullPausesBeforeCheckpointAndSequenceAdvance(t *testing.T) {
 	service, state, file := newTestService(t, "http://127.0.0.1:1", 16)
 	if err := service.ScanOnce(context.Background()); err != nil {

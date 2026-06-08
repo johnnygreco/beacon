@@ -61,4 +61,7 @@ func TestRecoverSpooledStateClearsMissingSpoolCheckpoints(t *testing.T) {
 	if cp := state.SpooledCheckpoint("codex", "session.jsonl"); cp != nil {
 		t.Fatalf("stale spooled checkpoint survived empty spool recovery: %#v", cp)
 	}
+	if got := state.Next(); got != 1 {
+		t.Fatalf("next sequence after empty spool recovery = %d, want committed sequence 1", got)
+	}
 }

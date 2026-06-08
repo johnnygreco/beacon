@@ -3,16 +3,19 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/controlplane"
+	"github.com/johnnygreco/beacon/internal/ingest"
 	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/store"
 	"github.com/johnnygreco/beacon/internal/web"
@@ -66,6 +69,36 @@ func TestRunInitCreatesOwnerAndEnrollTokensWithoutUnsafeCommand(t *testing.T) {
 		RequiredScopes: []string{controlplane.ScopeEnroll},
 	}); err != nil {
 		t.Fatalf("AuthenticateToken enroll: %v", err)
+	}
+}
+
+func TestRunInitControlPlaneRoleDoesNotCreateLocalCollector(t *testing.T) {
+	configPath, metadataPath := writeInitTestConfigWithRole(t, config.FleetRoleControlPlane)
+	withConfigFile(t, configPath)
+
+	cmd := newInitCmd()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	if err := runInit(cmd, time.Minute); err != nil {
+		t.Fatalf("runInit: %v", err)
+	}
+	if tokens := tokensFromOutput(out.String()); len(tokens) != 2 {
+		t.Fatalf("tokens in output = %v, want owner and enrollment tokens", tokens)
+	}
+	store, err := controlplane.Open(metadataPath)
+	if err != nil {
+		t.Fatalf("Open metadata: %v", err)
+	}
+	defer store.Close()
+	snapshot, err := store.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if snapshot.LocalNodeID != "" || snapshot.LocalCollectorID != "" {
+		t.Fatalf("control-plane init created local identity: node=%q collector=%q", snapshot.LocalNodeID, snapshot.LocalCollectorID)
+	}
+	if len(snapshot.Nodes) != 0 || len(snapshot.Collectors) != 0 || len(snapshot.Sources) != 0 {
+		t.Fatalf("control-plane init created collector metadata: nodes=%#v collectors=%#v sources=%#v", snapshot.Nodes, snapshot.Collectors, snapshot.Sources)
 	}
 }
 
@@ -180,6 +213,77 @@ func TestRunRemoteEnrollRejectsNonLoopbackHTTPBeforeRequest(t *testing.T) {
 	err = runRemoteEnroll(newEnrollCmd(), cfg, "http://beacon.example", "bcn_enroll_secret")
 	if err == nil || !strings.Contains(err.Error(), "https for non-loopback") {
 		t.Fatalf("runRemoteEnroll error = %v, want non-loopback HTTPS rejection", err)
+	}
+}
+
+func TestPostRemoteEnrollmentDoesNotForwardSecretsAcrossRedirect(t *testing.T) {
+	var redirected atomic.Int32
+	attacker := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		redirected.Add(1)
+	}))
+	defer attacker.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, attacker.URL+"/stolen", http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+
+	_, err := postRemoteEnrollment(
+		context.Background(),
+		server.URL,
+		"bcn_enroll_secret",
+		"bcn_ingest_secret",
+		enrollBootstrapFromControlPlane(controlplane.Bootstrap{
+			NodeName: "CLI Node",
+			Sources: []controlplane.SourceRegistration{{
+				Name:      "codex",
+				Runtime:   models.RuntimeCodex,
+				Provider:  models.ProviderOpenAI,
+				Format:    models.FormatJSONL,
+				WatchRoot: "~/.codex",
+			}},
+		}),
+	)
+	if err == nil || !strings.Contains(err.Error(), "status 307") {
+		t.Fatalf("postRemoteEnrollment error = %v, want 307 failure", err)
+	}
+	if got := redirected.Load(); got != 0 {
+		t.Fatalf("redirect target received %d requests, want none", got)
+	}
+}
+
+func TestRunRemoteEnrollPersistsTokenBeforeAssignmentVerification(t *testing.T) {
+	configPath, _ := writeInitTestConfig(t)
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load config: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(ingest.EnrollResponse{
+			Schema: ingest.SchemaV1,
+			Assignment: ingest.EnrollAssignment{
+				NodeID:      "node-remote",
+				CollectorID: "collector-remote",
+				SourceIDs:   []string{"source-remote"},
+				Sources: []ingest.EnrollSourceAssignment{{
+					Name:     "unknown-source",
+					SourceID: "source-remote",
+				}},
+			},
+			IngestToken: "bcn_ingest_recovery",
+		})
+	}))
+	defer server.Close()
+
+	err = runRemoteEnroll(newEnrollCmd(), cfg, server.URL, "bcn_enroll_secret")
+	if err == nil || !strings.Contains(err.Error(), "source assignment") {
+		t.Fatalf("runRemoteEnroll error = %v, want assignment verification failure", err)
+	}
+	data, err := os.ReadFile(cfg.Fleet.IngestTokenFile)
+	if err != nil {
+		t.Fatalf("read recovery ingest token: %v", err)
+	}
+	if string(data) != "bcn_ingest_recovery\n" {
+		t.Fatalf("recovery ingest token = %q, want returned token", string(data))
 	}
 }
 
@@ -347,6 +451,11 @@ func TestWriteIngestTokenFileCreatesPrivateParent(t *testing.T) {
 
 func writeInitTestConfig(t *testing.T) (string, string) {
 	t.Helper()
+	return writeInitTestConfigWithRole(t, config.FleetRoleBoth)
+}
+
+func writeInitTestConfigWithRole(t *testing.T, role string) (string, string) {
+	t.Helper()
 	dir := t.TempDir()
 	metadataPath := filepath.Join(dir, "control-plane.db")
 	configPath := filepath.Join(dir, "beacon.toml")
@@ -356,7 +465,7 @@ host = "127.0.0.1"
 port = 4600
 
 	[fleet]
-	role = "both"
+	role = "` + role + `"
 	metadata_path = "` + metadataPath + `"
 	ingest_token_file = "` + filepath.Join(dir, "ingest-token") + `"
 	spool_dir = "` + filepath.Join(dir, "spool") + `"

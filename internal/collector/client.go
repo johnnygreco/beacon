@@ -63,8 +63,12 @@ func NewClient(baseURL, token string, timeout time.Duration) (*Client, error) {
 	return &Client{
 		baseURL: baseURL,
 		token:   token,
-		http:    &http.Client{Timeout: timeout},
+		http:    &http.Client{Timeout: timeout, CheckRedirect: rejectHTTPRedirect},
 	}, nil
+}
+
+func rejectHTTPRedirect(_ *http.Request, _ []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 func isLoopbackURLHost(hostport string) bool {

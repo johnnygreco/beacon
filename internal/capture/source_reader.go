@@ -67,6 +67,7 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 	var lineNo int
 	var checkpointOffset int64
 	var initialState lineParserState
+	var pending pendingLineCursor
 	sourceGeneration := 0
 	if cp != nil {
 		offset = cp.LastOffset
@@ -78,6 +79,9 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 		}
 
 		checkpointState, stateOK := decodeLineParserCheckpointState(cp.StateJSON, logger)
+		if stateOK {
+			pending = pendingLineCursorFromState(checkpointState)
+		}
 		if stateOK && checkpointState.ReplayStartLineNo > 0 &&
 			checkpointState.ReplayStartLineNo <= cp.LastLineNo &&
 			checkpointState.ReplayStartOffset <= cp.LastOffset {
@@ -105,6 +109,7 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 
 	var allEvents []NormalizedEvent
 	var replayLines []replayLine
+	var emitIndexes []int
 	var visibleRecords int
 
 	for {
@@ -122,6 +127,7 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 		if !hasDelimiter && err == io.EOF {
 			break
 		}
+		lineStart := offset
 		lineNo++
 		lineLen := int64(len(line))
 		lineBytes := bytes.TrimSuffix(line, []byte{'\n'})
@@ -136,7 +142,6 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 			continue
 		}
 		if len(lineBytes) > scannerMaxTokenBytes {
-			lineStart := offset
 			message := "line exceeds maximum capture token size"
 			fragment := truncate(string(lineBytes[:min(len(lineBytes), 500)]), 500)
 			if lineStart >= checkpointOffset {
@@ -167,7 +172,6 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 
 		events, err := src.Parser(lineBytes, file, lineNo, offset)
 		if err != nil {
-			lineStart := offset
 			message := err.Error()
 			fragment := truncate(string(lineBytes), 500)
 			if lineStart >= checkpointOffset {
@@ -196,11 +200,48 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 		for i := range events {
 			applyWatchSourceMetadata(&events[i], src, cp)
 		}
+		firstEventIndex := len(allEvents)
 		allEvents = append(allEvents, events...)
-		for _, event := range events {
-			if event.SourceOffset >= checkpointOffset {
-				visibleRecords++
+		emitStart := lineEmitStart(lineStart, lineNo, len(events), checkpointOffset, pending)
+		emitEnd := len(events)
+		if maxRecords > 0 {
+			remaining := maxRecords - visibleRecords
+			if remaining <= 0 {
+				result.HasMore = true
+				break
 			}
+			if emitStart+remaining < emitEnd {
+				emitEnd = emitStart + remaining
+			}
+		}
+		for eventIndex := emitStart; eventIndex < emitEnd; eventIndex++ {
+			emitIndexes = append(emitIndexes, firstEventIndex+eventIndex)
+		}
+		visibleRecords += emitEnd - emitStart
+		if emitEnd < len(events) {
+			PropagateModelWithInitial(allEvents, initialState.Models)
+			allEvents = DeduplicateTokensWithInitial(allEvents, initialState.TokenUsageTotals)
+			nextState := buildLineParserCheckpointState(initialState, allEvents, replayLines)
+			nextState.PendingLineOffset = lineStart
+			nextState.PendingLineNo = lineNo
+			nextState.PendingEventIndex = emitEnd
+			stateJSON := encodeLineParserCheckpointState(nextState, logger)
+			result.Checkpoint = &models.Checkpoint{
+				SourceName:       src.Name,
+				SourceFile:       file,
+				SourceInode:      fileInode(fi),
+				SourceGeneration: sourceGeneration,
+				LastOffset:       lineStart,
+				LastLineNo:       lineNo,
+				StateJSON:        stateJSON,
+			}
+			for _, index := range emitIndexes {
+				if index >= 0 && index < len(allEvents) {
+					result.Events = append(result.Events, allEvents[index])
+				}
+			}
+			result.HasMore = true
+			return result, nil
 		}
 		offset += lineLen
 		if sourceReadWindowFull(maxRecords, visibleRecords) {
@@ -216,13 +257,13 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 	allEvents = DeduplicateTokensWithInitial(allEvents, initialState.TokenUsageTotals)
 	nextState := buildLineParserCheckpointState(initialState, allEvents, replayLines)
 
-	for _, evt := range allEvents {
-		if cp != nil && evt.SourceOffset < checkpointOffset {
-			continue
+	for _, index := range emitIndexes {
+		if index >= 0 && index < len(allEvents) {
+			result.Events = append(result.Events, allEvents[index])
 		}
-		result.Events = append(result.Events, evt)
 	}
-	if checkpointAdvanced(cp, offset, lineNo, sourceGeneration) {
+	stateJSON := encodeLineParserCheckpointState(nextState, logger)
+	if checkpointAdvanced(cp, offset, lineNo, sourceGeneration) || (len(replayLines) > 0 && (cp == nil || stateJSON != cp.StateJSON)) {
 		result.Checkpoint = &models.Checkpoint{
 			SourceName:       src.Name,
 			SourceFile:       file,
@@ -230,7 +271,7 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 			SourceGeneration: sourceGeneration,
 			LastOffset:       offset,
 			LastLineNo:       lineNo,
-			StateJSON:        encodeLineParserCheckpointState(nextState, logger),
+			StateJSON:        stateJSON,
 		}
 	}
 	return result, nil
@@ -468,6 +509,38 @@ func checkpointAdvanced(cp *models.Checkpoint, offset int64, lineNo, sourceGener
 
 func sourceReadWindowFull(maxRecords, visibleRecords int) bool {
 	return maxRecords > 0 && visibleRecords >= maxRecords
+}
+
+type pendingLineCursor struct {
+	active     bool
+	offset     int64
+	lineNo     int
+	eventIndex int
+}
+
+func pendingLineCursorFromState(state lineParserCheckpointState) pendingLineCursor {
+	if state.PendingLineNo <= 0 || state.PendingEventIndex <= 0 {
+		return pendingLineCursor{}
+	}
+	return pendingLineCursor{
+		active:     true,
+		offset:     state.PendingLineOffset,
+		lineNo:     state.PendingLineNo,
+		eventIndex: state.PendingEventIndex,
+	}
+}
+
+func lineEmitStart(lineOffset int64, lineNo, eventCount int, checkpointOffset int64, pending pendingLineCursor) int {
+	if eventCount <= 0 {
+		return 0
+	}
+	if lineOffset < checkpointOffset {
+		return eventCount
+	}
+	if pending.active && pending.offset == lineOffset && pending.lineNo == lineNo {
+		return min(max(pending.eventIndex, 0), eventCount)
+	}
+	return 0
 }
 
 func checkpointAfterRotation(src WatchSource, file string, fi os.FileInfo, cp *models.Checkpoint) *models.Checkpoint {

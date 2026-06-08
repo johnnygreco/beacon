@@ -71,7 +71,12 @@ func runInit(cmd *cobra.Command, enrollTTL time.Duration) error {
 		return fmt.Errorf("open control-plane metadata: %w", err)
 	}
 	defer store.Close()
-	snapshot, err := store.EnsureLocal(ctx, controlPlaneBootstrap(cfg))
+	var snapshot *controlplane.Snapshot
+	if cfg.Fleet.Role == config.FleetRoleControlPlane {
+		snapshot, err = store.EnsureControlPlane(ctx)
+	} else {
+		snapshot, err = store.EnsureLocal(ctx, controlPlaneBootstrap(cfg))
+	}
 	if err != nil {
 		return fmt.Errorf("initialize local control-plane metadata: %w", err)
 	}
@@ -159,6 +164,9 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	if err != nil {
 		return err
 	}
+	if err := writeIngestTokenFile(cfg.Fleet.IngestTokenFile, resp.IngestToken); err != nil {
+		return fmt.Errorf("write ingest token file: %w", err)
+	}
 	store, err := controlplane.Open(cfg.Fleet.MetadataPath)
 	if err != nil {
 		return fmt.Errorf("open local collector metadata: %w", err)
@@ -174,9 +182,6 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	}
 	if err := verifyRemoteSourceAssignments(snapshot, resp.Assignment); err != nil {
 		return err
-	}
-	if err := writeIngestTokenFile(cfg.Fleet.IngestTokenFile, resp.IngestToken); err != nil {
-		return fmt.Errorf("write ingest token file: %w", err)
 	}
 
 	out := cmd.OutOrStdout()
@@ -283,7 +288,7 @@ func postRemoteEnrollment(ctx context.Context, controlPlaneURL, token, existingI
 	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(token))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: rejectHTTPRedirect}
 	httpResp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("remote enrollment request: %w", err)
@@ -304,6 +309,10 @@ func postRemoteEnrollment(ctx context.Context, controlPlaneURL, token, existingI
 		return nil, fmt.Errorf("remote enrollment response did not include a complete assignment")
 	}
 	return &resp, nil
+}
+
+func rejectHTTPRedirect(_ *http.Request, _ []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 func enrollBootstrapFromControlPlane(boot controlplane.Bootstrap) ingest.EnrollBootstrap {
