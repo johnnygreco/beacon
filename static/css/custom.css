@@ -1993,6 +1993,7 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
 .dashboard-scope-chip,
 .dashboard-scope-clear-all,
 .dashboard-scope-inline-chip,
+.dashboard-fleet-chip,
 .dashboard-fleet-runtime {
   display: inline-flex;
   align-items: center;
@@ -2026,11 +2027,13 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
 }
 
 .dashboard-scope-inline-chip:not(.dashboard-scope-inline-chip-static),
+.dashboard-fleet-chip,
 .dashboard-fleet-runtime {
   cursor: pointer;
 }
 
 .dashboard-scope-inline-chip:not(.dashboard-scope-inline-chip-static):hover,
+.dashboard-fleet-chip:hover,
 .dashboard-fleet-runtime:hover,
 .dashboard-scope-chip:hover,
 .dashboard-scope-clear-all:hover {
@@ -2039,8 +2042,21 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
 }
 
 .dashboard-scope-inline-chip-runtime,
+.dashboard-fleet-chip-runtime,
 .dashboard-fleet-runtime {
   color: var(--dash-accent);
+}
+
+.dashboard-fleet-chip-collector {
+  color: var(--dash-text);
+}
+
+.dashboard-fleet-chip-source {
+  color: #a7f3d0;
+}
+
+.dashboard-fleet-chip-project {
+  color: #c4b5fd;
 }
 
 .dashboard-fleet-strip {
@@ -2137,7 +2153,7 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
   padding: 0.5rem 0.75rem 0.65rem;
 }
 
-.dashboard-fleet-runtimes {
+.dashboard-fleet-filter-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;

@@ -819,6 +819,29 @@ function renderFleetHeader(totals) {
 	setHTMLIfChanged(wrap, metrics.join(''));
 }
 
+function fleetScopeChip(field, value, label, display, kind) {
+	value = String(value || '').trim();
+	if (!value) return '';
+	display = String(display || value).trim() || value;
+	kind = String(kind || field || '').trim();
+	return '<button type="button" class="dashboard-fleet-chip dashboard-fleet-chip-' + escapeAttr(kind) + (kind === 'runtime' ? ' dashboard-fleet-runtime' : '') + '" data-dashboard-scope-field="' + escapeAttr(field) + '" data-dashboard-scope-value="' + escapeAttr(value) + '" aria-label="Filter dashboard to ' + escapeAttr(label) + ' ' + escapeAttr(display) + '" title="Filter dashboard to ' + escapeAttr(label) + ' ' + escapeAttr(display) + '">' + escapeHTML(display) + '</button>';
+}
+
+function fleetScopeChips(field, values, label, kind, formatter, limit) {
+	var seen = {};
+	return (Array.isArray(values) ? values : []).map(function(value) {
+		value = String(value || '').trim();
+		if (!value || seen[value]) return '';
+		seen[value] = true;
+		return fleetScopeChip(field, value, label, formatter ? formatter(value) : value, kind);
+	}).filter(function(html) { return !!html; }).slice(0, limit || 5).join('');
+}
+
+function fleetMetaRow(chips, emptyText) {
+	if (chips) return '<div class="dashboard-fleet-filter-row">' + chips + '</div>';
+	return '<div class="dashboard-fleet-filter-row"><span class="dashboard-fleet-muted">' + escapeHTML(emptyText) + '</span></div>';
+}
+
 function activeScopeChip(field, value, label) {
 	return '<button type="button" class="dashboard-scope-chip" data-dashboard-scope-clear="' + escapeAttr(field) + '" data-dashboard-scope-value="' + escapeAttr(value) + '" aria-label="Clear ' + escapeAttr(label) + ' filter ' + escapeAttr(value) + '" title="Clear ' + escapeAttr(label) + ' filter"><span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(value) + '</strong></button>';
 }
@@ -855,13 +878,13 @@ function fleetNodeCard(node) {
 	var nodeID = node.node_id || 'local';
 	var status = node.status || 'offline';
 	var runtimes = (node.runtimes || []).slice(0, 5);
+	var collectors = (node.collectors || []).slice(0, 4);
 	var sources = (node.sources || []).slice(0, 4);
 	var projects = (node.projects || []).slice(0, 3);
-	var runtimeChips = runtimes.map(function(runtime) {
-		return '<button type="button" class="dashboard-fleet-runtime" data-dashboard-scope-field="runtime" data-dashboard-scope-value="' + escapeAttr(runtime) + '" aria-label="Filter dashboard to runtime ' + escapeAttr(runtimeLabel(runtime)) + '">' + escapeHTML(runtimeLabel(runtime)) + '</button>';
-	}).join('');
-	var sourceText = sources.length ? sources.join(', ') : 'No source heartbeat yet';
-	var projectText = projects.length ? projects.join(', ') : 'All projects';
+	var collectorChips = fleetScopeChips('collector_id', collectors, 'collector', 'collector', null, 4);
+	var runtimeChips = fleetScopeChips('runtime', runtimes, 'runtime', 'runtime', runtimeLabel, 5);
+	var sourceChips = fleetScopeChips('source_name', sources, 'source', 'source', null, 4);
+	var projectChips = fleetScopeChips('project_key', projects, 'project', 'project', null, 3);
 	var missing = nonNegativeInt(node.missing_heartbeat_collectors);
 	var missingHealth = missing > 0 ? '<span><strong>' + missing + '</strong> missing heartbeat</span>' : '';
 	var nodeName = node.label || nodeLabel(nodeID);
@@ -893,12 +916,13 @@ function fleetNodeCard(node) {
 					'<span>' + escapeHTML(node.last_seen_label || 'not seen') + '</span>' +
 				'</span>' +
 			'</button>' +
-		'<div class="dashboard-fleet-node-meta">' +
-			'<div class="dashboard-fleet-runtimes">' + (runtimeChips || '<span class="dashboard-fleet-muted">No runtimes yet</span>') + '</div>' +
-			'<p title="' + escapeAttr(sourceText) + '">' + escapeHTML(sourceText) + '</p>' +
-			'<p title="' + escapeAttr(projectText) + '">' + escapeHTML(projectText) + '</p>' +
-		'</div>' +
-	'</article>';
+			'<div class="dashboard-fleet-node-meta">' +
+				fleetMetaRow(collectorChips, 'No collectors yet') +
+				fleetMetaRow(runtimeChips, 'No runtimes yet') +
+				fleetMetaRow(sourceChips, 'No source heartbeat yet') +
+				fleetMetaRow(projectChips, 'All projects') +
+			'</div>' +
+		'</article>';
 }
 
 function renderFleet(response) {

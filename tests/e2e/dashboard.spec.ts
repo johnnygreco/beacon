@@ -146,6 +146,45 @@ function waitForDashboardEndpoint(page: Page, path: string, predicate?: (url: UR
   });
 }
 
+const dashboardScopeParamNames = [
+  'node_id',
+  'node_ids',
+  'collector_id',
+  'collector_ids',
+  'source_id',
+  'source_ids',
+  'source_name',
+  'source_names',
+  'runtime',
+  'runtimes',
+  'project_key',
+  'project_keys',
+];
+
+function dashboardHasNoFleetScope(url: URL) {
+  return dashboardScopeParamNames.every((name) => !url.searchParams.has(name));
+}
+
+async function waitForNoDashboardScopeInURL(page: Page) {
+  await page.waitForFunction((names) => {
+    const params = new URL(window.location.href).searchParams;
+    return (names as string[]).every((name) => !params.has(name));
+  }, dashboardScopeParamNames);
+}
+
+function waitForDashboardPanelResponses(page: Page, scope: (url: URL) => boolean, mode: 'completed' | 'search' = 'completed') {
+  const completedResponse = mode === 'search'
+    ? waitForDashboardEndpoint(page, '/api/dashboard/search', scope)
+    : waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => scope(url) && url.searchParams.get('state') === 'completed');
+  return [
+    waitForDashboardEndpoint(page, '/api/dashboard/fleet', scope),
+    waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => scope(url) && url.searchParams.get('state') === 'active'),
+    completedResponse,
+    waitForDashboardEndpoint(page, '/api/dashboard/activity', scope),
+    waitForDashboardEndpoint(page, '/api/dashboard/charts', scope),
+  ];
+}
+
 async function readActiveSessionGeometry(page: Page) {
   return page.evaluate(() => {
     const panel = document.getElementById('active-sessions');
@@ -591,13 +630,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(8);
 
     const nodeScope = (url: URL) => url.searchParams.get('node_id') === 'node-b';
-    const scopedResponses = [
-      waitForDashboardEndpoint(page, '/api/dashboard/fleet', nodeScope),
-      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => nodeScope(url) && url.searchParams.get('state') === 'active'),
-      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => nodeScope(url) && url.searchParams.get('state') === 'completed'),
-      waitForDashboardEndpoint(page, '/api/dashboard/activity', nodeScope),
-      waitForDashboardEndpoint(page, '/api/dashboard/charts', nodeScope),
-    ];
+    const scopedResponses = waitForDashboardPanelResponses(page, nodeScope);
     await page.locator('.dashboard-fleet-node-main[data-dashboard-scope-value="node-b"]').click();
     await Promise.all(scopedResponses);
 
@@ -611,13 +644,8 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#active-sessions')).toContainText('node-b');
     await expectNoHorizontalOverflow(page);
 
-    const runtimeResponses = [
-      waitForDashboardEndpoint(page, '/api/dashboard/fleet', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'runtime-b'),
-      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'runtime-b' && url.searchParams.get('state') === 'active'),
-      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'runtime-b' && url.searchParams.get('state') === 'completed'),
-      waitForDashboardEndpoint(page, '/api/dashboard/activity', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'runtime-b'),
-      waitForDashboardEndpoint(page, '/api/dashboard/charts', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'runtime-b'),
-    ];
+    const runtimeScope = (url: URL) => nodeScope(url) && url.searchParams.get('runtime') === 'runtime-b';
+    const runtimeResponses = waitForDashboardPanelResponses(page, runtimeScope);
     await page.locator('.dashboard-fleet-runtime[data-dashboard-scope-value="runtime-b"]').click();
     await Promise.all(runtimeResponses);
     await page.waitForFunction(() => {
@@ -628,34 +656,75 @@ test.describe('dashboard battle-tested workflows', () => {
     await waitForCompletedRows(page, 15);
     await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(2);
 
-    const clearResponses = [
-      waitForDashboardEndpoint(page, '/api/dashboard/fleet', (url) => !url.searchParams.has('node_id') && !url.searchParams.has('runtime')),
-      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => !url.searchParams.has('node_id') && !url.searchParams.has('runtime') && url.searchParams.get('state') === 'active'),
-      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => !url.searchParams.has('node_id') && !url.searchParams.has('runtime') && url.searchParams.get('state') === 'completed'),
-      waitForDashboardEndpoint(page, '/api/dashboard/activity', (url) => !url.searchParams.has('node_id') && !url.searchParams.has('runtime')),
-      waitForDashboardEndpoint(page, '/api/dashboard/charts', (url) => !url.searchParams.has('node_id') && !url.searchParams.has('runtime')),
-    ];
+    let clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoFleetScope);
     await page.locator('[data-dashboard-scope-clear="all"]').click();
     await Promise.all(clearResponses);
-    await page.waitForFunction(() => {
-      const url = new URL(window.location.href);
-      return !url.searchParams.has('node_id') && !url.searchParams.has('runtime');
-    });
+    await waitForNoDashboardScopeInURL(page);
     await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(3);
     await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(8);
     await waitForCompletedRows(page, 30);
     await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(4);
 
-    const projectScope = (url: URL) => url.searchParams.get('project_key') === 'project-c';
-    const projectResponses = [
-      waitForDashboardEndpoint(page, '/api/dashboard/fleet', projectScope),
-      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => projectScope(url) && url.searchParams.get('state') === 'active'),
-      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => projectScope(url) && url.searchParams.get('state') === 'completed'),
-      waitForDashboardEndpoint(page, '/api/dashboard/activity', projectScope),
-      waitForDashboardEndpoint(page, '/api/dashboard/charts', projectScope),
+    const collectorScope = (url: URL) => url.searchParams.get('collector_id') === 'collector-b';
+    const collectorResponses = waitForDashboardPanelResponses(page, collectorScope);
+    await page.locator('.dashboard-fleet-chip-collector[data-dashboard-scope-value="collector-b"]').click();
+    await Promise.all(collectorResponses);
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('collector_id') === 'collector-b');
+    await expect(page.locator('#dashboard-scope-chips')).toContainText('collector-b');
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(1);
+    await expect(page.locator('#dashboard-fleet')).toContainText('Node B');
+    await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(3);
+    await waitForCompletedRows(page, 15);
+    await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(2);
+
+    clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoFleetScope);
+    await page.locator('[data-dashboard-scope-clear="all"]').click();
+    await Promise.all(clearResponses);
+    await waitForNoDashboardScopeInURL(page);
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(3);
+    await waitForCompletedRows(page, 30);
+
+    const sourceScope = (url: URL) => url.searchParams.get('source_name') === 'source-b';
+    const sourceResponses = waitForDashboardPanelResponses(page, sourceScope);
+    await page.locator('.dashboard-fleet-chip-source[data-dashboard-scope-value="source-b"]').click();
+    await Promise.all(sourceResponses);
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('source_name') === 'source-b');
+    await expect(page.locator('#dashboard-scope-chips')).toContainText('source-b');
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(1);
+    await expect(page.locator('#dashboard-fleet')).toContainText('Node B');
+    await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(3);
+    await waitForCompletedRows(page, 15);
+    await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(2);
+
+    clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoFleetScope);
+    await page.locator('[data-dashboard-scope-clear="all"]').click();
+    await Promise.all(clearResponses);
+    await waitForNoDashboardScopeInURL(page);
+
+    await fillDashboardEventSearchAndWait(page, 'many');
+    await waitForDashboardSearchRows(page, 30);
+    const sourceSearchResponses = [
+      waitForDashboardEndpoint(page, '/api/dashboard/fleet', sourceScope),
+      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => sourceScope(url) && url.searchParams.get('state') === 'active'),
+      waitForDashboardEndpoint(page, '/api/dashboard/search', (url) => sourceScope(url) && url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'event'),
+      waitForDashboardEndpoint(page, '/api/dashboard/activity', sourceScope),
+      waitForDashboardEndpoint(page, '/api/dashboard/charts', sourceScope),
     ];
-    await gotoDashboard(page, '/?project_key=project-c');
+    await page.locator('.dashboard-fleet-chip-source[data-dashboard-scope-value="source-b"]').click();
+    await Promise.all(sourceSearchResponses);
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('source_name') === 'source-b');
+    await waitForDashboardSearchRows(page, 12);
+    await expect(page.locator('#completed-sessions tr[data-search-row]', { hasText: /Many-result fixture item 2 for pagination/ })).toHaveCount(1);
+    await expect(page.locator('#completed-sessions tr[data-search-row]', { hasText: /Many-result fixture item 1 for pagination/ })).toHaveCount(0);
+
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+
+    const projectScope = (url: URL) => url.searchParams.get('project_key') === 'project-c';
+    const projectResponses = waitForDashboardPanelResponses(page, projectScope);
+    await page.locator('.dashboard-fleet-chip-project[data-dashboard-scope-value="project-c"]').click();
     await Promise.all(projectResponses);
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('project_key') === 'project-c');
     await expect(page.locator('#dashboard-scope-chips')).toContainText('project-c');
     await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(1);
     await expect(page.locator('#dashboard-fleet')).toContainText('Node C');

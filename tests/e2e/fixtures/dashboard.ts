@@ -372,6 +372,15 @@ function sessionMatchesScope(session: Record<string, unknown>, url?: URL) {
     matchesScopeValue(session.project_key, scopeValues(url, 'project_key', 'project_keys'));
 }
 
+function searchResultMatchesScope(result: Record<string, unknown>, url?: URL) {
+  return matchesScopeValue(result.node_id, scopeValues(url, 'node_id', 'node_ids')) &&
+    matchesScopeValue(result.collector_id, scopeValues(url, 'collector_id', 'collector_ids')) &&
+    matchesScopeValue(result.source_id, scopeValues(url, 'source_id', 'source_ids')) &&
+    matchesScopeValue(result.source_name, scopeValues(url, 'source_name', 'source_names')) &&
+    matchesScopeValue(result.runtime, scopeValues(url, 'runtime', 'runtimes')) &&
+    matchesScopeValue(result.project_key, scopeValues(url, 'project_key', 'project_keys'));
+}
+
 function filterSessionsByScope<T extends Record<string, unknown>>(items: T[], url?: URL) {
   return items.filter((item) => sessionMatchesScope(item, url));
 }
@@ -755,6 +764,13 @@ function dashboardSearchBaseResults() {
       snippet: 'Dashboard payload search surfaced the exact migration note inside the assistant response.',
       provider: 'provider-a',
       model: 'generic-model-a',
+      node_id: 'node-a',
+      collector_id: 'collector-a',
+      source_id: 'source-a',
+      source_name: 'source-a',
+      runtime: 'runtime-a',
+      project_key: 'beacon',
+      project_path: '/Users/example/projects/beacon/search',
       score: 3.18,
       timestamp: iso(2),
       relative_time: '2d ago',
@@ -770,6 +786,13 @@ function dashboardSearchBaseResults() {
       tool_name: 'Read',
       provider: 'provider-b',
       model: 'generic-model-b',
+      node_id: 'node-b',
+      collector_id: 'collector-b',
+      source_id: 'source-b',
+      source_name: 'source-b',
+      runtime: 'runtime-b',
+      project_key: 'beacon',
+      project_path: '/Users/example/projects/beacon/search',
       score: 2.44,
       timestamp: iso(2, 1),
       relative_time: '2d ago',
@@ -784,6 +807,13 @@ function dashboardSearchBaseResults() {
       snippet: 'Recoverable search timeout while loading a large result set.',
       provider: 'provider-b',
       model: 'generic-model-b',
+      node_id: 'node-c',
+      collector_id: 'collector-c',
+      source_id: 'source-c',
+      source_name: 'source-c',
+      runtime: 'runtime-c',
+      project_key: 'project-c',
+      project_path: '/srv/agents/work/project-c',
       score: 1.72,
       timestamp: iso(2, 2),
       relative_time: '2d ago',
@@ -848,6 +878,7 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
     : new Set(eventKind && eventKind !== 'event' && eventKind !== 'session' ? [eventKind] : []);
   const eventResults = eventKind === 'session' ? [] : source.filter((result) => {
     if (!denseSearchFixture && !dashboardSearchMatchesText(result, query)) return false;
+    if (!searchResultMatchesScope(result, url)) return false;
     if (acceptedKinds.size > 0 && !acceptedKinds.has(result.event_kind)) return false;
     if (sessionID && !result.session_id.toLowerCase().startsWith(sessionID)) return false;
     return true;
@@ -863,6 +894,7 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
     ? baseCompletedSessions
       .filter((session) => {
         if (seenSessions.has(session.id)) return false;
+        if (!sessionMatchesScope(session, url)) return false;
         if (sessionID && !session.id.toLowerCase().startsWith(sessionID)) return false;
         if (!query) return true;
         const haystack = [session.id, session.title, session.last_model, session.working_dir, session.provider].join(' ').toLowerCase();
@@ -875,6 +907,13 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
         result_type: 'session',
         event_uid: '',
         session_id: session.id,
+        node_id: session.node_id,
+        collector_id: session.collector_id,
+        source_id: session.source_id,
+        source_name: session.source,
+        runtime: session.runtime,
+        project_key: session.project_key,
+        project_path: session.project_path,
         event_kind: 'session',
         snippet: `Session metadata: ${session.title} | ${session.working_dir} | ${session.provider} | ${session.last_model}`,
         provider: session.provider,
