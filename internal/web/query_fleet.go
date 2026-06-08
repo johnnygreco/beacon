@@ -397,6 +397,7 @@ func fleetNodeStatus(builder *fleetNodeBuilder) string {
 	}
 	hasOnline := false
 	hasOffline := false
+	hasMissing := false
 	for collector := range builder.collectors {
 		switch fleetCollectorStatus(builder, collector) {
 		case "stale":
@@ -405,9 +406,11 @@ func fleetNodeStatus(builder *fleetNodeBuilder) string {
 			hasOnline = true
 		case "offline":
 			hasOffline = true
+		case "missing":
+			hasMissing = true
 		}
 	}
-	if hasOnline && hasOffline {
+	if hasOnline && (hasOffline || hasMissing) {
 		return "stale"
 	}
 	if hasOnline {

@@ -181,6 +181,11 @@ func TestFleetCollectorStatusSurfacesMixedSourceHealth(t *testing.T) {
 	if status := mergeFleetCollectorStatus("online", "offline"); status != "stale" {
 		t.Fatalf("merged online/offline status = %q, want stale", status)
 	}
+
+	builder.collectors["collector-4"] = struct{}{}
+	if status := fleetNodeStatus(builder); status != "stale" {
+		t.Fatalf("online plus missing collector node status = %q, want stale", status)
+	}
 }
 
 func TestCompletedSessionSearchClause_MetadataOnly(t *testing.T) {
