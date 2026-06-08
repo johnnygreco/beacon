@@ -36,7 +36,7 @@ func runWatch(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("capture source config: %w", err)
 	}
 
-	controlStore, _, err := initializeControlPlane(context.Background(), cfg, logger)
+	controlStore, controlSnapshot, err := initializeControlPlane(context.Background(), cfg, logger)
 	if err != nil {
 		return fmt.Errorf("initializing control-plane metadata: %w", err)
 	}
@@ -58,6 +58,7 @@ func runWatch(cmd *cobra.Command, args []string) error {
 		cfg.Pricing.DefaultInputCost, cfg.Pricing.DefaultOutputCost,
 		nil, // no SSE notify
 		logger,
+		capture.WithFleetIdentity(captureFleetIdentity(controlSnapshot)),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())

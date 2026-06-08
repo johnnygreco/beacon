@@ -67,7 +67,7 @@ func BenchmarkCaptureBuildInsertRowBatch(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		captureBenchRowBatch = buildInsertRowBatch(events, 0.000003, 0.000015)
+		captureBenchRowBatch = buildInsertRowBatch(events, 0.000003, 0.000015, FleetIdentity{})
 	}
 	if len(captureBenchRowBatch.ActivityEvents) == 0 {
 		b.Fatal("expected activity events")

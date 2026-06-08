@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 1
+	CurrentSchemaVersion = 2
 
 	schemaVersionTable = "schema_version"
 	schemaVersionRowID = 1
@@ -213,6 +213,10 @@ func Schema(database string) []string {
 
 		`CREATE TABLE IF NOT EXISTS ` + db("raw_records") + ` (
 			record_uid String,
+			event_uid String,
+			node_id String,
+			collector_id String,
+			source_id String,
 			source_name LowCardinality(String),
 			runtime LowCardinality(String),
 			provider LowCardinality(String),
@@ -222,16 +226,29 @@ func Schema(database string) []string {
 			source_offset UInt64,
 			source_generation UInt32,
 			session_id String,
+			raw_session_id String,
+			raw_event_id String,
+			source_event_index UInt64,
+			batch_id String,
+			control_plane_epoch String,
+			payload_digest String,
+			redaction_status LowCardinality(String),
+			redaction_version String,
 			payload_json String CODEC(ZSTD(3)),
 			captured_at DateTime64(3, 'UTC') DEFAULT now64(3)
 		)
 		ENGINE = ReplacingMergeTree(captured_at)
-		ORDER BY (source_name, source_file, source_generation, source_offset, source_line_no, record_uid)`,
+		ORDER BY (collector_id, source_id, source_file, source_generation, source_event_index, record_uid)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("activity_events") + ` (
 			event_uid String,
 			session_id String,
+			raw_session_id String,
 			parent_session_id String,
+			raw_parent_session_id String,
+			node_id String,
+			collector_id String,
+			source_id String,
 			source_name LowCardinality(String),
 			runtime LowCardinality(String),
 			provider LowCardinality(String),
@@ -260,35 +277,62 @@ func Schema(database string) []string {
 			source_line_no UInt32,
 			source_offset UInt64,
 			source_generation UInt32,
+			raw_event_id String,
+			source_event_index UInt64,
+			batch_id String,
+			control_plane_epoch String,
+			payload_digest String,
+			redaction_status LowCardinality(String),
+			redaction_version String,
 			captured_at DateTime64(3, 'UTC') DEFAULT now64(3),
 			INDEX idx_session session_id TYPE bloom_filter(0.01) GRANULARITY 2,
+			INDEX idx_collector collector_id TYPE bloom_filter(0.01) GRANULARITY 2,
+			INDEX idx_source source_id TYPE bloom_filter(0.01) GRANULARITY 2,
 			INDEX idx_tool tool_name TYPE set(256) GRANULARITY 4
 		)
 		ENGINE = ReplacingMergeTree(captured_at)
 		PARTITION BY toYYYYMM(timestamp)
-		ORDER BY (session_id, timestamp, event_uid)`,
+		ORDER BY (session_id, collector_id, source_id, timestamp, event_uid)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("event_links") + ` (
 			event_uid String,
 			linked_event_uid String,
 			link_type LowCardinality(String),
+			link_scope LowCardinality(String),
+			resolution_status LowCardinality(String),
+			session_id String,
+			raw_session_id String,
+			linked_session_id String,
+			raw_linked_session_id String,
+			raw_linked_event_id String,
+			collector_id String,
+			source_id String,
+			batch_id String,
+			control_plane_epoch String,
 			captured_at DateTime64(3, 'UTC') DEFAULT now64(3)
 		)
 		ENGINE = ReplacingMergeTree(captured_at)
-		ORDER BY (event_uid, linked_event_uid, link_type)`,
+		ORDER BY (collector_id, source_id, event_uid, link_type, raw_linked_session_id, raw_linked_event_id)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("tool_payloads") + ` (
 			event_uid String,
+			collector_id String,
+			source_id String,
 			tool_name LowCardinality(String),
 			tool_phase LowCardinality(String),
 			input_json String CODEC(ZSTD(3)),
 			output_json String CODEC(ZSTD(3)),
 			input_preview String,
 			output_preview String,
+			batch_id String,
+			control_plane_epoch String,
+			payload_digest String,
+			redaction_status LowCardinality(String),
+			redaction_version String,
 			captured_at DateTime64(3, 'UTC') DEFAULT now64(3)
 		)
 		ENGINE = ReplacingMergeTree(captured_at)
-		ORDER BY event_uid`,
+		ORDER BY (event_uid, collector_id, source_id)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("capture_errors") + ` (
 			id String,

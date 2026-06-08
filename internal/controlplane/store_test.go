@@ -48,6 +48,9 @@ func TestEnsureLocalPersistsMetadataAcrossRestart(t *testing.T) {
 	if second.SchemaEpoch != InitialSchemaEpoch {
 		t.Fatalf("schema epoch = %q, want %q", second.SchemaEpoch, InitialSchemaEpoch)
 	}
+	if second.LocalNodeID != "node-mac-mini" || second.LocalCollectorID != "collector-mac-mini" {
+		t.Fatalf("local identity = node %q collector %q, want configured IDs", second.LocalNodeID, second.LocalCollectorID)
+	}
 	if len(second.Nodes) != 1 || second.Nodes[0].ID != "node-mac-mini" {
 		t.Fatalf("nodes = %#v, want persisted node", second.Nodes)
 	}
@@ -62,7 +65,33 @@ func TestEnsureLocalPersistsMetadataAcrossRestart(t *testing.T) {
 	}
 }
 
-func TestEnsureLocalRejectsCollectorIDCollision(t *testing.T) {
+func TestEnsureLocalRejectsConfiguredLocalIdentityMismatch(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+
+	if _, err := store.EnsureLocal(context.Background(), Bootstrap{
+		NodeID:      "node-a",
+		NodeName:    "Node A",
+		CollectorID: "collector-a",
+		Sources:     []SourceRegistration{{Name: "codex", Runtime: "codex", Provider: "openai", Format: "jsonl", WatchRoot: "/tmp/codex"}},
+	}); err != nil {
+		t.Fatalf("EnsureLocal first: %v", err)
+	}
+	_, err = store.EnsureLocal(context.Background(), Bootstrap{
+		NodeID:      "node-b",
+		NodeName:    "Node B",
+		CollectorID: "collector-a",
+		Sources:     []SourceRegistration{{Name: "codex", Runtime: "codex", Provider: "openai", Format: "jsonl", WatchRoot: "/tmp/codex"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "local_node_id") {
+		t.Fatalf("EnsureLocal mismatch error = %v, want local_node_id mismatch", err)
+	}
+}
+
+func TestEnsureLocalRejectsConfiguredCollectorIDChange(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "control-plane.db"))
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -78,13 +107,13 @@ func TestEnsureLocalRejectsCollectorIDCollision(t *testing.T) {
 		t.Fatalf("EnsureLocal first: %v", err)
 	}
 	_, err = store.EnsureLocal(context.Background(), Bootstrap{
-		NodeID:      "node-b",
+		NodeID:      "node-a",
 		NodeName:    "Node B",
-		CollectorID: "collector-shared",
+		CollectorID: "collector-other",
 		Sources:     []SourceRegistration{{Name: "codex", Runtime: "codex", Provider: "openai", Format: "jsonl", WatchRoot: "/tmp/codex"}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "already bound") {
-		t.Fatalf("EnsureLocal collision error = %v, want already bound", err)
+	if err == nil || !strings.Contains(err.Error(), "local_collector_id") {
+		t.Fatalf("EnsureLocal collector mismatch error = %v, want local_collector_id mismatch", err)
 	}
 }
 

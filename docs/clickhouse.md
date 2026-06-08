@@ -23,10 +23,12 @@ still requires the current schema version marker before serving read-only tools.
 The current schema version is recorded in the `schema_version` table. Fresh
 empty databases are initialized to the current version. Databases with Beacon
 tables but no version marker, an empty version marker, or an unsupported version
-fail with reset guidance instead of receiving compatibility alters.
+fail with reset guidance before ingest starts.
 
 Migrations are intentionally simple: they create the current schema and record
-the supported schema version. Beacon does not preserve old local schemas.
+the supported schema version. Beacon does not mix old local identity layouts
+with the current fleet-aware identity schema; reset and reimport when changing
+between incompatible schema versions.
 
 ## Schema ownership
 
@@ -43,7 +45,9 @@ Owner: `store.Migrate` and `store.Reset`.
 ### `raw_records`
 
 Purpose: deduplicated raw source records, including source file, offset,
-generation, session id, and compressed original payload JSON. This is the audit
+generation, global and raw session/event IDs, source event index,
+node/collector/source identity, batch id, control-plane epoch, payload digest,
+redaction placeholders, and compressed original payload JSON. This is the audit
 trail for parser input.
 
 Owner: capture parsers and `Store.Flush`.
@@ -51,23 +55,31 @@ Owner: capture parsers and `Store.Flush`.
 ### `activity_events`
 
 Purpose: canonical normalized event stream used by the dashboard, transcript
-views, MCP tools, analytics, and search indexing. It includes event metadata,
-text, tool fields, token counts, cost, errors, source position, and payload JSON.
+views, MCP tools, analytics, and search indexing. It includes global event and
+session identity, raw source-native IDs, node/collector/source identity, batch
+metadata, event metadata, text, tool fields, token counts, cost, errors, source
+position, redaction placeholders, and payload JSON.
 
 Owner: capture normalizer and `Store.Flush`.
 
 ### `event_links`
 
-Purpose: relationships between normalized events, such as tool-call to
-tool-result links or other parser-derived references.
+Purpose: relationships between normalized events, such as parent-event,
+tool-call to tool-result, cross-session, or other parser-derived references.
+Rows preserve raw linked event/session IDs, global linked IDs when resolvable,
+link scope, resolution status, collector/source identity, batch id, and epoch so
+later reconciliation can resolve initially-unresolved links. The table key uses
+the stable raw linked event/session identity, so a later resolved row can replace
+an unresolved row for the same source relationship.
 
 Owner: capture normalizer and `Store.Flush`.
 
 ### `tool_payloads`
 
-Purpose: full tool input/output JSON and previews keyed by `event_uid`. This
-keeps large tool payloads out of the primary event row while preserving
-transcript detail.
+Purpose: full tool input/output JSON and previews keyed by `event_uid`, with
+collector/source identity, batch id, epoch, payload digest, and redaction
+placeholders. This keeps large tool payloads out of the primary event row while
+preserving transcript detail.
 
 Owner: capture normalizer and `Store.Flush`.
 

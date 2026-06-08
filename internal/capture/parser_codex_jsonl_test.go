@@ -226,6 +226,9 @@ func TestParseCodexJSONL_ResponseItemFunctionCall(t *testing.T) {
 	if evt.ToolPhase != "call" {
 		t.Errorf("expected tool_phase=call, got %q", evt.ToolPhase)
 	}
+	if evt.RawEventID != "call_abc123:call" {
+		t.Errorf("expected raw_event_id=call_abc123:call, got %q", evt.RawEventID)
+	}
 }
 
 func TestParseCodexJSONL_ResponseItemFunctionCallOutput(t *testing.T) {
@@ -270,6 +273,9 @@ func TestParseCodexJSONL_ResponseItemFunctionCallOutput(t *testing.T) {
 	}
 	if evt.ToolPhase != "result" {
 		t.Errorf("expected tool_phase=result, got %q", evt.ToolPhase)
+	}
+	if evt.RawEventID != "call_abc123:result" {
+		t.Errorf("expected raw_event_id=call_abc123:result, got %q", evt.RawEventID)
 	}
 }
 

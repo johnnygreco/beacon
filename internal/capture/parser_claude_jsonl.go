@@ -46,18 +46,22 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 	}
 
 	base := NormalizedEvent{
-		SessionID:       sessionID,
-		SourceName:      "claude",
-		Provider:        models.ProviderAnthropic,
-		Timestamp:       ts,
-		ParentUUID:      parentUUID,
-		MessageUUID:     uuid,
-		CWD:             cwd,
-		ParentSessionID: parentSessionID,
-		SourceFile:      file,
-		SourceLineNo:    lineNo,
-		SourceOffset:    offset,
-		RawPayload:      string(line),
+		SessionID:          sessionID,
+		RawSessionID:       sessionID,
+		RawParentSessionID: parentSessionID,
+		SourceName:         "claude",
+		Provider:           models.ProviderAnthropic,
+		Timestamp:          ts,
+		ParentUUID:         parentUUID,
+		RawLinkedEventID:   parentUUID,
+		MessageUUID:        uuid,
+		RawEventID:         uuid,
+		CWD:                cwd,
+		ParentSessionID:    parentSessionID,
+		SourceFile:         file,
+		SourceLineNo:       lineNo,
+		SourceOffset:       offset,
+		RawPayload:         string(line),
 	}
 
 	var events []NormalizedEvent
@@ -170,7 +174,7 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 			return events, nil
 		}
 
-		for _, block := range content {
+		for i, block := range content {
 			bm := objectFromAny(block)
 			if bm == nil {
 				continue
@@ -178,6 +182,7 @@ func ParseClaudeJSONL(line []byte, file string, lineNo int, offset int64) ([]Nor
 
 			blockType := stringField(bm, "type")
 			evt := base
+			evt.SourceEventIndex = uint64(lineNo)*1000000000 + uint64(i+1)
 
 			switch blockType {
 			case "text":

@@ -56,6 +56,14 @@ func TestSchemaIncludesSourceMetadataColumns(t *testing.T) {
 		"runtime LowCardinality(String)",
 		"format LowCardinality(String)",
 		"source_generation UInt32",
+		"collector_id String",
+		"source_id String",
+		"raw_event_id String",
+		"source_event_index UInt64",
+		"batch_id String",
+		"control_plane_epoch String",
+		"payload_digest String",
+		"redaction_status LowCardinality(String)",
 		"state_json String DEFAULT ''",
 	} {
 		if !strings.Contains(schema, expected) {
@@ -89,6 +97,24 @@ func TestSchemaIncludesAnalyticsProjection(t *testing.T) {
 		"call_count UInt64",
 		"duration_ms_sum UInt64",
 		"ORDER BY (session_id, minute, provider, model, tool_name, event_kind)",
+	} {
+		if !strings.Contains(schema, expected) {
+			t.Fatalf("schema missing %s", expected)
+		}
+	}
+}
+
+func TestSchemaIncludesFleetAwareLinkColumns(t *testing.T) {
+	schema := strings.Join(Schema("beacon"), "\n")
+	for _, expected := range []string{
+		"linked_session_id String",
+		"raw_linked_session_id String",
+		"raw_linked_event_id String",
+		"link_scope LowCardinality(String)",
+		"resolution_status LowCardinality(String)",
+		"ORDER BY (collector_id, source_id, event_uid, link_type, raw_linked_session_id, raw_linked_event_id)",
+		"ORDER BY (session_id, collector_id, source_id, timestamp, event_uid)",
+		"ORDER BY (event_uid, collector_id, source_id)",
 	} {
 		if !strings.Contains(schema, expected) {
 			t.Fatalf("schema missing %s", expected)
@@ -136,22 +162,38 @@ func TestValidateSchemaStateRejectsUnsupportedSchemas(t *testing.T) {
 
 func TestNewRawRecordPreservesSourceMetadata(t *testing.T) {
 	event := models.Event{
-		EventUID:         "evt",
-		SourceName:       "custom-source",
-		Runtime:          "custom-runtime",
-		Provider:         "custom-provider",
-		Format:           "jsonl",
-		SourceFile:       "session.jsonl",
-		SourceLineNo:     12,
-		SourceOffset:     34,
-		SourceGeneration: 2,
-		SessionID:        "sess",
-		PayloadJSON:      `{"ok":true}`,
+		EventUID:          "evt",
+		NodeID:            "node-a",
+		CollectorID:       "collector-a",
+		SourceID:          "source-a",
+		SourceName:        "custom-source",
+		Runtime:           "custom-runtime",
+		Provider:          "custom-provider",
+		Format:            "jsonl",
+		SourceFile:        "session.jsonl",
+		SourceLineNo:      12,
+		SourceOffset:      34,
+		SourceGeneration:  2,
+		SessionID:         "sess",
+		RawSessionID:      "raw-sess",
+		RawEventID:        "raw-event",
+		SourceEventIndex:  42,
+		BatchID:           "batch-a",
+		ControlPlaneEpoch: "1",
+		PayloadDigest:     "digest-a",
+		RedactionStatus:   "unredacted",
+		PayloadJSON:       `{"ok":true}`,
 	}
 
 	raw := NewRawRecord(event)
 	if raw.Runtime != event.Runtime || raw.Format != event.Format || raw.SourceGeneration != event.SourceGeneration {
 		t.Fatalf("raw source metadata = runtime %q format %q generation %d", raw.Runtime, raw.Format, raw.SourceGeneration)
+	}
+	if raw.EventUID != event.EventUID || raw.CollectorID != event.CollectorID || raw.SourceID != event.SourceID ||
+		raw.RawSessionID != event.RawSessionID || raw.RawEventID != event.RawEventID ||
+		raw.SourceEventIndex != event.SourceEventIndex || raw.BatchID != event.BatchID ||
+		raw.PayloadDigest != event.PayloadDigest || raw.RedactionStatus != event.RedactionStatus {
+		t.Fatalf("raw fleet identity not preserved: %#v", raw)
 	}
 }
 
