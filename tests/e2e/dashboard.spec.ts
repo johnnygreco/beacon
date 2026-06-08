@@ -614,6 +614,9 @@ test.describe('dashboard battle-tested workflows', () => {
     const runtimeResponses = [
       waitForDashboardEndpoint(page, '/api/dashboard/fleet', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'codex'),
       waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'codex' && url.searchParams.get('state') === 'active'),
+      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'codex' && url.searchParams.get('state') === 'completed'),
+      waitForDashboardEndpoint(page, '/api/dashboard/activity', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'codex'),
+      waitForDashboardEndpoint(page, '/api/dashboard/charts', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'codex'),
     ];
     await page.locator('.dashboard-fleet-runtime[data-dashboard-scope-value="codex"]').click();
     await Promise.all(runtimeResponses);
@@ -622,10 +625,15 @@ test.describe('dashboard battle-tested workflows', () => {
       return url.searchParams.get('node_id') === 'mac-mini-codex' && url.searchParams.get('runtime') === 'codex';
     });
     await expect(page.locator('#dashboard-scope-chips')).toContainText('codex');
+    await waitForCompletedRows(page, 15);
+    await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(2);
 
     const clearResponses = [
       waitForDashboardEndpoint(page, '/api/dashboard/fleet', (url) => !url.searchParams.has('node_id') && !url.searchParams.has('runtime')),
       waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => !url.searchParams.has('node_id') && !url.searchParams.has('runtime') && url.searchParams.get('state') === 'active'),
+      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => !url.searchParams.has('node_id') && !url.searchParams.has('runtime') && url.searchParams.get('state') === 'completed'),
+      waitForDashboardEndpoint(page, '/api/dashboard/activity', (url) => !url.searchParams.has('node_id') && !url.searchParams.has('runtime')),
+      waitForDashboardEndpoint(page, '/api/dashboard/charts', (url) => !url.searchParams.has('node_id') && !url.searchParams.has('runtime')),
     ];
     await page.locator('[data-dashboard-scope-clear="all"]').click();
     await Promise.all(clearResponses);
@@ -635,6 +643,8 @@ test.describe('dashboard battle-tested workflows', () => {
     });
     await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(3);
     await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(8);
+    await waitForCompletedRows(page, 30);
+    await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(4);
 
     await guards.expectClean();
   });

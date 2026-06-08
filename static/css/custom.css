@@ -2025,12 +2025,12 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
   color: var(--dash-accent);
 }
 
-.dashboard-scope-inline-chip,
+.dashboard-scope-inline-chip:not(.dashboard-scope-inline-chip-static),
 .dashboard-fleet-runtime {
   cursor: pointer;
 }
 
-.dashboard-scope-inline-chip:hover,
+.dashboard-scope-inline-chip:not(.dashboard-scope-inline-chip-static):hover,
 .dashboard-fleet-runtime:hover,
 .dashboard-scope-chip:hover,
 .dashboard-scope-clear-all:hover {
@@ -2061,6 +2061,10 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
 
 .dashboard-fleet-status-online {
   border-left-color: #34d399;
+}
+
+.dashboard-fleet-status-active {
+  border-left-color: #38bdf8;
 }
 
 .dashboard-fleet-status-stale {
@@ -2397,6 +2401,23 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
   min-width: 0;
 }
 
+.active-session-controls-column {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.35rem;
+  min-width: 7rem;
+  padding: 0.5rem 0.5rem 0.5rem 0;
+}
+
+.active-session-scope-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  max-width: 13rem;
+}
+
 .active-session-card-header {
   justify-content: space-between;
   align-items: center;
@@ -2611,7 +2632,6 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0.5rem 0.5rem 0.5rem 0;
 }
 
 .active-session-action-btn {
@@ -2725,9 +2745,19 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .active-session-controls-column {
+    align-items: flex-start;
+    min-width: 0;
+    padding: 0 0.75rem 0.625rem;
+  }
+
+  .active-session-scope-controls {
+    justify-content: flex-start;
+    max-width: 100%;
+  }
+
   .active-session-actions {
     justify-content: flex-end;
-    padding: 0 0.75rem 0.625rem;
   }
 }
 

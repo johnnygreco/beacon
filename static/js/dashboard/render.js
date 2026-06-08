@@ -44,17 +44,17 @@ function nodeLabel(value) {
 	return value;
 }
 
-function nodeBadge(value) {
+function nodeBadge(value, interactive) {
 	var raw = String(value || '').trim();
 	var label = nodeLabel(raw);
-	if (!raw) return '<span class="dashboard-scope-inline-chip dashboard-scope-inline-chip-static">' + escapeHTML(label) + '</span>';
+	if (interactive === false || !raw) return '<span class="dashboard-scope-inline-chip dashboard-scope-inline-chip-static">' + escapeHTML(label) + '</span>';
 	return '<button type="button" class="dashboard-scope-inline-chip" data-dashboard-scope-field="node_id" data-dashboard-scope-value="' + escapeAttr(raw) + '" title="Filter dashboard to node ' + escapeAttr(label) + '">' + escapeHTML(label) + '</button>';
 }
 
-function runtimeBadge(value, fallback) {
+function runtimeBadge(value, fallback, interactive) {
 	var raw = String(value || '').trim();
 	var label = runtimeLabel(raw, fallback);
-	if (!raw) return '<span class="dashboard-scope-inline-chip dashboard-scope-inline-chip-static dashboard-scope-inline-chip-runtime">' + escapeHTML(label) + '</span>';
+	if (interactive === false || !raw) return '<span class="dashboard-scope-inline-chip dashboard-scope-inline-chip-static dashboard-scope-inline-chip-runtime">' + escapeHTML(label) + '</span>';
 	return '<button type="button" class="dashboard-scope-inline-chip dashboard-scope-inline-chip-runtime" data-dashboard-scope-field="runtime" data-dashboard-scope-value="' + escapeAttr(raw) + '" title="Filter dashboard to runtime ' + escapeAttr(label) + '">' + escapeHTML(label) + '</button>';
 }
 
@@ -368,11 +368,11 @@ function renderCompleted(response) {
 			var prev = offset > 0 ? '<button type="button" class="json-page-btn px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors" data-offset="' + Math.max(0, offset - limit) + '">Previous</button>' : '';
 			var next = hasMore ? '<button type="button" class="json-page-btn px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors" data-offset="' + (offset + limit) + '">Next</button>' : '';
 			if (prev || next) {
-				rows.push('<tr class="border-none" data-pagination-row><td colspan="11" class="py-3"><div class="flex items-center justify-center gap-4">' + prev + next + '<\/div><\/td><\/tr>');
+				rows.push('<tr class="border-none" data-pagination-row><td colspan="12" class="py-3"><div class="flex items-center justify-center gap-4">' + prev + next + '<\/div><\/td><\/tr>');
 			}
 		}
 		if (rows.length === 0) {
-			rows.push('<tr><td colspan="11" class="text-center py-4"><span class="text-sm text-gray-500">' + (currentSearchQuery ? 'No sessions match your search' : 'No completed sessions') + '<\/span><\/td><\/tr>');
+			rows.push('<tr><td colspan="12" class="text-center py-4"><span class="text-sm text-gray-500">' + (currentSearchQuery ? 'No sessions match your search' : 'No completed sessions') + '<\/span><\/td><\/tr>');
 		}
 		setTextIfChanged(status, rangeLabel(completedRangeValue()));
 		var changed = setHTMLIfChanged(tbody, rows.join(''));
@@ -675,6 +675,12 @@ function activeSessionActions(session, context) {
 		'</div>';
 }
 
+function activeSessionScopeControls(session) {
+	var controls = nodeBadge(session.node_id, true) + runtimeBadge(session.runtime, session.source || session.provider, true);
+	if (!controls) return '';
+	return '<div class="active-session-scope-controls" aria-label="Active session scope filters">' + controls + '</div>';
+}
+
 function activeSessionLinkContent(session, statusDot, live, sub, turnCount, toolCount, errorCount) {
 	var statusClass = sub ? 'active-session-status-sub' : (live ? 'active-session-status-live' : 'active-session-status-idle');
 	var statusLabel = live ? 'Live' : 'Idle';
@@ -683,7 +689,7 @@ function activeSessionLinkContent(session, statusDot, live, sub, turnCount, tool
 		: '<span class="font-mono">' + escapeHTML(shortID(session.id)) + '</span><span>' + escapeHTML(session.status || '') + '</span>';
 	var path = session.working_dir ? '<span class="active-session-path" title="' + escapeAttr(session.working_dir) + '">' + escapeHTML(session.working_dir) + '</span>' : '';
 	var project = session.project_key ? '<span class="active-session-project" title="' + escapeAttr(session.project_path || session.working_dir || session.project_key) + '">' + escapeHTML(session.project_key) + '</span>' : '';
-	var meta = nodeBadge(session.node_id) + runtimeBadge(session.runtime, session.source || session.provider) + modelChip(session.last_model || '') + providerBadge(session.provider) + attentionBadge(session) + costLabel(session) + '<span class="active-session-status ' + statusClass + '">' + statusLabel + '</span><span class="active-session-kicker">' + kicker + '</span>' + project + path;
+	var meta = nodeBadge(session.node_id, false) + runtimeBadge(session.runtime, session.source || session.provider, false) + modelChip(session.last_model || '') + providerBadge(session.provider) + attentionBadge(session) + costLabel(session) + '<span class="active-session-status ' + statusClass + '">' + statusLabel + '</span><span class="active-session-kicker">' + kicker + '</span>' + project + path;
 	return '<div class="active-session-card-header">' +
 			'<div class="active-session-title-row">' + statusDot + '<div class="active-session-title">' + escapeHTML(sessionTitle(session)) + '</div></div>' +
 			activeSessionTracker(session, turnCount, toolCount, errorCount) +
@@ -705,7 +711,8 @@ function activeCard(session, context) {
 	var pinned = context && typeof context.pinnedIndex === 'number' && context.pinnedIndex >= 0;
 	var attrs = ' data-active-session-id="' + escapeAttr(session.id) + '" data-active-pinned="' + (pinned ? 'true' : 'false') + '"';
 	var link = '<a href="' + escapeAttr(requestURL('/sessions/' + encodeURIComponent(session.id), {})) + '" class="active-session-link">' + activeSessionLinkContent(session, statusDot, live, sub, turnCount, toolCount, errorCount) + '</a>';
-	var shell = '<div class="active-session-row-shell">' + link + activeSessionActions(session, context) + '</div>';
+	var controls = '<div class="active-session-controls-column">' + activeSessionScopeControls(session) + activeSessionActions(session, context) + '</div>';
+	var shell = '<div class="active-session-row-shell">' + link + controls + '</div>';
 	if (sub) {
 		return '<div class="active-session-card ' + border + '"' + attrs + '>' + shell + '</div>';
 	}
@@ -778,12 +785,14 @@ function formatBytes(value) {
 
 function fleetStatusLabel(status) {
 	if (status === 'online') return 'Online';
+	if (status === 'active') return 'Active';
 	if (status === 'stale') return 'Stale';
 	return 'Offline';
 }
 
 function fleetStatusClass(status) {
 	if (status === 'online') return 'dashboard-fleet-status-online';
+	if (status === 'active') return 'dashboard-fleet-status-active';
 	if (status === 'stale') return 'dashboard-fleet-status-stale';
 	return 'dashboard-fleet-status-offline';
 }
@@ -1239,7 +1248,7 @@ async function loadCompletedSessions(offset, options) {
 		if (options.silent) return;
 		withDashboardScrollStability(function() {
 			var tbody = document.getElementById('completed-sessions');
-			setHTMLIfChanged(tbody, '<tr><td colspan="11" class="text-center py-4"><span class="text-sm text-red-400">Unable to load completed sessions. <button type="button" class="underline" onclick="loadCompletedSessions(currentCompletedOffset)">Retry</button></span></td></tr>');
+			setHTMLIfChanged(tbody, '<tr><td colspan="12" class="text-center py-4"><span class="text-sm text-red-400">Unable to load completed sessions. <button type="button" class="underline" onclick="loadCompletedSessions(currentCompletedOffset)">Retry</button></span></td></tr>');
 			setTextIfChanged(status, 'Unable to load completed sessions');
 		}, {completedRegion: true});
 		return;

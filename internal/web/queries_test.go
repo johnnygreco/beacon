@@ -80,6 +80,68 @@ func TestAPIScopeEventAndSessionProjectKeyUsesSingleProjectFallback(t *testing.T
 	}
 }
 
+func TestAPIScopeNodeIDNormalizesBlankLocalRows(t *testing.T) {
+	clause, args := APIScopeFilters{NodeIDs: []string{"local"}}.sqlAndClause("s")
+	for _, want := range []string{"COALESCE(NULLIF(s.node_id, ''), 'local')", "IN (?)"} {
+		if !strings.Contains(clause, want) {
+			t.Fatalf("node scope missing %q: %s", want, clause)
+		}
+	}
+	if fmt.Sprint(args) != "[local]" {
+		t.Fatalf("node scope args = %#v, want [local]", args)
+	}
+
+	eventClause, eventArgs := APIScopeFilters{NodeIDs: []string{"local"}}.eventSQLAndClause("e", "e.cwd")
+	if !strings.Contains(eventClause, "COALESCE(NULLIF(e.node_id, ''), 'local')") {
+		t.Fatalf("event node scope should normalize blank node IDs: %s", eventClause)
+	}
+	if fmt.Sprint(eventArgs) != "[local]" {
+		t.Fatalf("event node scope args = %#v, want [local]", eventArgs)
+	}
+}
+
+func TestFleetHeartbeatScopeAvoidsHeartbeatOnlyMissingColumns(t *testing.T) {
+	clause, args := fleetHeartbeatScopeClause(APIScopeFilters{
+		NodeIDs:     []string{"local"},
+		Runtimes:    []string{"codex"},
+		ProjectKeys: []string{"beacon"},
+	})
+	for _, unexpected := range []string{"h.runtime", "h.project_key"} {
+		if strings.Contains(clause, unexpected) {
+			t.Fatalf("heartbeat scope should not reference %s: %s", unexpected, clause)
+		}
+	}
+	for _, want := range []string{
+		"COALESCE(NULLIF(h.node_id, ''), 'local') IN (?)",
+		"(h.collector_id, h.source_id) IN",
+		"FROM session_projection FINAL",
+		"runtime IN (?)",
+		"GROUP BY collector_id, source_id",
+	} {
+		if !strings.Contains(clause, want) {
+			t.Fatalf("heartbeat scope missing %q: %s", want, clause)
+		}
+	}
+	if got := strings.Count(clause, "?"); got != len(args) {
+		t.Fatalf("placeholder count = %d, arg count = %d: %s", got, len(args), clause)
+	}
+	argText := fmt.Sprint(args)
+	for _, want := range []string{"local", "codex", "beacon"} {
+		if !strings.Contains(argText, want) {
+			t.Fatalf("heartbeat scope args missing %q: %#v", want, args)
+		}
+	}
+}
+
+func TestFleetNodeStatusMarksActiveSessionOnlyNodes(t *testing.T) {
+	status := fleetNodeStatus(&fleetNodeBuilder{
+		node: APIDashboardFleetNode{ActiveSessions: 1},
+	})
+	if status != "active" {
+		t.Fatalf("session-only active node status = %q, want active", status)
+	}
+}
+
 func TestCompletedSessionSearchClause_MetadataOnly(t *testing.T) {
 	clause, args := completedSessionSearchClause("metadata", nil)
 	if strings.Contains(clause, "session_id IN") {

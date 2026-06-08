@@ -43,6 +43,15 @@ type fleetHeartbeatAggregate struct {
 	LastHeartbeatAt time.Time
 }
 
+type fleetHeartbeatCollectorAggregate struct {
+	NodeID          string
+	CollectorID     string
+	QueueDepth      int64
+	SpoolBytes      int64
+	ActiveFiles     int64
+	LastHeartbeatAt time.Time
+}
+
 type fleetNodeBuilder struct {
 	node APIDashboardFleetNode
 
@@ -74,13 +83,20 @@ func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters)
 		addMany(builder.runtimes, row.Runtimes)
 		addMany(builder.projects, row.Projects)
 	}
+	for _, row := range queryFleetHeartbeatCollectorAggregates(ctx, db, scope) {
+		builder := fleetBuilderFor(builders, row.NodeID)
+		addNonEmpty(builder.collectors, row.CollectorID)
+		builder.node.QueueDepth += row.QueueDepth
+		builder.node.SpoolBytes += row.SpoolBytes
+		builder.node.ActiveFiles += row.ActiveFiles
+		if !row.LastHeartbeatAt.IsZero() {
+			setMaxTimePtr(&builder.node.LastHeartbeatAt, row.LastHeartbeatAt)
+		}
+	}
 	for _, row := range queryFleetHeartbeatAggregates(ctx, db, scope) {
 		builder := fleetBuilderFor(builders, row.NodeID)
 		addNonEmpty(builder.collectors, row.CollectorID)
 		addNonEmpty(builder.sources, firstNonEmpty(row.SourceName, row.SourceID))
-		builder.node.QueueDepth += row.QueueDepth
-		builder.node.SpoolBytes += row.SpoolBytes
-		builder.node.ActiveFiles += row.ActiveFiles
 		builder.node.HeartbeatErrorCount += row.ErrorCount
 		if row.LastEventAt != nil {
 			setMaxTimePtr(&builder.node.LastEventAt, *row.LastEventAt)
@@ -125,7 +141,11 @@ func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters)
 			node.CollectorCount = 1
 		}
 		node.Status = fleetNodeStatus(builder)
-		node.HeartbeatStatus = node.Status
+		if node.LastHeartbeatAt == nil && node.ActiveSessions > 0 {
+			node.HeartbeatStatus = "missing"
+		} else {
+			node.HeartbeatStatus = node.Status
+		}
 		if node.LastHeartbeatAt != nil {
 			node.LastSeenLabel = views.RelativeTime(*node.LastHeartbeatAt)
 		} else if node.LastEventAt != nil {
@@ -234,8 +254,7 @@ func queryFleetHeartbeatAggregates(ctx context.Context, db *sql.DB, scope APISco
 	if db == nil {
 		return nil
 	}
-	rawScope := scope.withoutProjectKeys()
-	scopeClause, scopeArgs := rawScope.sqlAndClause("h")
+	scopeClause, scopeArgs := fleetHeartbeatScopeClause(scope)
 	rows, err := db.QueryContext(ctx,
 		`SELECT COALESCE(NULLIF(h.node_id, ''), 'local') AS node_key,
 		        COALESCE(h.collector_id, ''),
@@ -286,6 +305,63 @@ func queryFleetHeartbeatAggregates(ctx context.Context, db *sql.DB, scope APISco
 		return nil
 	}
 	return out
+}
+
+func queryFleetHeartbeatCollectorAggregates(ctx context.Context, db *sql.DB, scope APIScopeFilters) []fleetHeartbeatCollectorAggregate {
+	if db == nil {
+		return nil
+	}
+	scopeClause, scopeArgs := fleetHeartbeatScopeClause(scope)
+	rows, err := db.QueryContext(ctx,
+		`SELECT COALESCE(NULLIF(h.node_id, ''), 'local') AS node_key,
+		        COALESCE(h.collector_id, ''),
+		        COALESCE(argMax(h.queue_depth, h.created_at), 0),
+		        COALESCE(argMax(h.spool_bytes, h.created_at), 0),
+		        COALESCE(argMax(h.active_files, h.created_at), 0),
+		        max(h.created_at)
+		 FROM capture_heartbeats AS h
+		 WHERE h.collector_id != ''`+scopeClause+`
+		 GROUP BY node_key, h.collector_id
+		 ORDER BY node_key, h.collector_id`, scopeArgs...)
+	if err != nil {
+		logQueryError("dashboard fleet heartbeat collectors", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var out []fleetHeartbeatCollectorAggregate
+	for rows.Next() {
+		var row fleetHeartbeatCollectorAggregate
+		if err := rows.Scan(&row.NodeID, &row.CollectorID, &row.QueueDepth, &row.SpoolBytes, &row.ActiveFiles, &row.LastHeartbeatAt); err != nil {
+			logQueryScanError("dashboard fleet heartbeat collectors", err)
+			continue
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		logQueryError("dashboard fleet heartbeat collectors rows", err)
+		return nil
+	}
+	return out
+}
+
+func fleetHeartbeatScopeClause(scope APIScopeFilters) (string, []any) {
+	scopeClause, args := scope.withoutProjectKeysAndRuntimes().sqlAndClause("h")
+	if len(compactScopeValues(scope.Runtimes)) == 0 && len(compactScopeValues(scope.ProjectKeys)) == 0 {
+		return scopeClause, args
+	}
+
+	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", scope)
+	sessionScope := scope.withoutProjectKeys()
+	sessionClause, sessionArgs := sessionScope.sqlAndClause("")
+	args = append(args, sourceArgs...)
+	args = append(args, sessionArgs...)
+	return scopeClause + ` AND (h.collector_id, h.source_id) IN (
+			SELECT collector_id, source_id
+			FROM ` + sessionSource + `
+			WHERE collector_id != '' AND source_id != ''` + sessionClause + `
+			GROUP BY collector_id, source_id
+		)`, args
 }
 
 func fleetBuilderFor(builders map[string]*fleetNodeBuilder, nodeID string) *fleetNodeBuilder {
@@ -354,7 +430,7 @@ func fleetNodeStatus(builder *fleetNodeBuilder) string {
 		return "offline"
 	}
 	if builder.node.ActiveSessions > 0 {
-		return "stale"
+		return "active"
 	}
 	return "offline"
 }
