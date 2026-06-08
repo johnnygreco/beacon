@@ -72,6 +72,11 @@ func (s APIScopeFilters) metadata() APIScopeMetadata {
 	return APIScopeMetadata{AuthScopeApplied: false, Filters: s}
 }
 
+func (s APIScopeFilters) withoutProjectKeys() APIScopeFilters {
+	s.ProjectKeys = nil
+	return s
+}
+
 func (s APIScopeFilters) applyToSearchQuery(q *search.SearchQuery) {
 	if q == nil {
 		return

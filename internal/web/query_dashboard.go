@@ -482,8 +482,10 @@ func QueryDashboardMetricsScoped(ctx context.Context, db *sql.DB, scope APIScope
 	var inputTokens, outputTokens, cacheReadTokens int64
 	var toolCalls, mcpCalls int
 	activeCutoff := time.Now().Add(-idleThreshold)
-	scopeClause, scopeArgs := scope.sqlAndClause("")
+	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", scope)
+	scopeClause, scopeArgs := scope.withoutProjectKeys().sqlAndClause("")
 	args := []any{activeCutoff, activeCutoff}
+	args = append(args, sourceArgs...)
 	args = append(args, scopeArgs...)
 
 	if err := db.QueryRowContext(ctx,
@@ -494,7 +496,7 @@ func QueryDashboardMetricsScoped(ctx context.Context, db *sql.DB, scope APIScope
 		        COALESCE(SUM(total_cache_read_tokens), 0),
 		        COALESCE(SUM(tool_call_count), 0),
 		        COALESCE(SUM(mcp_call_count), 0)
-		 FROM `+sessionProjectionSQL+`
+		 FROM `+sessionSource+`
 		 WHERE 1 = 1`+scopeClause, args...,
 	).Scan(&totalSessions, &activeSessions, &inputTokens, &outputTokens, &cacheReadTokens, &toolCalls, &mcpCalls); err != nil {
 		logQueryError("dashboard metrics", err)

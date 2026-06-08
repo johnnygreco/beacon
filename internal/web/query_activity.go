@@ -68,15 +68,20 @@ func QueryRecentActivityFilteredByKind(ctx context.Context, db *sql.DB, since *t
 
 func QueryRecentActivityFilteredByKindScoped(ctx context.Context, db *sql.DB, since *time.Time, eventKinds []string, scope APIScopeFilters) []views.ActivityItem {
 	where, args := recentActivityKindFilter(eventKinds)
+	candidateWhere := where
+	candidateArgs := append([]any{}, args...)
 	if since != nil {
 		where += " AND ae.timestamp >= ?"
 		args = append(args, *since)
+		candidateWhere += " AND ae.timestamp >= ?"
+		candidateArgs = append(candidateArgs, *since)
 	}
-	rawScope := scope
-	rawScope.ProjectKeys = nil
+	rawScope := scope.withoutProjectKeys()
 	if clause, scopeArgs := rawScope.eventSQLAndClause("ae", ""); clause != "" {
 		where += clause
 		args = append(args, scopeArgs...)
+		candidateWhere += clause
+		candidateArgs = append(candidateArgs, scopeArgs...)
 	}
 	projectKeys := compactScopeValues(scope.ProjectKeys)
 	join := ""
@@ -103,10 +108,11 @@ func QueryRecentActivityFilteredByKindScoped(ctx context.Context, db *sql.DB, si
 		        COALESCE(e.runtime, ''),
 		        COALESCE(e.provider, ''),
 		        e.timestamp
-		 FROM ` + recentActivityEventsJoinedSubquery(where, join) + ` AS e`
+		 FROM ` + recentActivityEventsJoinedSubquery(where, join, candidateWhere) + ` AS e`
 	query += ` ORDER BY timestamp DESC LIMIT 200`
 
-	rows, err := db.QueryContext(ctx, query, args...)
+	queryArgs := append(candidateArgs, args...)
+	rows, err := db.QueryContext(ctx, query, queryArgs...)
 	if err != nil {
 		logQueryError("recent activity", err)
 		return nil

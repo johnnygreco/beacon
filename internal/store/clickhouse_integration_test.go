@@ -160,8 +160,17 @@ func TestAnalyticsProjectionProjectFallbackReplacesChangedRows(t *testing.T) {
 		t.Helper()
 		var rows, tokens uint64
 		if err := ch.DB.QueryRowContext(ctx, `SELECT count(), COALESCE(sum(total_tokens), 0)
-			FROM analytics_projection FINAL
-			WHERE session_id = ? AND project_key = ?`, sessionID, projectKey).Scan(&rows, &tokens); err != nil {
+			FROM (
+				SELECT *
+				FROM analytics_projection FINAL
+			) AS ap
+			INNER JOIN (
+				SELECT session_id, argMax(refresh_id, updated_at) AS refresh_id
+				FROM analytics_projection FINAL
+				WHERE session_id = ?
+				GROUP BY session_id
+			) AS latest ON latest.session_id = ap.session_id AND latest.refresh_id = ap.refresh_id
+			WHERE ap.session_id = ? AND ap.project_key = ?`, sessionID, sessionID, projectKey).Scan(&rows, &tokens); err != nil {
 			t.Fatalf("analytics totals %q: %v", projectKey, err)
 		}
 		return rows, tokens
@@ -913,16 +922,22 @@ func TestClickHouseFlushRefreshesDeduplicatedProjection(t *testing.T) {
 		        sum(tool_call_count),
 		        sum(duration_ms_sum)
 		 FROM (
-			SELECT session_id, minute, provider, model, tool_name, event_kind,
-			       argMax(event_count, updated_at) AS event_count,
-			       argMax(total_tokens, updated_at) AS total_tokens,
-			       argMax(call_count, updated_at) AS call_count,
-			       argMax(tool_call_count, updated_at) AS tool_call_count,
-			       argMax(duration_ms_sum, updated_at) AS duration_ms_sum
-			FROM analytics_projection
-			WHERE session_id = ?
-			GROUP BY session_id, minute, provider, model, tool_name, event_kind
-		 )`, sessionID).Scan(&analyticsEvents, &analyticsTokens, &analyticsCalls, &analyticsToolCalls, &analyticsDuration); err != nil {
+			SELECT ap.session_id, ap.minute, ap.provider, ap.model, ap.tool_name, ap.event_kind,
+			       argMax(ap.event_count, ap.updated_at) AS event_count,
+			       argMax(ap.total_tokens, ap.updated_at) AS total_tokens,
+			       argMax(ap.call_count, ap.updated_at) AS call_count,
+			       argMax(ap.tool_call_count, ap.updated_at) AS tool_call_count,
+			       argMax(ap.duration_ms_sum, ap.updated_at) AS duration_ms_sum
+			FROM analytics_projection AS ap
+			INNER JOIN (
+				SELECT session_id, argMax(refresh_id, updated_at) AS refresh_id
+				FROM analytics_projection
+				WHERE session_id = ?
+				GROUP BY session_id
+			) AS latest ON latest.session_id = ap.session_id AND latest.refresh_id = ap.refresh_id
+			WHERE ap.session_id = ?
+			GROUP BY ap.session_id, ap.minute, ap.provider, ap.model, ap.tool_name, ap.event_kind
+		 )`, sessionID, sessionID).Scan(&analyticsEvents, &analyticsTokens, &analyticsCalls, &analyticsToolCalls, &analyticsDuration); err != nil {
 		t.Fatalf("analytics projection query: %v", err)
 	}
 	if analyticsEvents != 2 || analyticsTokens != 7 || analyticsCalls != 1 || analyticsToolCalls != 1 || analyticsDuration != 42 {
@@ -1437,21 +1452,27 @@ func TestClickHouseFlushProjectsSessionStatesSubagentsErrorsAndSearchRows(t *tes
 		        sum(total_tokens),
 		        sum(duration_ms_sum)
 		 FROM (
-			SELECT session_id, minute, provider, model, tool_name, event_kind,
-			       argMax(event_count, updated_at) AS event_count,
-			       argMax(call_count, updated_at) AS call_count,
-			       argMax(tool_call_count, updated_at) AS tool_call_count,
-			       argMax(tool_result_count, updated_at) AS tool_result_count,
-			       argMax(input_tokens, updated_at) AS input_tokens,
-			       argMax(output_tokens, updated_at) AS output_tokens,
-			       argMax(cache_read_tokens, updated_at) AS cache_read_tokens,
-			       argMax(cache_create_tokens, updated_at) AS cache_create_tokens,
-			       argMax(total_tokens, updated_at) AS total_tokens,
-			       argMax(duration_ms_sum, updated_at) AS duration_ms_sum
-			FROM analytics_projection
-			WHERE session_id = ?
-			GROUP BY session_id, minute, provider, model, tool_name, event_kind
-		 )`, parentID).Scan(
+			SELECT ap.session_id, ap.minute, ap.provider, ap.model, ap.tool_name, ap.event_kind,
+			       argMax(ap.event_count, ap.updated_at) AS event_count,
+			       argMax(ap.call_count, ap.updated_at) AS call_count,
+			       argMax(ap.tool_call_count, ap.updated_at) AS tool_call_count,
+			       argMax(ap.tool_result_count, ap.updated_at) AS tool_result_count,
+			       argMax(ap.input_tokens, ap.updated_at) AS input_tokens,
+			       argMax(ap.output_tokens, ap.updated_at) AS output_tokens,
+			       argMax(ap.cache_read_tokens, ap.updated_at) AS cache_read_tokens,
+			       argMax(ap.cache_create_tokens, ap.updated_at) AS cache_create_tokens,
+			       argMax(ap.total_tokens, ap.updated_at) AS total_tokens,
+			       argMax(ap.duration_ms_sum, ap.updated_at) AS duration_ms_sum
+			FROM analytics_projection AS ap
+			INNER JOIN (
+				SELECT session_id, argMax(refresh_id, updated_at) AS refresh_id
+				FROM analytics_projection
+				WHERE session_id = ?
+				GROUP BY session_id
+			) AS latest ON latest.session_id = ap.session_id AND latest.refresh_id = ap.refresh_id
+			WHERE ap.session_id = ?
+			GROUP BY ap.session_id, ap.minute, ap.provider, ap.model, ap.tool_name, ap.event_kind
+		 )`, parentID, parentID).Scan(
 		&analyticsEvents,
 		&analyticsCalls,
 		&analyticsToolCalls,

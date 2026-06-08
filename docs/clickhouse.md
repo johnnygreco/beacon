@@ -184,7 +184,9 @@ On each flush with activity events, Beacon:
 
 1. inserts the raw normalized rows;
 2. refreshes `session_projection` for the affected session ids;
-3. refreshes `analytics_projection` for the affected session ids;
+3. refreshes `analytics_projection` for the affected session ids with a new
+   refresh id, so reads can ignore older rollup generations without synchronous
+   ClickHouse delete mutations;
 4. refreshes search documents and postings for changed events from the latest
    deduplicated event stream. If the flush changes session project metadata,
    Beacon refreshes search rows for the affected session ids so project-scoped

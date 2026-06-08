@@ -40,10 +40,17 @@ func latestActivityEventsSubquery(where string) string {
 }
 
 func recentActivityEventsSubquery(where string) string {
-	return recentActivityEventsJoinedSubquery(where, "")
+	return recentActivityEventsJoinedSubquery(where, "", where)
 }
 
-func recentActivityEventsJoinedSubquery(where, join string) string {
+func recentActivityEventsJoinedSubquery(where, join, candidateWhere string) string {
+	candidateFilter := ""
+	if strings.TrimSpace(candidateWhere) != "" {
+		candidateFilter = `WHERE event_uid IN (
+				SELECT DISTINCT ae.event_uid
+				FROM activity_events AS ae ` + sqlWhereClause(candidateWhere) + `
+			)`
+	}
 	return fmt.Sprintf(`(SELECT event_uid,
 	               session_id,
 	               node_id,
@@ -78,6 +85,7 @@ func recentActivityEventsJoinedSubquery(where, join string) string {
 			       argMax(error_message, captured_at) AS error_message,
 			       argMax(cwd, captured_at) AS cwd
 			FROM activity_events
+			`+candidateFilter+`
 			GROUP BY event_uid
 		) AS ae `+join+` `+sqlWhereClause(where)+`
 		ORDER BY timestamp DESC
@@ -137,6 +145,81 @@ func sessionProjectionSubquery(where string) string {
 		archive_reason,
 		archived_at
 	FROM session_projection FINAL ` + sqlWhereClause(where) + `)`
+}
+
+func sessionProjectionSubqueryForScope(where string, scope APIScopeFilters) (string, []any) {
+	if len(compactScopeValues(scope.ProjectKeys)) == 0 {
+		return sessionProjectionSubquery(where), nil
+	}
+	scopeClause, scopeArgs := scope.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
+	scopedProjectKeyExpr := projectKeyExpr("sa.scoped_working_dir")
+	return `(WITH scoped_activity AS (
+		SELECT e.session_id AS session_id,
+		       argMaxIf(e.cwd, e.timestamp, e.cwd != '') AS scoped_working_dir,
+		       count() AS event_count,
+		       uniqExactIf(e.event_uid, e.event_kind = 'message' AND e.actor_role = 'user') AS turn_count,
+		       sum(e.input_tokens) AS total_input_tokens,
+		       sum(e.output_tokens) AS total_output_tokens,
+		       sum(e.cache_read_tokens) AS total_cache_read_tokens,
+		       sum(e.cache_create_tokens) AS total_cache_create_tokens,
+		       sum(e.input_tokens + e.output_tokens) AS total_tokens,
+		       countIf(e.event_kind = 'tool_call') AS tool_call_count,
+		       countIf(e.event_kind = 'tool_call' AND startsWith(e.tool_name, 'mcp__')) AS mcp_call_count,
+		       countIf(e.event_kind IN ('error', 'tool_error')) AS error_count,
+		       countIf(e.event_kind = 'tool_error') AS tool_error_count,
+		       countIf(e.event_kind = 'tool_error' AND startsWith(e.tool_name, 'mcp__')) AS mcp_error_count,
+		       argMaxIf(e.model, e.timestamp, e.model != '') AS last_model,
+		       sum(e.cost_usd) AS total_cost_usd,
+		       countIf(e.cost_usd != 0) AS cost_event_count
+		FROM ` + latestActivityEventsSubquery("ae.session_id != ''") + ` AS e
+		LEFT JOIN (
+			SELECT session_id, project_key
+			FROM session_projection FINAL
+		) AS s ON s.session_id = e.session_id
+		WHERE 1 = 1` + scopeClause + `
+		GROUP BY e.session_id
+	)
+	SELECT
+		sp.session_id AS session_id,
+		sp.node_id AS node_id,
+		sp.collector_id AS collector_id,
+		sp.source_id AS source_id,
+		sp.source_name AS source_name,
+		sp.runtime AS runtime,
+		sp.provider AS provider,
+		sp.format AS format,
+		COALESCE(NULLIF(` + scopedProjectKeyExpr + `, ''), sp.project_key) AS project_key,
+		COALESCE(NULLIF(sa.scoped_working_dir, ''), sp.project_path) AS project_path,
+		sp.started_at AS started_at,
+		sp.ended_at AS ended_at,
+		sa.event_count AS event_count,
+		sa.turn_count AS turn_count,
+		sa.total_input_tokens AS total_input_tokens,
+		sa.total_output_tokens AS total_output_tokens,
+		sa.total_cache_read_tokens AS total_cache_read_tokens,
+		sa.total_cache_create_tokens AS total_cache_create_tokens,
+		sa.total_tokens AS total_tokens,
+		sa.tool_call_count AS tool_call_count,
+		sa.mcp_call_count AS mcp_call_count,
+		sa.error_count AS error_count,
+		COALESCE(NULLIF(sa.last_model, ''), sp.last_model) AS last_model,
+		COALESCE(NULLIF(sa.scoped_working_dir, ''), sp.working_dir) AS working_dir,
+		sp.parent_session_id AS parent_session_id,
+		sp.has_session_end AS has_session_end,
+		sp.completion_state AS completion_state,
+		sa.total_cost_usd AS total_cost_usd,
+		sa.cost_event_count AS cost_event_count,
+		if(sa.cost_event_count > 0, 'event_cost_usd', 'none') AS cost_provenance,
+		toUInt16(least(sa.error_count * 100 + sa.tool_error_count * 50 + sa.mcp_error_count * 50, 65535)) AS attention_score,
+		arrayFilter(reason -> reason != '', [
+			if(sa.error_count > 0, 'errors', ''),
+			if(sa.tool_error_count > 0, 'tool_errors', ''),
+			if(sa.mcp_error_count > 0, 'mcp_errors', '')
+		]) AS attention_reasons,
+		sp.archive_reason AS archive_reason,
+		sp.archived_at AS archived_at
+	FROM ` + sessionProjectionSubquery("") + ` AS sp
+	INNER JOIN scoped_activity AS sa ON sa.session_id = sp.session_id ` + sqlWhereClause(where) + `)`, scopeArgs
 }
 
 func reopenedSessionIDsSubquery() string {
@@ -205,7 +288,43 @@ func analyticsProjectionSubquery(where string) string {
 		total_tokens,
 		duration_ms_sum,
 		cost_usd_sum
-	FROM analytics_projection FINAL ` + sqlWhereClause(where) + `)`
+	FROM (
+		SELECT ap.session_id,
+		       ap.node_id,
+		       ap.collector_id,
+		       ap.source_id,
+		       ap.source_name,
+		       ap.runtime,
+		       ap.format,
+		       ap.project_key,
+		       ap.project_path,
+		       ap.minute,
+		       ap.provider,
+		       ap.model,
+		       ap.tool_name,
+		       ap.event_kind,
+		       ap.event_count,
+		       ap.call_count,
+		       ap.tool_call_count,
+		       ap.tool_result_count,
+		       ap.input_tokens,
+		       ap.output_tokens,
+		       ap.cache_read_tokens,
+		       ap.cache_create_tokens,
+		       ap.total_tokens,
+		       ap.duration_ms_sum,
+		       ap.cost_usd_sum
+		FROM (
+			SELECT *
+			FROM analytics_projection FINAL
+		) AS ap
+		INNER JOIN (
+			SELECT session_id, argMax(refresh_id, updated_at) AS refresh_id
+			FROM analytics_projection FINAL
+			WHERE session_id != ''
+			GROUP BY session_id
+		) AS latest ON latest.session_id = ap.session_id AND latest.refresh_id = ap.refresh_id
+	) ` + sqlWhereClause(where) + `)`
 }
 
 // sessionSummaryColumns is the shared SELECT column list for session projection queries.

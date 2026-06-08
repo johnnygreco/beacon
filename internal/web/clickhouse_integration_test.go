@@ -281,6 +281,61 @@ func TestSessionEventsAndTranscriptUseEventProjectBeforeSessionFallback(t *testi
 	}
 }
 
+func TestProjectScopedSessionSummariesUseMatchingEventRows(t *testing.T) {
+	ch := setupLiveWebStore(t)
+	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+	api := NewAPIHandlers(ch.DB, nil, logger)
+
+	now := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
+	sessionID := "mixed-project-summary"
+	otherEvent := liveEvent("summary-other-message", sessionID, "message", "assistant", now, "openai", "gpt-other", "", 11, 13, 0)
+	otherEvent.CWD = "/Users/example/projects/other"
+	otherEvent.TextContent = "other-scoped needle"
+	otherEvent.TextPreview = "other-scoped needle"
+	beaconEvent := liveEvent("summary-beacon-message", sessionID, "message", "assistant", now.Add(time.Minute), "openai", "gpt-beacon", "", 2, 3, 0)
+	beaconEvent.CWD = "/Users/example/projects/beacon"
+	endEvent := liveEvent("summary-session-end", sessionID, "session_end", "system", now.Add(2*time.Minute), "openai", "", "", 0, 0, 0)
+	endEvent.CWD = "/Users/example/projects/beacon"
+
+	batch := store.RowBatch{ActivityEvents: []models.Event{otherEvent, beaconEvent, endEvent}}
+	for _, event := range batch.ActivityEvents {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush mixed project summary events: %v", err)
+	}
+
+	otherScope := APIScopeFilters{ProjectKeys: []string{"other"}}
+	detail, err := QuerySessionDetailScoped(context.Background(), ch.DB, sessionID, otherScope)
+	if err != nil {
+		t.Fatalf("other-scoped detail should find session through event project: %v", err)
+	}
+	if detail.Session.TotalTokens != 24 || detail.Session.ProjectKey != "other" || detail.Session.WorkingDir != "/Users/example/projects/other" {
+		t.Fatalf("other-scoped detail summary = %#v, want 24 tokens in other project", detail.Session)
+	}
+	recordAPIResponse(t, api.GetSessionDetail, "/api/sessions/"+sessionID+"?project_key=other", "id", sessionID)
+
+	beaconDetail, err := QuerySessionDetailScoped(context.Background(), ch.DB, sessionID, APIScopeFilters{ProjectKeys: []string{"beacon"}})
+	if err != nil {
+		t.Fatalf("beacon-scoped detail: %v", err)
+	}
+	if beaconDetail.Session.TotalTokens != 5 || beaconDetail.Session.ProjectKey != "beacon" {
+		t.Fatalf("beacon-scoped detail summary = %#v, want only beacon tokens", beaconDetail.Session)
+	}
+
+	eventSessionIDs, err := queryCompletedSessionContentMatchIDs(context.Background(), ch.DB, nil, "other-scoped needle", "", 10, otherScope)
+	if err != nil {
+		t.Fatalf("other-scoped content search ids: %v", err)
+	}
+	if len(eventSessionIDs) != 1 || eventSessionIDs[0] != sessionID {
+		t.Fatalf("other-scoped content search ids = %#v, want %s", eventSessionIDs, sessionID)
+	}
+	completed, _ := queryCompletedSessionsFiltered(context.Background(), ch.DB, nil, 0, 10, "other-scoped needle", eventSessionIDs, "ended", false, "", otherScope)
+	if len(completed) != 1 || completed[0].ID != sessionID || completed[0].TotalTokens != 24 {
+		t.Fatalf("other-scoped completed search = %#v, want scoped summary for %s", completed, sessionID)
+	}
+}
+
 func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T) {
 	ch := setupLiveWebStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))

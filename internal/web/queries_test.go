@@ -137,7 +137,10 @@ func TestSQLHelperSubqueries(t *testing.T) {
 		t.Fatalf("recent activity subquery missing candidate limit: %s", recent)
 	}
 	for _, fragment := range []string{
-		"FROM activity_events\n\t\t\tGROUP BY event_uid",
+		"FROM activity_events\n\t\t\tWHERE event_uid IN",
+		"SELECT DISTINCT ae.event_uid",
+		"AS ae WHERE ae.event_kind IN ('message')",
+		"GROUP BY event_uid",
 		"AS ae  WHERE ae.event_kind IN ('message')",
 	} {
 		if !strings.Contains(recent, fragment) {
@@ -147,7 +150,45 @@ func TestSQLHelperSubqueries(t *testing.T) {
 	if !strings.Contains(sessionProjectionSubquery("session_id = ?"), "FROM session_projection FINAL WHERE session_id = ?") {
 		t.Fatalf("session projection subquery did not apply where clause")
 	}
-	if !strings.Contains(analyticsProjectionSubquery("session_id = ?"), "FROM analytics_projection FINAL WHERE session_id = ?") {
+	analytics := analyticsProjectionSubquery("session_id = ?")
+	for _, fragment := range []string{
+		"FROM analytics_projection FINAL",
+		") AS ap",
+		"argMax(refresh_id, updated_at) AS refresh_id",
+		"latest.session_id = ap.session_id AND latest.refresh_id = ap.refresh_id",
+		"WHERE session_id = ?",
+	} {
+		if !strings.Contains(analytics, fragment) {
+			t.Fatalf("analytics projection subquery missing %q: %s", fragment, analytics)
+		}
+	}
+}
+
+func TestSessionProjectionSubqueryForProjectScopeUsesScopedEventAggregates(t *testing.T) {
+	subquery, args := sessionProjectionSubqueryForScope("session_id = ?", APIScopeFilters{ProjectKeys: []string{"beacon"}})
+	if fmt.Sprint(args) != "[beacon]" {
+		t.Fatalf("scoped session projection args = %#v, want project key", args)
+	}
+	for _, fragment := range []string{
+		"WITH scoped_activity AS",
+		latestActivityEventsSubquery("ae.session_id != ''"),
+		"INNER JOIN scoped_activity AS sa ON sa.session_id = sp.session_id",
+		"sa.total_tokens",
+		"COALESCE(NULLIF(sa.scoped_working_dir, ''), sp.working_dir) AS working_dir",
+		"WHERE session_id = ?",
+	} {
+		if !strings.Contains(subquery, fragment) {
+			t.Fatalf("scoped session projection missing %q: %s", fragment, subquery)
+		}
+	}
+	if strings.Contains(subquery, "sp.project_key IN (?)") {
+		t.Fatalf("project scope should be applied through scoped events, not only session projection: %s", subquery)
+	}
+}
+
+func TestAnalyticsProjectionSubqueryAppliesWhereAfterLatestRefresh(t *testing.T) {
+	analytics := analyticsProjectionSubquery("session_id = ?")
+	if !strings.Contains(analytics, "FROM analytics_projection FINAL") || !strings.Contains(analytics, ") AS ap") || !strings.Contains(analytics, "WHERE session_id = ?") {
 		t.Fatalf("analytics projection subquery did not apply where clause")
 	}
 }

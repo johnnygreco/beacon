@@ -507,7 +507,8 @@ func Schema(database string) []string {
 			total_tokens UInt64,
 			duration_ms_sum UInt64,
 			cost_usd_sum Float64,
-			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
+			refresh_id String,
+			updated_at DateTime64(9, 'UTC') DEFAULT now64(9)
 		)
 		ENGINE = ReplacingMergeTree(updated_at)
 		PARTITION BY toYYYYMM(minute)

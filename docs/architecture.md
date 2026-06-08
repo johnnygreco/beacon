@@ -143,9 +143,10 @@ Projection tables summarize the event stream for fast UI/API reads:
 `store.Flush` inserts the batch tables first. When activity events were written,
 it builds search documents/postings from event text and tool previews, inserts
 those rows, and refreshes `session_projection` and `analytics_projection` for
-only the affected session IDs. The projection tables use `ReplacingMergeTree`
-plus `argMax` query patterns so repeated deterministic event inserts and
-projection refreshes remain idempotent.
+only the affected session IDs. The projection tables use `ReplacingMergeTree`,
+`argMax` query patterns, and an analytics refresh id filter so repeated
+deterministic event inserts and projection refreshes remain idempotent without
+per-flush delete mutations.
 
 ### 5. Query and rendering paths
 

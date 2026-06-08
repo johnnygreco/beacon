@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
+	"time"
 )
 
 const (
@@ -266,15 +269,19 @@ func (s *Store) RefreshAnalyticsProjections(ctx context.Context, ids []string) e
 		args[i] = id
 	}
 
-	deleteQuery := `ALTER TABLE analytics_projection DELETE WHERE session_id IN (` + placeholders + `) SETTINGS mutations_sync = 1`
-	if _, err := s.DB.ExecContext(ctx, deleteQuery, args...); err != nil {
-		return err
-	}
-
 	query := analyticsProjectionInsertSQL(placeholders)
-	insertArgs := append(append([]any{}, args...), args...)
+	insertArgs := append([]any{projectionRefreshID()}, args...)
+	insertArgs = append(insertArgs, args...)
 	_, err := s.DB.ExecContext(ctx, query, insertArgs...)
 	return err
+}
+
+func projectionRefreshID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b[:])
 }
 
 func analyticsProjectionInsertSQL(placeholders string) string {
@@ -305,7 +312,8 @@ func analyticsProjectionInsertSQL(placeholders string) string {
 			sum(input_tokens + output_tokens) AS total_tokens_sum,
 			sum(duration_ms) AS duration_ms_total,
 			sum(cost_usd) AS cost_usd_sum,
-			now64(3) AS updated_at
+			? AS refresh_id,
+			now64(9) AS updated_at
 		FROM (
 			SELECT latest_events.*,
 			       if(cwd != '', cwd, COALESCE(NULLIF(sp.project_path, ''), '')) AS project_path

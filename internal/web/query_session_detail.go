@@ -23,13 +23,18 @@ func QuerySessionDetailScoped(ctx context.Context, db *sql.DB, id string, scope 
 	// Session info from view
 	sessionWhere := "session_id = ?"
 	sessionArgs := []any{id}
-	if clause, scopeArgs := scope.sqlAndClause(""); clause != "" {
+	sessionScope := scope.withoutProjectKeys()
+	if clause, scopeArgs := sessionScope.sqlAndClause(""); clause != "" {
 		sessionWhere += clause
 		sessionArgs = append(sessionArgs, scopeArgs...)
 	}
+	sessionSource, sourceArgs := sessionProjectionSubqueryForScope(sessionWhere, scope)
+	queryArgs := []any{activeCutoff}
+	queryArgs = append(queryArgs, sourceArgs...)
+	queryArgs = append(queryArgs, sessionArgs...)
 	row := db.QueryRowContext(ctx,
 		`SELECT `+sessionSummaryColumnsWithReopenedFlag()+`
-		 FROM `+sessionProjectionSubquery(sessionWhere), append([]any{activeCutoff}, sessionArgs...)...)
+		 FROM `+sessionSource, queryArgs...)
 	session, err := scanSessionSummaryIncludingReopened(row, now)
 	if err != nil {
 		return data, err

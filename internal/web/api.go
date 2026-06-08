@@ -99,8 +99,10 @@ func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 	var inputTokens, outputTokens int64
 	activeCutoff := time.Now().Add(-idleThreshold)
 	scope := parseAPIScopeFilters(r.URL.Query())
-	scopeClause, scopeArgs := scope.sqlAndClause("")
+	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", scope)
+	scopeClause, scopeArgs := scope.withoutProjectKeys().sqlAndClause("")
 	args := []any{activeCutoff, activeCutoff}
+	args = append(args, sourceArgs...)
 	args = append(args, scopeArgs...)
 
 	if err := a.db.QueryRowContext(r.Context(),
@@ -110,7 +112,7 @@ func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(SUM(total_output_tokens), 0),
 		        COALESCE(SUM(tool_call_count), 0),
 		        COALESCE(SUM(mcp_call_count), 0)
-		 FROM `+sessionProjectionSQL+`
+		 FROM `+sessionSource+`
 		 WHERE 1 = 1`+scopeClause, args...,
 	).Scan(&totalSessions, &activeCount, &inputTokens, &outputTokens, &toolCalls, &mcpCalls); err != nil {
 		a.internalError(w, "failed to query metrics", err)
@@ -139,13 +141,15 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 	activeCutoff := now.Add(-idleThreshold)
-	scopeClause, scopeArgs := req.Scope.sqlAndClause("")
+	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", req.Scope)
+	scopeClause, scopeArgs := req.Scope.withoutProjectKeys().sqlAndClause("")
 	query := `SELECT ` + sessionSummaryColumnsWithReopenedFlag() + `
-		 FROM ` + sessionProjectionSQL + `
+		 FROM ` + sessionSource + `
 		 WHERE 1 = 1` + scopeClause + `
 		 ORDER BY started_at DESC
 		 LIMIT ?`
 	args := []any{activeCutoff}
+	args = append(args, sourceArgs...)
 	args = append(args, scopeArgs...)
 	args = append(args, req.Limit)
 	rows, err := a.db.QueryContext(r.Context(), query, args...)
@@ -532,10 +536,13 @@ func (a *APIHandlers) dashboardSearchSessionMeta(ctx context.Context, ids []stri
 		args[i] = id
 		placeholders[i] = "?"
 	}
+	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", scope)
+	args = append(sourceArgs, args...)
 	query := `SELECT session_id, COALESCE(source_name, ''), started_at, COALESCE(working_dir, '')
-		 FROM session_projection FINAL
+		 FROM ` + sessionSource + `
 		 WHERE session_id IN (` + strings.Join(placeholders, ",") + `)`
-	if clause, scopeArgs := scope.sqlAndClause(""); clause != "" {
+	sessionScope := scope.withoutProjectKeys()
+	if clause, scopeArgs := sessionScope.sqlAndClause(""); clause != "" {
 		query += clause
 		args = append(args, scopeArgs...)
 	}
