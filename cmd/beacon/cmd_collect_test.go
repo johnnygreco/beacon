@@ -55,7 +55,7 @@ spool_dir = "` + spoolDir + `"
 spool_max_bytes = 1048576
 spool_batch_size = 10
 retry_min = "1ms"
-retry_max = "10ms"
+retry_max = "5s"
 heartbeat_interval = "30s"
 node_name = "Smoke Collector"
 `
