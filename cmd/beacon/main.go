@@ -32,6 +32,8 @@ func newRootCmd() *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: ~/.beacon/beacon.toml)")
 
 	rootCmd.AddCommand(
+		newInitCmd(),
+		newEnrollCmd(),
 		newUpCmd(),
 		newDownCmd(),
 		newWatchCmd(),

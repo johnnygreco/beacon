@@ -15,8 +15,8 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Fatalf("Load(\"\") returned error: %v", err)
 	}
 
-	if cfg.Server.Host != "0.0.0.0" {
-		t.Errorf("Server.Host = %q, want %q", cfg.Server.Host, "0.0.0.0")
+	if cfg.Server.Host != "127.0.0.1" {
+		t.Errorf("Server.Host = %q, want %q", cfg.Server.Host, "127.0.0.1")
 	}
 	if cfg.Server.Port != 4600 {
 		t.Errorf("Server.Port = %d, want %d", cfg.Server.Port, 4600)
@@ -59,6 +59,9 @@ func TestLoad_Defaults(t *testing.T) {
 	}
 	if cfg.Dashboard.Name != "" {
 		t.Errorf("Dashboard.Name = %q, want empty default", cfg.Dashboard.Name)
+	}
+	if cfg.Auth.Mode != AuthModeLoopback || cfg.Auth.CookieName != "beacon_owner_token" || cfg.Auth.AllowInsecureOwnerHTTP {
+		t.Errorf("Auth defaults = %#v, want loopback mode and default cookie", cfg.Auth)
 	}
 	if cfg.Fleet.Role != FleetRoleBoth {
 		t.Errorf("Fleet.Role = %q, want %q", cfg.Fleet.Role, FleetRoleBoth)
@@ -113,6 +116,11 @@ reconcile_interval = "45s"
 [dashboard]
 name = " Workstation A "
 
+[auth]
+mode = "owner-token"
+cookie_name = "beacon_test_owner"
+allow_insecure_owner_http = true
+
 [fleet]
 role = "both"
 metadata_path = "~/custom-control-plane.db"
@@ -166,6 +174,9 @@ format = "jsonl"
 	}
 	if cfg.Dashboard.Name != "Workstation A" {
 		t.Errorf("Dashboard.Name = %q, want %q", cfg.Dashboard.Name, "Workstation A")
+	}
+	if cfg.Auth.Mode != AuthModeOwnerToken || cfg.Auth.CookieName != "beacon_test_owner" || !cfg.Auth.AllowInsecureOwnerHTTP {
+		t.Errorf("Auth = %#v, want custom owner-token auth", cfg.Auth)
 	}
 	if cfg.Fleet.Role != FleetRoleBoth {
 		t.Errorf("Fleet.Role = %q, want %q", cfg.Fleet.Role, FleetRoleBoth)
@@ -326,6 +337,16 @@ func TestLoad_InvalidValues(t *testing.T) {
 			wantErr: "dashboard.name must be <= 80 characters",
 		},
 		{
+			name:    "auth mode",
+			body:    "[auth]\nmode = \"saml\"\n",
+			wantErr: "auth.mode must be one of",
+		},
+		{
+			name:    "auth cookie name",
+			body:    "[auth]\ncookie_name = \"bad cookie\"\n",
+			wantErr: "auth.cookie_name contains invalid characters",
+		},
+		{
 			name:    "fleet role",
 			body:    "[fleet]\nrole = \"enterprise\"\n",
 			wantErr: "fleet.role must be one of",
@@ -479,6 +500,7 @@ func TestValidate_InvalidFields(t *testing.T) {
 		{name: "mcp max high", mutate: func(c *Config) { c.MCP.MaxResults = 10001 }, wantErr: "mcp.max_results must be <= 10000"},
 		{name: "mcp context high", mutate: func(c *Config) { c.MCP.ContextWindow = 1001 }, wantErr: "mcp.context_window must be <= 1000"},
 		{name: "dashboard name high", mutate: func(c *Config) { c.Dashboard.Name = strings.Repeat("x", DashboardNameMaxLength+1) }, wantErr: "dashboard.name must be <= 80 characters"},
+		{name: "auth cookie empty", mutate: func(c *Config) { c.Auth.CookieName = " " }, wantErr: "auth.cookie_name is required"},
 		{name: "fleet collector id", mutate: func(c *Config) { c.Fleet.CollectorID = "bad id" }, wantErr: "fleet.collector_id"},
 	}
 
@@ -518,6 +540,8 @@ func TestValidate_NormalizesTrimmedFields(t *testing.T) {
 		},
 	}
 	cfg.Dashboard.Name = "  Workstation\n\tA  "
+	cfg.Auth.Mode = " owner-token "
+	cfg.Auth.CookieName = " beacon_owner "
 	cfg.Fleet.Role = " both "
 	cfg.Fleet.MetadataPath = " /tmp/control-plane.db "
 	cfg.Fleet.NodeID = " node.local "
@@ -536,6 +560,9 @@ func TestValidate_NormalizesTrimmedFields(t *testing.T) {
 	}
 	if cfg.Dashboard.Name != "Workstation A" {
 		t.Fatalf("dashboard name not normalized: %q", cfg.Dashboard.Name)
+	}
+	if cfg.Auth.Mode != AuthModeOwnerToken || cfg.Auth.CookieName != "beacon_owner" {
+		t.Fatalf("auth fields not normalized: %#v", cfg.Auth)
 	}
 	if cfg.Fleet.Role != FleetRoleBoth ||
 		cfg.Fleet.MetadataPath != "/tmp/control-plane.db" ||
@@ -567,6 +594,7 @@ func validTestConfig() Config {
 		Search:  SearchConfig{MaxResults: 25, RebuildInterval: 5},
 		Pricing: PricingConfig{DefaultInputCost: 3, DefaultOutputCost: 15},
 		MCP:     MCPConfig{MaxResults: 25, ContextWindow: 3},
+		Auth:    AuthConfig{Mode: AuthModeLoopback, CookieName: "beacon_owner_token"},
 		Fleet: FleetConfig{
 			Role:         FleetRoleBoth,
 			MetadataPath: "/tmp/control-plane.db",

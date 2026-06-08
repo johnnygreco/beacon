@@ -86,6 +86,7 @@ Open [http://localhost:4600](http://localhost:4600). On startup, Beacon loads `~
 Useful commands:
 
 ```bash
+beacon init     # create owner and one-use enrollment tokens
 beacon status   # server, ClickHouse, session, and search-index health
 beacon down     # stop the running Beacon web server
 beacon db down  # stop Beacon-managed local ClickHouse
@@ -138,7 +139,7 @@ Start from the example in [beacon.toml](beacon.toml). The settings most people c
 
 ```toml
 [server]
-host = "0.0.0.0"
+host = "127.0.0.1"
 port = 4600
 
 [database]
@@ -150,6 +151,11 @@ secure = false
 
 [dashboard]
 name = "Workstation A"
+
+[auth]
+mode = "loopback"
+cookie_name = "beacon_owner_token"
+allow_insecure_owner_http = false
 
 [fleet]
 role = "both"
@@ -171,6 +177,16 @@ and each capture source must set `name`, `runtime`, `provider`, `format`,
 `claude-code/jsonl`, `codex/jsonl`, `hermes-agent/sqlite`, `opencode/sqlite`,
 and `pi-coding-agent/jsonl`.
 
+The default `[server].host` is `127.0.0.1` with `[auth].mode = "loopback"`.
+If you bind Beacon to a non-loopback host such as `0.0.0.0`, startup requires
+either `[auth].mode = "owner-token"` with an active owner/admin token created by
+`beacon init`, or `[auth].mode = "reverse-proxy"` when a trusted proxy handles
+access control. Owner-token mode on non-loopback plain HTTP also requires the
+explicit `allow_insecure_owner_http = true` opt-in; use a TLS reverse proxy for
+normal browser access. Without a login UI, owner-token browser access requires
+setting the configured cookie yourself, while API clients can send
+`Authorization: Bearer <owner-token>`.
+
 Set `[dashboard].name` when you run Beacon dashboards for multiple machines or
 workspaces. The configured name becomes the dashboard heading and browser tab
 title; the heading can also be renamed locally from the dashboard without
@@ -180,9 +196,19 @@ Beacon also keeps a small durable control-plane metadata database at
 `[fleet].metadata_path`, defaulting to `~/.beacon/control-plane.db`. It records
 the local owner instance, schema epoch, node, collector, and source assignments
 so future multi-machine collector features have stable identity outside
-ClickHouse table reset. In this release, keep `[fleet].role = "both"`; dedicated
-collector and control-plane modes are reserved for the multi-machine follow-up
-work.
+ClickHouse table reset. It also stores token hashes, scopes, expiry, revocation
+state, and node/collector/source bindings for owner, enrollment, read/admin, and
+ingest tokens. Plain tokens are shown once by CLI commands and are not stored.
+In this release, keep `[fleet].role = "both"`; dedicated collector and
+control-plane modes are reserved for the multi-machine follow-up work.
+
+Use `beacon init` to create a local owner token and a short-lived one-use
+enrollment token in the configured metadata store. In this release,
+`beacon enroll --token-stdin` and
+`beacon enroll --token-env BEACON_ENROLL_TOKEN` consume that token from the same
+metadata store; remote control-plane enrollment over `fleet.control_plane_url`
+lands with the later HTTPS ingest work. Beacon never requires enrollment tokens
+in command arguments.
 
 If `[database].addrs` points to a remote ClickHouse host, Beacon will not start ClickHouse for you. Start the database yourself and run `beacon db migrate`.
 
@@ -282,6 +308,9 @@ beacon up
 
 | Command | Use it for |
 |---------|------------|
+| `beacon init` | Create local owner and one-use enrollment tokens |
+| `beacon enroll --token-stdin` | Consume an enrollment token from stdin and mint a bound ingest token |
+| `beacon enroll --token-env NAME` | Consume an enrollment token from an environment variable name |
 | `beacon up` | Start the dashboard and capture service |
 | `beacon down` | Stop the running Beacon web server |
 | `beacon watch` | Capture sessions without the web dashboard |

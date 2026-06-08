@@ -15,9 +15,18 @@ func NewRouter(
 	broker *sse.Broker,
 	handlers *Handlers,
 	apiHandlers *APIHandlers,
+	options ...RouterOption,
 ) chi.Router {
+	opts := routerOptions{}
+	for _, option := range options {
+		option(&opts)
+	}
+
 	r := chi.NewRouter()
 
+	for _, middleware := range opts.globalMiddlewares {
+		r.Use(middleware)
+	}
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Compress(5))
@@ -28,41 +37,71 @@ func NewRouter(
 		http.Redirect(w, r, "/static/favicon.svg", http.StatusFound)
 	})
 
-	// Page routes (templ rendered)
-	r.Get("/", handlers.Dashboard)
-	r.Get("/sessions", handlers.Sessions)
-	r.Get("/sessions/{id}", handlers.SessionDetail)
-	r.Get("/sessions/{id}/conversation", handlers.SessionConversation)
-	r.Get("/search", handlers.Search)
 	r.Get("/health", handlers.Health)
 
-	// SSE endpoints
-	r.Get("/sse/dashboard", broker.DashboardHandler)
-	r.Get("/sse/session/{id}", broker.SessionHandler)
+	// Page routes (templ rendered) and SSE endpoints.
+	r.Group(func(r chi.Router) {
+		if opts.authMiddleware != nil {
+			r.Use(opts.authMiddleware)
+		}
+		r.Get("/", handlers.Dashboard)
+		r.Get("/sessions", handlers.Sessions)
+		r.Get("/sessions/{id}", handlers.SessionDetail)
+		r.Get("/sessions/{id}/conversation", handlers.SessionConversation)
+		r.Get("/search", handlers.Search)
+		r.Get("/sse/dashboard", broker.DashboardHandler)
+		r.Get("/sse/session/{id}", broker.SessionHandler)
+	})
 
 	// JSON API endpoints
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", handlers.Health)
-		r.Get("/status", apiHandlers.GetMetrics)
-		r.Get("/analytics", apiHandlers.GetTokensByModel)
-		r.Get("/metrics", apiHandlers.GetMetrics)
-		r.Get("/sessions", apiHandlers.GetSessions)
-		r.Get("/dashboard/sessions", apiHandlers.GetDashboardSessions)
-		r.Get("/dashboard/search", apiHandlers.GetDashboardSearch)
-		r.Get("/dashboard/activity", apiHandlers.GetActivity)
-		r.Get("/dashboard/charts", apiHandlers.GetDashboardCharts)
-		r.Get("/sessions/{id}", apiHandlers.GetSessionDetail)
-		r.Get("/sessions/{id}/subagents", apiHandlers.GetSessionSubagents)
-		r.Get("/sessions/{id}/events", apiHandlers.GetSessionEvents)
-		r.Get("/events/{event_id}", apiHandlers.GetEvent)
-		r.Get("/tool-payloads/{event_id}", apiHandlers.GetToolPayload)
-		r.Get("/search", apiHandlers.SearchEvents)
-		r.Get("/tokens-per-minute", apiHandlers.GetTokensPerMinute)
-		r.Get("/tool-stats", apiHandlers.GetToolStats)
-		r.Get("/tokens-by-model", apiHandlers.GetTokensByModel)
+		r.Group(func(r chi.Router) {
+			if opts.authMiddleware != nil {
+				r.Use(opts.authMiddleware)
+			}
+			r.Get("/status", apiHandlers.GetMetrics)
+			r.Get("/analytics", apiHandlers.GetTokensByModel)
+			r.Get("/metrics", apiHandlers.GetMetrics)
+			r.Get("/sessions", apiHandlers.GetSessions)
+			r.Get("/dashboard/sessions", apiHandlers.GetDashboardSessions)
+			r.Get("/dashboard/search", apiHandlers.GetDashboardSearch)
+			r.Get("/dashboard/activity", apiHandlers.GetActivity)
+			r.Get("/dashboard/charts", apiHandlers.GetDashboardCharts)
+			r.Get("/sessions/{id}", apiHandlers.GetSessionDetail)
+			r.Get("/sessions/{id}/subagents", apiHandlers.GetSessionSubagents)
+			r.Get("/sessions/{id}/events", apiHandlers.GetSessionEvents)
+			r.Get("/events/{event_id}", apiHandlers.GetEvent)
+			r.Get("/tool-payloads/{event_id}", apiHandlers.GetToolPayload)
+			r.Get("/search", apiHandlers.SearchEvents)
+			r.Get("/tokens-per-minute", apiHandlers.GetTokensPerMinute)
+			r.Get("/tool-stats", apiHandlers.GetToolStats)
+			r.Get("/tokens-by-model", apiHandlers.GetTokensByModel)
+		})
 	})
 
 	return r
+}
+
+type routerOptions struct {
+	globalMiddlewares []func(http.Handler) http.Handler
+	authMiddleware    func(http.Handler) http.Handler
+}
+
+type RouterOption func(*routerOptions)
+
+func WithGlobalMiddleware(middleware func(http.Handler) http.Handler) RouterOption {
+	return func(opts *routerOptions) {
+		if middleware != nil {
+			opts.globalMiddlewares = append(opts.globalMiddlewares, middleware)
+		}
+	}
+}
+
+func WithAuthMiddleware(middleware func(http.Handler) http.Handler) RouterOption {
+	return func(opts *routerOptions) {
+		opts.authMiddleware = middleware
+	}
 }
 
 func staticFileHandler(staticFS fs.FS) http.Handler {
