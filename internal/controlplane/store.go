@@ -193,6 +193,36 @@ func ensureLocalTx(ctx context.Context, tx *sql.Tx, boot Bootstrap, now time.Tim
 	return boot, nil
 }
 
+func ensureRemoteRegistrationTx(ctx context.Context, tx *sql.Tx, boot Bootstrap, now time.Time) (Bootstrap, error) {
+	if _, err := ensureMetadataValue(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
+		return Bootstrap{}, err
+	}
+	if _, err := ensureMetadataValue(ctx, tx, "schema_epoch", InitialSchemaEpoch, now); err != nil {
+		return Bootstrap{}, err
+	}
+	if boot.NodeID == "" {
+		boot.NodeID = generatedID("node")
+	}
+	if boot.CollectorID == "" {
+		boot.CollectorID = generatedID("collector")
+	}
+	if err := upsertNode(ctx, tx, boot, now); err != nil {
+		return Bootstrap{}, err
+	}
+	if err := upsertCollector(ctx, tx, boot, now); err != nil {
+		return Bootstrap{}, err
+	}
+	for _, source := range boot.Sources {
+		if err := upsertSource(ctx, tx, boot.CollectorID, source, now); err != nil {
+			return Bootstrap{}, err
+		}
+	}
+	if err := reconcileSources(ctx, tx, boot.CollectorID, boot.Sources); err != nil {
+		return Bootstrap{}, err
+	}
+	return boot, nil
+}
+
 func (s *Store) Snapshot(ctx context.Context) (*Snapshot, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("control-plane metadata store is nil")

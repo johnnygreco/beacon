@@ -28,7 +28,8 @@ fail with reset guidance before ingest starts.
 Migrations are intentionally simple: they create the current schema and record
 the supported schema version. Beacon does not mix old local identity layouts
 with the current fleet-aware identity schema; reset and reimport when changing
-between incompatible schema versions.
+between incompatible schema versions. The schema-3 advance adds durable ingest
+batch receipts and rebuilds checkpoint state with collector/source keys.
 
 ## Schema ownership
 
@@ -92,12 +93,24 @@ Owner: capture pipeline through `Store.InsertCaptureError` or `Store.Flush`.
 
 ### `capture_checkpoints`
 
-Purpose: per-source file checkpoint state: inode, generation, last processed
-offset and line, plus source-specific `state_json`. Used to resume capture
-without replaying already-ingested data.
+Purpose: per-source file checkpoint state keyed by collector/source/file:
+inode, generation, last processed offset and line, plus source-specific
+`state_json`. Used to resume capture without replaying already-acknowledged
+data.
 
 Owner: capture watcher/checkpoint code through `Store.UpsertCheckpoint` and
 `Store.Flush`.
+
+### `ingest_batches`
+
+Purpose: durable HTTP ingest receipt and idempotency state keyed by
+`collector_id` and `batch_id`. It records payload digest, sequence,
+control-plane epoch, row counts, redaction version, status, retryable/terminal
+failure messages, and commit timestamps. Duplicate committed batches with the
+same digest return success; duplicate batch IDs with different digests are
+rejected.
+
+Owner: HTTP ingest through `Store.CommitIngestBatch`.
 
 ### `capture_heartbeats`
 

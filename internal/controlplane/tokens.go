@@ -81,6 +81,7 @@ type AuthenticateTokenRequest struct {
 	NodeID         string
 	CollectorID    string
 	SourceID       string
+	SourceIDs      []string
 }
 
 type EnrollmentResult struct {
@@ -217,6 +218,74 @@ func (s *Store) CompleteEnrollment(ctx context.Context, enrollPlaintext string, 
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit enrollment transaction: %w", err)
+	}
+	return &EnrollmentResult{Snapshot: snapshot, IngestToken: *ingest}, nil
+}
+
+func (s *Store) CompleteRemoteEnrollment(ctx context.Context, enrollPlaintext string, boot Bootstrap) (*EnrollmentResult, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("control-plane metadata store is nil")
+	}
+	boot = normalizeBootstrap(boot)
+	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin remote enrollment transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	enrollRecord, err := authenticateToken(ctx, tx, AuthenticateTokenRequest{
+		Plaintext:      enrollPlaintext,
+		AllowedTypes:   []string{TokenTypeEnroll},
+		RequiredScopes: []string{ScopeEnroll},
+	}, now)
+	if err != nil {
+		return nil, err
+	}
+	result, err := tx.ExecContext(ctx,
+		`UPDATE tokens
+		 SET status = ?, used_at = ?, updated_at = ?
+		 WHERE token_id = ? AND status = ?`,
+		TokenStatusUsed,
+		formatTime(now),
+		formatTime(now),
+		enrollRecord.ID,
+		TokenStatusActive,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("mark enroll token used: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("mark enroll token used: %w", err)
+	}
+	if affected != 1 {
+		return nil, ErrTokenUsed
+	}
+	assignedBoot, err := ensureRemoteRegistrationTx(ctx, tx, boot, now)
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err := snapshotFromQueryer(ctx, s.path, tx)
+	if err != nil {
+		return nil, err
+	}
+	nodeID, collectorID, sourceIDs, err := assignmentForEnrollment(snapshot, assignedBoot)
+	if err != nil {
+		return nil, err
+	}
+	ingest, err := insertToken(ctx, tx, CreateTokenRequest{
+		Type:        TokenTypeIngest,
+		Scopes:      []string{ScopeIngest},
+		NodeID:      nodeID,
+		CollectorID: collectorID,
+		SourceIDs:   sourceIDs,
+	}, now)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit remote enrollment transaction: %w", err)
 	}
 	return &EnrollmentResult{Snapshot: snapshot, IngestToken: *ingest}, nil
 }
@@ -385,7 +454,7 @@ func validateAuthenticatedToken(record TokenRecord, req AuthenticateTokenRequest
 		}
 	}
 	if tokenAuthRequiresIngestBindings(record, req) &&
-		(req.NodeID == "" || req.CollectorID == "" || req.SourceID == "" ||
+		(req.NodeID == "" || req.CollectorID == "" || (req.SourceID == "" && len(req.SourceIDs) == 0) ||
 			record.NodeID == "" || record.CollectorID == "" || len(record.SourceIDs) == 0) {
 		return ErrTokenBindingMismatch
 	}
@@ -397,6 +466,11 @@ func validateAuthenticatedToken(record TokenRecord, req AuthenticateTokenRequest
 	}
 	if req.SourceID != "" && !containsString(record.SourceIDs, req.SourceID) {
 		return ErrTokenBindingMismatch
+	}
+	for _, sourceID := range normalizeStringList(req.SourceIDs) {
+		if !containsString(record.SourceIDs, sourceID) {
+			return ErrTokenBindingMismatch
+		}
 	}
 	return nil
 }

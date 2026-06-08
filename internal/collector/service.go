@@ -1,0 +1,440 @@
+package collector
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/bmatcuk/doublestar/v4"
+	"github.com/johnnygreco/beacon/internal/capture"
+	"github.com/johnnygreco/beacon/internal/ingest"
+	"github.com/johnnygreco/beacon/internal/models"
+)
+
+type ServiceConfig struct {
+	Sources           []capture.WatchSource
+	Identity          capture.FleetIdentity
+	Spool             *Spool
+	State             *StateStore
+	Client            *Client
+	BatchSize         int
+	ScanInterval      time.Duration
+	RetryMin          time.Duration
+	RetryMax          time.Duration
+	HeartbeatInterval time.Duration
+	Logger            *slog.Logger
+}
+
+type Service struct {
+	cfg       ServiceConfig
+	mu        sync.Mutex
+	status    Status
+	nextRetry time.Duration
+}
+
+type Status struct {
+	Spool              SpoolStats `json:"spool"`
+	BlockedSpoolFull   bool       `json:"blocked_spool_full"`
+	LastBatchID        string     `json:"last_batch_id,omitempty"`
+	LastAckAt          time.Time  `json:"last_ack_at,omitempty"`
+	LastError          string     `json:"last_error,omitempty"`
+	LastScanAt         time.Time  `json:"last_scan_at,omitempty"`
+	LastHeartbeatAt    time.Time  `json:"last_heartbeat_at,omitempty"`
+	LastHeartbeatError string     `json:"last_heartbeat_error,omitempty"`
+}
+
+func NewService(cfg ServiceConfig) (*Service, error) {
+	if cfg.Spool == nil {
+		return nil, fmt.Errorf("collector spool is required")
+	}
+	if cfg.State == nil {
+		return nil, fmt.Errorf("collector state is required")
+	}
+	if cfg.Client == nil {
+		return nil, fmt.Errorf("collector ingest client is required")
+	}
+	if cfg.BatchSize <= 0 {
+		cfg.BatchSize = 500
+	}
+	if cfg.ScanInterval <= 0 {
+		cfg.ScanInterval = 30 * time.Second
+	}
+	if cfg.RetryMin <= 0 {
+		cfg.RetryMin = time.Second
+	}
+	if cfg.RetryMax < cfg.RetryMin {
+		cfg.RetryMax = cfg.RetryMin
+	}
+	if cfg.HeartbeatInterval <= 0 {
+		cfg.HeartbeatInterval = 30 * time.Second
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.Default()
+	}
+	return &Service{cfg: cfg, nextRetry: cfg.RetryMin}, nil
+}
+
+func (s *Service) Run(ctx context.Context) error {
+	scanTicker := time.NewTicker(s.cfg.ScanInterval)
+	defer scanTicker.Stop()
+	heartbeatTicker := time.NewTicker(s.cfg.HeartbeatInterval)
+	defer heartbeatTicker.Stop()
+
+	if err := s.SendPending(ctx); err != nil {
+		s.setError(err)
+	}
+	if err := s.ScanOnce(ctx); err != nil {
+		s.setError(err)
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-scanTicker.C:
+			if err := s.SendPending(ctx); err != nil {
+				s.setError(err)
+				time.Sleep(s.retryDelay())
+				continue
+			}
+			if err := s.ScanOnce(ctx); err != nil {
+				s.setError(err)
+			}
+		case <-heartbeatTicker.C:
+			if err := s.SendHeartbeat(ctx); err != nil {
+				s.setHeartbeatError(err)
+			}
+		}
+	}
+}
+
+func (s *Service) ScanOnce(ctx context.Context) error {
+	hasUnacked, err := s.cfg.Spool.HasUnacked()
+	if err != nil {
+		return err
+	}
+	if hasUnacked {
+		return nil
+	}
+
+	for _, src := range s.cfg.Sources {
+		files := resolveSourceGlobs(src.Globs)
+		for _, file := range files {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			cp := s.cfg.State.Checkpoint(src.Name, file)
+			result, err := capture.ReadSourceFile(ctx, src, file, cp, s.cfg.Logger)
+			if err != nil {
+				s.cfg.Logger.Warn("collector read source file failed", "source", src.Name, "file", file, "error", err)
+				continue
+			}
+			if len(result.Events) == 0 && len(result.CaptureErrors) == 0 && result.Checkpoint == nil {
+				continue
+			}
+			if err := s.spoolReadResult(ctx, src, result); err != nil {
+				if err == ErrSpoolFull {
+					s.setSpoolFull(true)
+					return nil
+				}
+				return err
+			}
+		}
+	}
+	s.setScanned()
+	return nil
+}
+
+func (s *Service) SendPending(ctx context.Context) error {
+	for {
+		pending, err := s.cfg.Spool.Pending()
+		if err != nil {
+			return err
+		}
+		if len(pending) == 0 {
+			s.setSpoolFull(false)
+			return nil
+		}
+		batch := pending[0]
+		inflight, err := s.cfg.Spool.MarkInflight(batch)
+		if err != nil {
+			return err
+		}
+		ack, err := s.cfg.Client.SendBatch(ctx, inflight.Request)
+		if err != nil {
+			if sendErr, ok := err.(*SendError); ok && !sendErr.Retryable {
+				if qErr := s.cfg.Spool.Quarantine(inflight); qErr != nil {
+					return qErr
+				}
+				return err
+			}
+			if _, moveErr := s.cfg.Spool.MarkPending(inflight); moveErr != nil {
+				return moveErr
+			}
+			return err
+		}
+		if ack.PayloadDigest != inflight.Request.PayloadDigest || ack.BatchID != inflight.Request.BatchID {
+			if qErr := s.cfg.Spool.Quarantine(inflight); qErr != nil {
+				return qErr
+			}
+			return fmt.Errorf("ingest ack did not match batch")
+		}
+		if err := s.cfg.State.MarkAcked(ack.NextSequence, inflight.Request.Checkpoints); err != nil {
+			return err
+		}
+		if err := s.cfg.Spool.Ack(inflight); err != nil {
+			return err
+		}
+		s.setAcked(ack.BatchID)
+		s.nextRetry = s.cfg.RetryMin
+	}
+}
+
+func (s *Service) SendHeartbeat(ctx context.Context) error {
+	stats, err := s.cfg.Spool.Stats()
+	if err != nil {
+		return err
+	}
+	_, sourceIDs := sourceIDSet(s.cfg.Sources, s.cfg.Identity)
+	sources := make([]ingest.HeartbeatSource, 0, len(sourceIDs))
+	for _, sourceID := range sourceIDs {
+		sources = append(sources, ingest.HeartbeatSource{SourceID: sourceID, Status: "healthy"})
+	}
+	_, err = s.cfg.Client.SendHeartbeat(ctx, ingest.HeartbeatRequest{
+		Schema:            ingest.SchemaV1,
+		CollectorID:       s.cfg.Identity.CollectorID,
+		NodeID:            s.cfg.Identity.NodeID,
+		ControlPlaneEpoch: s.cfg.Identity.ControlPlaneEpoch,
+		QueueDepth:        stats.PendingCount + stats.InflightCount,
+		SpoolBytes:        stats.ActiveBytes,
+		Sources:           sources,
+	})
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.status.LastHeartbeatAt = time.Now().UTC()
+	s.status.LastHeartbeatError = ""
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *Service) Status() Status {
+	stats, err := s.cfg.Spool.Stats()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	status := s.status
+	if err == nil {
+		status.Spool = stats
+	}
+	return status
+}
+
+func (s *Service) spoolReadResult(ctx context.Context, src capture.WatchSource, result capture.SourceReadResult) error {
+	sourceID := s.cfg.Identity.Sources[src.Name].SourceID
+	if sourceID == "" {
+		return fmt.Errorf("source %q has no source_id assignment", src.Name)
+	}
+	events := RedactEvents(result.Events)
+	captureErrors := RedactCaptureErrors(result.CaptureErrors)
+	checkpoints := enrichCollectorCheckpoints(result.Checkpoint, s.cfg.Identity, src.Name, sourceID)
+	if len(events) == 0 && len(captureErrors) == 0 && len(checkpoints) == 0 {
+		return nil
+	}
+	chunks := chunkEvents(events, s.cfg.BatchSize)
+	if len(chunks) == 0 {
+		chunks = [][]capture.NormalizedEvent{{}}
+	}
+	for i, chunk := range chunks {
+		last := i == len(chunks)-1
+		var batchErrors []models.CaptureError
+		var batchCheckpoints []models.Checkpoint
+		if last {
+			batchErrors = captureErrors
+			batchCheckpoints = checkpoints
+		}
+		if err := s.spoolBatch(ctx, sourceID, chunk, batchErrors, batchCheckpoints); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) spoolBatch(ctx context.Context, sourceID string, events []capture.NormalizedEvent, captureErrors []models.CaptureError, checkpoints []models.Checkpoint) error {
+	sequence := s.cfg.State.Next()
+	req := ingest.BatchRequest{
+		Schema:            ingest.SchemaV1,
+		BatchID:           collectorBatchID(s.cfg.Identity, sequence, events, checkpoints),
+		CollectorID:       s.cfg.Identity.CollectorID,
+		NodeID:            s.cfg.Identity.NodeID,
+		ControlPlaneEpoch: s.cfg.Identity.ControlPlaneEpoch,
+		CreatedAt:         time.Now().UTC(),
+		Sequence:          sequence,
+		RedactionVersion:  RedactionVersion,
+		SourceIDs:         []string{sourceID},
+		Events:            events,
+		CaptureErrors:     captureErrors,
+		Checkpoints:       checkpoints,
+	}
+	digest, err := ingest.ComputeBatchDigest(req)
+	if err != nil {
+		return err
+	}
+	req.PayloadDigest = digest
+	if _, err := s.cfg.Spool.WritePending(ctx, req); err != nil {
+		return err
+	}
+	return s.cfg.State.AdvanceNext(sequence + 1)
+}
+
+func chunkEvents(events []capture.NormalizedEvent, size int) [][]capture.NormalizedEvent {
+	if len(events) == 0 {
+		return nil
+	}
+	if size <= 0 || size >= len(events) {
+		return [][]capture.NormalizedEvent{events}
+	}
+	chunks := make([][]capture.NormalizedEvent, 0, (len(events)+size-1)/size)
+	for start := 0; start < len(events); start += size {
+		end := start + size
+		if end > len(events) {
+			end = len(events)
+		}
+		chunks = append(chunks, events[start:end])
+	}
+	return chunks
+}
+
+func enrichCollectorCheckpoints(cp *models.Checkpoint, identity capture.FleetIdentity, sourceName, sourceID string) []models.Checkpoint {
+	if cp == nil {
+		return nil
+	}
+	next := *cp
+	next.NodeID = identity.NodeID
+	next.CollectorID = identity.CollectorID
+	next.SourceID = sourceID
+	next.SourceName = sourceName
+	return []models.Checkpoint{next}
+}
+
+func collectorBatchID(identity capture.FleetIdentity, sequence uint64, events []capture.NormalizedEvent, checkpoints []models.Checkpoint) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%s\x00%s\x00%d", identity.CollectorID, identity.NodeID, identity.ControlPlaneEpoch, sequence)
+	for _, event := range events {
+		fmt.Fprintf(h, "\x00%s\x00%d\x00%d\x00%s", event.SourceFile, event.SourceLineNo, event.SourceOffset, event.RawPayload)
+	}
+	for _, checkpoint := range checkpoints {
+		fmt.Fprintf(h, "\x00%s\x00%s\x00%d", checkpoint.SourceName, checkpoint.SourceFile, checkpoint.LastOffset)
+	}
+	return "batch_" + hex.EncodeToString(h.Sum(nil))[:32]
+}
+
+func resolveSourceGlobs(globs []string) []string {
+	seen := map[string]struct{}{}
+	var files []string
+	for _, glob := range globs {
+		matches, err := doublestar.FilepathGlob(expandHome(glob))
+		if err != nil {
+			continue
+		}
+		for _, match := range matches {
+			if _, ok := seen[match]; ok {
+				continue
+			}
+			seen[match] = struct{}{}
+			files = append(files, match)
+		}
+	}
+	sort.Strings(files)
+	return files
+}
+
+func sourceIDSet(sources []capture.WatchSource, identity capture.FleetIdentity) (map[string]struct{}, []string) {
+	set := map[string]struct{}{}
+	for _, source := range sources {
+		if sourceID := identity.Sources[source.Name].SourceID; sourceID != "" {
+			set[sourceID] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(set))
+	for sourceID := range set {
+		out = append(out, sourceID)
+	}
+	sort.Strings(out)
+	return set, out
+}
+
+func expandHome(path string) string {
+	if path == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
+		}
+		return path
+	}
+	if strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[2:])
+		}
+	}
+	return path
+}
+
+func (s *Service) retryDelay() time.Duration {
+	delay := s.nextRetry
+	if delay <= 0 {
+		delay = s.cfg.RetryMin
+	}
+	s.nextRetry *= 2
+	if s.nextRetry > s.cfg.RetryMax {
+		s.nextRetry = s.cfg.RetryMax
+	}
+	return delay
+}
+
+func (s *Service) setError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err != nil {
+		s.status.LastError = err.Error()
+	}
+}
+
+func (s *Service) setHeartbeatError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err != nil {
+		s.status.LastHeartbeatError = err.Error()
+	}
+}
+
+func (s *Service) setSpoolFull(full bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status.BlockedSpoolFull = full
+	if full {
+		s.status.LastError = ErrSpoolFull.Error()
+	}
+}
+
+func (s *Service) setScanned() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status.LastScanAt = time.Now().UTC()
+}
+
+func (s *Service) setAcked(batchID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status.LastBatchID = batchID
+	s.status.LastAckAt = time.Now().UTC()
+	s.status.LastError = ""
+	s.status.BlockedSpoolFull = false
+}

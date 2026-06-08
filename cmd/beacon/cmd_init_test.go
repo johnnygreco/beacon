@@ -86,7 +86,7 @@ func TestRunEnrollReadsTokenFromStdinAndMintsIngestToken(t *testing.T) {
 	cmd.SetIn(strings.NewReader(enroll.Plaintext + "\n"))
 	var out bytes.Buffer
 	cmd.SetOut(&out)
-	if err := runEnroll(cmd, true, ""); err != nil {
+	if err := runEnroll(cmd, nil, true, ""); err != nil {
 		t.Fatalf("runEnroll: %v", err)
 	}
 	tokens := tokensFromOutput(out.String())

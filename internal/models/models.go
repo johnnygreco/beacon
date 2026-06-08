@@ -170,6 +170,9 @@ type CaptureError struct {
 }
 
 type Checkpoint struct {
+	NodeID           string `json:"node_id,omitempty"`
+	CollectorID      string `json:"collector_id,omitempty"`
+	SourceID         string `json:"source_id,omitempty"`
 	SourceName       string `json:"source_name"`
 	SourceFile       string `json:"source_file"`
 	SourceInode      int64  `json:"source_inode"`

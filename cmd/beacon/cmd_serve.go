@@ -33,6 +33,12 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+	if cfg.Fleet.Role == config.FleetRoleCollector {
+		return fmt.Errorf("fleet.role %q uses beacon collect, not beacon up", config.FleetRoleCollector)
+	}
+	if cfg.Fleet.Role == config.FleetRoleControlPlane {
+		cfg.Capture.Enabled = false
+	}
 
 	var sources []capture.WatchSource
 	if cfg.Capture.Enabled {
@@ -142,13 +148,22 @@ func runServe(cmd *cobra.Command, args []string) error {
 	// Web server
 	handlers := web.NewHandlers(ch.DB, searcher, logger, cfg.Dashboard.Name)
 	apiHandlers := web.NewAPIHandlers(ch.DB, searcher, logger)
+	ingestHandlers := web.NewIngestHandlers(
+		controlStore,
+		ch,
+		cfg.Pricing.DefaultInputCost,
+		cfg.Pricing.DefaultOutputCost,
+		updater.MarkDirty,
+		logger,
+	)
 	staticFS, err := fs.Sub(beacon.StaticFS, "static")
 	if err != nil {
 		cancel()
 		_ = bg.Wait()
 		return fmt.Errorf("preparing static filesystem: %w", err)
 	}
-	router := web.NewRouter(staticFS, broker, handlers, apiHandlers, authOptions...)
+	routerOptions := append(authOptions, web.WithIngestHandlers(ingestHandlers))
+	router := web.NewRouter(staticFS, broker, handlers, apiHandlers, routerOptions...)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{

@@ -30,6 +30,9 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+	if cfg.Fleet.Role == config.FleetRoleCollector {
+		return fmt.Errorf("fleet.role %q uses beacon collect, not beacon watch", config.FleetRoleCollector)
+	}
 
 	sources, err := buildSources(cfg)
 	if err != nil {

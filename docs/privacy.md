@@ -28,8 +28,10 @@ owner instance ID, schema epoch, node and collector IDs, source names, runtime
 metadata, platform, hostname, configured source roots, and token metadata for
 owner, enrollment, read/admin, and ingest access. Token metadata includes token
 hashes, non-secret prefixes, scopes, status, expiry, revocation timestamps, and
-node/collector/source bindings. Plain token values are shown once by CLI setup
-commands and are not stored. This metadata is separate from captured ClickHouse
+node/collector/source bindings. Plain control-plane token values are shown once
+by CLI setup commands and are not stored by the control plane. Remote collectors
+store their bound ingest token in the configured `[fleet].ingest_token_file`
+with owner-only permissions. This metadata is separate from captured ClickHouse
 data so reset/replay coordination can keep stable local identity.
 
 The ClickHouse schema and table ownership are documented in
@@ -49,6 +51,13 @@ sources when the metadata store has been initialized.
 `beacon init` prints owner and enrollment tokens once. `beacon enroll` accepts
 enrollment tokens through stdin or an environment variable name, not through
 command arguments, so tokens do not need to appear in process listings.
+
+Remote-safe `beacon collect` writes pending HTTP ingest batches under
+`~/.beacon/spool` by default. The spool directories are owner-only and batch
+files are checksummed owner-only JSON files. Collector-side redaction removes
+obvious Beacon tokens and common secret assignments before data is written to
+spool or sent to the control plane; broader captured-content hardening is
+tracked separately.
 
 When Beacon manages native ClickHouse, local database files are under
 `~/.beacon/clickhouse`, including:

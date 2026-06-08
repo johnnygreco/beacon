@@ -74,7 +74,14 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Error("Fleet.NodeName is empty, want default hostname/local value")
 	}
 	if cfg.Fleet.ControlPlaneURL != "" || cfg.Fleet.NodeID != "" || cfg.Fleet.CollectorID != "" {
-		t.Errorf("Fleet defaults = %#v, want only role/metadata_path/node_name populated", cfg.Fleet)
+		t.Errorf("Fleet identity defaults = %#v, want no remote URL/node/collector IDs", cfg.Fleet)
+	}
+	if cfg.Fleet.IngestTokenFile != filepath.Join(os.Getenv("HOME"), ".beacon", "ingest-token") ||
+		cfg.Fleet.IngestTokenEnv != "BEACON_INGEST_TOKEN" ||
+		cfg.Fleet.SpoolDir != filepath.Join(os.Getenv("HOME"), ".beacon", "spool") ||
+		cfg.Fleet.SpoolMaxBytes <= 0 ||
+		cfg.Fleet.SpoolBatchSize != 500 {
+		t.Errorf("Fleet collector defaults = %#v", cfg.Fleet)
 	}
 
 	if len(cfg.Capture.Sources) != 5 {
@@ -128,6 +135,14 @@ control_plane_url = "https://beacon.example"
 node_id = "node.mac-mini"
 node_name = " Mac Mini "
 collector_id = "collector.mac-mini"
+ingest_token_file = "~/custom-ingest-token"
+ingest_token_env = "BEACON_CUSTOM_INGEST_TOKEN"
+spool_dir = "~/custom-spool"
+spool_max_bytes = 1024
+spool_batch_size = 25
+retry_min = "2s"
+retry_max = "20s"
+heartbeat_interval = "15s"
 
 [[capture.sources]]
 name = "custom-codex"
@@ -189,6 +204,16 @@ format = "jsonl"
 	}
 	if cfg.Fleet.NodeID != "node.mac-mini" || cfg.Fleet.NodeName != "Mac Mini" || cfg.Fleet.CollectorID != "collector.mac-mini" {
 		t.Errorf("Fleet identity = %#v, want trimmed custom identity", cfg.Fleet)
+	}
+	if cfg.Fleet.IngestTokenFile != filepath.Join(os.Getenv("HOME"), "custom-ingest-token") ||
+		cfg.Fleet.IngestTokenEnv != "BEACON_CUSTOM_INGEST_TOKEN" ||
+		cfg.Fleet.SpoolDir != filepath.Join(os.Getenv("HOME"), "custom-spool") ||
+		cfg.Fleet.SpoolMaxBytes != 1024 ||
+		cfg.Fleet.SpoolBatchSize != 25 ||
+		cfg.Fleet.RetryMin.String() != "2s" ||
+		cfg.Fleet.RetryMax.String() != "20s" ||
+		cfg.Fleet.HeartbeatInterval.String() != "15s" {
+		t.Errorf("Fleet collector settings = %#v, want custom values", cfg.Fleet)
 	}
 }
 
@@ -377,14 +402,19 @@ func TestLoad_InvalidValues(t *testing.T) {
 			wantErr: "fleet.metadata_path must be a durable filesystem path",
 		},
 		{
-			name:    "fleet collector role reserved",
-			body:    "[fleet]\nrole = \"collector\"\n",
-			wantErr: `fleet.role "collector" is reserved`,
+			name:    "fleet spool max",
+			body:    "[fleet]\nspool_max_bytes = 0\n",
+			wantErr: "fleet.spool_max_bytes must be positive",
 		},
 		{
 			name:    "fleet collector url scheme",
 			body:    "[fleet]\ncontrol_plane_url = \"ssh://beacon.example\"\n",
 			wantErr: "fleet.control_plane_url must use http or https",
+		},
+		{
+			name:    "fleet collector url non loopback http",
+			body:    "[fleet]\ncontrol_plane_url = \"http://beacon.example\"\n",
+			wantErr: "fleet.control_plane_url must use https for non-loopback hosts",
 		},
 		{
 			name:    "fleet node id",
@@ -547,6 +577,9 @@ func TestValidate_NormalizesTrimmedFields(t *testing.T) {
 	cfg.Fleet.NodeID = " node.local "
 	cfg.Fleet.NodeName = "  Local\n\tNode  "
 	cfg.Fleet.CollectorID = " collector.local "
+	cfg.Fleet.IngestTokenFile = " /tmp/ingest-token "
+	cfg.Fleet.IngestTokenEnv = " BEACON_TEST_INGEST "
+	cfg.Fleet.SpoolDir = " /tmp/spool "
 	if err := Validate(&cfg); err != nil {
 		t.Fatalf("Validate returned error: %v", err)
 	}
@@ -568,7 +601,10 @@ func TestValidate_NormalizesTrimmedFields(t *testing.T) {
 		cfg.Fleet.MetadataPath != "/tmp/control-plane.db" ||
 		cfg.Fleet.NodeID != "node.local" ||
 		cfg.Fleet.NodeName != "Local Node" ||
-		cfg.Fleet.CollectorID != "collector.local" {
+		cfg.Fleet.CollectorID != "collector.local" ||
+		cfg.Fleet.IngestTokenFile != "/tmp/ingest-token" ||
+		cfg.Fleet.IngestTokenEnv != "BEACON_TEST_INGEST" ||
+		cfg.Fleet.SpoolDir != "/tmp/spool" {
 		t.Fatalf("fleet fields not normalized: %#v", cfg.Fleet)
 	}
 }
@@ -596,9 +632,17 @@ func validTestConfig() Config {
 		MCP:     MCPConfig{MaxResults: 25, ContextWindow: 3},
 		Auth:    AuthConfig{Mode: AuthModeLoopback, CookieName: "beacon_owner_token"},
 		Fleet: FleetConfig{
-			Role:         FleetRoleBoth,
-			MetadataPath: "/tmp/control-plane.db",
-			NodeName:     "local",
+			Role:              FleetRoleBoth,
+			MetadataPath:      "/tmp/control-plane.db",
+			NodeName:          "local",
+			IngestTokenFile:   "/tmp/ingest-token",
+			IngestTokenEnv:    "BEACON_TEST_INGEST",
+			SpoolDir:          "/tmp/spool",
+			SpoolMaxBytes:     1024,
+			SpoolBatchSize:    10,
+			RetryMin:          1,
+			RetryMax:          2,
+			HeartbeatInterval: 3,
 		},
 	}
 }

@@ -195,20 +195,27 @@ editing the config file.
 Beacon also keeps a small durable control-plane metadata database at
 `[fleet].metadata_path`, defaulting to `~/.beacon/control-plane.db`. It records
 the local owner instance, schema epoch, node, collector, and source assignments
-so future multi-machine collector features have stable identity outside
-ClickHouse table reset. It also stores token hashes, scopes, expiry, revocation
-state, and node/collector/source bindings for owner, enrollment, read/admin, and
-ingest tokens. Plain tokens are shown once by CLI commands and are not stored.
-In this release, keep `[fleet].role = "both"`; dedicated collector and
-control-plane modes are reserved for the multi-machine follow-up work.
+so multi-machine collector features have stable identity outside ClickHouse
+table reset. It also stores token hashes, scopes, expiry, revocation state, and
+node/collector/source bindings for owner, enrollment, read/admin, and ingest
+tokens. Plain control-plane tokens are shown once by CLI commands and are not
+stored by the control plane.
 
 Use `beacon init` to create a local owner token and a short-lived one-use
-enrollment token in the configured metadata store. In this release,
-`beacon enroll --token-stdin` and
-`beacon enroll --token-env BEACON_ENROLL_TOKEN` consume that token from the same
-metadata store; remote control-plane enrollment over `fleet.control_plane_url`
-lands with the later HTTPS ingest work. Beacon never requires enrollment tokens
-in command arguments.
+enrollment token. `beacon enroll --token-stdin` and
+`beacon enroll --token-env BEACON_ENROLL_TOKEN` still support local metadata
+enrollment. Remote collectors can enroll against a control plane with
+`beacon enroll https://beacon.example --token-stdin`, which returns a bound
+ingest token and writes it to `[fleet].ingest_token_file` with owner-only
+permissions. Beacon never requires enrollment tokens in command arguments.
+
+Remote-safe collection runs with `beacon collect`. It reads configured capture
+sources, redacts obvious tokens/secrets before writing to
+`[fleet].spool_dir`, writes owner-only checksummed spool files, sends gzip JSON
+batches to `/api/ingest/v1/batches`, and advances local checkpoints only after a
+committed acknowledgement from the control plane. Remote collectors need
+`[fleet].control_plane_url` and either `[fleet].ingest_token_file` or the
+environment variable named by `[fleet].ingest_token_env`.
 
 If `[database].addrs` points to a remote ClickHouse host, Beacon will not start ClickHouse for you. Start the database yourself and run `beacon db migrate`.
 
@@ -313,6 +320,7 @@ beacon up
 | `beacon enroll --token-env NAME` | Consume an enrollment token from an environment variable name |
 | `beacon up` | Start the dashboard and capture service |
 | `beacon down` | Stop the running Beacon web server |
+| `beacon collect` | Run the remote-safe collector spool and HTTP ingest service |
 | `beacon watch` | Capture sessions without the web dashboard |
 | `beacon mcp` | Start the MCP server over stdin/stdout JSON-RPC |
 | `beacon usage` | Summarize captured token usage by window and filters |

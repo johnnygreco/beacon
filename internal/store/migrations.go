@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 2
+	CurrentSchemaVersion = 3
 
 	schemaVersionTable = "schema_version"
 	schemaVersionRowID = 1
@@ -25,6 +25,7 @@ var dataTableNames = []string{
 	"capture_errors",
 	"capture_checkpoints",
 	"capture_heartbeats",
+	"ingest_batches",
 	"session_projection",
 	"analytics_projection",
 	"search_documents",
@@ -42,6 +43,15 @@ func Migrate(ctx context.Context, db *sql.DB, database string) error {
 	state, err := inspectSchemaState(ctx, db, database)
 	if err != nil {
 		return err
+	}
+	if state.hasVersionRow && state.version == 2 {
+		if err := migrateSchemaV2ToV3(ctx, db, database); err != nil {
+			return err
+		}
+		state, err = inspectSchemaState(ctx, db, database)
+		if err != nil {
+			return err
+		}
 	}
 	if err := validateSchemaState(state, database, true); err != nil {
 		return err
@@ -196,6 +206,19 @@ func writeSchemaVersion(ctx context.Context, db *sql.DB, database string) error 
 	return err
 }
 
+func migrateSchemaV2ToV3(ctx context.Context, db *sql.DB, database string) error {
+	for _, stmt := range []string{
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_checkpoints`, database),
+		captureCheckpointsSchema(database),
+		ingestBatchesSchema(database),
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("advance schema v2 to v3: %w", err)
+		}
+	}
+	return writeSchemaVersion(ctx, db, database)
+}
+
 func Schema(database string) []string {
 	database = cleanIdent(database)
 	db := func(table string) string { return database + "." + table }
@@ -348,18 +371,7 @@ func Schema(database string) []string {
 		ENGINE = MergeTree
 		ORDER BY (source_name, source_file, source_line_no, id)`,
 
-		`CREATE TABLE IF NOT EXISTS ` + db("capture_checkpoints") + ` (
-			source_name LowCardinality(String),
-			source_file String,
-			source_inode UInt64,
-			source_generation UInt32,
-			last_offset UInt64,
-			last_line_no UInt32,
-			state_json String DEFAULT '',
-			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
-		)
-		ENGINE = ReplacingMergeTree(updated_at)
-		ORDER BY (source_name, source_file)`,
+		captureCheckpointsSchema(database),
 
 		`CREATE TABLE IF NOT EXISTS ` + db("capture_heartbeats") + ` (
 			source_name LowCardinality(String),
@@ -370,6 +382,8 @@ func Schema(database string) []string {
 		)
 		ENGINE = MergeTree
 		ORDER BY (created_at, source_name)`,
+
+		ingestBatchesSchema(database),
 
 		`CREATE TABLE IF NOT EXISTS ` + db("session_projection") + ` (
 			session_id String,
@@ -464,6 +478,50 @@ func Schema(database string) []string {
 		ENGINE = MergeTree
 		ORDER BY created_at`,
 	}
+}
+
+func captureCheckpointsSchema(database string) string {
+	db := cleanIdent(database) + ".capture_checkpoints"
+	return `CREATE TABLE IF NOT EXISTS ` + db + ` (
+			node_id String,
+			collector_id String,
+			source_id String,
+			source_name LowCardinality(String),
+			source_file String,
+			source_inode UInt64,
+			source_generation UInt32,
+			last_offset UInt64,
+			last_line_no UInt32,
+			state_json String DEFAULT '',
+			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
+		)
+		ENGINE = ReplacingMergeTree(updated_at)
+		ORDER BY (collector_id, source_id, source_file)`
+}
+
+func ingestBatchesSchema(database string) string {
+	db := cleanIdent(database) + ".ingest_batches"
+	return `CREATE TABLE IF NOT EXISTS ` + db + ` (
+			collector_id String,
+			batch_id String,
+			node_id String,
+			sequence UInt64,
+			control_plane_epoch String,
+			payload_digest String,
+			redaction_version String,
+			created_at DateTime64(3, 'UTC'),
+			received_at DateTime64(3, 'UTC'),
+			event_count UInt64,
+			raw_count UInt64,
+			tool_payload_count UInt64,
+			checkpoint_count UInt64,
+			status LowCardinality(String),
+			error_message String,
+			committed_at Nullable(DateTime64(3, 'UTC')),
+			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
+		)
+		ENGINE = ReplacingMergeTree(updated_at)
+		ORDER BY (collector_id, batch_id)`
 }
 
 func cleanIdent(v string) string {
