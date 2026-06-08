@@ -1,6 +1,7 @@
 package capture
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -133,6 +134,36 @@ func TestWatchDirRegistersExistingDirectoryOnce(t *testing.T) {
 
 	if len(watched) != 1 || !watched[dir] {
 		t.Fatalf("watched dirs = %#v, want only %q", watched, dir)
+	}
+}
+
+func TestWatcherSetupLogsRedactConfiguredPaths(t *testing.T) {
+	privateDir := filepath.Join(t.TempDir(), "private")
+	if err := os.MkdirAll(privateDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	w := &Watcher{
+		logger:   slog.New(slog.NewTextHandler(&logs, nil)),
+		redactor: redaction.NewPolicy(redaction.Config{PathMasks: []string{privateDir}}),
+	}
+
+	w.resolveGlobs([]string{filepath.Join(privateDir, "[")})
+	fsw, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fsw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w.watchDir(fsw, map[string]bool{}, privateDir)
+
+	got := logs.String()
+	if strings.Contains(got, privateDir) {
+		t.Fatalf("watcher setup logs leaked private path: %s", got)
+	}
+	if !strings.Contains(got, redaction.PathMarker) {
+		t.Fatalf("watcher setup logs missing path marker: %s", got)
 	}
 }
 

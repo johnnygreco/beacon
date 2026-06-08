@@ -237,7 +237,7 @@ func (w *Watcher) watchDir(fsw *fsnotify.Watcher, watchedDirs map[string]bool, d
 		return
 	}
 	if err := fsw.Add(dir); err != nil {
-		w.logger.Warn("failed to watch dir", "dir", dir, "error", err)
+		w.logger.Warn("failed to watch dir", "dir", w.redactionPolicy().RedactPath(dir), "error", err)
 		return
 	}
 	watchedDirs[dir] = true
@@ -311,7 +311,7 @@ func (w *Watcher) resolveGlobs(globs []string) []string {
 		expanded := expandHome(glob)
 		matches, err := doublestar.FilepathGlob(expanded)
 		if err != nil {
-			w.logger.Warn("glob failed", "pattern", glob, "error", err)
+			w.logger.Warn("glob failed", "pattern", w.redactionPolicy().RedactPath(glob), "error", err)
 			continue
 		}
 		for _, m := range matches {
