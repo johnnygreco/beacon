@@ -4,6 +4,9 @@ Beacon includes a read-only stdio MCP server for coding agents and other MCP
 clients. The MCP server lets agents search prior Beacon sessions while they stay
 inside their normal workflow.
 
+For the full personal-production control-plane and collector setup that remote
+MCP usually reads from, see [Personal production guide](production.md).
+
 ## How it works
 
 `beacon mcp` is launched by the MCP client over stdin/stdout JSON-RPC. It can run

@@ -83,6 +83,11 @@ beacon up
 
 Open [http://localhost:4600](http://localhost:4600). On startup, Beacon loads `~/.beacon/beacon.toml` if it exists, starts local ClickHouse when the configured ClickHouse address is local, migrates the schema, backfills existing sessions, and then watches for new events.
 
+For a personal production dashboard across arbitrary machines and collectors,
+see [Personal production guide](docs/production.md). It covers the control
+plane, collector enrollment, HTTPS/reverse proxy setup, remote MCP, redaction,
+reset/replay, and operations runbooks.
+
 Useful commands:
 
 ```bash
@@ -257,7 +262,9 @@ If `[database].addrs` points to a remote ClickHouse host, Beacon will not start 
 ## Documentation
 
 - [Architecture and data flow](docs/architecture.md)
+- [Personal production guide](docs/production.md)
 - [Privacy, retention, and local data boundaries](docs/privacy.md)
+- [MCP Integration](docs/mcp.md)
 - [Pricing estimate data and fallback behavior](docs/pricing.md)
 - [Usage summaries and safe accounting](docs/usage.md)
 - [Performance baselines and query-plan review](docs/performance.md)
