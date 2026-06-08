@@ -842,6 +842,18 @@ function fleetMetaRow(chips, emptyText) {
 	return '<div class="dashboard-fleet-filter-row"><span class="dashboard-fleet-muted">' + escapeHTML(emptyText) + '</span></div>';
 }
 
+var dashboardSourceScopeLabels = {};
+
+function rememberFleetSourceScopeLabels(nodes) {
+	(Array.isArray(nodes) ? nodes : []).forEach(function(node) {
+		(Array.isArray(node && node.sources_detail) ? node.sources_detail : []).forEach(function(source) {
+			var sourceID = String(source && source.source_id || '').trim();
+			var sourceName = String(source && source.source_name || '').trim();
+			if (sourceID && sourceName) dashboardSourceScopeLabels[sourceID] = sourceName;
+		});
+	});
+}
+
 function fleetSourceChips(node) {
 	var seen = {};
 	var details = Array.isArray(node.sources_detail) ? node.sources_detail : [];
@@ -854,6 +866,7 @@ function fleetSourceChips(node) {
 		var key = field + '\x00' + value;
 		if (!value || seen[key]) return '';
 		seen[key] = true;
+		if (sourceID && sourceName) dashboardSourceScopeLabels[sourceID] = sourceName;
 		return fleetScopeChip(field, value, 'source', sourceName || sourceID, 'source');
 	}).filter(function(html) { return !!html; });
 	if (chips.length > 0) return chips.slice(0, 4).join('');
@@ -861,7 +874,9 @@ function fleetSourceChips(node) {
 }
 
 function activeScopeChip(field, value, label) {
-	return '<button type="button" class="dashboard-scope-chip" data-dashboard-scope-clear="' + escapeAttr(field) + '" data-dashboard-scope-value="' + escapeAttr(value) + '" aria-label="Clear ' + escapeAttr(label) + ' filter ' + escapeAttr(value) + '" title="Clear ' + escapeAttr(label) + ' filter"><span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(value) + '</strong></button>';
+	var display = field === 'source_id' && dashboardSourceScopeLabels[value] ? dashboardSourceScopeLabels[value] : value;
+	var title = display === value ? 'Clear ' + label + ' filter ' + value : 'Clear ' + label + ' filter ' + display + ' (' + value + ')';
+	return '<button type="button" class="dashboard-scope-chip" data-dashboard-scope-clear="' + escapeAttr(field) + '" data-dashboard-scope-value="' + escapeAttr(value) + '" aria-label="' + escapeAttr(title) + '" title="' + escapeAttr(title) + '"><span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(display) + '</strong></button>';
 }
 
 function syncDashboardScopeControls() {
@@ -948,6 +963,7 @@ function renderFleet(response) {
 	var strip = document.getElementById('dashboard-fleet-strip');
 	var subtitle = document.getElementById('dashboard-fleet-subtitle');
 	renderFleetHeader(response.totals || {});
+	rememberFleetSourceScopeLabels(nodes);
 	syncDashboardScopeControls();
 	if (subtitle) {
 		var totals = response.totals || {};

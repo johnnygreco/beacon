@@ -205,6 +205,24 @@ func TestDashboardFleetSeedsEnrolledCollectorsFromSnapshot(t *testing.T) {
 	}
 }
 
+func TestParseFleetSourceDetails(t *testing.T) {
+	got := parseFleetSourceDetails([]string{
+		"collector-a\tsource-a\tshared-source",
+		"collector-b\t\tname-only-source",
+		"collector-c\t\t",
+		"malformed",
+	})
+	if len(got) != 2 {
+		t.Fatalf("details = %#v, want two valid source details", got)
+	}
+	if got[0].CollectorID != "collector-a" || got[0].SourceID != "source-a" || got[0].SourceName != "shared-source" || got[0].Status != "missing" {
+		t.Fatalf("first detail = %#v, want collector/source/name/status", got[0])
+	}
+	if got[1].CollectorID != "collector-b" || got[1].SourceID != "" || got[1].SourceName != "name-only-source" || got[1].Status != "missing" {
+		t.Fatalf("second detail = %#v, want name-only fallback detail", got[1])
+	}
+}
+
 func TestFleetHeartbeatRuntimeScopeUsesEnrollmentMetadata(t *testing.T) {
 	snapshot := &controlplane.Snapshot{
 		Sources: []controlplane.Source{

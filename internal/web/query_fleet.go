@@ -20,6 +20,7 @@ type fleetSessionAggregate struct {
 	NodeID            string
 	Collectors        []string
 	Sources           []string
+	SourceDetails     []APIDashboardFleetSource
 	Runtimes          []string
 	Projects          []string
 	ActiveSessions    int64
@@ -73,6 +74,9 @@ func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters,
 		}
 		addMany(builder.collectors, row.Collectors)
 		addMany(builder.sources, row.Sources)
+		for _, detail := range row.SourceDetails {
+			upsertFleetSourceDetail(&builder.node, detail)
+		}
 		addMany(builder.runtimes, row.Runtimes)
 		addMany(builder.projects, row.Projects)
 	}
@@ -384,7 +388,8 @@ func queryFleetSessionAggregates(ctx context.Context, db *sql.DB, scope APIScope
 	args = append(args, scopeArgs...)
 	query := `SELECT COALESCE(NULLIF(node_id, ''), 'local') AS node_key,
 		        groupUniqArrayIf(COALESCE(collector_id, ''), collector_id != ''),
-		        groupUniqArrayIf(COALESCE(source_name, ''), source_name != ''),
+		        groupUniqArrayIf(if(COALESCE(source_name, '') != '', COALESCE(source_name, ''), COALESCE(source_id, '')), source_name != '' OR source_id != ''),
+		        groupUniqArrayIf(concat(COALESCE(collector_id, ''), '\t', COALESCE(source_id, ''), '\t', COALESCE(source_name, '')), source_id != '' OR source_name != ''),
 		        groupUniqArrayIf(COALESCE(runtime, ''), runtime != ''),
 		        groupUniqArrayIf(COALESCE(project_key, ''), project_key != ''),
 		        countIf(` + activeSessionPredicateScoped(scope) + `),
@@ -406,12 +411,14 @@ func queryFleetSessionAggregates(ctx context.Context, db *sql.DB, scope APIScope
 	var out []fleetSessionAggregate
 	for rows.Next() {
 		var row fleetSessionAggregate
-		if err := rows.Scan(&row.NodeID, &row.Collectors, &row.Sources, &row.Runtimes, &row.Projects,
+		var sourceDetails []string
+		if err := rows.Scan(&row.NodeID, &row.Collectors, &row.Sources, &sourceDetails, &row.Runtimes, &row.Projects,
 			&row.ActiveSessions, &row.AttentionSessions, &row.TotalSessions, &row.TotalTokens,
 			&row.ErrorCount, &row.LastEventAt); err != nil {
 			logQueryScanError("dashboard fleet sessions", err)
 			continue
 		}
+		row.SourceDetails = parseFleetSourceDetails(sourceDetails)
 		out = append(out, row)
 	}
 	if err := rows.Err(); err != nil {
@@ -543,6 +550,27 @@ func upsertFleetSourceDetail(node *APIDashboardFleetNode, detail APIDashboardFle
 		}
 	}
 	node.SourcesDetail = append(node.SourcesDetail, detail)
+}
+
+func parseFleetSourceDetails(values []string) []APIDashboardFleetSource {
+	out := make([]APIDashboardFleetSource, 0, len(values))
+	for _, value := range values {
+		parts := strings.SplitN(value, "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		detail := APIDashboardFleetSource{
+			CollectorID: strings.TrimSpace(parts[0]),
+			SourceID:    strings.TrimSpace(parts[1]),
+			SourceName:  strings.TrimSpace(parts[2]),
+			Status:      "missing",
+		}
+		if fleetSourceDetailKey(detail) == "" {
+			continue
+		}
+		out = append(out, detail)
+	}
+	return out
 }
 
 func fleetSourceDetailKey(detail APIDashboardFleetSource) string {
