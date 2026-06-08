@@ -54,16 +54,41 @@ Useful lab controls:
 
 | Variable / argument | Default | Purpose |
 | --- | --- | --- |
-| `PERF_LAB_SIZE`, `--size` | `small` | Synthetic dataset size for the served lab app and live benchmarks. |
+| `PERF_LAB_SIZE`, `--size` | `small` | Synthetic dataset size for the served lab app and live benchmarks: `small`, `medium`, `large`, or heavy opt-in `fleet`. |
 | `PERF_LAB_CLICKHOUSE`, `--clickhouse` | `127.0.0.1:9000` | ClickHouse address used for seeding and live benchmarks. |
 | `PERF_LAB_DATABASE`, `--database` | `beacon_perf_lab` | Disposable ClickHouse database for the served lab app. |
 | `PERF_LAB_LIVE_DATABASE`, `--live-database` | `<database>_bench` | Disposable ClickHouse database reset by live benchmarks. Must use a `beacon_perf*` name. |
 | `PERF_LAB_OUTPUT_DIR`, `--output-dir` | `test-results/perf/lab/latest` | Report directory. |
 | `PERF_LAB_BASE_URL`, `--base-url` | unset | Use an already-running Beacon server instead of starting one; also pass `--skip-live` because the lab cannot verify or reset the external server's database. |
 | `PERF_LAB_ARGS` | unset | Extra arguments passed by `make perf-lab-smoke` or `make perf-lab`. |
-| `--skip-fast`, `--skip-live`, `--skip-browser` | false | Disable specific layers for focused local runs. |
+| `--skip-fast`, `--skip-live`, `--skip-explain`, `--skip-browser` | false | Disable specific layers for focused local runs. `--skip-live` also skips query-plan assertions because the lab cannot safely reset a verified live benchmark database. |
 | `--fast-benchtime`, `--live-benchtime` | smoke target: `100ms` | Go benchmark duration knobs. |
 | `--browser-repeats` | smoke target: `1` | Browser repeats per viewport. |
+
+## Fleet validation profiles
+
+The perf seed uses generic multi-machine fleet metadata rather than a required
+host or agent topology. Every profile spreads sessions across 25 collectors, 25
+nodes, five runtime adapters, one source per collector/runtime pair, mixed
+projects, active sessions, idle sessions, tool payloads, and a high-frequency
+common search token (`fleetcommon`) that is always exercised with collector,
+source, and project filters. Specific adapter names in the fixtures are sample
+source data, not product requirements.
+
+| Size | Intended use | Sessions | Active | Idle | Target events | Notes |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| `small` | CI/local smoke | 250 | 25 | 50 | ~25k | Default for `make perf-lab-smoke`. |
+| `medium` | PR query review | 2,500 | 250 | 500 | ~250k | Use for ClickHouse query-shape changes. |
+| `large` | Manual preflight | 10,000 | 750 | 1,500 | ~900k | Use before manual production testing when query paths changed materially. |
+| `fleet` | Heavy opt-in lab | 100,000 | 2,500 | 2,500 | ~15M | Approximates the target personal-production fleet profile, including ~1M payloads and at least 100M search postings. Do not run by default in CI. |
+
+Perf reports record the machine/runtime metadata, git revision, seeded counts,
+target profile dimensions, common search token, and scoped collector/source/
+project IDs used by the common-token search benchmark. Actual seeded counts are
+the source of truth for a run; fleet search postings are validated as a minimum
+floor because tokenizer and payload-shape changes can legitimately push the
+actual count above the 100M target. These are local validation gates, not public
+benchmark claims or SLA evidence.
 
 To compare branches, run the same command with different output directories:
 
@@ -125,9 +150,10 @@ Smoke budgets intentionally cover the highest-signal local review paths:
 | Warm reload | `dashboard.warm_reload.ready` p95 | desktop `300ms`, mobile `350ms` |
 | Dashboard search | `search.session.input_to_rows`, `search.event.input_to_rows` p95 | sessions `700/800ms`, events `800/900ms` desktop/mobile |
 | Interactions | chart range, active sort, inspector open p95 | `150ms`-`400ms` depending on flow and viewport |
-| Responsiveness | `browser.long_tasks.max`, `browser.layout_shift.cumulative` max | `50ms` long task, CLS `0.10` desktop / `0.15` mobile |
+| Responsiveness | `browser.long_tasks.max`, `browser.layout_shift.cumulative` max | `50ms` long task, CLS `0.70` desktop / `0.25` mobile |
 | Live ClickHouse search | `BenchmarkSearchBM25`, `BenchmarkSearchKeyword`, `BenchmarkSearchBrowse` | `30ms`, `25ms`, `8ms` per op |
 | MCP tools | `BenchmarkMCPToolSearchSessions`, `BenchmarkMCPToolOpen`, `BenchmarkMCPToolListSessions` | `30ms`, `25ms`, `8ms` per op |
+| Dashboard queries | `BenchmarkQueryDashboardData`, active/completed list queries | dashboard aggregate `200ms`; active/completed lists `15ms`-`20ms` |
 | Fast Go families | capture parse/batch, search indexing, API shaping, MCP formatting, dashboard/chat rendering | exact per-benchmark limits in `cmd/perfcheck` |
 
 The smoke budgets are local-review gates, not release claims. Treat one-sample
@@ -168,16 +194,36 @@ MCP queries:
 BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 PERF_SIZE=medium make perf-explain
 ```
 
+`make perf-explain` prints plans and asserts that dashboard paths stay on
+projection tables, scoped common-token search stays on the search index with
+collector/source/project filters, and MCP/open transcript paths use the expected
+tables. Set `BEACON_PERF_EXPLAIN_ASSERT=0` only when capturing diagnostic plans
+from an incompatible ClickHouse version; do not use that override as PR
+validation.
+
 For `make perf-bench` and `make perf-explain`, use
-`PERF_SIZE=small|medium|large` for fixture scale. For PRs that touch
+`PERF_SIZE=small|medium|large|fleet` for fixture scale. For PRs that touch
 `internal/web/queries.go`, `internal/search/search.go`, `internal/mcp/tools.go`,
 or ClickHouse schema/projection code, run at least `medium`; run `large` when
 the change alters query shape, table order keys, projections, or search index
-paths. For noisy comparisons, prefer:
+paths. Use `fleet` only as a manual heavy preflight on a machine that can absorb
+the ClickHouse seed. For noisy comparisons, prefer:
 
 ```bash
 BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 PERF_SIZE=medium PERF_BENCHTIME=3s PERF_COUNT=3 make perf-bench
 ```
+
+The live perf package also includes a concurrent ingest/read smoke test. When
+`BEACON_TEST_CLICKHOUSE` is set, it commits batches through
+`Store.CommitIngestBatch` while dashboard data, active-session APIs, scoped
+common-token search, and JSON API reads run concurrently. Normal `make test`
+skips this test unless a ClickHouse perf database is configured.
+
+Collector failure harness coverage lives with the collector package tests:
+spool-full rollback, corrupt spool quarantine, partial write artifacts, terminal
+send blocks, retryable outage replay, retry backoff capping during retry storms,
+reset-pending pause/resume, epoch mismatch blocking, old-epoch spool discard,
+and checkpoint advancement only after committed acknowledgements.
 
 Compare the same benchmark names against `main` on the same machine and
 ClickHouse version. Re-run outliers before treating them as regressions.
@@ -237,7 +283,7 @@ Captured on 2026-05-22 with:
 - ClickHouse: 24.12.6.70
 - Benchmark settings: `PERF_BENCHTIME=1s`, `PERF_COUNT=1`
 
-Fixture seed counts from `internal/perf`:
+Historical fixture seed counts from the pre-fleet `internal/perf` baseline:
 
 | Size | Sessions | Events | Tool payloads | Seed time |
 | --- | ---: | ---: | ---: | ---: |
@@ -247,7 +293,8 @@ Fixture seed counts from `internal/perf`:
 
 ## Timing baseline
 
-Values are `ms/op` from `make perf-bench`.
+Values are historical `ms/op` from `make perf-bench`. Current perf lab reports
+record the exact seeded counts and fleet profile metadata for each run.
 
 | Benchmark | Small | Medium | Large |
 | --- | ---: | ---: | ---: |

@@ -3,17 +3,27 @@ package perf_test
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/johnnygreco/beacon/internal/perf"
+	"github.com/johnnygreco/beacon/internal/search"
+	"github.com/johnnygreco/beacon/internal/web"
 )
 
 type explainWorkload struct {
-	name  string
-	query string
+	name            string
+	query           string
+	expectedTables  []string
+	forbiddenTables []string
+	requiredSQL     []string
 }
 
 func TestExplainQueryPlans(t *testing.T) {
@@ -30,8 +40,243 @@ func TestExplainQueryPlans(t *testing.T) {
 				t.Fatalf("explain %s: %v", workload.name, err)
 			}
 			t.Logf("\n%s\n%s", workload.name, plan)
+			if os.Getenv("BEACON_PERF_EXPLAIN_ASSERT") == "1" {
+				assertPlanGuards(t, workload, plan)
+			}
 		})
 	}
+}
+
+func TestExplainWorkloadGuardsMatchProductionQueries(t *testing.T) {
+	workloads := explainWorkloadIndex()
+	ctx := context.Background()
+	db := newPlanCaptureDB(t)
+	since := time.Now().Add(-24 * time.Hour)
+	profile := perf.ProfileFor(perf.ParseSeedSize(os.Getenv("PERF_SIZE")))
+
+	cases := []struct {
+		name     string
+		run      func()
+		match    []string
+		required []string
+		maxRefs  map[string]int
+	}{
+		{
+			name: "dashboard-active-sessions",
+			run: func() {
+				_ = web.QueryActiveSessionsLimited(ctx, db, 200)
+			},
+			match:    []string{"from (select", "session_projection final", "order by ended_at desc"},
+			required: []string{"coalesce(has_session_end", "order by ended_at desc", "limit ?"},
+			maxRefs:  map[string]int{"activity_events": 1},
+		},
+		{
+			name: "dashboard-completed-sessions-filtered",
+			run: func() {
+				_, _ = web.QueryCompletedSessionsFiltered(ctx, db, &since, 0, 30, "perf", nil, "project", true)
+			},
+			match:    []string{"session_projection final", "parent_session_id", "limit ? offset ?"},
+			required: []string{"parent_session_id", "ended_at >=", "limit ? offset ?"},
+			maxRefs:  map[string]int{"activity_events": 1},
+		},
+		{
+			name: "dashboard-model-analytics",
+			run: func() {
+				_, _ = web.QueryDashboardModelAnalytics(ctx, db, &since, "24h")
+			},
+			match:    []string{"top_models", "analytics_projection final"},
+			required: []string{"minute >= ?", "top_models", "limit 12"},
+		},
+		{
+			name: "search-common-token-scoped",
+			run: func() {
+				searcher := search.NewSearcher(db, slog.New(slog.NewTextHandler(io.Discard, nil)), 25, 0)
+				_, _ = searcher.Search(ctx, search.SearchQuery{
+					Query:        profile.CommonSearchToken,
+					Limit:        25,
+					CollectorIDs: []string{profile.ScopedCollectorID},
+					SourceIDs:    []string{profile.ScopedSourceID},
+					ProjectKeys:  []string{profile.ScopedProjectKey},
+					SkipQueryLog: true,
+				})
+			},
+			match:    []string{"from (select * from search_postings final) as p", "p.project_key in"},
+			required: []string{"p.collector_id in", "p.source_id in", "p.project_key in", "where p.token in"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			workload, ok := workloads[tc.name]
+			if !ok {
+				t.Fatalf("missing explain workload %q", tc.name)
+			}
+			resetPlanCaptureQueries()
+			tc.run()
+			query := capturedPlanQueryContaining(t, tc.match...)
+			assertSQLGuards(t, tc.name, query, workload.expectedTables, workload.forbiddenTables, tc.required, tc.maxRefs)
+		})
+	}
+}
+
+func assertPlanGuards(t *testing.T, workload explainWorkload, plan string) {
+	t.Helper()
+	if strings.TrimSpace(plan) == "" {
+		t.Fatalf("%s plan is empty", workload.name)
+	}
+	assertSQLGuards(t, workload.name, workload.query+"\n"+plan, workload.expectedTables, workload.forbiddenTables, workload.requiredSQL, nil)
+}
+
+func assertSQLGuards(t *testing.T, name, sql string, expectedTables, forbiddenTables, requiredSQL []string, maxRefs map[string]int) {
+	t.Helper()
+	combined := strings.ToLower(sql)
+	for _, table := range expectedTables {
+		if !strings.Contains(combined, strings.ToLower(table)) {
+			t.Fatalf("%s query missing expected table %q:\n%s", name, table, sql)
+		}
+	}
+	for _, table := range forbiddenTables {
+		tableLower := strings.ToLower(table)
+		if max, ok := maxRefs[tableLower]; ok {
+			if refs := strings.Count(combined, tableLower); refs > max {
+				t.Fatalf("%s query references table %q %d times, want <= %d:\n%s", name, table, refs, max, sql)
+			}
+			continue
+		}
+		if strings.Contains(combined, tableLower) {
+			t.Fatalf("%s query unexpectedly references table %q:\n%s", name, table, sql)
+		}
+	}
+	for _, required := range requiredSQL {
+		if !strings.Contains(combined, strings.ToLower(required)) {
+			t.Fatalf("%s query missing required guard %q:\n%s", name, required, sql)
+		}
+	}
+}
+
+func explainWorkloadIndex() map[string]explainWorkload {
+	index := map[string]explainWorkload{}
+	for _, workload := range explainWorkloads() {
+		index[workload.name] = workload
+	}
+	return index
+}
+
+var (
+	registerPlanCaptureDriver sync.Once
+	planCaptureMu             sync.Mutex
+	planCaptureQueries        []string
+)
+
+type planCaptureDriver struct{}
+
+func (planCaptureDriver) Open(string) (driver.Conn, error) {
+	return planCaptureConn{}, nil
+}
+
+type planCaptureConn struct{}
+
+func (planCaptureConn) Prepare(string) (driver.Stmt, error) {
+	return nil, fmt.Errorf("plan capture driver does not support prepared statements")
+}
+
+func (planCaptureConn) Close() error {
+	return nil
+}
+
+func (planCaptureConn) Begin() (driver.Tx, error) {
+	return nil, fmt.Errorf("plan capture driver does not support transactions")
+}
+
+func (planCaptureConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+	recordPlanCaptureQuery(query)
+	return planCaptureRowsFor(query), nil
+}
+
+func (planCaptureConn) ExecContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Result, error) {
+	recordPlanCaptureQuery(query)
+	return driver.RowsAffected(0), nil
+}
+
+type planCaptureRows struct {
+	columns []string
+	values  [][]driver.Value
+	index   int
+}
+
+func (r planCaptureRows) Columns() []string {
+	return r.columns
+}
+
+func (r planCaptureRows) Close() error {
+	return nil
+}
+
+func (r *planCaptureRows) Next(dest []driver.Value) error {
+	if r.index >= len(r.values) {
+		return io.EOF
+	}
+	copy(dest, r.values[r.index])
+	r.index++
+	return nil
+}
+
+func planCaptureRowsFor(query string) driver.Rows {
+	queryLower := strings.ToLower(query)
+	if strings.Contains(queryLower, "count() as documents") && strings.Contains(queryLower, "avg_doc_len") {
+		return &planCaptureRows{
+			columns: []string{"documents", "avg_doc_len"},
+			values:  [][]driver.Value{{int64(100000), float64(96)}},
+		}
+	}
+	return &planCaptureRows{columns: []string{"empty"}}
+}
+
+func newPlanCaptureDB(t *testing.T) *sql.DB {
+	t.Helper()
+	registerPlanCaptureDriver.Do(func() {
+		sql.Register("beacon_plan_capture", planCaptureDriver{})
+	})
+	resetPlanCaptureQueries()
+	db, err := sql.Open("beacon_plan_capture", "")
+	if err != nil {
+		t.Fatalf("open plan capture db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+func recordPlanCaptureQuery(query string) {
+	planCaptureMu.Lock()
+	defer planCaptureMu.Unlock()
+	planCaptureQueries = append(planCaptureQueries, query)
+}
+
+func resetPlanCaptureQueries() {
+	planCaptureMu.Lock()
+	defer planCaptureMu.Unlock()
+	planCaptureQueries = nil
+}
+
+func capturedPlanQueryContaining(t *testing.T, fragments ...string) string {
+	t.Helper()
+	planCaptureMu.Lock()
+	defer planCaptureMu.Unlock()
+	for _, query := range planCaptureQueries {
+		queryLower := strings.ToLower(query)
+		matches := true
+		for _, fragment := range fragments {
+			if !strings.Contains(queryLower, strings.ToLower(fragment)) {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return query
+		}
+	}
+	t.Fatalf("no captured production query contained %v; captured %d queries:\n%s", fragments, len(planCaptureQueries), strings.Join(planCaptureQueries, "\n---\n"))
+	return ""
 }
 
 func requirePerfStoreForTest(t *testing.T) *sql.DB {
@@ -72,7 +317,10 @@ func explainWorkloads() []explainWorkload {
 	mcpEventUID := perf.EventUIDForBench(0, 8)
 	return []explainWorkload{
 		{
-			name: "dashboard-active-sessions",
+			name:            "dashboard-active-sessions",
+			expectedTables:  []string{"session_projection"},
+			forbiddenTables: []string{"activity_events", "search_postings"},
+			requiredSQL:     []string{"coalesce(has_session_end", "order by ended_at desc", "limit 200"},
 			query: `SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
 			       COALESCE(turn_count, 0), COALESCE(total_tokens, 0),
 			       COALESCE(total_input_tokens, 0), COALESCE(total_output_tokens, 0),
@@ -88,7 +336,10 @@ func explainWorkloads() []explainWorkload {
 			LIMIT 200`,
 		},
 		{
-			name: "dashboard-completed-sessions-filtered",
+			name:            "dashboard-completed-sessions-filtered",
+			expectedTables:  []string{"session_projection"},
+			forbiddenTables: []string{"activity_events", "search_postings"},
+			requiredSQL:     []string{"parent_session_id", "ended_at >=", "limit 31 offset 0"},
 			query: `SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
 			       COALESCE(turn_count, 0), COALESCE(total_tokens, 0),
 			       COALESCE(total_input_tokens, 0), COALESCE(total_output_tokens, 0),
@@ -112,7 +363,10 @@ func explainWorkloads() []explainWorkload {
 			LIMIT 31 OFFSET 0`,
 		},
 		{
-			name: "dashboard-model-analytics",
+			name:            "dashboard-model-analytics",
+			expectedTables:  []string{"analytics_projection"},
+			forbiddenTables: []string{"activity_events", "search_postings"},
+			requiredSQL:     []string{"minute >=", "top_models", "limit 12"},
 			query: `WITH range_sessions AS (
 			       SELECT session_id
 			       FROM analytics_projection FINAL
@@ -198,7 +452,9 @@ func explainWorkloads() []explainWorkload {
 			ORDER BY bucket ASC`,
 		},
 		{
-			name: "transcript-open-large-session",
+			name:           "transcript-open-large-session",
+			expectedTables: []string{"activity_events", "tool_payloads"},
+			requiredSQL:    []string{"where ae.session_id", "left join payload_previews", "order by event_order"},
 			query: `WITH trace AS (
 			       SELECT e.*,
 			              row_number() OVER (PARTITION BY session_id ORDER BY timestamp, event_uid) AS event_order,
@@ -252,7 +508,10 @@ func explainWorkloads() []explainWorkload {
 			ORDER BY event_order`,
 		},
 		{
-			name: "search-bm25",
+			name:            "search-bm25",
+			expectedTables:  []string{"search_postings"},
+			forbiddenTables: []string{"activity_events"},
+			requiredSQL:     []string{"where token in", "group by p.event_uid", "limit 25"},
 			query: `WITH toFloat64(100000) AS total_docs,
 			       toFloat64(96) AS avg_doc_len
 			SELECT p.event_uid,
@@ -279,7 +538,44 @@ func explainWorkloads() []explainWorkload {
 			LIMIT 25`,
 		},
 		{
-			name: "search-browse-filtered",
+			name:            "search-common-token-scoped",
+			expectedTables:  []string{"search_postings", "search_documents"},
+			forbiddenTables: []string{"activity_events"},
+			requiredSQL:     []string{"p.collector_id in", "p.source_id in", "p.project_key in", "where p.token in"},
+			query: `WITH toFloat64(100000) AS total_docs,
+			       toFloat64(96) AS avg_doc_len
+			SELECT p.event_uid,
+			       any(p.session_id) AS session_id,
+			       any(p.event_kind) AS event_kind,
+			       any(p.text_preview) AS text_preview,
+			       sum(log(1 + ((greatest(total_docs, p.doc_freq) - p.doc_freq + 0.5) / (p.doc_freq + 0.5))) *
+			           ((p.term_frequency * 2.2) /
+			            (p.term_frequency + 1.2 * (0.25 + 0.75 * (p.document_len / avg_doc_len))))) AS score,
+			       max(p.timestamp) AS timestamp,
+			       any(p.tool_name) AS tool_name,
+			       any(p.model) AS model,
+			       any(p.provider) AS provider
+			FROM (
+			       SELECT p.*,
+			              toFloat64(count() OVER (PARTITION BY p.token)) AS doc_freq
+			       FROM (SELECT * FROM search_postings FINAL) AS p
+			       INNER JOIN (SELECT event_uid, updated_at FROM search_documents FINAL) AS d ON d.event_uid = p.event_uid
+			       WHERE p.token IN ('fleetcommon')
+			         AND p.updated_at >= d.updated_at
+			         AND p.collector_id IN ('collector-perf-00')
+			         AND p.source_id IN ('source-perf-00-claude-code')
+			         AND p.project_key IN ('project-000')
+			) p
+			GROUP BY p.event_uid
+			HAVING score >= 0
+			ORDER BY score DESC, timestamp DESC
+			LIMIT 25`,
+		},
+		{
+			name:            "search-browse-filtered",
+			expectedTables:  []string{"search_documents"},
+			forbiddenTables: []string{"activity_events", "search_postings"},
+			requiredSQL:     []string{"event_kind in", "timestamp >=", "limit 25"},
 			query: `SELECT event_uid, session_id, event_kind, text_preview, 0.0 AS score,
 			       timestamp, tool_name, model, provider
 			FROM search_documents FINAL
@@ -289,7 +585,9 @@ func explainWorkloads() []explainWorkload {
 			LIMIT 25`,
 		},
 		{
-			name: "mcp-open-context",
+			name:           "mcp-open-context",
+			expectedTables: []string{"activity_events"},
+			requiredSQL:    []string{"where event_uid", "where ae.session_id in", "row_number()"},
 			query: fmt.Sprintf(`WITH target AS (
 			       SELECT event_uid,
 			              argMax(session_id, captured_at) AS target_session_id,
@@ -328,7 +626,10 @@ func explainWorkloads() []explainWorkload {
 			ORDER BY n.rn`, mcpEventUID, mcpEventUID),
 		},
 		{
-			name: "mcp-list-sessions",
+			name:            "mcp-list-sessions",
+			expectedTables:  []string{"session_projection"},
+			forbiddenTables: []string{"activity_events", "search_postings"},
+			requiredSQL:     []string{"sp.started_at >=", "limit 20"},
 			query: `SELECT session_id, COALESCE(source_name, ''), started_at, ended_at,
 			       event_count, turn_count, total_tokens, tool_call_count, mcp_call_count, error_count, COALESCE(last_model, '')
 			FROM (

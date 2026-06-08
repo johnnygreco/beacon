@@ -65,7 +65,7 @@ perf-fast: ## Run fast non-ClickHouse backend benchmarks
 	go test -run '^$$' -bench=$$PERF_FAST_BENCH -benchtime=$$PERF_FAST_BENCHTIME -benchmem -count=$$PERF_FAST_COUNT -timeout=10m \
 		./internal/capture ./internal/store ./internal/textindex ./internal/mcp ./internal/web ./internal/views/pages ./internal/views/components
 
-perf-bench: ## Run perf benchmarks (PERF_SIZE=small|medium|large)
+perf-bench: ## Run perf benchmarks (PERF_SIZE=small|medium|large|fleet; fleet is heavy/manual)
 	@PERF_SIZE=$${PERF_SIZE:-medium} && \
 	PERF_BENCH=$${PERF_BENCH:-.} && \
 	PERF_BENCHTIME=$${PERF_BENCHTIME:-1s} && \
@@ -76,7 +76,7 @@ perf-bench: ## Run perf benchmarks (PERF_SIZE=small|medium|large)
 perf-explain: ## Print ClickHouse plans for representative perf queries
 	@PERF_SIZE=$${PERF_SIZE:-medium} && \
 	echo "=== Beacon Perf Explain (size=$$PERF_SIZE, rev=$$(git rev-parse --short HEAD)) ===" && \
-	BEACON_PERF_EXPLAIN=1 PERF_SIZE=$$PERF_SIZE go test -run TestExplainQueryPlans -count=1 -timeout=10m -v ./internal/perf/
+	BEACON_PERF_EXPLAIN=1 BEACON_PERF_EXPLAIN_ASSERT=$${BEACON_PERF_EXPLAIN_ASSERT:-1} PERF_SIZE=$$PERF_SIZE go test -run TestExplainQueryPlans -count=1 -timeout=10m -v ./internal/perf/
 
 perf-browser: ## Run browser performance measurements
 	npm run test:perf:browser

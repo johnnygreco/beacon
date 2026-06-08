@@ -11,13 +11,17 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/mcp"
+	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/perf"
 	"github.com/johnnygreco/beacon/internal/search"
 	"github.com/johnnygreco/beacon/internal/store"
+	"github.com/johnnygreco/beacon/internal/views"
 	"github.com/johnnygreco/beacon/internal/web"
 )
 
@@ -93,6 +97,8 @@ func TestMain(m *testing.M) {
 func BenchmarkQueryDashboardData(b *testing.B) {
 	ch := requirePerfStore(b)
 	ctx := context.Background()
+	data := web.QueryDashboardData(ctx, ch.DB)
+	requireDashboardData(b, data)
 	b.ResetTimer()
 	for b.Loop() {
 		_ = web.QueryDashboardData(ctx, ch.DB)
@@ -102,6 +108,9 @@ func BenchmarkQueryDashboardData(b *testing.B) {
 func BenchmarkQueryDashboardSessions(b *testing.B) {
 	ch := requirePerfStore(b)
 	ctx := context.Background()
+	active, completed, _ := web.QueryDashboardSessions(ctx, ch.DB)
+	requireSessionRows(b, "dashboard active sessions", active)
+	requireSessionRows(b, "dashboard completed sessions", completed)
 	b.ResetTimer()
 	for b.Loop() {
 		web.QueryDashboardSessions(ctx, ch.DB)
@@ -111,6 +120,8 @@ func BenchmarkQueryDashboardSessions(b *testing.B) {
 func BenchmarkQueryActiveSessions(b *testing.B) {
 	ch := requirePerfStore(b)
 	ctx := context.Background()
+	active := web.QueryActiveSessions(ctx, ch.DB)
+	requireSessionRows(b, "active sessions", active)
 	b.ResetTimer()
 	for b.Loop() {
 		web.QueryActiveSessions(ctx, ch.DB)
@@ -164,6 +175,33 @@ func BenchmarkSearchKeyword(b *testing.B) {
 	}
 }
 
+func BenchmarkSearchCommonTokenScoped(b *testing.B) {
+	ch := requirePerfStore(b)
+	ctx := context.Background()
+	s := search.NewSearcher(ch.DB, benchLogger, 25, 0)
+	profile := perf.ProfileFor(perf.ParseSeedSize(os.Getenv("PERF_SIZE")))
+
+	q := search.SearchQuery{
+		Query:        profile.CommonSearchToken,
+		Limit:        25,
+		CollectorIDs: []string{profile.ScopedCollectorID},
+		SourceIDs:    []string{profile.ScopedSourceID},
+		ProjectKeys:  []string{profile.ScopedProjectKey},
+		SkipQueryLog: true,
+	}
+	results, err := s.Search(ctx, q)
+	if err != nil {
+		b.Fatalf("scoped common-token search preflight: %v", err)
+	}
+	if len(results) == 0 {
+		b.Fatalf("scoped common-token search returned no results for %+v", q)
+	}
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = s.Search(ctx, q)
+	}
+}
+
 func BenchmarkSearchBrowse(b *testing.B) {
 	ch := requirePerfStore(b)
 	ctx := context.Background()
@@ -177,6 +215,210 @@ func BenchmarkSearchBrowse(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		_, _ = s.Browse(ctx, q)
+	}
+}
+
+func TestConcurrentIngestReadSmoke(t *testing.T) {
+	if sharedStore == nil {
+		t.Skip("set BEACON_TEST_CLICKHOUSE to run concurrent ingest/read smoke")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	ch := sharedStore
+	searcher := search.NewSearcher(ch.DB, benchLogger, 25, 0)
+	api := web.NewAPIHandlers(ch.DB, searcher, benchLogger, nil)
+
+	done := make(chan struct{})
+	errs := make(chan error, 16)
+	var ingesting atomic.Bool
+	var readSuccesses [4]atomic.Int64
+	var readers sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		readers.Add(1)
+		go func(reader int) {
+			defer readers.Done()
+			for {
+				select {
+				case <-done:
+					return
+				default:
+				}
+				if err := runConcurrentRead(ctx, reader, ch, searcher, api); err != nil {
+					select {
+					case errs <- err:
+					default:
+					}
+					return
+				}
+				if ingesting.Load() {
+					readSuccesses[reader%4].Add(1)
+				}
+				time.Sleep(5 * time.Millisecond)
+			}
+		}(i)
+	}
+
+	const batches = 12
+	ingesting.Store(true)
+	for seq := uint64(1); seq <= batches; seq++ {
+		meta, rows := concurrentIngestRows(seq)
+		if _, err := ch.CommitIngestBatch(ctx, meta, rows); err != nil {
+			ingesting.Store(false)
+			close(done)
+			readers.Wait()
+			t.Fatalf("CommitIngestBatch sequence %d: %v", seq, err)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	ingesting.Store(false)
+	close(done)
+	readers.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent read failed: %v", err)
+	}
+	for reader := range readSuccesses {
+		if got := readSuccesses[reader].Load(); got == 0 {
+			t.Fatalf("concurrent reader %d did not complete a successful read during ingest", reader)
+		}
+	}
+}
+
+func runConcurrentRead(ctx context.Context, reader int, ch *store.Store, searcher *search.Searcher, api *web.APIHandlers) error {
+	readCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	switch reader % 4 {
+	case 0:
+		data := web.QueryDashboardData(readCtx, ch.DB)
+		if err := validateDashboardData(data); err != nil {
+			return err
+		}
+	case 1:
+		active := web.QueryActiveSessionsLimited(readCtx, ch.DB, 50)
+		if len(active) == 0 {
+			return fmt.Errorf("active sessions query returned no rows")
+		}
+	case 2:
+		profile := perf.ProfileFor(perf.ParseSeedSize(os.Getenv("PERF_SIZE")))
+		results, err := searcher.Search(readCtx, search.SearchQuery{
+			Query:        profile.CommonSearchToken,
+			Limit:        10,
+			CollectorIDs: []string{profile.ScopedCollectorID},
+			SourceIDs:    []string{profile.ScopedSourceID},
+			ProjectKeys:  []string{profile.ScopedProjectKey},
+			SkipQueryLog: true,
+		})
+		if err != nil {
+			return err
+		}
+		if len(results) == 0 {
+			return fmt.Errorf("scoped common-token search returned no rows")
+		}
+	default:
+		req := httptest.NewRequest(http.MethodGet, "/api/dashboard/sessions?state=active&limit=25", nil).WithContext(readCtx)
+		rec := httptest.NewRecorder()
+		api.GetDashboardSessions(rec, req)
+		if rec.Code != http.StatusOK {
+			return fmt.Errorf("dashboard sessions API status %d: %s", rec.Code, rec.Body.String())
+		}
+		var response web.APIDashboardSessionsResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+			return fmt.Errorf("decode dashboard sessions API: %w", err)
+		}
+		if len(response.Items) == 0 {
+			return fmt.Errorf("dashboard sessions API returned no rows")
+		}
+	}
+	return nil
+}
+
+func requireDashboardData(b *testing.B, data views.DashboardData) {
+	b.Helper()
+	if err := validateDashboardData(data); err != nil {
+		b.Fatal(err)
+	}
+}
+
+func requireSessionRows(b *testing.B, label string, rows []views.SessionSummary) {
+	b.Helper()
+	if len(rows) == 0 {
+		b.Fatalf("%s returned no rows", label)
+	}
+}
+
+func validateDashboardData(data views.DashboardData) error {
+	if len(data.ActiveSessions) == 0 {
+		return fmt.Errorf("dashboard data returned no active sessions")
+	}
+	if len(data.CompletedSessions) == 0 {
+		return fmt.Errorf("dashboard data returned no completed sessions")
+	}
+	if len(data.TokensByModel) == 0 {
+		return fmt.Errorf("dashboard data returned no token model summary")
+	}
+	if len(data.TokenCumulative.Datasets) == 0 {
+		return fmt.Errorf("dashboard data returned no token chart series")
+	}
+	return nil
+}
+
+func concurrentIngestRows(sequence uint64) (store.IngestBatchMeta, store.RowBatch) {
+	now := time.Now().UTC()
+	batchID := fmt.Sprintf("batch-perf-concurrent-%03d", sequence)
+	payloadDigest := fmt.Sprintf("sha256:perf-concurrent-%03d", sequence)
+	meta := store.IngestBatchMeta{
+		CollectorID:       "collector-perf-concurrent",
+		BatchID:           batchID,
+		NodeID:            "node-perf-concurrent",
+		Sequence:          sequence,
+		ControlPlaneEpoch: "1",
+		PayloadDigest:     payloadDigest,
+		RedactionVersion:  "redact-v1",
+		CreatedAt:         now,
+	}
+	event := models.Event{
+		EventUID:          fmt.Sprintf("event-perf-concurrent-%03d", sequence),
+		SessionID:         fmt.Sprintf("session-perf-concurrent-%03d", sequence%3),
+		RawSessionID:      fmt.Sprintf("native-perf-concurrent-%03d", sequence%3),
+		NodeID:            meta.NodeID,
+		CollectorID:       meta.CollectorID,
+		SourceID:          "source-perf-concurrent",
+		SourceName:        "concurrent-source",
+		Runtime:           models.RuntimeCodex,
+		Provider:          models.ProviderOpenAI,
+		Format:            models.FormatJSONL,
+		EventKind:         models.EventKindMessage,
+		ActorRole:         models.ActorRoleAssistant,
+		Timestamp:         now.Add(time.Duration(sequence) * time.Millisecond),
+		TextContent:       "fleetcommon concurrent ingest read dashboard search",
+		TextPreview:       "fleetcommon concurrent ingest read dashboard search",
+		Model:             "gpt-5.4-mini",
+		EventVersion:      1,
+		PayloadJSON:       `{"message":"fleetcommon concurrent ingest read dashboard search"}`,
+		CWD:               "/home/user/projects/project-000",
+		SourceFile:        "concurrent-session.jsonl",
+		SourceLineNo:      int(sequence),
+		RawEventID:        fmt.Sprintf("native-event-perf-concurrent-%03d", sequence),
+		SourceEventIndex:  sequence,
+		BatchID:           batchID,
+		ControlPlaneEpoch: meta.ControlPlaneEpoch,
+		PayloadDigest:     payloadDigest,
+		RedactionStatus:   "redacted",
+		RedactionVersion:  meta.RedactionVersion,
+	}
+	return meta, store.RowBatch{
+		ActivityEvents: []models.Event{event},
+		RawRecords:     []models.RawRecord{store.NewRawRecord(event)},
+		Checkpoints: []models.Checkpoint{{
+			NodeID:      meta.NodeID,
+			CollectorID: meta.CollectorID,
+			SourceID:    event.SourceID,
+			SourceName:  event.SourceName,
+			SourceFile:  event.SourceFile,
+			LastOffset:  int64(sequence),
+			LastLineNo:  int(sequence),
+		}},
 	}
 }
 

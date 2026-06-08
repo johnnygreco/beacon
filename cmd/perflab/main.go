@@ -40,6 +40,7 @@ type labConfig struct {
 	BrowserRepeats   int
 	SkipFast         bool
 	SkipLive         bool
+	SkipExplain      bool
 	SkipBrowser      bool
 	SkipServe        bool
 	AllowUnsafeReset bool
@@ -76,6 +77,22 @@ type datasetReport struct {
 	Sessions          int    `json:"sessions,omitempty"`
 	Events            int    `json:"events,omitempty"`
 	Payloads          int    `json:"payloads,omitempty"`
+	SearchPostings    int    `json:"search_postings,omitempty"`
+	Nodes             int    `json:"nodes,omitempty"`
+	Collectors        int    `json:"collectors,omitempty"`
+	Sources           int    `json:"sources,omitempty"`
+	Runtimes          int    `json:"runtimes,omitempty"`
+	Projects          int    `json:"projects,omitempty"`
+	ActiveSessions    int    `json:"active_sessions,omitempty"`
+	IdleSessions      int    `json:"idle_sessions,omitempty"`
+	TargetEvents      int    `json:"target_events,omitempty"`
+	TargetPayloads    int    `json:"target_payloads,omitempty"`
+	TargetPostings    int    `json:"target_search_postings,omitempty"`
+	CommonSearchToken string `json:"common_search_token,omitempty"`
+	ScopedCollectorID string `json:"scoped_collector_id,omitempty"`
+	ScopedSourceID    string `json:"scoped_source_id,omitempty"`
+	ScopedProjectKey  string `json:"scoped_project_key,omitempty"`
+	Heavy             bool   `json:"heavy,omitempty"`
 	Duration          string `json:"duration,omitempty"`
 	Seeded            bool   `json:"seeded"`
 	SeedError         string `json:"seed_error,omitempty"`
@@ -144,7 +161,7 @@ func main() {
 func parseFlags() labConfig {
 	var cfg labConfig
 	flag.StringVar(&cfg.OutputDir, "output-dir", envString("PERF_LAB_OUTPUT_DIR", "test-results/perf/lab/latest"), "Report output directory")
-	flag.StringVar(&cfg.Size, "size", envString("PERF_LAB_SIZE", "small"), "Dataset size: small, medium, large")
+	flag.StringVar(&cfg.Size, "size", envString("PERF_LAB_SIZE", "small"), "Dataset size: small, medium, large, fleet (fleet is heavy/manual)")
 	flag.StringVar(&cfg.ClickHouse, "clickhouse", envString("PERF_LAB_CLICKHOUSE", "127.0.0.1:9000"), "ClickHouse address")
 	flag.StringVar(&cfg.Database, "database", envString("PERF_LAB_DATABASE", "beacon_perf_lab"), "Disposable ClickHouse database for the served lab app")
 	flag.IntVar(&cfg.Port, "port", envInt("PERF_LAB_PORT", 4611), "Port for a lab-started Beacon server")
@@ -153,11 +170,12 @@ func parseFlags() labConfig {
 	flag.StringVar(&cfg.LiveDatabase, "live-database", os.Getenv("PERF_LAB_LIVE_DATABASE"), "Disposable ClickHouse database for live benchmarks")
 	flag.StringVar(&cfg.FastBench, "fast-bench", envString("PERF_LAB_FAST_BENCH", "."), "Regex for fast non-ClickHouse Go benchmarks")
 	flag.StringVar(&cfg.FastBenchtime, "fast-benchtime", envString("PERF_LAB_FAST_BENCHTIME", "100ms"), "Benchtime for fast Go benchmarks")
-	flag.StringVar(&cfg.LiveBench, "live-bench", envString("PERF_LAB_LIVE_BENCH", "Benchmark(SearchBM25|SearchKeyword|SearchBrowse|MCPTool)"), "Regex for live ClickHouse benchmarks")
+	flag.StringVar(&cfg.LiveBench, "live-bench", envString("PERF_LAB_LIVE_BENCH", "Benchmark(QueryDashboardData|QueryDashboardSessions|QueryActiveSessions|SearchBM25|SearchKeyword|SearchBrowse|SearchCommonTokenScoped|MCPTool)"), "Regex for live ClickHouse benchmarks")
 	flag.StringVar(&cfg.LiveBenchtime, "live-benchtime", envString("PERF_LAB_LIVE_BENCHTIME", "100ms"), "Benchtime for live ClickHouse benchmarks")
 	flag.IntVar(&cfg.BrowserRepeats, "browser-repeats", envInt("PERF_LAB_BROWSER_REPEATS", 1), "Browser perf repeats per viewport")
 	flag.BoolVar(&cfg.SkipFast, "skip-fast", envBool("PERF_LAB_SKIP_FAST", false), "Skip fast Go benchmarks")
 	flag.BoolVar(&cfg.SkipLive, "skip-live", envBool("PERF_LAB_SKIP_LIVE", false), "Skip live ClickHouse benchmarks")
+	flag.BoolVar(&cfg.SkipExplain, "skip-explain", envBool("PERF_LAB_SKIP_EXPLAIN", false), "Skip ClickHouse query-plan assertions")
 	flag.BoolVar(&cfg.SkipBrowser, "skip-browser", envBool("PERF_LAB_SKIP_BROWSER", false), "Skip browser perf flow")
 	flag.BoolVar(&cfg.SkipServe, "skip-serve", envBool("PERF_LAB_SKIP_SERVE", false), "Skip seeding and starting a local Beacon server")
 	flag.BoolVar(&cfg.AllowUnsafeReset, "allow-unsafe-database-reset", false, "Allow resetting a database not prefixed with beacon_perf")
@@ -260,6 +278,14 @@ func run(ctx context.Context, cfg labConfig) error {
 		}
 	}
 
+	if !cfg.SkipLive && !cfg.SkipExplain {
+		result := runQueryPlanAssertions(ctx, cfg)
+		report.Commands = append(report.Commands, result.Command)
+		if result.Err != nil {
+			report.Status = "fail"
+		}
+	}
+
 	if !cfg.SkipBrowser {
 		if err := removeStaleBrowserReport(browserPath); err != nil {
 			report.Status = "fail"
@@ -322,15 +348,15 @@ func validateLabPlan(cfg labConfig) error {
 
 func validateLabSize(size string) error {
 	switch size {
-	case string(perf.SizeSmall), string(perf.SizeMedium), string(perf.SizeLarge):
+	case string(perf.SizeSmall), string(perf.SizeMedium), string(perf.SizeLarge), string(perf.SizeFleet):
 		return nil
 	default:
-		return fmt.Errorf("invalid lab dataset size %q; use small, medium, or large", size)
+		return fmt.Errorf("invalid lab dataset size %q; use small, medium, large, or fleet", size)
 	}
 }
 
 func externalDatasetReport(size string) datasetReport {
-	return datasetReport{Size: size, Database: "unknown"}
+	return datasetReportFromProfile(size, "unknown", "")
 }
 
 type commandRun struct {
@@ -343,6 +369,17 @@ func runGoBenchmarks(ctx context.Context, name, bench, benchtime string, package
 	args := []string{"test", "-run", "^$", "-bench", bench, "-benchtime", benchtime, "-benchmem", "-count", "1", "-timeout", "10m"}
 	args = append(args, packages...)
 	return runCommand(ctx, name, "go", args, extraEnv)
+}
+
+func runQueryPlanAssertions(ctx context.Context, cfg labConfig) commandRun {
+	env := []string{
+		"BEACON_TEST_CLICKHOUSE=" + cfg.ClickHouse,
+		"BEACON_PERF_DATABASE=" + cfg.LiveDatabase,
+		"PERF_SIZE=" + cfg.Size,
+		"BEACON_PERF_EXPLAIN=1",
+		"BEACON_PERF_EXPLAIN_ASSERT=1",
+	}
+	return runCommand(ctx, "query-plan-assertions", "go", []string{"test", "-run", "TestExplainQueryPlans", "-count", "1", "-timeout", "10m", "-v", "./internal/perf"}, env)
 }
 
 func runBrowserPerf(ctx context.Context, cfg labConfig, outputPath string) commandRun {
@@ -399,7 +436,7 @@ func fastBenchmarkPackages() []string {
 }
 
 func seedPerfDatabase(ctx context.Context, cfg labConfig) (datasetReport, error) {
-	report := datasetReport{Size: cfg.Size, Database: cfg.Database}
+	report := datasetReportFromProfile(cfg.Size, cfg.Database, "")
 	if !cfg.SkipLive {
 		report.LiveBenchDatabase = cfg.LiveDatabase
 	}
@@ -432,8 +469,41 @@ func seedPerfDatabase(ctx context.Context, cfg labConfig) (datasetReport, error)
 	report.Sessions = stats.Sessions
 	report.Events = stats.Events
 	report.Payloads = stats.Payloads
+	report.SearchPostings = stats.SearchPostings
+	report.Nodes = stats.Nodes
+	report.Collectors = stats.Collectors
+	report.Sources = stats.Sources
+	report.Runtimes = stats.Runtimes
+	report.Projects = stats.Projects
+	report.ActiveSessions = stats.ActiveSessions
+	report.IdleSessions = stats.IdleSessions
 	report.Duration = time.Since(start).Truncate(time.Millisecond).String()
 	return report, nil
+}
+
+func datasetReportFromProfile(size, database, liveDatabase string) datasetReport {
+	seedSize := perf.ParseSeedSize(size)
+	profile := perf.ProfileFor(seedSize)
+	return datasetReport{
+		Size:              string(seedSize),
+		Database:          database,
+		LiveBenchDatabase: liveDatabase,
+		Nodes:             profile.Nodes,
+		Collectors:        profile.Collectors,
+		Sources:           profile.Sources,
+		Runtimes:          profile.Runtimes,
+		Projects:          profile.Projects,
+		ActiveSessions:    profile.ActiveSessions,
+		IdleSessions:      profile.IdleSessions,
+		TargetEvents:      profile.TargetEvents,
+		TargetPayloads:    profile.TargetPayloads,
+		TargetPostings:    profile.TargetSearchPostings,
+		CommonSearchToken: profile.CommonSearchToken,
+		ScopedCollectorID: profile.ScopedCollectorID,
+		ScopedSourceID:    profile.ScopedSourceID,
+		ScopedProjectKey:  profile.ScopedProjectKey,
+		Heavy:             profile.Heavy,
+	}
 }
 
 type labServerProcess struct {
@@ -515,7 +585,10 @@ func buildLabBeaconBinary(ctx context.Context, outputDir string) (string, error)
 }
 
 func prepareLabServerHome(outputDir string) (string, error) {
-	homePath := filepath.Join(outputDir, "beacon-home")
+	homePath, err := filepath.Abs(filepath.Join(outputDir, "beacon-home"))
+	if err != nil {
+		return "", fmt.Errorf("resolve lab server home: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Join(homePath, ".beacon"), 0755); err != nil {
 		return "", fmt.Errorf("prepare lab server home: %w", err)
 	}
@@ -535,6 +608,13 @@ func labServerEnv(base []string, homePath string) []string {
 }
 
 func writeLabConfig(path string, cfg labConfig) error {
+	homePath, err := filepath.Abs(filepath.Join(cfg.OutputDir, "beacon-home"))
+	if err != nil {
+		return fmt.Errorf("resolve lab home path: %w", err)
+	}
+	metadataPath := filepath.Join(homePath, ".beacon", "control-plane.db")
+	ingestTokenPath := filepath.Join(homePath, ".beacon", "ingest-token")
+	spoolDir := filepath.Join(homePath, ".beacon", "spool")
 	body := fmt.Sprintf(`[server]
 host = "127.0.0.1"
 port = %d
@@ -543,6 +623,12 @@ port = %d
 addrs = ["%s"]
 database = "%s"
 read_pool_size = 4
+
+[fleet]
+role = "control-plane"
+metadata_path = %s
+ingest_token_file = %s
+spool_dir = %s
 
 [capture]
 enabled = false
@@ -553,7 +639,7 @@ rebuild_interval = "1h"
 
 [dashboard]
 name = "Beacon Perf Lab"
-`, cfg.Port, cfg.ClickHouse, cfg.Database)
+`, cfg.Port, cfg.ClickHouse, cfg.Database, strconv.Quote(metadataPath), strconv.Quote(ingestTokenPath), strconv.Quote(spoolDir))
 	return os.WriteFile(path, []byte(body), 0644)
 }
 
@@ -783,9 +869,19 @@ func markdownReport(report labReport) string {
 	fmt.Fprintf(&b, "- Git: %s (%s)\n", report.GitRevision, report.GitBranch)
 	fmt.Fprintf(&b, "- Dataset: %s in `%s`", report.Dataset.Size, report.Dataset.Database)
 	if report.Dataset.Seeded {
-		fmt.Fprintf(&b, " (%d sessions, %d events, %d payloads, seed %s)", report.Dataset.Sessions, report.Dataset.Events, report.Dataset.Payloads, report.Dataset.Duration)
+		fmt.Fprintf(&b, " (%d sessions, %d events, %d payloads, %d postings, seed %s)", report.Dataset.Sessions, report.Dataset.Events, report.Dataset.Payloads, report.Dataset.SearchPostings, report.Dataset.Duration)
 	}
 	fmt.Fprintf(&b, "\n")
+	fmt.Fprintf(&b, "- Fleet shape: %d nodes, %d collectors, %d sources, %d runtimes, %d projects, %d active, %d idle",
+		report.Dataset.Nodes, report.Dataset.Collectors, report.Dataset.Sources, report.Dataset.Runtimes, report.Dataset.Projects, report.Dataset.ActiveSessions, report.Dataset.IdleSessions)
+	if report.Dataset.Heavy {
+		fmt.Fprintf(&b, " (heavy opt-in)")
+	}
+	fmt.Fprintf(&b, "\n")
+	if report.Dataset.TargetEvents > 0 {
+		fmt.Fprintf(&b, "- Target shape: ~%d events, ~%d payloads, ~%d search postings, common token `%s`\n",
+			report.Dataset.TargetEvents, report.Dataset.TargetPayloads, report.Dataset.TargetPostings, report.Dataset.CommonSearchToken)
+	}
 	if report.Dataset.LiveBenchDatabase != "" {
 		fmt.Fprintf(&b, "- Live benchmark database: `%s`\n", report.Dataset.LiveBenchDatabase)
 	}

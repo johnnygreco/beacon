@@ -845,6 +845,31 @@ func TestServiceRunCancelsDuringRetryBackoff(t *testing.T) {
 	}
 }
 
+func TestServiceRetryStormBackoffCapsAtRetryMax(t *testing.T) {
+	service, _, _ := newTestService(t, "http://127.0.0.1:1", 1<<20)
+	service.cfg.RetryMin = 10 * time.Millisecond
+	service.cfg.RetryMax = 40 * time.Millisecond
+	service.nextRetry = service.cfg.RetryMin
+
+	var got []time.Duration
+	for i := 0; i < 6; i++ {
+		got = append(got, service.retryDelay())
+	}
+	want := []time.Duration{
+		10 * time.Millisecond,
+		20 * time.Millisecond,
+		40 * time.Millisecond,
+		40 * time.Millisecond,
+		40 * time.Millisecond,
+		40 * time.Millisecond,
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("retry delay[%d] = %s, want %s (all delays: %v)", i, got[i], want[i], got)
+		}
+	}
+}
+
 func TestServiceCheckpointAdvancesOnlyAfterAck(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeGzipBatch(t, r)
