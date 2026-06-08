@@ -4,11 +4,13 @@ import "time"
 
 // NormalizedEvent is the common format that all source parsers produce.
 type NormalizedEvent struct {
-	SessionID  string
-	SourceName string // configured capture source name
-	Runtime    string // agent harness/runtime identifier
-	Provider   string // model provider when known, otherwise "multi"
-	Format     string // source storage format, e.g. "jsonl" or "sqlite"
+	SessionID          string
+	RawSessionID       string
+	RawParentSessionID string
+	SourceName         string // configured capture source name
+	Runtime            string // agent harness/runtime identifier
+	Provider           string // model provider when known, otherwise "multi"
+	Format             string // source storage format, e.g. "jsonl" or "sqlite"
 
 	EventKind   string // message, tool_call, tool_result, reasoning, session_meta, turn_context, event_msg, error, context_snapshot
 	PayloadType string // sub-type within event_kind
@@ -36,8 +38,10 @@ type NormalizedEvent struct {
 	ToolOutput string
 
 	// Links
-	ParentUUID string
-	ToolUseID  string
+	ParentUUID         string
+	RawLinkedEventID   string
+	RawLinkedSessionID string
+	ToolUseID          string
 
 	// Session context
 	CWD string // working directory of the session
@@ -59,6 +63,8 @@ type NormalizedEvent struct {
 	// SourceGeneration increments when a watched file rotates so replayed byte
 	// coordinates from a new file do not collide with earlier records.
 	SourceGeneration int
+	RawEventID       string
+	SourceEventIndex uint64
 	RawPayload       string
 }
 

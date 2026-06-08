@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"sort"
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/models"
@@ -29,11 +31,31 @@ type Batcher struct {
 	flushInterval time.Duration
 	defaultInput  float64
 	defaultOutput float64
+	identity      FleetIdentity
+}
+
+type FleetIdentity struct {
+	NodeID            string
+	CollectorID       string
+	ControlPlaneEpoch string
+	Sources           map[string]FleetSourceIdentity
+}
+
+type FleetSourceIdentity struct {
+	SourceID string
+}
+
+type BatcherOption func(*Batcher)
+
+func WithFleetIdentity(identity FleetIdentity) BatcherOption {
+	return func(b *Batcher) {
+		b.identity = normalizeFleetIdentity(identity)
+	}
 }
 
 // NewBatcher creates a new batcher.
-func NewBatcher(ch *store.Store, batchSize int, flushInterval time.Duration, defaultInput, defaultOutput float64, notify func([]string), logger *slog.Logger) *Batcher {
-	return &Batcher{
+func NewBatcher(ch *store.Store, batchSize int, flushInterval time.Duration, defaultInput, defaultOutput float64, notify func([]string), logger *slog.Logger, options ...BatcherOption) *Batcher {
+	b := &Batcher{
 		eventCh:       make(chan BatchEvent, batchSize*2),
 		store:         ch,
 		notify:        notify,
@@ -43,6 +65,11 @@ func NewBatcher(ch *store.Store, batchSize int, flushInterval time.Duration, def
 		defaultInput:  defaultInput,
 		defaultOutput: defaultOutput,
 	}
+	b.identity = normalizeFleetIdentity(FleetIdentity{})
+	for _, option := range options {
+		option(b)
+	}
+	return b
 }
 
 // EventCh returns the channel to send events to. Senders should select on their
@@ -62,11 +89,10 @@ func (b *Batcher) Run(ctx context.Context) {
 		if len(inserts) == 0 {
 			return
 		}
-		sessionIDs := changedSessionIDs(inserts)
-		b.flushInserts(ctx, inserts)
+		sessionIDs := b.flushInserts(ctx, inserts)
 		inserts = inserts[:0]
 
-		if b.notify != nil {
+		if b.notify != nil && len(sessionIDs) > 0 {
 			b.notify(sessionIDs)
 		}
 	}
@@ -105,27 +131,59 @@ func changedSessionIDs(events []NormalizedEvent) []string {
 	return ids
 }
 
-func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) {
+func sessionIDsFromEvents(events []models.Event) []string {
+	seen := make(map[string]struct{}, len(events))
+	ids := make([]string, 0, len(events))
+	for _, evt := range events {
+		if evt.SessionID == "" {
+			continue
+		}
+		if _, ok := seen[evt.SessionID]; ok {
+			continue
+		}
+		seen[evt.SessionID] = struct{}{}
+		ids = append(ids, evt.SessionID)
+	}
+	return ids
+}
+
+func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) []string {
 	start := time.Now()
 
-	batch := buildInsertRowBatch(events, b.defaultInput, b.defaultOutput)
+	batch := buildInsertRowBatch(events, b.defaultInput, b.defaultOutput, b.identity)
 
 	if err := b.store.Flush(ctx, batch); err != nil {
 		b.logger.Error("clickhouse flush failed", "error", err, "rows", len(events))
-		return
+		return nil
 	}
 	b.logger.Debug("flushInserts complete", "rows", len(events), "duration", time.Since(start))
+	return sessionIDsFromEvents(batch.ActivityEvents)
 }
 
-func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput float64) store.RowBatch {
+func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput float64, identity FleetIdentity) store.RowBatch {
 	var batch store.RowBatch
 	eventOrdinals := make(map[string]int, len(events))
+	identity = normalizeFleetIdentity(identity)
+	batchID := batchID(events, identity)
+	resolvedRawEvents := make(map[string]string, len(events))
 
 	for _, evt := range events {
 		ordinalKey := eventUIDOrdinalKey(evt)
 		ordinal := eventOrdinals[ordinalKey]
 		eventOrdinals[ordinalKey] = ordinal + 1
-		uid := eventUID(evt.SourceFile, evt.SourceLineNo, evt.SourceOffset, evt.SourceGeneration, evt.RawPayload, ordinal)
+		source := identity.source(evt.SourceName)
+		rawSessionID := firstNonEmptyString(evt.RawSessionID, evt.SessionID)
+		rawParentSessionID := firstNonEmptyString(evt.RawParentSessionID, evt.ParentSessionID)
+		sourceEventIndex := normalizedSourceEventIndex(evt, ordinal)
+		rawEventID := normalizedRawEventID(evt, sourceEventIndex, ordinal)
+		payloadDigest := digestString(evt.RawPayload)
+		sessionID := globalID("session", identity.CollectorID, source.SourceID, rawSessionID)
+		parentSessionID := ""
+		if rawParentSessionID != "" {
+			parentSessionID = globalID("session", identity.CollectorID, source.SourceID, rawParentSessionID)
+		}
+		uid := globalID("event", identity.CollectorID, source.SourceID, rawSessionID, rawEventID, fmt.Sprint(sourceEventIndex))
+		resolvedRawEvents[rawEventKey(source.SourceID, rawSessionID, rawEventID)] = uid
 
 		cost := evt.CostUSD
 		if cost == 0 && (evt.InputTokens > 0 || evt.OutputTokens > 0) {
@@ -134,59 +192,105 @@ func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput f
 
 		preview := truncate(evt.TextContent, previewMaxLen)
 		event := &models.Event{
-			EventUID:          uid,
-			SessionID:         evt.SessionID,
-			ParentSessionID:   evt.ParentSessionID,
-			SourceName:        evt.SourceName,
-			Runtime:           evt.Runtime,
-			Provider:          evt.Provider,
-			Format:            evt.Format,
-			EventKind:         evt.EventKind,
-			PayloadType:       evt.PayloadType,
-			ActorRole:         evt.ActorRole,
-			Timestamp:         evt.Timestamp,
-			TextContent:       evt.TextContent,
-			TextPreview:       preview,
-			ToolName:          evt.ToolName,
-			ToolUseID:         evt.ToolUseID,
-			Model:             evt.Model,
-			InputTokens:       evt.InputTokens,
-			OutputTokens:      evt.OutputTokens,
-			CacheReadTokens:   evt.CacheReadTokens,
-			CacheCreateTokens: evt.CacheCreateTokens,
-			DurationMs:        evt.DurationMs,
-			CostUSD:           cost,
-			ErrorCode:         evt.ErrorCode,
-			ErrorMessage:      evt.ErrorMessage,
-			EventVersion:      1,
-			PayloadJSON:       evt.RawPayload,
-			CWD:               evt.CWD,
-			SourceFile:        evt.SourceFile,
-			SourceLineNo:      evt.SourceLineNo,
-			SourceOffset:      evt.SourceOffset,
-			SourceGeneration:  evt.SourceGeneration,
+			EventUID:           uid,
+			SessionID:          evt.SessionID,
+			RawSessionID:       rawSessionID,
+			ParentSessionID:    parentSessionID,
+			RawParentSessionID: rawParentSessionID,
+			NodeID:             identity.NodeID,
+			CollectorID:        identity.CollectorID,
+			SourceID:           source.SourceID,
+			SourceName:         evt.SourceName,
+			Runtime:            evt.Runtime,
+			Provider:           evt.Provider,
+			Format:             evt.Format,
+			EventKind:          evt.EventKind,
+			PayloadType:        evt.PayloadType,
+			ActorRole:          evt.ActorRole,
+			Timestamp:          evt.Timestamp,
+			TextContent:        evt.TextContent,
+			TextPreview:        preview,
+			ToolName:           evt.ToolName,
+			ToolUseID:          evt.ToolUseID,
+			Model:              evt.Model,
+			InputTokens:        evt.InputTokens,
+			OutputTokens:       evt.OutputTokens,
+			CacheReadTokens:    evt.CacheReadTokens,
+			CacheCreateTokens:  evt.CacheCreateTokens,
+			DurationMs:         evt.DurationMs,
+			CostUSD:            cost,
+			ErrorCode:          evt.ErrorCode,
+			ErrorMessage:       evt.ErrorMessage,
+			EventVersion:       1,
+			PayloadJSON:        evt.RawPayload,
+			CWD:                evt.CWD,
+			SourceFile:         evt.SourceFile,
+			SourceLineNo:       evt.SourceLineNo,
+			SourceOffset:       evt.SourceOffset,
+			SourceGeneration:   evt.SourceGeneration,
+			RawEventID:         rawEventID,
+			SourceEventIndex:   sourceEventIndex,
+			BatchID:            batchID,
+			ControlPlaneEpoch:  identity.ControlPlaneEpoch,
+			PayloadDigest:      payloadDigest,
+			RedactionStatus:    "unredacted",
+		}
+		if event.SessionID == "" && rawSessionID != "" {
+			event.SessionID = sessionID
+		} else if rawSessionID != "" {
+			event.SessionID = sessionID
 		}
 
 		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(*event))
 		batch.ActivityEvents = append(batch.ActivityEvents, *event)
 
-		if evt.ParentUUID != "" {
+		rawLinkedEventID := firstNonEmptyString(evt.RawLinkedEventID, evt.ParentUUID)
+		if rawLinkedEventID != "" {
+			rawLinkedSessionID := firstNonEmptyString(evt.RawLinkedSessionID, rawParentSessionID, rawSessionID)
+			linkedSessionID := globalID("session", identity.CollectorID, source.SourceID, rawLinkedSessionID)
+			linkedEventUID := resolvedRawEvents[rawEventKey(source.SourceID, rawLinkedSessionID, rawLinkedEventID)]
+			resolutionStatus := "resolved"
+			if linkedEventUID == "" {
+				linkedEventUID = globalID("event", identity.CollectorID, source.SourceID, rawLinkedSessionID, rawLinkedEventID)
+				resolutionStatus = "unresolved"
+			}
+			linkScope := "same_session"
+			if rawLinkedSessionID != "" && rawSessionID != "" && rawLinkedSessionID != rawSessionID {
+				linkScope = "cross_session"
+			}
 			batch.EventLinks = append(batch.EventLinks, models.EventLink{
-				EventUID:       uid,
-				LinkedEventUID: evt.ParentUUID,
-				LinkType:       "parent",
+				EventUID:           uid,
+				LinkedEventUID:     linkedEventUID,
+				LinkType:           "parent",
+				LinkScope:          linkScope,
+				ResolutionStatus:   resolutionStatus,
+				SessionID:          event.SessionID,
+				RawSessionID:       rawSessionID,
+				LinkedSessionID:    linkedSessionID,
+				RawLinkedSessionID: rawLinkedSessionID,
+				RawLinkedEventID:   rawLinkedEventID,
+				CollectorID:        identity.CollectorID,
+				SourceID:           source.SourceID,
+				BatchID:            batchID,
+				ControlPlaneEpoch:  identity.ControlPlaneEpoch,
 			})
 		}
 
 		if evt.ToolPhase != "" && (evt.ToolInput != "" || evt.ToolOutput != "") {
 			payload := models.ToolPayload{
-				EventUID:      uid,
-				ToolName:      evt.ToolName,
-				ToolPhase:     evt.ToolPhase,
-				InputJSON:     evt.ToolInput,
-				OutputJSON:    evt.ToolOutput,
-				InputPreview:  truncate(evt.ToolInput, previewMaxLen),
-				OutputPreview: truncate(evt.ToolOutput, previewMaxLen),
+				EventUID:          uid,
+				CollectorID:       identity.CollectorID,
+				SourceID:          source.SourceID,
+				ToolName:          evt.ToolName,
+				ToolPhase:         evt.ToolPhase,
+				InputJSON:         evt.ToolInput,
+				OutputJSON:        evt.ToolOutput,
+				InputPreview:      truncate(evt.ToolInput, previewMaxLen),
+				OutputPreview:     truncate(evt.ToolOutput, previewMaxLen),
+				BatchID:           batchID,
+				ControlPlaneEpoch: identity.ControlPlaneEpoch,
+				PayloadDigest:     digestString(evt.ToolInput + "\x00" + evt.ToolOutput),
+				RedactionStatus:   "unredacted",
 			}
 			batch.ToolPayloads = append(batch.ToolPayloads, payload)
 		}
@@ -206,6 +310,94 @@ func eventUID(sourceFile string, lineNo int, offset int64, generation int, conte
 		fmt.Fprintf(h, "|%d", ordinal)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:32]
+}
+
+func normalizeFleetIdentity(identity FleetIdentity) FleetIdentity {
+	if identity.CollectorID == "" {
+		identity.CollectorID = "collector_local"
+	}
+	if identity.NodeID == "" {
+		identity.NodeID = "node_local"
+	}
+	if identity.ControlPlaneEpoch == "" {
+		identity.ControlPlaneEpoch = "1"
+	}
+	if identity.Sources == nil {
+		identity.Sources = map[string]FleetSourceIdentity{}
+	}
+	return identity
+}
+
+func (identity FleetIdentity) source(name string) FleetSourceIdentity {
+	if source, ok := identity.Sources[name]; ok && source.SourceID != "" {
+		return source
+	}
+	return FleetSourceIdentity{SourceID: globalID("source", identity.CollectorID, name)}
+}
+
+func batchID(events []NormalizedEvent, identity FleetIdentity) string {
+	parts := make([]string, 0, len(events)+3)
+	parts = append(parts, identity.CollectorID, identity.ControlPlaneEpoch)
+	for _, evt := range events {
+		parts = append(parts, eventUIDOrdinalKey(evt))
+	}
+	sort.Strings(parts[2:])
+	return globalID("batch", parts...)
+}
+
+func normalizedRawEventID(evt NormalizedEvent, sourceEventIndex uint64, ordinal int) string {
+	if evt.RawEventID != "" {
+		return evt.RawEventID
+	}
+	if evt.MessageUUID != "" {
+		if ordinal == 0 {
+			return evt.MessageUUID
+		}
+		return fmt.Sprintf("%s#%d", evt.MessageUUID, ordinal)
+	}
+	return fmt.Sprintf("%s:%d:%d:%d:%d", evt.SourceFile, evt.SourceGeneration, evt.SourceLineNo, evt.SourceOffset, sourceEventIndex)
+}
+
+func normalizedSourceEventIndex(evt NormalizedEvent, ordinal int) uint64 {
+	if evt.SourceEventIndex > 0 {
+		return evt.SourceEventIndex
+	}
+	if evt.SourceLineNo > 0 {
+		return uint64(evt.SourceLineNo)*100000 + uint64(ordinal)
+	}
+	return hashUint64(evt.SourceFile, fmt.Sprint(evt.SourceGeneration), fmt.Sprint(evt.SourceOffset), fmt.Sprint(ordinal), evt.RawPayload)
+}
+
+func rawEventKey(sourceID, rawSessionID, rawEventID string) string {
+	return sourceID + "\x00" + rawSessionID + "\x00" + rawEventID
+}
+
+func globalID(prefix string, parts ...string) string {
+	h := sha256.New()
+	for _, part := range parts {
+		h.Write([]byte(part))
+		h.Write([]byte{0})
+	}
+	return prefix + "_" + hex.EncodeToString(h.Sum(nil))[:32]
+}
+
+func digestString(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
+func hashUint64(parts ...string) uint64 {
+	sum := sha256.Sum256([]byte(globalID("idx", parts...)))
+	return binary.BigEndian.Uint64(sum[:8])
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func genID() string {

@@ -27,19 +27,20 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 	ts := parseTimestamp(stringField(raw, "timestamp"))
 
 	eventType := stringField(raw, "type")
+	payload := objectFromAny(raw["payload"])
 
 	base := NormalizedEvent{
 		SessionID:    sessionID,
+		RawSessionID: sessionID,
 		SourceName:   "codex",
 		Provider:     models.ProviderOpenAI,
 		Timestamp:    ts,
+		RawEventID:   firstNonEmptyString(stringField(raw, "id"), stringField(payload, "id"), stringField(payload, "call_id")),
 		SourceFile:   file,
 		SourceLineNo: lineNo,
 		SourceOffset: offset,
 		RawPayload:   string(line),
 	}
-
-	payload := objectFromAny(raw["payload"])
 
 	// Extract CWD from payload (present in session_meta and turn_context)
 	if cwd := stringField(payload, "cwd"); cwd != "" {
@@ -51,6 +52,8 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 	// Extract parent session ID from forked_from_id (Codex subagent linking)
 	if forkedFrom := stringField(payload, "forked_from_id"); forkedFrom != "" {
 		base.ParentSessionID = forkedFrom
+		base.RawParentSessionID = forkedFrom
+		base.RawLinkedSessionID = forkedFrom
 	}
 
 	switch eventType {
@@ -112,6 +115,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ToolPhase = models.ToolPhaseCall
 			evt.ToolInput = stringField(payload, "arguments")
 			evt.ToolUseID = stringField(payload, "call_id")
+			evt.RawEventID = firstNonEmpty(evt.RawEventID, evt.ToolUseID)
 			evt.TextContent = evt.ToolName
 			// Map spawn_agent to Agent for UI subagent dispatch rendering
 			if evt.ToolName == "spawn_agent" {
@@ -127,6 +131,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ToolPhase = models.ToolPhaseResult
 			evt.ToolOutput = stringField(payload, "output")
 			evt.ToolUseID = stringField(payload, "call_id")
+			evt.RawEventID = firstNonEmpty(evt.RawEventID, evt.ToolUseID)
 			evt.TextContent = stringField(payload, "output")
 			// For spawn_agent results, reformat output so agentID() can extract
 			// the session ID. Codex output: {"agent_id":"xxx","nickname":"yyy"}
@@ -152,6 +157,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ToolPhase = models.ToolPhaseResult
 			evt.ToolOutput = stringField(payload, "output")
 			evt.ToolUseID = stringField(payload, "call_id")
+			evt.RawEventID = firstNonEmpty(evt.RawEventID, evt.ToolUseID)
 			evt.TextContent = stringField(payload, "output")
 			events = append(events, evt)
 
@@ -164,6 +170,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ToolPhase = models.ToolPhaseCall
 			evt.ToolInput = stringField(payload, "input")
 			evt.ToolUseID = stringField(payload, "call_id")
+			evt.RawEventID = firstNonEmpty(evt.RawEventID, evt.ToolUseID)
 			evt.TextContent = evt.ToolName
 			events = append(events, evt)
 
@@ -175,6 +182,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ToolPhase = models.ToolPhaseResult
 			evt.ToolOutput = stringField(payload, "output")
 			evt.ToolUseID = stringField(payload, "call_id")
+			evt.RawEventID = firstNonEmpty(evt.RawEventID, evt.ToolUseID)
 			evt.TextContent = stringField(payload, "output")
 			if isCodexToolError(evt.ToolOutput) {
 				evt.EventKind = models.EventKindToolError

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/johnnygreco/beacon/internal/capture"
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/controlplane"
 )
@@ -60,4 +61,18 @@ func controlPlaneStatus(ctx context.Context, cfg *config.Config) (*controlplane.
 	}
 	defer store.Close()
 	return store.Snapshot(ctx)
+}
+
+func captureFleetIdentity(snapshot *controlplane.Snapshot) capture.FleetIdentity {
+	identity := capture.FleetIdentity{Sources: map[string]capture.FleetSourceIdentity{}}
+	if snapshot == nil {
+		return identity
+	}
+	identity.NodeID = snapshot.LocalNodeID
+	identity.CollectorID = snapshot.LocalCollectorID
+	identity.ControlPlaneEpoch = snapshot.SchemaEpoch
+	for _, source := range snapshot.Sources {
+		identity.Sources[source.Name] = capture.FleetSourceIdentity{SourceID: source.ID}
+	}
+	return identity
 }

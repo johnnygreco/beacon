@@ -85,12 +85,18 @@ or the flush interval fires. A final flush also runs on context cancellation.
 On flush, the batcher:
 
 - computes deterministic `event_uid` values from source coordinates,
-  generation, raw payload, and an ordinal for duplicate coordinates
+  source-native IDs, source event indexes, collector/source identity, and an
+  ordinal for duplicate source coordinates
+- maps raw source session IDs into global session IDs using durable
+  collector/source assignments from the control-plane metadata store
+- attaches `batch_id`, `collector_id`, `source_id`, `control_plane_epoch`,
+  `payload_digest`, and redaction placeholders to primary ingest rows
 - calculates token cost when the parser did not provide one
 - builds short text previews
 - creates `models.Event` rows for `activity_events`
 - creates `raw_records` rows that retain the original payload JSON
-- creates `event_links` rows for parent event references
+- creates `event_links` rows for parent event references, preserving raw linked
+  IDs and unresolved-link status for later reconciliation
 - creates `tool_payloads` rows for tool call/result input and output JSON
 
 The batcher passes a `store.RowBatch` to `store.Flush`. After a successful flush
@@ -103,12 +109,13 @@ inserts, ingest-time derived rows, and projection refreshes.
 
 Core write tables:
 
-- `raw_records` stores the original payload and source coordinates for audit and
+- `raw_records` stores the original payload, source coordinates, raw/global
+  identity, fleet identity, batch metadata, and payload digest for audit and
   replay debugging.
 - `activity_events` is the canonical normalized event stream. Most read paths
   use this table directly or through projections.
 - `event_links` records event-to-event relationships such as parser parent
-  links.
+  links, raw linked IDs, cross-session scope, and unresolved-link status.
 - `tool_payloads` stores structured tool call/result input and output payloads
   apart from the event row.
 - `capture_errors` stores parser and capture failures.

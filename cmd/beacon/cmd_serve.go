@@ -42,7 +42,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	controlStore, _, err := initializeControlPlane(context.Background(), cfg, logger)
+	controlStore, controlSnapshot, err := initializeControlPlane(context.Background(), cfg, logger)
 	if err != nil {
 		return fmt.Errorf("initializing control-plane metadata: %w", err)
 	}
@@ -99,6 +99,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		cfg.Pricing.DefaultOutputCost,
 		updater.MarkDirty,
 		logger,
+		capture.WithFleetIdentity(captureFleetIdentity(controlSnapshot)),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())

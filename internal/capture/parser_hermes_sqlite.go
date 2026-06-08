@@ -146,18 +146,21 @@ func loadHermesSessions(db *sql.DB) (map[string]hermesSessionRow, error) {
 
 func hermesSessionEvents(file string, sess hermesSessionRow) []NormalizedEvent {
 	base := NormalizedEvent{
-		SessionID:       sess.id,
-		SourceName:      "hermes",
-		Runtime:         models.RuntimeHermesAgent,
-		Provider:        firstNonEmpty(sess.billingProvider, models.ProviderMulti),
-		Format:          models.FormatSQLite,
-		Timestamp:       timeFromUnixSeconds(sess.startedAt),
-		Model:           sess.model,
-		ParentSessionID: sess.parentSessionID,
-		CWD:             sess.cwd,
-		SourceFile:      file,
-		SourceLineNo:    stableLineNo("hermes", "sessions", sess.id),
-		SourceOffset:    stableOffset("hermes", "sessions", sess.id),
+		SessionID:          sess.id,
+		RawSessionID:       sess.id,
+		RawParentSessionID: sess.parentSessionID,
+		SourceName:         "hermes",
+		Runtime:            models.RuntimeHermesAgent,
+		Provider:           firstNonEmpty(sess.billingProvider, models.ProviderMulti),
+		Format:             models.FormatSQLite,
+		Timestamp:          timeFromUnixSeconds(sess.startedAt),
+		Model:              sess.model,
+		ParentSessionID:    sess.parentSessionID,
+		CWD:                sess.cwd,
+		SourceFile:         file,
+		SourceLineNo:       stableLineNo("hermes", "sessions", sess.id),
+		SourceOffset:       stableOffset("hermes", "sessions", sess.id),
+		RawEventID:         "sessions:" + sess.id,
 	}
 
 	meta := base
@@ -259,19 +262,22 @@ func loadHermesMessages(db *sql.DB, file string, sessions map[string]hermesSessi
 			lastTimestampBySession[sessionID] = timestampValue
 		}
 		base := NormalizedEvent{
-			SessionID:       sessionID,
-			SourceName:      "hermes",
-			Runtime:         models.RuntimeHermesAgent,
-			Provider:        firstNonEmpty(sess.billingProvider, models.ProviderMulti),
-			Format:          models.FormatSQLite,
-			Timestamp:       timeFromUnixSeconds(timestampValue),
-			Model:           sess.model,
-			ParentSessionID: sess.parentSessionID,
-			CWD:             sess.cwd,
-			SourceFile:      file,
-			SourceLineNo:    stableLineNo("hermes", "messages", fmt.Sprint(id)),
-			SourceOffset:    stableOffset("hermes", "messages", fmt.Sprint(id)),
-			MessageUUID:     fmt.Sprint(id),
+			SessionID:          sessionID,
+			RawSessionID:       sessionID,
+			RawParentSessionID: sess.parentSessionID,
+			SourceName:         "hermes",
+			Runtime:            models.RuntimeHermesAgent,
+			Provider:           firstNonEmpty(sess.billingProvider, models.ProviderMulti),
+			Format:             models.FormatSQLite,
+			Timestamp:          timeFromUnixSeconds(timestampValue),
+			Model:              sess.model,
+			ParentSessionID:    sess.parentSessionID,
+			CWD:                sess.cwd,
+			SourceFile:         file,
+			SourceLineNo:       stableLineNo("hermes", "messages", fmt.Sprint(id)),
+			SourceOffset:       stableOffset("hermes", "messages", fmt.Sprint(id)),
+			MessageUUID:        fmt.Sprint(id),
+			RawEventID:         fmt.Sprint(id),
 		}
 
 		reasoningFields := hermesMessageReasoning{
