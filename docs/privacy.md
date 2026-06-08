@@ -83,10 +83,13 @@ The web dashboard exposes captured session summaries, transcripts, search
 results, tool payloads, metrics, and recent activity through local HTTP routes.
 Anyone who can reach the Beacon web server can inspect that data.
 
-The MCP server exposes the same local database through read-only
-`search_sessions`, `open`, and `list_sessions` tools. MCP clients should be
+The MCP server exposes the same local database through read-only tools:
+`search_sessions`, `open`, `list_agents`, `list_sessions`, and
+`usage_summary`. Those tools can return transcript context, session summaries,
+fleet node/collector/source/runtime/project rollups, token-usage aggregates,
+working directories, and source/project metadata. MCP clients should be
 configured only for trusted agent environments, especially when pointing Beacon
-at a ClickHouse host reachable from another machine.
+at a ClickHouse host or remote control plane reachable from another machine.
 
 Search results use a derived index, but the source content may still be present
 in raw records, activity events, tool payloads, previews, and transcript views.
