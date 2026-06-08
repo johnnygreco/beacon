@@ -398,10 +398,12 @@ func TestIngestTokenRejectsMissingBindingRequests(t *testing.T) {
 		nodeID      string
 		collectorID string
 		sourceID    string
+		sourceIDs   []string
 	}{
 		{name: "missing node", collectorID: "collector-a", sourceID: "source-a"},
 		{name: "missing collector", nodeID: "node-a", sourceID: "source-a"},
 		{name: "missing source", nodeID: "node-a", collectorID: "collector-a"},
+		{name: "blank source list", nodeID: "node-a", collectorID: "collector-a", sourceIDs: []string{" "}},
 		{name: "missing all"},
 	}
 	for _, tt := range tests {
@@ -413,6 +415,7 @@ func TestIngestTokenRejectsMissingBindingRequests(t *testing.T) {
 				NodeID:         tt.nodeID,
 				CollectorID:    tt.collectorID,
 				SourceID:       tt.sourceID,
+				SourceIDs:      tt.sourceIDs,
 			})
 			if !errors.Is(err, ErrTokenBindingMismatch) {
 				t.Fatalf("AuthenticateToken error = %v, want ErrTokenBindingMismatch", err)

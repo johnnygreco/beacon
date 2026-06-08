@@ -518,6 +518,7 @@ func authenticateToken(ctx context.Context, q tokenQueryer, req AuthenticateToke
 }
 
 func validateAuthenticatedToken(record TokenRecord, req AuthenticateTokenRequest, now time.Time) error {
+	reqSourceIDs := normalizeStringList(req.SourceIDs)
 	switch record.Status {
 	case TokenStatusActive:
 	case TokenStatusUsed:
@@ -539,7 +540,7 @@ func validateAuthenticatedToken(record TokenRecord, req AuthenticateTokenRequest
 		}
 	}
 	if !req.SkipBindingCheck && tokenAuthRequiresIngestBindings(record, req) &&
-		(req.NodeID == "" || req.CollectorID == "" || (req.SourceID == "" && len(req.SourceIDs) == 0) ||
+		(req.NodeID == "" || req.CollectorID == "" || (req.SourceID == "" && len(reqSourceIDs) == 0) ||
 			record.NodeID == "" || record.CollectorID == "" || len(record.SourceIDs) == 0) {
 		return ErrTokenBindingMismatch
 	}
@@ -552,7 +553,7 @@ func validateAuthenticatedToken(record TokenRecord, req AuthenticateTokenRequest
 	if req.SourceID != "" && !containsString(record.SourceIDs, req.SourceID) {
 		return ErrTokenBindingMismatch
 	}
-	for _, sourceID := range normalizeStringList(req.SourceIDs) {
+	for _, sourceID := range reqSourceIDs {
 		if !containsString(record.SourceIDs, sourceID) {
 			return ErrTokenBindingMismatch
 		}

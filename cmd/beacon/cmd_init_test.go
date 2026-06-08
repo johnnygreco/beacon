@@ -118,6 +118,45 @@ func TestRunInitRejectsCollectorRole(t *testing.T) {
 	}
 }
 
+func TestRunEnrollRejectsControlPlaneRoleBeforeLocalEnrollment(t *testing.T) {
+	configPath, metadataPath := writeInitTestConfigWithRole(t, config.FleetRoleControlPlane)
+	withConfigFile(t, configPath)
+
+	err := runEnroll(newEnrollCmd(), nil, false, "")
+	if err == nil {
+		t.Fatal("runEnroll returned nil error")
+	}
+	if !strings.Contains(err.Error(), `local enrollment requires fleet.role "both"`) {
+		t.Fatalf("runEnroll error = %q, want local role rejection", err.Error())
+	}
+	if _, statErr := os.Stat(metadataPath); !os.IsNotExist(statErr) {
+		t.Fatalf("metadata file stat error = %v, want not created", statErr)
+	}
+}
+
+func TestRunEnrollRejectsRemoteNonCollectorRoleBeforeTokenRead(t *testing.T) {
+	configPath, metadataPath := writeInitTestConfig(t)
+	withConfigFile(t, configPath)
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load config: %v", err)
+	}
+
+	err = runEnroll(newEnrollCmd(), []string{"http://127.0.0.1:1"}, false, "")
+	if err == nil {
+		t.Fatal("runEnroll returned nil error")
+	}
+	if !strings.Contains(err.Error(), `remote enrollment requires fleet.role "collector"`) {
+		t.Fatalf("runEnroll error = %q, want remote role rejection", err.Error())
+	}
+	if _, statErr := os.Stat(metadataPath); !os.IsNotExist(statErr) {
+		t.Fatalf("metadata file stat error = %v, want not created", statErr)
+	}
+	if _, statErr := os.Stat(cfg.Fleet.IngestTokenFile); !os.IsNotExist(statErr) {
+		t.Fatalf("ingest token file stat error = %v, want not created", statErr)
+	}
+}
+
 func TestRunEnrollReadsTokenFromStdinAndMintsIngestToken(t *testing.T) {
 	configPath, metadataPath := writeInitTestConfig(t)
 	withConfigFile(t, configPath)
@@ -268,7 +307,7 @@ func TestPostRemoteEnrollmentDoesNotForwardSecretsAcrossRedirect(t *testing.T) {
 }
 
 func TestRunRemoteEnrollPersistsTokenBeforeAssignmentVerification(t *testing.T) {
-	configPath, _ := writeInitTestConfig(t)
+	configPath, _ := writeInitTestConfigWithRole(t, config.FleetRoleCollector)
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		t.Fatalf("Load config: %v", err)
@@ -303,8 +342,31 @@ func TestRunRemoteEnrollPersistsTokenBeforeAssignmentVerification(t *testing.T) 
 	}
 }
 
-func TestRunRemoteEnrollPrintsConfigAndCollectorUsesAssignedMetadata(t *testing.T) {
+func TestRunRemoteEnrollRejectsNonCollectorRoleBeforePersistence(t *testing.T) {
 	configPath, metadataPath := writeInitTestConfig(t)
+	withConfigFile(t, configPath)
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load config: %v", err)
+	}
+
+	err = runRemoteEnroll(newEnrollCmd(), cfg, "http://127.0.0.1:1", "bcn_enroll_secret")
+	if err == nil {
+		t.Fatal("runRemoteEnroll returned nil error")
+	}
+	if !strings.Contains(err.Error(), `remote enrollment requires fleet.role "collector"`) {
+		t.Fatalf("runRemoteEnroll error = %q, want collector role rejection", err.Error())
+	}
+	if _, statErr := os.Stat(metadataPath); !os.IsNotExist(statErr) {
+		t.Fatalf("metadata file stat error = %v, want not created", statErr)
+	}
+	if _, statErr := os.Stat(cfg.Fleet.IngestTokenFile); !os.IsNotExist(statErr) {
+		t.Fatalf("ingest token file stat error = %v, want not created", statErr)
+	}
+}
+
+func TestRunRemoteEnrollPrintsConfigAndCollectorUsesAssignedMetadata(t *testing.T) {
+	configPath, metadataPath := writeInitTestConfigWithRole(t, config.FleetRoleCollector)
 	withConfigFile(t, configPath)
 	cfg, err := config.Load(configPath)
 	if err != nil {

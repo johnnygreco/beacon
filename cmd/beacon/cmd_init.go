@@ -109,10 +109,6 @@ func runInit(cmd *cobra.Command, enrollTTL time.Duration) error {
 }
 
 func runEnroll(cmd *cobra.Command, args []string, tokenStdin bool, tokenEnv string) error {
-	token, err := readEnrollmentToken(cmd, tokenStdin, tokenEnv)
-	if err != nil {
-		return err
-	}
 	ctx := commandContext(cmd)
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
@@ -123,7 +119,21 @@ func runEnroll(cmd *cobra.Command, args []string, tokenStdin bool, tokenEnv stri
 		controlPlaneURL = strings.TrimSpace(args[0])
 	}
 	if controlPlaneURL != "" {
+		if cfg.Fleet.Role != config.FleetRoleCollector {
+			return remoteEnrollRoleError()
+		}
+		token, err := readEnrollmentToken(cmd, tokenStdin, tokenEnv)
+		if err != nil {
+			return err
+		}
 		return runRemoteEnroll(cmd, cfg, controlPlaneURL, token)
+	}
+	if cfg.Fleet.Role != config.FleetRoleBoth {
+		return fmt.Errorf("local enrollment requires fleet.role %q; use beacon init on control-plane machines or pass a control-plane URL from collector machines", config.FleetRoleBoth)
+	}
+	token, err := readEnrollmentToken(cmd, tokenStdin, tokenEnv)
+	if err != nil {
+		return err
 	}
 	store, err := controlplane.Open(cfg.Fleet.MetadataPath)
 	if err != nil {
@@ -148,6 +158,9 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	normalizedURL, err := config.NormalizeControlPlaneURL(controlPlaneURL, "control-plane URL")
 	if err != nil {
 		return err
+	}
+	if cfg.Fleet.Role != config.FleetRoleCollector {
+		return remoteEnrollRoleError()
 	}
 	if err := preflightRemoteEnrollmentPersistence(cfg); err != nil {
 		return err
@@ -195,6 +208,10 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	fmt.Fprintf(out, "Ingest token file: %s\n", cfg.Fleet.IngestTokenFile)
 	fmt.Fprintf(out, "Run collector: %s\n", remoteCollectCommand(normalizedURL))
 	return nil
+}
+
+func remoteEnrollRoleError() error {
+	return fmt.Errorf("remote enrollment requires fleet.role %q; set collector machines to that role before running beacon enroll", config.FleetRoleCollector)
 }
 
 func preflightRemoteEnrollmentPersistence(cfg *config.Config) error {

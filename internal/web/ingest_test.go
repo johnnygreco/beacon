@@ -248,6 +248,72 @@ func TestReplacementIngestUseRevokesOlderCollectorToken(t *testing.T) {
 	}
 }
 
+func TestReplacementHeartbeatWithBlankSourceDoesNotRevokeOlderToken(t *testing.T) {
+	control, enrollToken := testEnrollControlPlane(t)
+	handler := NewIngestHandlers(control, &fakeIngestCommitter{}, 0, 0, nil, nil)
+	boot := ingest.EnrollBootstrap{
+		NodeName: "Remote",
+		Sources: []ingest.EnrollSourceRegistration{{
+			Name:      "codex",
+			Runtime:   models.RuntimeCodex,
+			Provider:  models.ProviderOpenAI,
+			Format:    models.FormatJSONL,
+			WatchRoot: "~/.codex",
+		}},
+	}
+	first := postIngestJSON(t, handler.Enroll, ingest.EnrollRequest{Schema: ingest.SchemaV1, Bootstrap: boot}, enrollToken)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first enroll status = %d body=%s, want 200", first.Code, first.Body.String())
+	}
+	var firstResp ingest.EnrollResponse
+	if err := json.Unmarshal(first.Body.Bytes(), &firstResp); err != nil {
+		t.Fatalf("decode first enrollment: %v", err)
+	}
+	secondEnroll, err := control.CreateToken(context.Background(), controlplane.CreateTokenRequest{Type: controlplane.TokenTypeEnroll})
+	if err != nil {
+		t.Fatalf("CreateToken second enroll: %v", err)
+	}
+	boot.NodeID = firstResp.Assignment.NodeID
+	boot.CollectorID = firstResp.Assignment.CollectorID
+	second := postIngestJSON(t, handler.Enroll, ingest.EnrollRequest{
+		Schema:              ingest.SchemaV1,
+		Bootstrap:           boot,
+		ExistingIngestToken: firstResp.IngestToken,
+	}, secondEnroll.Plaintext)
+	if second.Code != http.StatusOK {
+		t.Fatalf("second enroll status = %d body=%s, want 200", second.Code, second.Body.String())
+	}
+	var secondResp ingest.EnrollResponse
+	if err := json.Unmarshal(second.Body.Bytes(), &secondResp); err != nil {
+		t.Fatalf("decode second enrollment: %v", err)
+	}
+
+	req := ingest.HeartbeatRequest{
+		Schema:            ingest.SchemaV1,
+		CollectorID:       secondResp.Assignment.CollectorID,
+		NodeID:            secondResp.Assignment.NodeID,
+		ControlPlaneEpoch: secondResp.Assignment.ControlPlaneEpoch,
+		Sources: []ingest.HeartbeatSource{{
+			SourceID: " ",
+			Status:   "healthy",
+		}},
+	}
+	rec := postIngestJSON(t, handler.Heartbeat, req, secondResp.IngestToken)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("heartbeat status = %d body=%s, want 403", rec.Code, rec.Body.String())
+	}
+	if _, err := control.AuthenticateToken(context.Background(), controlplane.AuthenticateTokenRequest{
+		Plaintext:      firstResp.IngestToken,
+		AllowedTypes:   []string{controlplane.TokenTypeIngest},
+		RequiredScopes: []string{controlplane.ScopeIngest},
+		NodeID:         firstResp.Assignment.NodeID,
+		CollectorID:    firstResp.Assignment.CollectorID,
+		SourceID:       firstResp.Assignment.SourceIDs[0],
+	}); err != nil {
+		t.Fatalf("old ingest token after malformed heartbeat = %v, want still active", err)
+	}
+}
+
 func TestIngestEnrollClassifiesInvalidBootstrapAsBadRequest(t *testing.T) {
 	control, enrollToken := testEnrollControlPlane(t)
 	handler := NewIngestHandlers(control, &fakeIngestCommitter{}, 0, 0, nil, nil)

@@ -213,12 +213,13 @@ stored by the control plane.
 Use `beacon init` to create a local owner token and a short-lived one-use
 enrollment token. `beacon enroll --token-stdin` and
 `beacon enroll --token-env BEACON_ENROLL_TOKEN` still support local metadata
-enrollment. Remote collectors can enroll against a control plane with
-`beacon enroll https://beacon.example --token-stdin`, which returns a bound
-ingest token and writes it to `[fleet].ingest_token_file` with owner-only
-permissions. Re-enrolling an existing collector rotates that file only after
-proving possession of the current ingest token. Beacon never requires enrollment
-tokens in command arguments.
+enrollment. Remote collectors set `[fleet].role = "collector"` and enroll
+against a control plane with `beacon enroll https://beacon.example
+--token-stdin`, which returns a bound ingest token and writes it to
+`[fleet].ingest_token_file` with owner-only permissions. Re-enrolling an
+existing collector rotates that file only after proving possession of the
+current ingest token. Beacon never requires enrollment tokens in command
+arguments.
 
 Remote-safe collection runs with `beacon collect`. It reads configured capture
 sources, redacts obvious tokens/secrets before writing to
