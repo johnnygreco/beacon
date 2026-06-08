@@ -422,20 +422,60 @@ func revokeOlderActiveIngestTokensForCollector(ctx context.Context, db *sql.DB, 
 	if tokenID == "" || collectorID == "" || current.Type != TokenTypeIngest || current.CreatedAt.IsZero() {
 		return nil
 	}
-	if _, err := db.ExecContext(ctx,
-		`UPDATE tokens
-		 SET status = ?, revoked_at = ?, updated_at = ?
-		 WHERE token_type = ? AND collector_id = ? AND status = ? AND token_id != ? AND created_at < ?`,
-		TokenStatusRevoked,
-		formatTime(now),
-		formatTime(now),
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin revoke older ingest tokens for collector %q: %w", collectorID, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	rows, err := tx.QueryContext(ctx,
+		`SELECT token_id, created_at
+		 FROM tokens
+		 WHERE token_type = ? AND collector_id = ? AND status = ? AND token_id != ?`,
 		TokenTypeIngest,
 		collectorID,
 		TokenStatusActive,
 		tokenID,
-		formatTime(current.CreatedAt),
-	); err != nil {
-		return fmt.Errorf("revoke older ingest tokens for collector %q: %w", collectorID, err)
+	)
+	if err != nil {
+		return fmt.Errorf("read older ingest tokens for collector %q: %w", collectorID, err)
+	}
+	var revokeIDs []string
+	for rows.Next() {
+		var id, createdRaw string
+		if err := rows.Scan(&id, &createdRaw); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan older ingest token for collector %q: %w", collectorID, err)
+		}
+		createdAt := parseTime(createdRaw)
+		if createdAt.IsZero() || !createdAt.Before(current.CreatedAt) {
+			continue
+		}
+		revokeIDs = append(revokeIDs, id)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("read older ingest token rows for collector %q: %w", collectorID, err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close older ingest token rows for collector %q: %w", collectorID, err)
+	}
+	for _, id := range revokeIDs {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE tokens
+			 SET status = ?, revoked_at = ?, updated_at = ?
+			 WHERE token_id = ? AND status = ?`,
+			TokenStatusRevoked,
+			formatTime(now),
+			formatTime(now),
+			id,
+			TokenStatusActive,
+		); err != nil {
+			return fmt.Errorf("revoke older ingest token %q for collector %q: %w", id, collectorID, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit revoke older ingest tokens for collector %q: %w", collectorID, err)
 	}
 	return nil
 }

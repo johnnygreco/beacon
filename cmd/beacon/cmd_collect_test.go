@@ -127,6 +127,35 @@ node_name = "Smoke Collector"
 	}
 }
 
+func TestRunCollectRejectsControlPlaneRoleBeforeMetadata(t *testing.T) {
+	dir := t.TempDir()
+	metadataPath := filepath.Join(dir, "control-plane.db")
+	configPath := filepath.Join(dir, "beacon.toml")
+	body := `
+[fleet]
+role = "control-plane"
+metadata_path = "` + metadataPath + `"
+control_plane_url = "http://127.0.0.1:1"
+ingest_token_file = "` + filepath.Join(dir, "ingest-token") + `"
+spool_dir = "` + filepath.Join(dir, "spool") + `"
+`
+	if err := os.WriteFile(configPath, []byte(body), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	withConfigFile(t, configPath)
+
+	err := runCollect(newCollectCmd(), true, "")
+	if err == nil {
+		t.Fatal("runCollect returned nil error")
+	}
+	if !strings.Contains(err.Error(), `beacon collect requires fleet.role "collector"`) {
+		t.Fatalf("runCollect error = %q, want role rejection", err.Error())
+	}
+	if _, statErr := os.Stat(metadataPath); !os.IsNotExist(statErr) {
+		t.Fatalf("metadata file stat error = %v, want not created", statErr)
+	}
+}
+
 type collectSmokeCommitter struct {
 	calls int
 	meta  store.IngestBatchMeta

@@ -41,6 +41,9 @@ func runCollect(cmd *cobra.Command, once bool, controlPlaneURL string) error {
 	if strings.TrimSpace(controlPlaneURL) != "" {
 		cfg.Fleet.ControlPlaneURL = strings.TrimRight(strings.TrimSpace(controlPlaneURL), "/")
 	}
+	if cfg.Fleet.Role != config.FleetRoleCollector {
+		return fmt.Errorf("beacon collect requires fleet.role %q; use beacon up or beacon watch for local capture", config.FleetRoleCollector)
+	}
 	service, cleanup, err := buildCollectorService(commandContext(cmd), cfg, logger)
 	if err != nil {
 		return err

@@ -102,6 +102,22 @@ func TestRunInitControlPlaneRoleDoesNotCreateLocalCollector(t *testing.T) {
 	}
 }
 
+func TestRunInitRejectsCollectorRole(t *testing.T) {
+	configPath, metadataPath := writeInitTestConfigWithRole(t, config.FleetRoleCollector)
+	withConfigFile(t, configPath)
+
+	err := runInit(newInitCmd(), time.Minute)
+	if err == nil {
+		t.Fatal("runInit returned nil error")
+	}
+	if !strings.Contains(err.Error(), `fleet.role "collector" uses beacon enroll`) {
+		t.Fatalf("runInit error = %q, want collector role guidance", err.Error())
+	}
+	if _, statErr := os.Stat(metadataPath); !os.IsNotExist(statErr) {
+		t.Fatalf("metadata file stat error = %v, want not created", statErr)
+	}
+}
+
 func TestRunEnrollReadsTokenFromStdinAndMintsIngestToken(t *testing.T) {
 	configPath, metadataPath := writeInitTestConfig(t)
 	withConfigFile(t, configPath)

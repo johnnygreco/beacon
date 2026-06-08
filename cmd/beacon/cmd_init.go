@@ -66,6 +66,9 @@ func runInit(cmd *cobra.Command, enrollTTL time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+	if cfg.Fleet.Role == config.FleetRoleCollector {
+		return fmt.Errorf("fleet.role %q uses beacon enroll with a control-plane URL, not beacon init", config.FleetRoleCollector)
+	}
 	store, err := controlplane.Open(cfg.Fleet.MetadataPath)
 	if err != nil {
 		return fmt.Errorf("open control-plane metadata: %w", err)

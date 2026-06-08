@@ -64,7 +64,7 @@ or logs mention a corrupt spool file:
    https://beacon.example --token-stdin` again from the collector. Existing
    collectors must still have the current ingest token file so the control plane
    can rotate it safely.
-7. Restart `beacon collect`, then verify logs, `beacon status`, and the dashboard
+7. Restart `beacon collect`, then verify collector logs and the dashboard
    activity feed. The collector should resume scanning only after quarantine is
    empty.
 

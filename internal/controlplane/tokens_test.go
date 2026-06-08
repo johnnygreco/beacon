@@ -179,6 +179,86 @@ func TestRemoteReEnrollmentRequiresExistingIngestTokenAndRetiresOldTokenAfterUse
 	}
 }
 
+func TestRevokeOlderActiveIngestTokensUsesChronologicalTimestamps(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+	snapshot, err := store.EnsureLocal(context.Background(), testBootstrap())
+	if err != nil {
+		t.Fatalf("EnsureLocal: %v", err)
+	}
+	sourceIDs := sourceIDsForCollector(snapshot, "collector-test")
+	oldToken, err := store.CreateToken(context.Background(), CreateTokenRequest{
+		Type:        TokenTypeIngest,
+		NodeID:      "node-test",
+		CollectorID: "collector-test",
+		SourceIDs:   sourceIDs,
+	})
+	if err != nil {
+		t.Fatalf("CreateToken old: %v", err)
+	}
+	currentToken, err := store.CreateToken(context.Background(), CreateTokenRequest{
+		Type:        TokenTypeIngest,
+		NodeID:      "node-test",
+		CollectorID: "collector-test",
+		SourceIDs:   sourceIDs,
+	})
+	if err != nil {
+		t.Fatalf("CreateToken current: %v", err)
+	}
+	oldCreated := parseTime("2026-06-08T12:00:00.1Z")
+	currentCreated := parseTime("2026-06-08T12:00:00.1001Z")
+	if !(formatTime(oldCreated) > formatTime(currentCreated)) {
+		t.Fatalf("test setup invalid: old timestamp %q must sort after current %q", formatTime(oldCreated), formatTime(currentCreated))
+	}
+	if _, err := store.db.ExecContext(context.Background(),
+		`UPDATE tokens
+		 SET created_at = CASE token_id WHEN ? THEN ? WHEN ? THEN ? ELSE created_at END,
+		     updated_at = CASE token_id WHEN ? THEN ? WHEN ? THEN ? ELSE updated_at END
+		 WHERE token_id IN (?, ?)`,
+		oldToken.Record.ID,
+		formatTime(oldCreated),
+		currentToken.Record.ID,
+		formatTime(currentCreated),
+		oldToken.Record.ID,
+		formatTime(oldCreated),
+		currentToken.Record.ID,
+		formatTime(currentCreated),
+		oldToken.Record.ID,
+		currentToken.Record.ID,
+	); err != nil {
+		t.Fatalf("update token timestamps: %v", err)
+	}
+	currentRecord := currentToken.Record
+	currentRecord.CreatedAt = currentCreated
+	if err := store.RevokeOlderActiveIngestTokensForCollector(context.Background(), currentRecord); err != nil {
+		t.Fatalf("RevokeOlderActiveIngestTokensForCollector: %v", err)
+	}
+	_, err = store.AuthenticateToken(context.Background(), AuthenticateTokenRequest{
+		Plaintext:      oldToken.Plaintext,
+		AllowedTypes:   []string{TokenTypeIngest},
+		RequiredScopes: []string{ScopeIngest},
+		NodeID:         "node-test",
+		CollectorID:    "collector-test",
+		SourceID:       sourceIDs[0],
+	})
+	if !errors.Is(err, ErrTokenRevoked) {
+		t.Fatalf("old token auth error = %v, want revoked", err)
+	}
+	if _, err := store.AuthenticateToken(context.Background(), AuthenticateTokenRequest{
+		Plaintext:      currentToken.Plaintext,
+		AllowedTypes:   []string{TokenTypeIngest},
+		RequiredScopes: []string{ScopeIngest},
+		NodeID:         "node-test",
+		CollectorID:    "collector-test",
+		SourceID:       sourceIDs[0],
+	}); err != nil {
+		t.Fatalf("current token should remain active: %v", err)
+	}
+}
+
 func TestEnrollmentTokensCannotIngest(t *testing.T) {
 	store, err := Open(filepath.Join(t.TempDir(), "control-plane.db"))
 	if err != nil {
