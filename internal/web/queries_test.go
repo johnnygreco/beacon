@@ -145,8 +145,8 @@ func TestDashboardFleetSeedsEnrolledCollectorsFromSnapshot(t *testing.T) {
 			{ID: "collector-b", NodeID: "node-b"},
 		},
 		Sources: []controlplane.Source{
-			{ID: "source-a", CollectorID: "collector-a", Name: "source-a", Runtime: "runtime-a"},
-			{ID: "source-b", CollectorID: "collector-b", Name: "source-b", Runtime: "runtime-b"},
+			{ID: "source-a", CollectorID: "collector-a", Name: "shared-source", Runtime: "runtime-a"},
+			{ID: "source-b", CollectorID: "collector-b", Name: "shared-source", Runtime: "runtime-b"},
 		},
 	}
 
@@ -161,8 +161,11 @@ func TestDashboardFleetSeedsEnrolledCollectorsFromSnapshot(t *testing.T) {
 	if node.Label != "Node A" || node.Status != "offline" || node.HeartbeatStatus != "missing" {
 		t.Fatalf("node-a metadata/status = %#v, want enrolled offline node with missing heartbeat", node)
 	}
-	if fmt.Sprint(node.Collectors) != "[collector-a]" || fmt.Sprint(node.Sources) != "[source-a]" || fmt.Sprint(node.Runtimes) != "[runtime-a]" {
+	if fmt.Sprint(node.Collectors) != "[collector-a]" || fmt.Sprint(node.Sources) != "[shared-source]" || fmt.Sprint(node.Runtimes) != "[runtime-a]" {
 		t.Fatalf("node-a scope metadata = collectors=%#v sources=%#v runtimes=%#v", node.Collectors, node.Sources, node.Runtimes)
+	}
+	if len(node.SourcesDetail) != 1 || node.SourcesDetail[0].SourceID != "source-a" || node.SourcesDetail[0].SourceName != "shared-source" {
+		t.Fatalf("node-a source detail = %#v, want stable source id with display name", node.SourcesDetail)
 	}
 
 	runtimeScoped := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{Runtimes: []string{"runtime-a"}}, snapshot)
@@ -181,12 +184,19 @@ func TestDashboardFleetSeedsEnrolledCollectorsFromSnapshot(t *testing.T) {
 		t.Fatalf("collector-scoped nodes = %#v, want node-b collector-b", collectorScoped.Nodes)
 	}
 
-	sourceScoped := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{SourceNames: []string{"source-b"}}, snapshot)
-	if sourceScoped.Totals.NodeCount != 1 || sourceScoped.Totals.CollectorCount != 1 {
-		t.Fatalf("source-scoped totals = %#v, want one metadata-matched source", sourceScoped.Totals)
+	sourceNameScoped := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{SourceNames: []string{"shared-source"}}, snapshot)
+	if sourceNameScoped.Totals.NodeCount != 2 || sourceNameScoped.Totals.CollectorCount != 2 {
+		t.Fatalf("source-name-scoped totals = %#v, want both duplicate-name sources", sourceNameScoped.Totals)
 	}
-	if node, ok := fleetNodeByID(sourceScoped.Nodes, "node-b"); !ok || fmt.Sprint(node.Sources) != "[source-b]" {
-		t.Fatalf("source-scoped nodes = %#v, want node-b source-b", sourceScoped.Nodes)
+
+	sourceScoped := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{SourceIDs: []string{"source-b"}}, snapshot)
+	if sourceScoped.Totals.NodeCount != 1 || sourceScoped.Totals.CollectorCount != 1 {
+		t.Fatalf("source-id-scoped totals = %#v, want one metadata-matched source", sourceScoped.Totals)
+	}
+	if node, ok := fleetNodeByID(sourceScoped.Nodes, "node-b"); !ok || fmt.Sprint(node.Sources) != "[shared-source]" {
+		t.Fatalf("source-id-scoped nodes = %#v, want node-b shared-source", sourceScoped.Nodes)
+	} else if len(node.SourcesDetail) != 1 || node.SourcesDetail[0].SourceID != "source-b" || node.SourcesDetail[0].SourceName != "shared-source" {
+		t.Fatalf("source-id-scoped detail = %#v, want source-b shared-source", node.SourcesDetail)
 	}
 
 	projectScoped := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{ProjectKeys: []string{"project-a"}}, snapshot)

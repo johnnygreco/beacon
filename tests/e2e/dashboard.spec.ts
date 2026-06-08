@@ -684,11 +684,13 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(3);
     await waitForCompletedRows(page, 30);
 
-    const sourceScope = (url: URL) => url.searchParams.get('source_name') === 'source-b';
+    await expect(page.locator('.dashboard-fleet-chip-source', { hasText: /^source-b$/ })).toHaveCount(2);
+    await expect(page.locator('.dashboard-fleet-chip-source[data-dashboard-scope-value="source-c"]')).toHaveText('source-b');
+    const sourceScope = (url: URL) => url.searchParams.get('source_id') === 'source-b';
     const sourceResponses = waitForDashboardPanelResponses(page, sourceScope);
     await page.locator('.dashboard-fleet-chip-source[data-dashboard-scope-value="source-b"]').click();
     await Promise.all(sourceResponses);
-    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('source_name') === 'source-b');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('source_id') === 'source-b');
     await expect(page.locator('#dashboard-scope-chips')).toContainText('source-b');
     await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(1);
     await expect(page.locator('#dashboard-fleet')).toContainText('Node B');
@@ -712,7 +714,7 @@ test.describe('dashboard battle-tested workflows', () => {
     ];
     await page.locator('.dashboard-fleet-chip-source[data-dashboard-scope-value="source-b"]').click();
     await Promise.all(sourceSearchResponses);
-    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('source_name') === 'source-b');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('source_id') === 'source-b');
     await waitForDashboardSearchRows(page, 12);
     await expect(page.locator('#completed-sessions tr[data-search-row]', { hasText: /Many-result fixture item 2 for pagination/ })).toHaveCount(1);
     await expect(page.locator('#completed-sessions tr[data-search-row]', { hasText: /Many-result fixture item 1 for pagination/ })).toHaveCount(0);

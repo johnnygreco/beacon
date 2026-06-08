@@ -94,7 +94,7 @@ func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters,
 			setMaxTimePtr(&builder.node.LastHeartbeatAt, row.LastHeartbeatAt)
 		}
 		status := fleetHeartbeatStatus(row, now)
-		builder.node.SourcesDetail = append(builder.node.SourcesDetail, APIDashboardFleetSource{
+		upsertFleetSourceDetail(&builder.node, APIDashboardFleetSource{
 			CollectorID:     row.CollectorID,
 			SourceID:        row.SourceID,
 			SourceName:      row.SourceName,
@@ -236,6 +236,12 @@ func seedFleetEnrollment(builders map[string]*fleetNodeBuilder, scope APIScopeFi
 		for _, source := range sources {
 			addNonEmpty(builder.sources, firstNonEmpty(source.Name, source.ID))
 			addNonEmpty(builder.runtimes, source.Runtime)
+			upsertFleetSourceDetail(&builder.node, APIDashboardFleetSource{
+				CollectorID: strings.TrimSpace(source.CollectorID),
+				SourceID:    strings.TrimSpace(source.ID),
+				SourceName:  strings.TrimSpace(source.Name),
+				Status:      "missing",
+			})
 		}
 	}
 }
@@ -520,6 +526,32 @@ func fleetBuilderFor(builders map[string]*fleetNodeBuilder, nodeID string) *flee
 	}
 	builders[nodeID] = builder
 	return builder
+}
+
+func upsertFleetSourceDetail(node *APIDashboardFleetNode, detail APIDashboardFleetSource) {
+	if node == nil {
+		return
+	}
+	key := fleetSourceDetailKey(detail)
+	if key == "" {
+		return
+	}
+	for idx, existing := range node.SourcesDetail {
+		if fleetSourceDetailKey(existing) == key {
+			node.SourcesDetail[idx] = detail
+			return
+		}
+	}
+	node.SourcesDetail = append(node.SourcesDetail, detail)
+}
+
+func fleetSourceDetailKey(detail APIDashboardFleetSource) string {
+	collectorID := strings.TrimSpace(detail.CollectorID)
+	sourceID := strings.TrimSpace(firstNonEmpty(detail.SourceID, detail.SourceName))
+	if collectorID == "" || sourceID == "" {
+		return ""
+	}
+	return collectorID + "\x00" + sourceID
 }
 
 func normalizeFleetNodeID(nodeID string) string {

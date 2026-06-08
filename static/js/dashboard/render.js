@@ -842,6 +842,24 @@ function fleetMetaRow(chips, emptyText) {
 	return '<div class="dashboard-fleet-filter-row"><span class="dashboard-fleet-muted">' + escapeHTML(emptyText) + '</span></div>';
 }
 
+function fleetSourceChips(node) {
+	var seen = {};
+	var details = Array.isArray(node.sources_detail) ? node.sources_detail : [];
+	var chips = details.map(function(source) {
+		source = source || {};
+		var sourceID = String(source.source_id || '').trim();
+		var sourceName = String(source.source_name || '').trim();
+		var value = sourceID || sourceName;
+		var field = sourceID ? 'source_id' : 'source_name';
+		var key = field + '\x00' + value;
+		if (!value || seen[key]) return '';
+		seen[key] = true;
+		return fleetScopeChip(field, value, 'source', sourceName || sourceID, 'source');
+	}).filter(function(html) { return !!html; });
+	if (chips.length > 0) return chips.slice(0, 4).join('');
+	return fleetScopeChips('source_name', node.sources || [], 'source', 'source', null, 4);
+}
+
 function activeScopeChip(field, value, label) {
 	return '<button type="button" class="dashboard-scope-chip" data-dashboard-scope-clear="' + escapeAttr(field) + '" data-dashboard-scope-value="' + escapeAttr(value) + '" aria-label="Clear ' + escapeAttr(label) + ' filter ' + escapeAttr(value) + '" title="Clear ' + escapeAttr(label) + ' filter"><span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(value) + '</strong></button>';
 }
@@ -879,11 +897,10 @@ function fleetNodeCard(node) {
 	var status = node.status || 'offline';
 	var runtimes = (node.runtimes || []).slice(0, 5);
 	var collectors = (node.collectors || []).slice(0, 4);
-	var sources = (node.sources || []).slice(0, 4);
 	var projects = (node.projects || []).slice(0, 3);
 	var collectorChips = fleetScopeChips('collector_id', collectors, 'collector', 'collector', null, 4);
 	var runtimeChips = fleetScopeChips('runtime', runtimes, 'runtime', 'runtime', runtimeLabel, 5);
-	var sourceChips = fleetScopeChips('source_name', sources, 'source', 'source', null, 4);
+	var sourceChips = fleetSourceChips(node);
 	var projectChips = fleetScopeChips('project_key', projects, 'project', 'project', null, 3);
 	var missing = nonNegativeInt(node.missing_heartbeat_collectors);
 	var missingHealth = missing > 0 ? '<span><strong>' + missing + '</strong> missing heartbeat</span>' : '';
