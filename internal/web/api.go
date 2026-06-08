@@ -673,20 +673,27 @@ func (a *APIHandlers) GetSessionEvents(w http.ResponseWriter, r *http.Request) {
 		eventOrder = "timestamp DESC, event_uid DESC"
 	}
 	scope := parseAPIScopeFilters(r.URL.Query())
-	sessionScope := scope
-	sessionScope.ProjectKeys = nil
-	sessionScopeClause, sessionScopeArgs := sessionScope.sqlAndClause("")
-	eventScopeClause, eventScopeArgs := scope.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
+	sessionScope := scope.withoutProjectKeys()
+	sessionScopeClause := ""
+	sessionScopeArgs := []any{}
+	scopedSessionSQL := "SELECT ? AS session_id"
+	if len(compactScopeValues(scope.ProjectKeys)) == 0 {
+		sessionScopeClause, sessionScopeArgs = sessionScope.sqlAndClause("")
+		scopedSessionSQL = `SELECT session_id
+			FROM session_projection FINAL
+			WHERE session_id = ?` + sessionScopeClause + `
+			LIMIT 1`
+	}
 	args := []any{id}
-	args = append(args, sessionScopeArgs...)
+	if len(sessionScopeArgs) > 0 {
+		args = append(args, sessionScopeArgs...)
+	}
+	eventScopeClause, eventScopeArgs := scope.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
 	args = append(args, eventScopeArgs...)
 	args = append(args, req.Limit, req.Offset)
 	rows, err := a.db.QueryContext(r.Context(),
 		`WITH scoped_session AS (
-			SELECT session_id
-			FROM session_projection FINAL
-			WHERE session_id = ?`+sessionScopeClause+`
-			LIMIT 1
+			`+scopedSessionSQL+`
 		 ),
 		 session_events AS (
 			SELECT e.event_uid, e.session_id, e.event_kind, e.payload_type, e.actor_role,

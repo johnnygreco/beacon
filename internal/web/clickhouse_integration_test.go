@@ -231,14 +231,16 @@ func TestSessionEventsAndTranscriptUseEventProjectBeforeSessionFallback(t *testi
 
 	now := time.Now().UTC().Truncate(time.Second)
 	sessionID := "mixed-project-session"
-	otherEvent := liveEvent("mixed-project-other", sessionID, "message", "assistant", now, "openai", "gpt-5", "", 1, 1, 0)
-	otherEvent.CWD = "/Users/example/projects/other"
-	otherEvent.TextContent = "other project hidden"
-	otherEvent.TextPreview = "other project hidden"
-	beaconEvent := liveEvent("mixed-project-beacon", sessionID, "message", "assistant", now.Add(time.Second), "openai", "gpt-5", "", 1, 1, 0)
+	beaconEvent := liveEvent("mixed-project-beacon", sessionID, "message", "assistant", now, "openai", "gpt-5", "", 1, 1, 0)
+	beaconEvent.SourceID = "remote-source"
 	beaconEvent.CWD = "/Users/example/projects/beacon"
 	beaconEvent.TextContent = "beacon project visible"
 	beaconEvent.TextPreview = "beacon project visible"
+	otherEvent := liveEvent("mixed-project-other", sessionID, "message", "assistant", now.Add(time.Second), "openai", "gpt-5", "", 1, 1, 0)
+	otherEvent.SourceID = "local-source"
+	otherEvent.CWD = "/Users/example/projects/other"
+	otherEvent.TextContent = "other project hidden"
+	otherEvent.TextPreview = "other project hidden"
 
 	batch := store.RowBatch{ActivityEvents: []models.Event{otherEvent, beaconEvent}}
 	for _, event := range batch.ActivityEvents {
@@ -255,6 +257,14 @@ func TestSessionEventsAndTranscriptUseEventProjectBeforeSessionFallback(t *testi
 	}
 	if len(events) != 1 || events[0].EventUID != beaconEvent.EventUID {
 		t.Fatalf("beacon-scoped session events = %#v, want only %s", events, beaconEvent.EventUID)
+	}
+	body = recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+sessionID+"/events?project_key=beacon&source_id=remote-source", "id", sessionID)
+	events = nil
+	if err := json.Unmarshal([]byte(body), &events); err != nil {
+		t.Fatalf("decode remote beacon-scoped session events: %v\n%s", err, body)
+	}
+	if len(events) != 1 || events[0].EventUID != beaconEvent.EventUID {
+		t.Fatalf("remote beacon-scoped session events = %#v, want %s despite global source fallback", events, beaconEvent.EventUID)
 	}
 
 	body = recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+sessionID+"/events?project_key=other", "id", sessionID)
@@ -279,6 +289,16 @@ func TestSessionEventsAndTranscriptUseEventProjectBeforeSessionFallback(t *testi
 	if !seen[beaconEvent.EventUID] || seen[otherEvent.EventUID] {
 		t.Fatalf("beacon-scoped transcript event set = %#v", seen)
 	}
+	_, turns = QuerySessionConversationScoped(context.Background(), ch.DB, sessionID, APIScopeFilters{ProjectKeys: []string{"beacon"}, SourceIDs: []string{"remote-source"}})
+	seen = map[string]bool{}
+	for _, turn := range turns {
+		for _, event := range turn.Events {
+			seen[event.EventUID] = true
+		}
+	}
+	if !seen[beaconEvent.EventUID] || seen[otherEvent.EventUID] {
+		t.Fatalf("remote beacon-scoped transcript event set = %#v", seen)
+	}
 }
 
 func TestProjectScopedSessionSummariesUseMatchingEventRows(t *testing.T) {
@@ -288,7 +308,7 @@ func TestProjectScopedSessionSummariesUseMatchingEventRows(t *testing.T) {
 
 	now := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
 	sessionID := "mixed-project-summary"
-	otherEvent := liveEvent("summary-other-message", sessionID, "message", "assistant", now, "openai", "gpt-other", "", 11, 13, 0)
+	otherEvent := liveEvent("summary-other-message", sessionID, "message", "assistant", now, "openai", "", "", 11, 13, 0)
 	otherEvent.CWD = "/Users/example/projects/other"
 	otherEvent.TextContent = "other-scoped needle"
 	otherEvent.TextPreview = "other-scoped needle"
