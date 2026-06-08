@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -93,6 +94,51 @@ func TestReadPidReturnsLivePID(t *testing.T) {
 
 	if got := readPid(); got != os.Getpid() {
 		t.Fatalf("readPid() = %d, want %d", got, os.Getpid())
+	}
+}
+
+func TestWritePIDFileRejectsOtherLivePID(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	proc := exec.Command("sleep", "5")
+	if err := proc.Start(); err != nil {
+		t.Fatalf("start sleep process: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = proc.Process.Kill()
+		_ = proc.Wait()
+	})
+	path := pidfilePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("create pidfile dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(strconv.Itoa(proc.Process.Pid)), 0644); err != nil {
+		t.Fatalf("write pidfile: %v", err)
+	}
+
+	if _, err := writePIDFile(); err == nil || !strings.Contains(err.Error(), "already running") {
+		t.Fatalf("writePIDFile error = %v, want already-running rejection", err)
+	}
+}
+
+func TestRemovePIDFileKeepsForeignPIDFile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := pidfilePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("create pidfile dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("12345"), 0644); err != nil {
+		t.Fatalf("write pidfile: %v", err)
+	}
+
+	removePIDFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read pidfile after foreign remove: %v", err)
+	}
+	if string(data) != "12345" {
+		t.Fatalf("pidfile data after foreign remove = %q, want unchanged", string(data))
 	}
 }
 

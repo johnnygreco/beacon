@@ -175,7 +175,15 @@ func (s *Spool) Discard(batch SpoolBatch) error {
 }
 
 func (s *Spool) DiscardActive() error {
-	active, err := s.Active()
+	return s.discardBatches(s.Active)
+}
+
+func (s *Spool) DiscardQuarantine() error {
+	return s.discardStateFiles(spoolQuarantine)
+}
+
+func (s *Spool) discardBatches(list func() ([]SpoolBatch, error)) error {
+	active, err := list()
 	if err != nil {
 		return err
 	}
@@ -193,6 +201,24 @@ func (s *Spool) DiscardActive() error {
 		}
 	}
 	return nil
+}
+
+func (s *Spool) discardStateFiles(state string) error {
+	dir := filepath.Join(s.root, state)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return syncDir(dir)
 }
 
 func (s *Spool) HasActiveEpochMismatch(epoch string) (bool, error) {

@@ -48,6 +48,7 @@ type Snapshot struct {
 	ResetPending      bool
 	ResetPendingEpoch string
 	ResetPendingAt    *time.Time
+	ResetCompletedAt  *time.Time
 	LocalNodeID       string
 	LocalCollectorID  string
 	Nodes             []Node
@@ -443,6 +444,9 @@ func snapshotFromQueryer(ctx context.Context, path string, q tokenQueryer) (*Sna
 	snap.ResetPendingEpoch = metadata["reset_pending_epoch"]
 	if resetPendingAt := parseTime(metadata["reset_pending_at"]); !resetPendingAt.IsZero() {
 		snap.ResetPendingAt = &resetPendingAt
+	}
+	if resetCompletedAt := parseTime(metadata["reset_completed_at"]); !resetCompletedAt.IsZero() {
+		snap.ResetCompletedAt = &resetCompletedAt
 	}
 	snap.LocalNodeID = metadata["local_node_id"]
 	snap.LocalCollectorID = metadata["local_collector_id"]

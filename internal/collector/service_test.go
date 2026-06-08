@@ -604,6 +604,9 @@ func TestServiceNewEpochClearsStaleSpoolAndReplaysFileBackedSource(t *testing.T)
 	if _, err := spool.WritePending(context.Background(), oldReq); err != nil {
 		t.Fatalf("WritePending old: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(spool.Root(), spoolQuarantine, "00000000000000000001-old-corrupt.json"), []byte("{"), 0600); err != nil {
+		t.Fatalf("write old quarantine fixture: %v", err)
+	}
 	client, err := NewClient("http://127.0.0.1:1", "token", time.Second)
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
@@ -635,7 +638,7 @@ func TestServiceNewEpochClearsStaleSpoolAndReplaysFileBackedSource(t *testing.T)
 	if err != nil {
 		t.Fatalf("Stats after NewService: %v", err)
 	}
-	if stats.PendingCount != 0 || stats.InflightCount != 0 {
+	if stats.PendingCount != 0 || stats.InflightCount != 0 || stats.CorruptCount != 0 {
 		t.Fatalf("active spool after epoch reset = %#v, want empty", stats)
 	}
 	if state.Epoch() != "2" || state.Next() != 1 || state.AckedNext() != 1 {

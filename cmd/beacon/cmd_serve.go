@@ -216,6 +216,9 @@ func writePIDFile() (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return path, err
 	}
+	if existing := readPidFromFile(); existing > 0 && existing != os.Getpid() {
+		return path, fmt.Errorf("beacon process already running with pid %d", existing)
+	}
 	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
 		return path, err
 	}
@@ -224,6 +227,13 @@ func writePIDFile() (string, error) {
 
 func removePIDFile(path string) {
 	if strings.TrimSpace(path) == "" {
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	if strings.TrimSpace(string(data)) != strconv.Itoa(os.Getpid()) {
 		return
 	}
 	_ = os.Remove(path)

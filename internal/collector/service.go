@@ -106,6 +106,9 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 		if err := cfg.Spool.DiscardActive(); err != nil {
 			return nil, fmt.Errorf("discard old-epoch spool batches: %w", err)
 		}
+		if err := cfg.Spool.DiscardQuarantine(); err != nil {
+			return nil, fmt.Errorf("discard old-epoch quarantined spool batches: %w", err)
+		}
 	}
 	if _, err := cfg.State.EnsureEpoch(cfg.Identity.ControlPlaneEpoch); err != nil {
 		return nil, fmt.Errorf("initialize collector state epoch: %w", err)

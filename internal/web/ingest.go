@@ -124,6 +124,10 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, "control-plane reset pending", http.StatusServiceUnavailable)
 		return
 	}
+	if ingestTokenPredatesReset(tokenRecord, snapshot) {
+		h.jsonError(w, "control_plane_epoch mismatch; ingest token predates reset", http.StatusConflict)
+		return
+	}
 	if req.ControlPlaneEpoch != snapshot.SchemaEpoch {
 		h.jsonError(w, "control_plane_epoch mismatch", http.StatusConflict)
 		return
@@ -180,8 +184,7 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
-		h.internalError(w, "retire older ingest tokens", err)
-		return
+		h.log().Warn("retire older ingest tokens after batch commit failed", "error", err)
 	}
 	if h.notify != nil && len(rows.ActivityEvents) > 0 {
 		h.notify(sessionIDsFromStoreEvents(rows.ActivityEvents))
@@ -228,6 +231,10 @@ func (h *IngestHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, "control-plane reset pending", http.StatusServiceUnavailable)
 		return
 	}
+	if ingestTokenPredatesReset(tokenRecord, snapshot) {
+		h.jsonError(w, "control_plane_epoch mismatch; ingest token predates reset", http.StatusConflict)
+		return
+	}
 	if req.ControlPlaneEpoch != snapshot.SchemaEpoch {
 		h.jsonError(w, "control_plane_epoch mismatch", http.StatusConflict)
 		return
@@ -246,8 +253,7 @@ func (h *IngestHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
-		h.internalError(w, "retire older ingest tokens", err)
-		return
+		h.log().Warn("retire older ingest tokens after heartbeat failed", "error", err)
 	}
 	h.jsonResponse(w, ingest.HeartbeatResponse{
 		Schema:            ingest.SchemaV1,
@@ -273,6 +279,13 @@ func (h *IngestHandlers) authenticateIngestToken(ctx context.Context, r *http.Re
 		return nil, err
 	}
 	return record, nil
+}
+
+func ingestTokenPredatesReset(record *controlplane.TokenRecord, snapshot *controlplane.Snapshot) bool {
+	if record == nil || snapshot == nil || snapshot.ResetCompletedAt == nil {
+		return false
+	}
+	return !record.CreatedAt.After(*snapshot.ResetCompletedAt)
 }
 
 func normalizeHeartbeatSources(req *ingest.HeartbeatRequest) ([]string, error) {
