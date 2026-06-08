@@ -43,7 +43,7 @@ func setupLiveWebStore(t *testing.T) *store.Store {
 func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 	ch := setupLiveWebStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	api := NewAPIHandlers(ch.DB, nil, logger)
+	api := NewAPIHandlers(ch.DB, nil, logger, nil)
 
 	now := time.Now().UTC()
 	sessionID := "api-lazy-session"
@@ -177,7 +177,7 @@ func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 func TestAPISessionEventsTailReturnsLatestBoundedSliceChronologically(t *testing.T) {
 	ch := setupLiveWebStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	api := NewAPIHandlers(ch.DB, nil, logger)
+	api := NewAPIHandlers(ch.DB, nil, logger, nil)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	sessionID := "api-tail-session"
@@ -227,7 +227,7 @@ func TestAPISessionEventsTailReturnsLatestBoundedSliceChronologically(t *testing
 func TestSessionEventsAndTranscriptUseEventProjectBeforeSessionFallback(t *testing.T) {
 	ch := setupLiveWebStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	api := NewAPIHandlers(ch.DB, nil, logger)
+	api := NewAPIHandlers(ch.DB, nil, logger, nil)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	sessionID := "mixed-project-session"
@@ -345,7 +345,7 @@ func TestSessionEventsAndTranscriptUseEventProjectBeforeSessionFallback(t *testi
 func TestProjectScopedSessionSummariesUseMatchingEventRows(t *testing.T) {
 	ch := setupLiveWebStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	api := NewAPIHandlers(ch.DB, nil, logger)
+	api := NewAPIHandlers(ch.DB, nil, logger, nil)
 
 	now := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
 	sessionID := "mixed-project-summary"
@@ -413,7 +413,7 @@ func TestProjectScopedSessionSummariesUseMatchingEventRows(t *testing.T) {
 func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T) {
 	ch := setupLiveWebStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	api := NewAPIHandlers(ch.DB, nil, logger)
+	api := NewAPIHandlers(ch.DB, nil, logger, nil)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	activeID := "dashboard-live-active"
@@ -543,7 +543,7 @@ func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T)
 func TestDashboardAnalyticsAPIsUseGuardedProjectFallback(t *testing.T) {
 	ch := setupLiveWebStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	api := NewAPIHandlers(ch.DB, nil, logger)
+	api := NewAPIHandlers(ch.DB, nil, logger, nil)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	mixedSessionID := "dashboard-analytics-mixed-project"
@@ -836,6 +836,112 @@ func TestRecentActivityProjectScopeUsesLatestReplayedEvent(t *testing.T) {
 	items = QueryRecentActivityFilteredByKindScoped(context.Background(), ch.DB, nil, []string{"message"}, APIScopeFilters{ProjectKeys: []string{"other"}})
 	if len(items) == 0 || items[0].ID != event.EventUID {
 		t.Fatalf("other-scoped replayed activity = %#v, want %s first", items, event.EventUID)
+	}
+}
+
+func TestDashboardFleetScopesHeartbeatsByRuntimeAndProject(t *testing.T) {
+	ch := setupLiveWebStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	projectPath := "/Users/example/projects/project-alpha"
+
+	primary := liveEvent("fleet-runtime-a-primary", "fleet-runtime-a-primary-session", "message", "user", now, "provider-a", "model-a", "", 12, 8, 0)
+	primary.NodeID = "node-a"
+	primary.CollectorID = "collector-a"
+	primary.SourceID = "source-a-primary"
+	primary.SourceName = "source-a"
+	primary.Runtime = "runtime-a"
+	primary.CWD = projectPath
+
+	sidecar := liveEvent("fleet-runtime-a-sidecar", "fleet-runtime-a-sidecar-session", "message", "user", now.Add(time.Second), "provider-a", "model-a", "", 10, 6, 0)
+	sidecar.NodeID = "node-a"
+	sidecar.CollectorID = "collector-a"
+	sidecar.SourceID = "source-a-sidecar"
+	sidecar.SourceName = "source-a-sidecar"
+	sidecar.Runtime = "runtime-a"
+	sidecar.CWD = projectPath
+
+	otherRuntime := liveEvent("fleet-runtime-b", "fleet-runtime-b-session", "message", "user", now.Add(2*time.Second), "provider-b", "model-b", "", 4, 4, 0)
+	otherRuntime.NodeID = "node-b"
+	otherRuntime.CollectorID = "collector-b"
+	otherRuntime.SourceID = "source-b"
+	otherRuntime.SourceName = "source-b"
+	otherRuntime.Runtime = "runtime-b"
+	otherRuntime.CWD = "/srv/agents/work/project-beta"
+
+	events := []models.Event{primary, sidecar, otherRuntime}
+	batch := store.RowBatch{ActivityEvents: events}
+	for _, event := range events {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("flush fleet events: %v", err)
+	}
+
+	lastRuntimeAEvent := now.Add(3 * time.Second)
+	lastRuntimeBEvent := now.Add(4 * time.Second)
+	if err := ch.InsertCaptureHeartbeats(ctx, []models.CaptureHeartbeat{
+		{
+			NodeID:      "node-a",
+			CollectorID: "collector-a",
+			SourceID:    "source-a-primary",
+			SourceName:  "source-a",
+			Status:      "healthy",
+			QueueDepth:  4,
+			SpoolBytes:  4096,
+			ActiveFiles: 2,
+			LastEventAt: &lastRuntimeAEvent,
+			CreatedAt:   now.Add(5 * time.Second),
+		},
+		{
+			NodeID:      "node-a",
+			CollectorID: "collector-a",
+			SourceID:    "source-a-sidecar",
+			SourceName:  "source-a-sidecar",
+			Status:      "healthy",
+			QueueDepth:  4,
+			SpoolBytes:  4096,
+			ActiveFiles: 2,
+			LastEventAt: &lastRuntimeAEvent,
+			CreatedAt:   now.Add(5 * time.Second),
+		},
+		{
+			NodeID:      "node-b",
+			CollectorID: "collector-b",
+			SourceID:    "source-b",
+			SourceName:  "source-b",
+			Status:      "healthy",
+			QueueDepth:  99,
+			SpoolBytes:  99999,
+			ActiveFiles: 9,
+			LastEventAt: &lastRuntimeBEvent,
+			CreatedAt:   now.Add(5 * time.Second),
+		},
+	}); err != nil {
+		t.Fatalf("insert fleet heartbeats: %v", err)
+	}
+
+	fleet := QueryDashboardFleet(ctx, ch.DB, APIScopeFilters{Runtimes: []string{"runtime-a"}, ProjectKeys: []string{"project-alpha"}}, nil)
+	if fleet.Totals.NodeCount != 1 || fleet.Totals.CollectorCount != 1 || fleet.Totals.OnlineCollectors != 1 {
+		t.Fatalf("fleet totals = %#v, want one scoped online collector", fleet.Totals)
+	}
+	if fleet.Totals.QueueDepth != 4 || fleet.Totals.SpoolBytes != 4096 || fleet.Totals.MissingHeartbeats != 0 {
+		t.Fatalf("fleet heartbeat totals = %#v, want deduped scoped heartbeat metrics", fleet.Totals)
+	}
+	if len(fleet.Nodes) != 1 {
+		t.Fatalf("fleet nodes = %#v, want one node", fleet.Nodes)
+	}
+	node := fleet.Nodes[0]
+	if node.NodeID != "node-a" || node.QueueDepth != 4 || node.SpoolBytes != 4096 {
+		t.Fatalf("fleet node = %#v, want deduped scoped metrics", node)
+	}
+	if len(node.SourcesDetail) != 2 {
+		t.Fatalf("source details = %#v, want two scoped sources", node.SourcesDetail)
+	}
+	for _, source := range node.SourcesDetail {
+		if source.CollectorID != "collector-a" || source.SourceName == "source-b" {
+			t.Fatalf("out-of-scope source detail leaked: %#v", node.SourcesDetail)
+		}
 	}
 }
 

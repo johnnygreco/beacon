@@ -210,7 +210,7 @@ func BenchmarkQuerySessionDetail(b *testing.B) {
 
 func BenchmarkAPIDashboardJSON(b *testing.B) {
 	ch := requirePerfStore(b)
-	api := web.NewAPIHandlers(ch.DB, nil, benchLogger)
+	api := web.NewAPIHandlers(ch.DB, nil, benchLogger, nil)
 	cases := []struct {
 		name    string
 		target  string

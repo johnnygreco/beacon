@@ -298,8 +298,12 @@ func completedSessionsOrderBy(sortKey string, asc bool) string {
 	switch sortKey {
 	case "name":
 		expr = "lower(COALESCE(NULLIF(replaceRegexpOne(if(position(COALESCE(working_dir, ''), '/.claude/worktrees/') > 0, substring(COALESCE(working_dir, ''), 1, position(COALESCE(working_dir, ''), '/.claude/worktrees/') - 1), replaceRegexpOne(COALESCE(working_dir, ''), '/+$', '')), '^.*/', ''), ''), NULLIF(source_name, ''), session_id))"
+	case "node":
+		expr = "lower(COALESCE(node_id, ''))"
 	case "provider":
 		expr = "lower(COALESCE(provider, ''))"
+	case "runtime":
+		expr = "lower(COALESCE(runtime, ''))"
 	case "model":
 		expr = "lower(COALESCE(last_model, ''))"
 	case "tokens":
@@ -308,6 +312,8 @@ func completedSessionsOrderBy(sortKey string, asc bool) string {
 		expr = "COALESCE(turn_count, 0)"
 	case "tools":
 		expr = "COALESCE(tool_call_count, 0)"
+	case "errors":
+		expr = "COALESCE(error_count, 0)"
 	case "duration":
 		expr = "dateDiff('second', started_at, ended_at)"
 	case "project":

@@ -132,9 +132,9 @@ allow_insecure_owner_http = true
 role = "both"
 metadata_path = "~/custom-control-plane.db"
 control_plane_url = "https://beacon.example"
-node_id = "node.mac-mini"
-node_name = " Mac Mini "
-collector_id = "collector.mac-mini"
+	node_id = "node.remote"
+	node_name = " Remote Node "
+	collector_id = "collector.remote"
 ingest_token_file = "~/custom-ingest-token"
 ingest_token_env = "BEACON_CUSTOM_INGEST_TOKEN"
 spool_dir = "~/custom-spool"
@@ -202,7 +202,7 @@ format = "jsonl"
 	if cfg.Fleet.ControlPlaneURL != "https://beacon.example" {
 		t.Errorf("Fleet.ControlPlaneURL = %q, want https://beacon.example", cfg.Fleet.ControlPlaneURL)
 	}
-	if cfg.Fleet.NodeID != "node.mac-mini" || cfg.Fleet.NodeName != "Mac Mini" || cfg.Fleet.CollectorID != "collector.mac-mini" {
+	if cfg.Fleet.NodeID != "node.remote" || cfg.Fleet.NodeName != "Remote Node" || cfg.Fleet.CollectorID != "collector.remote" {
 		t.Errorf("Fleet identity = %#v, want trimmed custom identity", cfg.Fleet)
 	}
 	if cfg.Fleet.IngestTokenFile != filepath.Join(os.Getenv("HOME"), "custom-ingest-token") ||

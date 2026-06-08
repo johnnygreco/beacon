@@ -224,7 +224,7 @@ test.describe('dashboard search workflows', () => {
 
   test('hydrates direct session search URLs as filtered session rows', async ({ page }) => {
     await installDashboardFixtures(page);
-    const query = 'claude-sonnet-4-super-long-model-name';
+    const query = 'generic-model-a-super-long-model-name';
     const sessionsResponse = waitForDashboardSessionsResponse(page, (url) =>
       url.searchParams.get('q') === query &&
       url.searchParams.get('state') === 'completed'
@@ -235,12 +235,12 @@ test.describe('dashboard search workflows', () => {
     await expect(page.locator('#dashboard-search-kind')).toHaveValue('session');
     await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
     await waitForCompletedRows(page, 1);
-    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-model', 'claude-sonnet-4-super-long-model-name');
+    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-model', 'generic-model-a-super-long-model-name');
   });
 
   test('hydrates direct query URLs as default filtered session rows', async ({ page }) => {
     await installDashboardFixtures(page);
-    const query = 'claude-sonnet-4-super-long-model-name';
+    const query = 'generic-model-a-super-long-model-name';
     const sessionsResponse = waitForDashboardSessionsResponse(page, (url) =>
       url.searchParams.get('q') === query &&
       url.searchParams.get('state') === 'completed'
@@ -251,7 +251,7 @@ test.describe('dashboard search workflows', () => {
     await expect(page.locator('#dashboard-search-kind')).toHaveValue('session');
     await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
     await waitForCompletedRows(page, 1);
-    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-model', 'claude-sonnet-4-super-long-model-name');
+    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-model', 'generic-model-a-super-long-model-name');
   });
 
   test('searches full session contents while table type remains Sessions', async ({ page }) => {
@@ -284,12 +284,12 @@ test.describe('dashboard search workflows', () => {
 
     await fillDashboardSessionSearchAndWait(
       page,
-      'claude-sonnet-4-super-long-model-name',
-      (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name' && url.searchParams.get('state') === 'completed',
+      'generic-model-a-super-long-model-name',
+      (url) => url.searchParams.get('q') === 'generic-model-a-super-long-model-name' && url.searchParams.get('state') === 'completed',
     );
     await waitForCompletedRows(page, 1);
     await expect(page.locator('#completed-table')).toHaveAttribute('data-table-mode', 'sessions');
-    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-model', 'claude-sonnet-4-super-long-model-name');
+    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-model', 'generic-model-a-super-long-model-name');
     await expect(page.locator('#dashboard-search-clear')).toHaveCount(0);
 
     const escapeClearResponse = page.waitForResponse((response) => {
@@ -380,13 +380,13 @@ test.describe('dashboard search workflows', () => {
     );
     const metadataRequest = await triggerDashboardSessionsAndWait(
       page,
-      () => page.locator('#dashboard-session-search').fill('claude-sonnet-4-super-long-model-name'),
-      (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name',
+      () => page.locator('#dashboard-session-search').fill('generic-model-a-super-long-model-name'),
+      (url) => url.searchParams.get('q') === 'generic-model-a-super-long-model-name',
     );
     expect(metadataRequest.searchParams.get('limit')).toBe('30');
     expect(metadataRequest.searchParams.get('event_kind')).toBeNull();
     await waitForCompletedRows(page, 1);
-    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-model', 'claude-sonnet-4-super-long-model-name');
+    await expect(page.locator('#completed-sessions tr[data-session-link]').first()).toHaveAttribute('data-sort-model', 'generic-model-a-super-long-model-name');
 
     await guards.expectClean();
   });
@@ -617,8 +617,8 @@ test.describe('dashboard search workflows', () => {
 
     await fillDashboardSessionSearchAndWait(
       page,
-      'claude-sonnet-4-super-long-model-name',
-      (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name' && url.searchParams.get('state') === 'completed',
+      'generic-model-a-super-long-model-name',
+      (url) => url.searchParams.get('q') === 'generic-model-a-super-long-model-name' && url.searchParams.get('state') === 'completed',
     );
     await waitForCompletedRows(page, 1);
     await expect(page.locator('#dashboard-session-search')).toBeFocused();
@@ -649,12 +649,12 @@ test.describe('dashboard search workflows', () => {
 
     await fillDashboardSessionSearchAndWait(
       page,
-      'claude-sonnet-4-super-long-model-name',
-      (url) => url.searchParams.get('q') === 'claude-sonnet-4-super-long-model-name' && url.searchParams.get('state') === 'completed',
+      'generic-model-a-super-long-model-name',
+      (url) => url.searchParams.get('q') === 'generic-model-a-super-long-model-name' && url.searchParams.get('state') === 'completed',
     );
     await waitForCompletedRows(page, 1);
     await expect(page.locator('#dashboard-search-clear')).toHaveCount(0);
-    await expect(page.locator('#dashboard-session-search')).toHaveValue('claude-sonnet-4-super-long-model-name');
+    await expect(page.locator('#dashboard-session-search')).toHaveValue('generic-model-a-super-long-model-name');
 
     const beforeClear = await readDashboardScroll(page);
     await expectDashboardScrollStableDuring(page, async () => {

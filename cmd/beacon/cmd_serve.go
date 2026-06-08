@@ -143,7 +143,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Web server
 	handlers := web.NewHandlers(ch.DB, searcher, logger, cfg.Dashboard.Name)
-	apiHandlers := web.NewAPIHandlers(ch.DB, searcher, logger)
+	apiHandlers := web.NewAPIHandlers(ch.DB, searcher, logger, controlStore)
 	ingestHandlers := web.NewIngestHandlers(
 		controlStore,
 		ch,

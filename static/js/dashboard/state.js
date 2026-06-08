@@ -36,8 +36,16 @@ var dashboardChartMetrics = ['total_tokens', 'input_tokens', 'output_tokens', 'c
 var dashboardActiveSorts = ['recent', 'longest', 'tokens', 'tools', 'errors'];
 var dashboardSearchEventKinds = ['session', 'event', 'message', 'tool_call', 'tool_result', 'reasoning', 'error'];
 var dashboardSearchSorts = ['relevance', 'newest', 'oldest'];
-var dashboardSortColumns = ['name', 'provider', 'model', 'tokens', 'turns', 'tools', 'duration', 'project', 'ended', 'id'];
+var dashboardSortColumns = ['name', 'node', 'runtime', 'model', 'tokens', 'turns', 'tools', 'errors', 'duration', 'project', 'ended', 'id'];
 var dashboardActivityFilters = ['all', 'message', 'tool_call', 'error'];
+var dashboardScopeFields = {
+	node_id: ['node_id', 'node_ids'],
+	collector_id: ['collector_id', 'collector_ids'],
+	source_id: ['source_id', 'source_ids'],
+	source_name: ['source_name', 'source_names'],
+	runtime: ['runtime', 'runtimes'],
+	project_key: ['project_key', 'project_keys']
+};
 
 function dashboardStorageGet(key) {
 	try { return window.sessionStorage.getItem(key); } catch (err) { return null; }
@@ -261,6 +269,100 @@ function dashboardStatePath() {
 	return url.pathname + url.search;
 }
 
+function dashboardCurrentURL() {
+	return new URL(window.location.pathname + window.location.search, window.location.origin);
+}
+
+function dashboardScopeValues(field) {
+	var names = dashboardScopeFields[field] || [field];
+	var params = new URLSearchParams(window.location.search || '');
+	var values = [];
+	var seen = {};
+	names.forEach(function(name) {
+		params.getAll(name).forEach(function(raw) {
+			String(raw || '').split(',').forEach(function(part) {
+				var value = part.trim();
+				if (!value || seen[value]) return;
+				seen[value] = true;
+				values.push(value);
+			});
+		});
+	});
+	return values;
+}
+
+function dashboardHasScopeFilters() {
+	return Object.keys(dashboardScopeFields).some(function(field) {
+		return dashboardScopeValues(field).length > 0;
+	});
+}
+
+function dashboardApplyURL(url) {
+	if (!window.history || typeof window.history.replaceState !== 'function') return;
+	window.history.replaceState(window.history.state || {}, '', url.pathname + url.search);
+}
+
+function setDashboardScope(field, value) {
+	if (!dashboardScopeFields[field]) return;
+	var url = dashboardCurrentURL();
+	var names = dashboardScopeFields[field];
+	names.forEach(function(name) { url.searchParams.delete(name); });
+	value = String(value || '').trim();
+	if (value) url.searchParams.set(names[0], value);
+	url.searchParams.delete('offset');
+	currentCompletedOffset = 0;
+	dashboardApplyURL(url);
+	refreshDashboardForScopeChange();
+}
+
+function clearDashboardScope(field) {
+	var url = dashboardCurrentURL();
+	var fields = field && dashboardScopeFields[field] ? [field] : Object.keys(dashboardScopeFields);
+	var value = String(arguments.length > 1 ? arguments[1] : '').trim();
+	if (field && dashboardScopeFields[field] && value) {
+		removeDashboardScopeValue(url, field, value);
+	} else {
+		fields.forEach(function(name) {
+			dashboardScopeFields[name].forEach(function(param) { url.searchParams.delete(param); });
+		});
+	}
+	url.searchParams.delete('offset');
+	currentCompletedOffset = 0;
+	dashboardApplyURL(url);
+	refreshDashboardForScopeChange();
+}
+
+function removeDashboardScopeValue(url, field, value) {
+	var names = dashboardScopeFields[field] || [];
+	names.forEach(function(param) {
+		var entries = url.searchParams.getAll(param);
+		url.searchParams.delete(param);
+		entries.forEach(function(raw) {
+			var rawText = String(raw || '');
+			var parts = rawText.split(',').map(function(part) {
+				return part.trim();
+			}).filter(function(part) {
+				return part && part !== value;
+			});
+			if (parts.length === 0) return;
+			if (rawText.indexOf(',') >= 0) {
+				url.searchParams.append(param, parts.join(','));
+			} else {
+				parts.forEach(function(part) { url.searchParams.append(param, part); });
+			}
+		});
+	});
+}
+
+function refreshDashboardForScopeChange() {
+	if (typeof syncDashboardScopeControls === 'function') syncDashboardScopeControls();
+	if (typeof loadDashboardFleet === 'function') loadDashboardFleet();
+	if (typeof loadActiveSessions === 'function') loadActiveSessions();
+	if (typeof loadCompletedSessions === 'function') loadCompletedSessions(0);
+	if (typeof loadActivity === 'function') loadActivity();
+	if (typeof loadDashboardCharts === 'function') loadDashboardCharts();
+}
+
 function writeDashboardStateToURL() {
 	if (!window.history || typeof window.history.replaceState !== 'function') return;
 	var next = dashboardStatePath();
@@ -364,6 +466,11 @@ window.saveDashboardReturnState = saveDashboardReturnState;
 window.restoreDashboardReturnScrollIfNeeded = restoreDashboardReturnScrollIfNeeded;
 window.toggleActiveSessionPin = toggleActiveSessionPin;
 window.movePinnedActiveSession = movePinnedActiveSession;
+window.dashboardScopeValues = dashboardScopeValues;
+window.dashboardHasScopeFilters = dashboardHasScopeFilters;
+window.setDashboardScope = setDashboardScope;
+window.clearDashboardScope = clearDashboardScope;
+window.refreshDashboardForScopeChange = refreshDashboardForScopeChange;
 
 activeSessionPrefs = readActiveSessionPrefs();
 readDashboardStateFromURL();

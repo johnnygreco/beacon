@@ -7,7 +7,7 @@ function sortCompletedTable(control, column, preserveDirection) {
 		if (sortColumn !== column) {
 			sortColumn = column;
 			// Default ascending for text, descending for numbers
-			sortAsc = ['name', 'provider', 'model', 'project', 'id'].indexOf(column) >= 0;
+			sortAsc = ['name', 'node', 'runtime', 'model', 'project', 'id'].indexOf(column) >= 0;
 		} else if (!preserveDirection) {
 			sortAsc = !sortAsc;
 		}
@@ -28,7 +28,7 @@ function sortCurrentCompletedRows(column) {
 	var tbody = document.getElementById('completed-sessions');
 	if (!tbody) return;
 	var rows = Array.from(tbody.querySelectorAll('tr[data-sort-ended]:not([data-parent])'));
-	var numericCols = ['tokens', 'turns', 'tools', 'duration', 'ended'];
+	var numericCols = ['tokens', 'turns', 'tools', 'errors', 'duration', 'ended'];
 	var isNumeric = numericCols.indexOf(column) >= 0;
 	var paginationRow = tbody.querySelector('tr[data-pagination-row]');
 	var subagentRows = Array.from(tbody.querySelectorAll('tr[data-parent]'));

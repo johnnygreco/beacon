@@ -77,6 +77,12 @@ func (s APIScopeFilters) withoutProjectKeys() APIScopeFilters {
 	return s
 }
 
+func (s APIScopeFilters) withoutProjectKeysAndRuntimes() APIScopeFilters {
+	s.ProjectKeys = nil
+	s.Runtimes = nil
+	return s
+}
+
 func (s APIScopeFilters) applyToSearchQuery(q *search.SearchQuery) {
 	if q == nil {
 		return
@@ -130,7 +136,7 @@ func (s APIScopeFilters) sqlPredicates(alias string) ([]string, []any) {
 	}
 	var predicates []string
 	var args []any
-	appendScopePredicate(&predicates, &args, prefix+"node_id", s.NodeIDs)
+	appendScopePredicate(&predicates, &args, nodeScopeExpr(prefix+"node_id"), s.NodeIDs)
 	appendScopePredicate(&predicates, &args, prefix+"collector_id", s.CollectorIDs)
 	appendScopePredicate(&predicates, &args, prefix+"source_id", s.SourceIDs)
 	appendScopePredicate(&predicates, &args, prefix+"source_name", s.SourceNames)
@@ -146,7 +152,7 @@ func (s APIScopeFilters) eventSQLPredicates(alias, cwdExpr string) ([]string, []
 	}
 	var predicates []string
 	var args []any
-	appendScopePredicate(&predicates, &args, prefix+"node_id", s.NodeIDs)
+	appendScopePredicate(&predicates, &args, nodeScopeExpr(prefix+"node_id"), s.NodeIDs)
 	appendScopePredicate(&predicates, &args, prefix+"collector_id", s.CollectorIDs)
 	appendScopePredicate(&predicates, &args, prefix+"source_id", s.SourceIDs)
 	appendScopePredicate(&predicates, &args, prefix+"source_name", s.SourceNames)
@@ -168,6 +174,14 @@ func appendScopePredicate(predicates *[]string, args *[]any, column string, valu
 	for _, value := range values {
 		*args = append(*args, value)
 	}
+}
+
+func nodeScopeExpr(column string) string {
+	column = strings.TrimSpace(column)
+	if column == "" {
+		column = "node_id"
+	}
+	return "COALESCE(NULLIF(" + column + ", ''), 'local')"
 }
 
 func projectKeyExpr(pathExpr string) string {

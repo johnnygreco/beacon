@@ -139,6 +139,52 @@ async function fillDashboardEventSearchAndWait(page: Page, value: string) {
   );
 }
 
+function waitForDashboardEndpoint(page: Page, path: string, predicate?: (url: URL) => boolean) {
+  return page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.status() === 200 && url.pathname === path && (!predicate || predicate(url));
+  });
+}
+
+const dashboardScopeParamNames = [
+  'node_id',
+  'node_ids',
+  'collector_id',
+  'collector_ids',
+  'source_id',
+  'source_ids',
+  'source_name',
+  'source_names',
+  'runtime',
+  'runtimes',
+  'project_key',
+  'project_keys',
+];
+
+function dashboardHasNoFleetScope(url: URL) {
+  return dashboardScopeParamNames.every((name) => !url.searchParams.has(name));
+}
+
+async function waitForNoDashboardScopeInURL(page: Page) {
+  await page.waitForFunction((names) => {
+    const params = new URL(window.location.href).searchParams;
+    return (names as string[]).every((name) => !params.has(name));
+  }, dashboardScopeParamNames);
+}
+
+function waitForDashboardPanelResponses(page: Page, scope: (url: URL) => boolean, mode: 'completed' | 'search' = 'completed') {
+  const completedResponse = mode === 'search'
+    ? waitForDashboardEndpoint(page, '/api/dashboard/search', scope)
+    : waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => scope(url) && url.searchParams.get('state') === 'completed');
+  return [
+    waitForDashboardEndpoint(page, '/api/dashboard/fleet', scope),
+    waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => scope(url) && url.searchParams.get('state') === 'active'),
+    completedResponse,
+    waitForDashboardEndpoint(page, '/api/dashboard/activity', scope),
+    waitForDashboardEndpoint(page, '/api/dashboard/charts', scope),
+  ];
+}
+
 async function readActiveSessionGeometry(page: Page) {
   return page.evaluate(() => {
     const panel = document.getElementById('active-sessions');
@@ -525,8 +571,8 @@ test.describe('dashboard battle-tested workflows', () => {
       expect(shellLayout.tableScrollerRight).toBeLessThanOrEqual(shellLayout.completedRight + 1);
       if (viewport.width > 640) {
         expect(shellLayout.controlScrollerScrollWidth).toBeGreaterThanOrEqual(900);
-        expect(shellLayout.tableScrollerScrollWidth).toBeGreaterThanOrEqual(900);
-        expect(shellLayout.tableMinWidth).toBe('928px');
+        expect(shellLayout.tableScrollerScrollWidth).toBeGreaterThanOrEqual(1000);
+        expect(shellLayout.tableMinWidth).toBe('1056px');
       } else {
         expect(shellLayout.controlScrollerScrollWidth).toBeLessThanOrEqual(shellLayout.controlScrollerClientWidth + 1);
       }
@@ -573,6 +619,148 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('uses fleet chips as global dashboard scope controls', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page, { scenario: 'many-active' });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(3);
+    await expect(page.locator('#dashboard-header-fleet-metrics')).toContainText('active');
+    await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(8);
+
+    const nodeScope = (url: URL) => url.searchParams.get('node_id') === 'node-b';
+    const scopedResponses = waitForDashboardPanelResponses(page, nodeScope);
+    await page.locator('.dashboard-fleet-node-main[data-dashboard-scope-value="node-b"]').click();
+    await Promise.all(scopedResponses);
+
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('node_id') === 'node-b');
+    await expect(page.locator('#dashboard-scope-chips')).toContainText('node-b');
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(1);
+    await expect(page.locator('#dashboard-fleet')).toContainText('Node B');
+    await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(3);
+    await waitForCompletedRows(page, 15);
+    await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(2);
+    await expect(page.locator('#active-sessions')).toContainText('node-b');
+    await expectNoHorizontalOverflow(page);
+
+    const runtimeScope = (url: URL) => nodeScope(url) && url.searchParams.get('runtime') === 'runtime-b';
+    const runtimeResponses = waitForDashboardPanelResponses(page, runtimeScope);
+    await page.locator('.dashboard-fleet-runtime[data-dashboard-scope-value="runtime-b"]').click();
+    await Promise.all(runtimeResponses);
+    await page.waitForFunction(() => {
+      const url = new URL(window.location.href);
+      return url.searchParams.get('node_id') === 'node-b' && url.searchParams.get('runtime') === 'runtime-b';
+    });
+    await expect(page.locator('#dashboard-scope-chips')).toContainText('runtime-b');
+    await waitForCompletedRows(page, 15);
+    await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(2);
+
+    let clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoFleetScope);
+    await page.locator('[data-dashboard-scope-clear="all"]').click();
+    await Promise.all(clearResponses);
+    await waitForNoDashboardScopeInURL(page);
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(3);
+    await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(8);
+    await waitForCompletedRows(page, 30);
+    await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(4);
+
+    const collectorScope = (url: URL) => url.searchParams.get('collector_id') === 'collector-b';
+    const collectorResponses = waitForDashboardPanelResponses(page, collectorScope);
+    await page.locator('.dashboard-fleet-chip-collector[data-dashboard-scope-value="collector-b"]').click();
+    await Promise.all(collectorResponses);
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('collector_id') === 'collector-b');
+    await expect(page.locator('#dashboard-scope-chips')).toContainText('collector-b');
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(1);
+    await expect(page.locator('#dashboard-fleet')).toContainText('Node B');
+    await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(3);
+    await waitForCompletedRows(page, 15);
+    await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(2);
+
+    clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoFleetScope);
+    await page.locator('[data-dashboard-scope-clear="all"]').click();
+    await Promise.all(clearResponses);
+    await waitForNoDashboardScopeInURL(page);
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(3);
+    await waitForCompletedRows(page, 30);
+
+    await expect(page.locator('.dashboard-fleet-chip-source', { hasText: /^source-b$/ })).toHaveCount(2);
+    const duplicateSourceChip = page.locator('.dashboard-fleet-chip-source[data-dashboard-scope-value="source-c"]');
+    await expect(duplicateSourceChip).toHaveText('source-b');
+    await expect(duplicateSourceChip).toHaveAttribute('aria-label', 'Filter dashboard to source source-b (source-c)');
+    const sourceCScope = (url: URL) => url.searchParams.get('source_id') === 'source-c';
+    const sourceCResponses = waitForDashboardPanelResponses(page, sourceCScope);
+    await duplicateSourceChip.click();
+    await Promise.all(sourceCResponses);
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('source_id') === 'source-c');
+    const activeSourceCChip = page.locator('#dashboard-scope-chips [data-dashboard-scope-clear="source_id"][data-dashboard-scope-value="source-c"]');
+    await expect(activeSourceCChip).toContainText('source-b');
+    await expect(activeSourceCChip).toContainText('source-c');
+    await expect(activeSourceCChip).toHaveAttribute('aria-label', 'Clear Source filter source-b (source-c)');
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(1);
+    await expect(page.locator('#dashboard-fleet')).toContainText('Node C');
+    await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(3);
+    await waitForCompletedRows(page, 0);
+    await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(0);
+
+    clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoFleetScope);
+    await page.locator('[data-dashboard-scope-clear="all"]').click();
+    await Promise.all(clearResponses);
+    await waitForNoDashboardScopeInURL(page);
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(3);
+    await waitForCompletedRows(page, 30);
+
+    const sourceScope = (url: URL) => url.searchParams.get('source_id') === 'source-b';
+    const sourceResponses = waitForDashboardPanelResponses(page, sourceScope);
+    await page.locator('.dashboard-fleet-chip-source[data-dashboard-scope-value="source-b"]').click();
+    await Promise.all(sourceResponses);
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('source_id') === 'source-b');
+    await expect(page.locator('#dashboard-scope-chips')).toContainText('source-b');
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(1);
+    await expect(page.locator('#dashboard-fleet')).toContainText('Node B');
+    await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(3);
+    await waitForCompletedRows(page, 15);
+    await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(2);
+
+    clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoFleetScope);
+    await page.locator('[data-dashboard-scope-clear="all"]').click();
+    await Promise.all(clearResponses);
+    await waitForNoDashboardScopeInURL(page);
+
+    await fillDashboardEventSearchAndWait(page, 'many');
+    await waitForDashboardSearchRows(page, 30);
+    const sourceSearchResponses = [
+      waitForDashboardEndpoint(page, '/api/dashboard/fleet', sourceScope),
+      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => sourceScope(url) && url.searchParams.get('state') === 'active'),
+      waitForDashboardEndpoint(page, '/api/dashboard/search', (url) => sourceScope(url) && url.searchParams.get('q') === 'many' && url.searchParams.get('event_kind') === 'event'),
+      waitForDashboardEndpoint(page, '/api/dashboard/activity', sourceScope),
+      waitForDashboardEndpoint(page, '/api/dashboard/charts', sourceScope),
+    ];
+    await page.locator('.dashboard-fleet-chip-source[data-dashboard-scope-value="source-b"]').click();
+    await Promise.all(sourceSearchResponses);
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('source_id') === 'source-b');
+    await waitForDashboardSearchRows(page, 12);
+    await expect(page.locator('#completed-sessions tr[data-search-row]', { hasText: /Many-result fixture item 2 for pagination/ })).toHaveCount(1);
+    await expect(page.locator('#completed-sessions tr[data-search-row]', { hasText: /Many-result fixture item 1 for pagination/ })).toHaveCount(0);
+
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+
+    const projectScope = (url: URL) => url.searchParams.get('project_key') === 'project-c';
+    const projectResponses = waitForDashboardPanelResponses(page, projectScope);
+    await page.locator('.dashboard-fleet-chip-project[data-dashboard-scope-value="project-c"]').click();
+    await Promise.all(projectResponses);
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('project_key') === 'project-c');
+    await expect(page.locator('#dashboard-scope-chips')).toContainText('project-c');
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(1);
+    await expect(page.locator('#dashboard-fleet')).toContainText('Node C');
+    await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(3);
+    await waitForCompletedRows(page, 0);
+    await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(0);
+
+    await guards.expectClean();
+  });
+
   test('promotes active sessions with compact live stat trackers', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);
@@ -607,8 +795,11 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(sectionOrder.summaryInAnalyticsPanel).toBe(true);
     expect(sectionOrder.summaryInSearchHeader).toBe(false);
 
+    const activeCard = page.locator(`#active-sessions [data-active-session-id="${ACTIVE_SESSION_ID}"]`);
     const tracker = page.locator(`#active-sessions [href="/sessions/${ACTIVE_SESSION_ID}"] .active-session-tracker`);
-    await expect(tracker).toHaveAttribute('aria-label', 'Active session live stats');
+    await expect(activeCard.getByRole('group', { name: 'Active session live stats' })).toBeVisible();
+    await expect(activeCard.getByRole('group', { name: 'Active session scope filters' })).toBeVisible();
+    await expect(activeCard.getByRole('group', { name: 'Active session row controls' })).toBeVisible();
     await expect(tracker).toContainText('Run');
     await expect(tracker).toContainText('Turns');
     await expect(tracker).toContainText('Tools');

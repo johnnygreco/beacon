@@ -46,11 +46,13 @@ func TestSearchFilterBuildersCoverAllControls(t *testing.T) {
 		FromTime:       from,
 		ToTime:         to,
 		ExcludeMCPSelf: true,
+		NodeIDs:        []string{"local"},
 	})
 
 	for _, expected := range []string{
 		"AND startsWith(p.session_id, ?)",
 		"AND p.event_kind IN (?,?)",
+		"AND COALESCE(NULLIF(p.node_id, ''), 'local') IN (?)",
 		"AND p.timestamp >= ?",
 		"AND p.timestamp <= ?",
 		"AND p.tool_name NOT IN ('search_sessions', 'open', 'list_sessions')",
@@ -60,8 +62,8 @@ func TestSearchFilterBuildersCoverAllControls(t *testing.T) {
 			t.Fatalf("filter SQL missing %q: %s", expected, sql)
 		}
 	}
-	if len(args) != 5 {
-		t.Fatalf("args = %#v, want 5 args", args)
+	if len(args) != 6 {
+		t.Fatalf("args = %#v, want 6 args", args)
 	}
 }
 
@@ -69,16 +71,23 @@ func TestDocumentFilterBuilderOmitsAliases(t *testing.T) {
 	sql, args := buildDocumentFilters(SearchQuery{
 		SessionID:  "session-abc",
 		EventKinds: []string{"error"},
+		NodeIDs:    []string{"local"},
 	})
 
 	if strings.Contains(sql, "p.") {
 		t.Fatalf("document filters should not include posting alias: %s", sql)
 	}
-	if !strings.Contains(sql, "startsWith(session_id, ?)") || !strings.Contains(sql, "event_kind IN (?)") {
-		t.Fatalf("document filters missing clauses: %s", sql)
+	for _, expected := range []string{
+		"startsWith(session_id, ?)",
+		"event_kind IN (?)",
+		"COALESCE(NULLIF(node_id, ''), 'local') IN (?)",
+	} {
+		if !strings.Contains(sql, expected) {
+			t.Fatalf("document filters missing %q: %s", expected, sql)
+		}
 	}
-	if len(args) != 2 {
-		t.Fatalf("args = %#v, want 2 args", args)
+	if len(args) != 3 {
+		t.Fatalf("args = %#v, want 3 args", args)
 	}
 }
 

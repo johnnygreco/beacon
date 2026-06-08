@@ -38,7 +38,7 @@ func TestBuildInsertRowBatchGlobalIdentityUsesCollectorAndSource(t *testing.T) {
 		SessionID:    "raw-session",
 		RawSessionID: "raw-session",
 		RawEventID:   "raw-event",
-		SourceName:   "codex",
+		SourceName:   "source-a",
 		EventKind:    "message",
 		RawPayload:   `{"id":"raw-event"}`,
 	}
@@ -46,13 +46,13 @@ func TestBuildInsertRowBatchGlobalIdentityUsesCollectorAndSource(t *testing.T) {
 		NodeID:            "node-a",
 		CollectorID:       "collector-a",
 		ControlPlaneEpoch: "1",
-		Sources:           map[string]FleetSourceIdentity{"codex": {SourceID: "source-codex-a"}},
+		Sources:           map[string]FleetSourceIdentity{"source-a": {SourceID: "source-a-left"}},
 	})
 	right := buildInsertRowBatch([]NormalizedEvent{evt}, 0, 0, FleetIdentity{
 		NodeID:            "node-b",
 		CollectorID:       "collector-b",
 		ControlPlaneEpoch: "1",
-		Sources:           map[string]FleetSourceIdentity{"codex": {SourceID: "source-codex-b"}},
+		Sources:           map[string]FleetSourceIdentity{"source-a": {SourceID: "source-a-right"}},
 	})
 
 	leftEvent := left.ActivityEvents[0]
@@ -66,7 +66,7 @@ func TestBuildInsertRowBatchGlobalIdentityUsesCollectorAndSource(t *testing.T) {
 	if leftEvent.RawSessionID != "raw-session" || leftEvent.RawEventID != "raw-event" {
 		t.Fatalf("raw IDs not preserved: %#v", leftEvent)
 	}
-	if leftEvent.CollectorID != "collector-a" || leftEvent.SourceID != "source-codex-a" || leftEvent.NodeID != "node-a" {
+	if leftEvent.CollectorID != "collector-a" || leftEvent.SourceID != "source-a-left" || leftEvent.NodeID != "node-a" {
 		t.Fatalf("fleet identity not copied into event: %#v", leftEvent)
 	}
 	if left.RawRecords[0].EventUID != leftEvent.EventUID || left.RawRecords[0].PayloadDigest == "" {
@@ -77,7 +77,7 @@ func TestBuildInsertRowBatchGlobalIdentityUsesCollectorAndSource(t *testing.T) {
 func TestBuildInsertRowBatchSyntheticSourceEventIndexAndUnresolvedLink(t *testing.T) {
 	parent := NormalizedEvent{
 		SessionID:    "raw-session",
-		SourceName:   "claude",
+		SourceName:   "source-a",
 		MessageUUID:  "parent-uuid",
 		SourceLineNo: 7,
 		RawPayload:   `{"uuid":"parent-uuid"}`,
@@ -115,7 +115,7 @@ func TestBuildInsertRowBatchSubeventIdentityIsFlushIndependent(t *testing.T) {
 		SessionID:    "raw-session",
 		RawSessionID: "raw-session",
 		RawEventID:   "row-1",
-		SourceName:   "hermes",
+		SourceName:   "source-a",
 		SourceFile:   "state.db",
 		SourceLineNo: 42,
 		SourceOffset: 100,
@@ -132,7 +132,7 @@ func TestBuildInsertRowBatchSubeventIdentityIsFlushIndependent(t *testing.T) {
 	tool.TextContent = "bash"
 	identity := FleetIdentity{
 		CollectorID: "collector-a",
-		Sources:     map[string]FleetSourceIdentity{"hermes": {SourceID: "source-hermes-a"}},
+		Sources:     map[string]FleetSourceIdentity{"source-a": {SourceID: "source-a"}},
 	}
 
 	together := buildInsertRowBatch([]NormalizedEvent{message, tool}, 0, 0, identity)

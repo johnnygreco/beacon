@@ -486,6 +486,12 @@ func TestDashboardDataEndpointsUnavailableDBReturnsError(t *testing.T) {
 			target:  "/api/dashboard/charts",
 			want:    "failed to query dashboard charts",
 		},
+		{
+			name:    "fleet",
+			handler: handlers.GetDashboardFleet,
+			target:  "/api/dashboard/fleet",
+			want:    "failed to query dashboard fleet",
+		},
 	}
 
 	for _, tt := range tests {
@@ -720,7 +726,7 @@ func TestCompletedSessionEventSearchSessionIDs_SkipsBlankQueryAndMissingSearcher
 }
 
 func TestNewAPIHandlersWithNilSearcherSkipsEventSearch(t *testing.T) {
-	handlers := NewAPIHandlers(nil, nil, testLogger())
+	handlers := NewAPIHandlers(nil, nil, testLogger(), nil)
 	ids, err := handlers.completedSessionEventSearchSessionIDs(t.Context(), "dashboard payload")
 	if err != nil {
 		t.Fatalf("nil constructor searcher error: %v", err)
