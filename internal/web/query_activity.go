@@ -72,23 +72,36 @@ func QueryRecentActivityFilteredByKindScoped(ctx context.Context, db *sql.DB, si
 		where += " AND ae.timestamp >= ?"
 		args = append(args, *since)
 	}
-	if clause, scopeArgs := scope.sqlAndClause("ae"); clause != "" {
+	rawScope := scope
+	rawScope.ProjectKeys = nil
+	if clause, scopeArgs := rawScope.eventSQLAndClause("ae", ""); clause != "" {
 		where += clause
 		args = append(args, scopeArgs...)
 	}
 
-	query := `SELECT event_uid,
-		        event_kind,
+	query := `SELECT e.event_uid,
+		        e.event_kind,
 		        ` + activitySummaryExpr + ` AS summary,
-		        COALESCE(session_id, ''),
-		        COALESCE(node_id, ''),
-		        COALESCE(collector_id, ''),
-		        COALESCE(source_id, ''),
-		        COALESCE(source_name, ''),
-		        COALESCE(runtime, ''),
-		        COALESCE(provider, ''),
-		        timestamp
-		 FROM ` + recentActivityEventsSubquery(where)
+		        COALESCE(e.session_id, ''),
+		        COALESCE(e.node_id, ''),
+		        COALESCE(e.collector_id, ''),
+		        COALESCE(e.source_id, ''),
+		        COALESCE(e.source_name, ''),
+		        COALESCE(e.runtime, ''),
+		        COALESCE(e.provider, ''),
+		        e.timestamp
+		 FROM ` + recentActivityEventsSubquery(where) + ` AS e`
+	if len(compactScopeValues(scope.ProjectKeys)) > 0 {
+		query += ` LEFT JOIN (
+			SELECT session_id, project_key
+			FROM session_projection FINAL
+			WHERE session_id != ''
+		) AS s ON s.session_id = e.session_id
+		WHERE COALESCE(NULLIF(s.project_key, ''), ` + projectKeyExpr("e.cwd") + `) IN (` + sqlPlaceholders(len(compactScopeValues(scope.ProjectKeys))) + `)`
+		for _, projectKey := range compactScopeValues(scope.ProjectKeys) {
+			args = append(args, projectKey)
+		}
+	}
 	query += ` ORDER BY timestamp DESC LIMIT 200`
 
 	rows, err := db.QueryContext(ctx, query, args...)

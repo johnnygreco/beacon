@@ -201,6 +201,10 @@ func queryCompletedSessionContentMatchIDs(ctx context.Context, db *sql.DB, since
 		query += clause
 		args = append(args, scopeArgs...)
 	}
+	if clause, eventScopeArgs := scope.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s"); clause != "" {
+		query += clause
+		args = append(args, eventScopeArgs...)
+	}
 	contentColumns := []string{
 		"COALESCE(s.session_id, '')",
 		"COALESCE(s.source_name, '')",
@@ -374,13 +378,22 @@ func attachSubagentCounts(ctx context.Context, db *sql.DB, sessions []views.Sess
 
 // QueryChildSessions returns subagent sessions spawned from a parent session.
 func QueryChildSessions(ctx context.Context, db *sql.DB, parentID string) []views.SessionSummary {
+	return QueryChildSessionsScoped(ctx, db, parentID, APIScopeFilters{})
+}
+
+func QueryChildSessionsScoped(ctx context.Context, db *sql.DB, parentID string, scope APIScopeFilters) []views.SessionSummary {
 	now := time.Now()
 	activeCutoff := now.Add(-idleThreshold)
-	rows, err := db.QueryContext(ctx,
-		`SELECT `+sessionSummaryColumnsWithReopenedFlag()+`
-		 FROM `+sessionProjectionSQL+`
-		 WHERE parent_session_id = ?
-		 ORDER BY started_at ASC`, activeCutoff, parentID)
+	query := `SELECT ` + sessionSummaryColumnsWithReopenedFlag() + `
+		 FROM ` + sessionProjectionSQL + `
+		 WHERE parent_session_id = ?`
+	args := []any{activeCutoff, parentID}
+	if clause, scopeArgs := scope.sqlAndClause(""); clause != "" {
+		query += clause
+		args = append(args, scopeArgs...)
+	}
+	query += ` ORDER BY started_at ASC`
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		logQueryError("child sessions", err)
 		return nil
@@ -408,6 +421,7 @@ func markSessionReopened(s *views.SessionSummary, now time.Time) {
 		return
 	}
 	s.HasSessionEnd = false
+	s.CompletionState = "active"
 	setSessionTiming(s, s.StartedAt, s.EndedAt, now)
 }
 
@@ -455,6 +469,9 @@ func scanSessionSummaryBase(scanner interface{ Scan(dest ...any) error }, now ti
 	s.AttentionScore = attentionScore
 	if s.ProjectPath == "" {
 		s.ProjectPath = s.WorkingDir
+	}
+	if !s.ArchivedAt.After(time.Unix(0, 0).UTC()) {
+		s.ArchivedAt = time.Time{}
 	}
 	setSessionTiming(&s, startedAt, endedAt, now)
 	return s, nil

@@ -64,6 +64,32 @@ func (s APIScopeFilters) sqlAndClause(alias string) (string, []any) {
 	return " AND " + strings.Join(predicates, " AND "), args
 }
 
+func (s APIScopeFilters) eventSQLAndClause(alias, cwdExpr string) (string, []any) {
+	predicates, args := s.eventSQLPredicates(alias, cwdExpr)
+	if len(predicates) == 0 {
+		return "", nil
+	}
+	return " AND " + strings.Join(predicates, " AND "), args
+}
+
+func (s APIScopeFilters) eventAndSessionProjectSQLAndClause(eventAlias, cwdExpr, sessionAlias string) (string, []any) {
+	rawScope := s
+	rawScope.ProjectKeys = nil
+	predicates, args := rawScope.eventSQLPredicates(eventAlias, cwdExpr)
+	projectKeys := compactScopeValues(s.ProjectKeys)
+	if len(projectKeys) > 0 {
+		projectExpr := projectKeyExpr(cwdExpr)
+		if strings.TrimSpace(sessionAlias) != "" {
+			projectExpr = "COALESCE(NULLIF(" + sessionAlias + ".project_key, ''), " + projectExpr + ")"
+		}
+		appendScopePredicate(&predicates, &args, projectExpr, projectKeys)
+	}
+	if len(predicates) == 0 {
+		return "", nil
+	}
+	return " AND " + strings.Join(predicates, " AND "), args
+}
+
 func (s APIScopeFilters) sqlPredicates(alias string) ([]string, []any) {
 	prefix := ""
 	if strings.TrimSpace(alias) != "" {
@@ -80,6 +106,26 @@ func (s APIScopeFilters) sqlPredicates(alias string) ([]string, []any) {
 	return predicates, args
 }
 
+func (s APIScopeFilters) eventSQLPredicates(alias, cwdExpr string) ([]string, []any) {
+	prefix := ""
+	if strings.TrimSpace(alias) != "" {
+		prefix = alias + "."
+	}
+	var predicates []string
+	var args []any
+	appendScopePredicate(&predicates, &args, prefix+"node_id", s.NodeIDs)
+	appendScopePredicate(&predicates, &args, prefix+"collector_id", s.CollectorIDs)
+	appendScopePredicate(&predicates, &args, prefix+"source_id", s.SourceIDs)
+	appendScopePredicate(&predicates, &args, prefix+"source_name", s.SourceNames)
+	appendScopePredicate(&predicates, &args, prefix+"runtime", s.Runtimes)
+	projectExpr := strings.TrimSpace(cwdExpr)
+	if projectExpr == "" {
+		projectExpr = prefix + "cwd"
+	}
+	appendScopePredicate(&predicates, &args, projectKeyExpr(projectExpr), s.ProjectKeys)
+	return predicates, args
+}
+
 func appendScopePredicate(predicates *[]string, args *[]any, column string, values []string) {
 	values = compactScopeValues(values)
 	if len(values) == 0 {
@@ -89,6 +135,23 @@ func appendScopePredicate(predicates *[]string, args *[]any, column string, valu
 	for _, value := range values {
 		*args = append(*args, value)
 	}
+}
+
+func projectKeyExpr(pathExpr string) string {
+	pathExpr = strings.TrimSpace(pathExpr)
+	if pathExpr == "" {
+		pathExpr = "cwd"
+	}
+	return `if(` + pathExpr + ` = '', '',
+		replaceRegexpOne(
+			if(position(` + pathExpr + `, '/.claude/worktrees/') > 0,
+				substring(` + pathExpr + `, 1, position(` + pathExpr + `, '/.claude/worktrees/') - 1),
+				replaceRegexpOne(` + pathExpr + `, '/+$', '')
+			),
+			'^.*/',
+			''
+		)
+	)`
 }
 
 func compactScopeValues(values []string) []string {

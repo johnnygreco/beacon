@@ -48,23 +48,15 @@ func (s *Store) Flush(ctx context.Context, rows RowBatch) error {
 		}
 	}
 	if len(rows.ActivityEvents) > 0 {
-		docs, postings := buildSearchRows(rows.ActivityEvents, rows.ToolPayloads)
-		if len(docs) > 0 {
-			if err := s.insertSearchDocuments(ctx, docs); err != nil {
-				return fmt.Errorf("insert search documents: %w", err)
-			}
-		}
-		if len(postings) > 0 {
-			if err := s.insertSearchPostings(ctx, postings); err != nil {
-				return fmt.Errorf("insert search postings: %w", err)
-			}
-		}
 		ids := sessionIDs(rows.ActivityEvents)
 		if err := s.RefreshSessionProjections(ctx, ids); err != nil {
 			return fmt.Errorf("refresh session projections: %w", err)
 		}
 		if err := s.RefreshAnalyticsProjections(ctx, ids); err != nil {
 			return fmt.Errorf("refresh analytics projections: %w", err)
+		}
+		if _, err := s.RefreshSearchIndexForSessions(ctx, ids, 0); err != nil {
+			return fmt.Errorf("refresh search index: %w", err)
 		}
 	}
 	return nil

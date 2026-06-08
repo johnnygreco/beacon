@@ -78,14 +78,20 @@ func setSessionTiming(s *views.SessionSummary, startedAt, endedAt, now time.Time
 		// Definitive end signal from the harness; always completed.
 		s.Status = "completed"
 		s.Duration = formatDuration(lastActivity.Sub(startedAt))
+		s.ArchiveReason = ""
+		s.ArchivedAt = time.Time{}
 	} else if elapsed < activeThreshold {
 		// Actively producing events.
 		s.Status = "active"
 		s.Duration = formatDuration(now.Sub(startedAt))
+		s.ArchiveReason = ""
+		s.ArchivedAt = time.Time{}
 	} else if elapsed < idleThreshold {
 		// No recent events but hasn't timed out — waiting for user input.
 		s.Status = "idle"
 		s.Duration = formatDuration(lastActivity.Sub(startedAt))
+		s.ArchiveReason = ""
+		s.ArchivedAt = time.Time{}
 	} else {
 		// Timed out without explicit end signal; keep completion_state event-backed.
 		s.Status = "archived"
@@ -93,9 +99,7 @@ func setSessionTiming(s *views.SessionSummary, startedAt, endedAt, now time.Time
 		if s.ArchiveReason == "" {
 			s.ArchiveReason = "idle_timeout"
 		}
-		if s.ArchivedAt.IsZero() {
-			s.ArchivedAt = lastActivity.Add(idleThreshold)
-		}
+		s.ArchivedAt = lastActivity.Add(idleThreshold)
 	}
 }
 

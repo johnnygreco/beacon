@@ -87,11 +87,45 @@
 		return Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1000));
 	}
 
+	var dashboardScopeParams = [
+		'node_id',
+		'node_ids',
+		'collector_id',
+		'collector_ids',
+		'source_id',
+		'source_ids',
+		'source_name',
+		'source_names',
+		'runtime',
+		'runtimes',
+		'project_key',
+		'project_keys'
+	];
+
+	function copyDashboardScopeParams(target, source) {
+		if (!target || !source) return target;
+		dashboardScopeParams.forEach(function(key) {
+			source.getAll(key).forEach(function(value) {
+				target.append(key, value);
+			});
+		});
+		return target;
+	}
+
+	function currentDashboardScopeParams() {
+		if (!global.location || !global.location.search) return null;
+		return new URLSearchParams(global.location.search);
+	}
+
 	function requestURL(path, params) {
 		var query = new URLSearchParams();
+		copyDashboardScopeParams(query, currentDashboardScopeParams());
 		Object.keys(params || {}).forEach(function(key) {
 			var value = params[key];
-			if (value !== undefined && value !== null && (value !== '' || key === 'range' || key.slice(-6) === '_range')) query.set(key, value);
+			if (value !== undefined && value !== null && (value !== '' || key === 'range' || key.slice(-6) === '_range')) {
+				query.delete(key);
+				query.set(key, value);
+			}
 		});
 		var qs = query.toString();
 		return path + (qs ? '?' + qs : '');
@@ -110,6 +144,8 @@
 		relativeTime: relativeTime,
 		absoluteTime: absoluteTime,
 		durationSeconds: durationSeconds,
+		copyDashboardScopeParams: copyDashboardScopeParams,
+		currentDashboardScopeParams: currentDashboardScopeParams,
 		requestURL: requestURL
 	};
 

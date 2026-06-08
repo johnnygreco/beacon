@@ -54,7 +54,8 @@ func recentActivityEventsSubquery(where string) string {
 	               argMax(text_preview, captured_at) AS text_preview,
 	               argMax(tool_name, captured_at) AS tool_name,
 	               argMax(error_code, captured_at) AS error_code,
-	               argMax(error_message, captured_at) AS error_message
+	               argMax(error_message, captured_at) AS error_message,
+	               argMax(cwd, captured_at) AS cwd
 	        FROM (
 				SELECT event_uid,
 				       session_id,
@@ -71,6 +72,7 @@ func recentActivityEventsSubquery(where string) string {
 			       tool_name,
 			       error_code,
 			       error_message,
+			       cwd,
 			       captured_at
 			FROM activity_events AS ae `+sqlWhereClause(where)+`
 			ORDER BY timestamp DESC

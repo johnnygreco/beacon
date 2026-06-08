@@ -281,6 +281,66 @@ func TestSearch_WithEventKindFilter(t *testing.T) {
 	}
 }
 
+func TestSearch_ProjectFilterUsesSessionCWDForEventsWithoutCWD(t *testing.T) {
+	ch := setupTestStore(t)
+	logger := testLogger
+
+	now := time.Now().UTC()
+	sessionID := "sess-project-fallback"
+	sessionMeta := models.Event{
+		EventUID:     "evt-project-meta",
+		SessionID:    sessionID,
+		SourceName:   "test",
+		Provider:     "test",
+		EventKind:    "session_meta",
+		Timestamp:    now,
+		TextPreview:  "session started",
+		CWD:          "/Users/example/projects/beacon",
+		EventVersion: 1,
+		SourceFile:   "search-test",
+	}
+	message := models.Event{
+		EventUID:     "evt-project-message",
+		SessionID:    sessionID,
+		SourceName:   "test",
+		Provider:     "test",
+		EventKind:    "message",
+		ActorRole:    "assistant",
+		Timestamp:    now.Add(time.Second),
+		TextContent:  "project scoped needle",
+		TextPreview:  "project scoped needle",
+		EventVersion: 1,
+		SourceFile:   "search-test",
+	}
+	batch := store.RowBatch{
+		ActivityEvents: []models.Event{sessionMeta, message},
+		RawRecords: []models.RawRecord{
+			store.NewRawRecord(sessionMeta),
+			store.NewRawRecord(message),
+		},
+	}
+	if err := ch.Flush(context.Background(), batch); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+
+	s := search.NewSearcher(ch.DB, logger, 25, 0)
+	results, err := s.Search(context.Background(), search.SearchQuery{
+		Query:       "needle",
+		Limit:       10,
+		ProjectKeys: []string{"beacon"},
+	})
+	if err != nil {
+		t.Fatalf("Search error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 project-scoped result, got %d: %#v", len(results), results)
+	}
+	if results[0].EventUID != message.EventUID || results[0].ProjectKey != "beacon" ||
+		results[0].ProjectPath != "/Users/example/projects/beacon" {
+		t.Fatalf("unexpected project-scoped result: %#v", results[0])
+	}
+}
+
 func TestSearch_NewestSortConsistentAcrossTimeRanges(t *testing.T) {
 	ch := setupTestStore(t)
 	logger := testLogger

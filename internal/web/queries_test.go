@@ -50,6 +50,33 @@ func TestCompletedSessionSearchClause(t *testing.T) {
 	}
 }
 
+func TestAPIScopeEventProjectKeyDerivesFromCWD(t *testing.T) {
+	clause, args := APIScopeFilters{ProjectKeys: []string{"beacon"}}.eventSQLAndClause("ae", "")
+	if strings.Contains(clause, "ae.project_key") {
+		t.Fatalf("event project scope should not reference raw event project_key: %s", clause)
+	}
+	for _, want := range []string{"ae.cwd", "replaceRegexpOne", "IN (?)"} {
+		if !strings.Contains(clause, want) {
+			t.Fatalf("event project scope missing %q: %s", want, clause)
+		}
+	}
+	if fmt.Sprint(args) != "[beacon]" {
+		t.Fatalf("scope args = %#v, want [beacon]", args)
+	}
+}
+
+func TestAPIScopeEventAndSessionProjectKeyUsesProjectionFallback(t *testing.T) {
+	clause, args := APIScopeFilters{ProjectKeys: []string{"beacon"}}.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
+	for _, want := range []string{"COALESCE(NULLIF(s.project_key, ''),", "e.cwd", "IN (?)"} {
+		if !strings.Contains(clause, want) {
+			t.Fatalf("event/session project scope missing %q: %s", want, clause)
+		}
+	}
+	if fmt.Sprint(args) != "[beacon]" {
+		t.Fatalf("scope args = %#v, want [beacon]", args)
+	}
+}
+
 func TestCompletedSessionSearchClause_MetadataOnly(t *testing.T) {
 	clause, args := completedSessionSearchClause("metadata", nil)
 	if strings.Contains(clause, "session_id IN") {
@@ -867,6 +894,9 @@ func TestScanSessionSummaryIncludingReopenedClearsTerminalEnd(t *testing.T) {
 	if s.Status != "active" {
 		t.Fatalf("Status = %q, want active", s.Status)
 	}
+	if s.CompletionState != "active" {
+		t.Fatalf("CompletionState = %q, want active", s.CompletionState)
+	}
 }
 
 func TestAPISessionSummaryFromViewIncludesErrorCount(t *testing.T) {
@@ -878,6 +908,28 @@ func TestAPISessionSummaryFromViewIncludesErrorCount(t *testing.T) {
 	})
 	if api.ErrorCount != 2 {
 		t.Fatalf("ErrorCount = %d, want 2", api.ErrorCount)
+	}
+}
+
+func TestAPISessionSummaryFromViewOnlyEmitsArchivedAtForArchivedSessions(t *testing.T) {
+	sentinel := time.Unix(0, 0).UTC()
+	completed := apiSessionSummaryFromView(views.SessionSummary{
+		ID:         "completed-session",
+		Status:     "completed",
+		ArchivedAt: sentinel,
+	})
+	if completed.ArchivedAt != nil {
+		t.Fatalf("completed ArchivedAt = %v, want omitted", completed.ArchivedAt)
+	}
+
+	archivedTime := time.Date(2026, 5, 22, 12, 0, 0, 0, time.UTC)
+	archived := apiSessionSummaryFromView(views.SessionSummary{
+		ID:         "archived-session",
+		Status:     "archived",
+		ArchivedAt: archivedTime,
+	})
+	if archived.ArchivedAt == nil || !archived.ArchivedAt.Equal(archivedTime) {
+		t.Fatalf("archived ArchivedAt = %v, want %v", archived.ArchivedAt, archivedTime)
 	}
 }
 

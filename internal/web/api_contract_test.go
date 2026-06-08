@@ -160,6 +160,8 @@ func jsonContractType(t *testing.T, typ reflect.Type) string {
 		return "integer"
 	case reflect.Float32, reflect.Float64:
 		return "number"
+	case reflect.Pointer:
+		return jsonContractType(t, typ.Elem())
 	case reflect.Slice, reflect.Array:
 		return jsonContractType(t, typ.Elem()) + "[]"
 	case reflect.Map:

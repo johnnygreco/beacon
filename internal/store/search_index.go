@@ -199,38 +199,91 @@ func (s *Store) RefreshOutdatedSearchIndex(ctx context.Context) (int, bool, erro
 }
 
 func (s *Store) RefreshSearchIndex(ctx context.Context, batchSize int) (int, error) {
+	return s.refreshSearchIndex(ctx, batchSize, nil)
+}
+
+func (s *Store) RefreshSearchIndexForSessions(ctx context.Context, ids []string, batchSize int) (int, error) {
+	ids = uniqStrings(ids)
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	return s.refreshSearchIndex(ctx, batchSize, ids)
+}
+
+func (s *Store) refreshSearchIndex(ctx context.Context, batchSize int, ids []string) (int, error) {
 	if s == nil || s.DB == nil || s.native == nil {
 		return 0, nil
 	}
 	if batchSize <= 0 {
 		batchSize = defaultProjectionRefreshBatch
 	}
-	rows, err := s.DB.QueryContext(ctx, `SELECT
-			event_uid,
-			argMax(session_id, captured_at),
-			argMax(node_id, captured_at),
-			argMax(collector_id, captured_at),
-			argMax(source_id, captured_at),
-			argMax(source_name, captured_at),
-			argMax(runtime, captured_at),
-			argMax(format, captured_at),
-			argMax(provider, captured_at),
-			argMax(event_kind, captured_at),
-			argMax(payload_type, captured_at),
-			argMax(actor_role, captured_at),
-			argMax(timestamp, captured_at),
-			argMax(text_content, captured_at),
-			argMax(text_preview, captured_at),
-			argMax(tool_name, captured_at),
-			argMax(model, captured_at),
-			argMax(error_code, captured_at),
-			argMax(error_message, captured_at),
-			argMax(payload_json, captured_at),
-			argMax(cwd, captured_at)
-		FROM activity_events
-		WHERE session_id != ''
-		GROUP BY event_uid
-		ORDER BY argMax(session_id, captured_at), event_uid`)
+	where := "ae.session_id != ''"
+	args := make([]any, 0, len(ids))
+	if len(ids) > 0 {
+		where += " AND ae.session_id IN (" + placeholders(len(ids)) + ")"
+		for _, id := range ids {
+			args = append(args, id)
+		}
+	}
+	rows, err := s.DB.QueryContext(ctx, fmt.Sprintf(`WITH latest_events AS (
+			SELECT
+				event_uid,
+				argMax(session_id, captured_at) AS session_id,
+				argMax(node_id, captured_at) AS node_id,
+				argMax(collector_id, captured_at) AS collector_id,
+				argMax(source_id, captured_at) AS source_id,
+				argMax(source_name, captured_at) AS source_name,
+				argMax(runtime, captured_at) AS runtime,
+				argMax(format, captured_at) AS format,
+				argMax(provider, captured_at) AS provider,
+				argMax(event_kind, captured_at) AS event_kind,
+				argMax(payload_type, captured_at) AS payload_type,
+				argMax(actor_role, captured_at) AS actor_role,
+				argMax(timestamp, captured_at) AS timestamp,
+				argMax(text_content, captured_at) AS text_content,
+				argMax(text_preview, captured_at) AS text_preview,
+				argMax(tool_name, captured_at) AS tool_name,
+				argMax(model, captured_at) AS model,
+				argMax(error_code, captured_at) AS error_code,
+				argMax(error_message, captured_at) AS error_message,
+				argMax(payload_json, captured_at) AS payload_json,
+				argMax(cwd, captured_at) AS cwd
+			FROM activity_events AS ae
+			WHERE %s
+			GROUP BY event_uid
+		),
+		session_projects AS (
+			SELECT
+				session_id,
+				argMaxIf(cwd, timestamp, cwd != '') AS session_project_path
+			FROM latest_events
+			GROUP BY session_id
+		)
+		SELECT
+			e.event_uid,
+			e.session_id,
+			e.node_id,
+			e.collector_id,
+			e.source_id,
+			e.source_name,
+			e.runtime,
+			e.format,
+			e.provider,
+			e.event_kind,
+			e.payload_type,
+			e.actor_role,
+			e.timestamp,
+			e.text_content,
+			e.text_preview,
+			e.tool_name,
+			e.model,
+			e.error_code,
+			e.error_message,
+			e.payload_json,
+			if(e.cwd != '', e.cwd, sp.session_project_path)
+		FROM latest_events AS e
+		LEFT JOIN session_projects AS sp ON sp.session_id = e.session_id
+		ORDER BY e.session_id, e.event_uid`, where), args...)
 	if err != nil {
 		return 0, err
 	}

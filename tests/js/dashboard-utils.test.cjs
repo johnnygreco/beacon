@@ -28,6 +28,25 @@ test("dashboard URL helper preserves empty range but omits empty filters", () =>
   );
 });
 
+test("dashboard URL helper preserves current scope filters", () => {
+  const previousLocation = global.location;
+  global.location = {
+    search: "?q=ignored&node_ids=node-a,node-b&source_id=remote&source_id=cloud&project_key=beacon",
+  };
+  try {
+    assert.equal(
+      utils.requestURL("/api/dashboard/activity", { event_kind: "message" }),
+      "/api/dashboard/activity?node_ids=node-a%2Cnode-b&source_id=remote&source_id=cloud&project_key=beacon&event_kind=message",
+    );
+  } finally {
+    if (previousLocation === undefined) {
+      delete global.location;
+    } else {
+      global.location = previousLocation;
+    }
+  }
+});
+
 test("dashboard formatters normalize IDs, models, tokens, and durations", () => {
   assert.equal(utils.shortID("abcdef123456"), "abcdef12");
   assert.equal(utils.shortModel("claude-sonnet-4-5-20250929"), "sonnet-4-5");

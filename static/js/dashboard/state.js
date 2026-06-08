@@ -234,6 +234,9 @@ function readDashboardStateFromURL() {
 function dashboardStatePath() {
 	var url = new URL('/', window.location.origin);
 	var params = url.searchParams;
+	if (window.BeaconDashboard && window.BeaconDashboard.utils && typeof window.BeaconDashboard.utils.copyDashboardScopeParams === 'function') {
+		window.BeaconDashboard.utils.copyDashboardScopeParams(params, new URLSearchParams(window.location.search));
+	}
 	if (currentCompletedRange !== '') params.set('range', currentCompletedRange);
 	if (currentChartRange !== '') params.set('chart_range', currentChartRange);
 	if (currentChartMetric !== 'total_tokens') params.set('chart_metric', currentChartMetric);

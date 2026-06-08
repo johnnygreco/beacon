@@ -77,7 +77,7 @@ type APISessionSummary struct {
 	AttentionScore    int                 `json:"attention_score,omitempty"`
 	AttentionReasons  []string            `json:"attention_reasons,omitempty"`
 	ArchiveReason     string              `json:"archive_reason,omitempty"`
-	ArchivedAt        time.Time           `json:"archived_at,omitempty"`
+	ArchivedAt        *time.Time          `json:"archived_at,omitempty"`
 	SubagentCount     int                 `json:"subagent_count"`
 	ChildSessions     []APISessionSummary `json:"child_sessions,omitempty"`
 }
