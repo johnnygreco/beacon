@@ -162,20 +162,17 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) []
 
 func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput float64, identity FleetIdentity) store.RowBatch {
 	var batch store.RowBatch
-	eventOrdinals := make(map[string]int, len(events))
 	identity = normalizeFleetIdentity(identity)
 	batchID := batchID(events, identity)
+	prepared := make([]preparedEvent, 0, len(events))
 	resolvedRawEvents := make(map[string]string, len(events))
 
 	for _, evt := range events {
-		ordinalKey := eventUIDOrdinalKey(evt)
-		ordinal := eventOrdinals[ordinalKey]
-		eventOrdinals[ordinalKey] = ordinal + 1
 		source := identity.source(evt.SourceName)
 		rawSessionID := firstNonEmptyString(evt.RawSessionID, evt.SessionID)
 		rawParentSessionID := firstNonEmptyString(evt.RawParentSessionID, evt.ParentSessionID)
-		sourceEventIndex := normalizedSourceEventIndex(evt, ordinal)
-		rawEventID := normalizedRawEventID(evt, sourceEventIndex, ordinal)
+		sourceEventIndex := normalizedSourceEventIndex(evt)
+		rawEventID := normalizedRawEventID(evt, sourceEventIndex)
 		payloadDigest := digestString(evt.RawPayload)
 		sessionID := globalID("session", identity.CollectorID, source.SourceID, rawSessionID)
 		parentSessionID := ""
@@ -183,8 +180,26 @@ func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput f
 			parentSessionID = globalID("session", identity.CollectorID, source.SourceID, rawParentSessionID)
 		}
 		uid := globalID("event", identity.CollectorID, source.SourceID, rawSessionID, rawEventID, fmt.Sprint(sourceEventIndex))
-		resolvedRawEvents[rawEventKey(source.SourceID, rawSessionID, rawEventID)] = uid
+		key := rawEventKey(source.SourceID, rawSessionID, rawEventID)
+		if _, ok := resolvedRawEvents[key]; !ok {
+			resolvedRawEvents[key] = uid
+		}
+		prepared = append(prepared, preparedEvent{
+			normalized:         evt,
+			source:             source,
+			rawSessionID:       rawSessionID,
+			rawParentSessionID: rawParentSessionID,
+			rawEventID:         rawEventID,
+			sourceEventIndex:   sourceEventIndex,
+			payloadDigest:      payloadDigest,
+			sessionID:          sessionID,
+			parentSessionID:    parentSessionID,
+			eventUID:           uid,
+		})
+	}
 
+	for _, item := range prepared {
+		evt := item.normalized
 		cost := evt.CostUSD
 		if cost == 0 && (evt.InputTokens > 0 || evt.OutputTokens > 0) {
 			cost = CalcCost(evt.Model, evt.InputTokens, evt.OutputTokens, defaultInput, defaultOutput)
@@ -192,14 +207,14 @@ func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput f
 
 		preview := truncate(evt.TextContent, previewMaxLen)
 		event := &models.Event{
-			EventUID:           uid,
+			EventUID:           item.eventUID,
 			SessionID:          evt.SessionID,
-			RawSessionID:       rawSessionID,
-			ParentSessionID:    parentSessionID,
-			RawParentSessionID: rawParentSessionID,
+			RawSessionID:       item.rawSessionID,
+			ParentSessionID:    item.parentSessionID,
+			RawParentSessionID: item.rawParentSessionID,
 			NodeID:             identity.NodeID,
 			CollectorID:        identity.CollectorID,
-			SourceID:           source.SourceID,
+			SourceID:           item.source.SourceID,
 			SourceName:         evt.SourceName,
 			Runtime:            evt.Runtime,
 			Provider:           evt.Provider,
@@ -228,17 +243,15 @@ func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput f
 			SourceLineNo:       evt.SourceLineNo,
 			SourceOffset:       evt.SourceOffset,
 			SourceGeneration:   evt.SourceGeneration,
-			RawEventID:         rawEventID,
-			SourceEventIndex:   sourceEventIndex,
+			RawEventID:         item.rawEventID,
+			SourceEventIndex:   item.sourceEventIndex,
 			BatchID:            batchID,
 			ControlPlaneEpoch:  identity.ControlPlaneEpoch,
-			PayloadDigest:      payloadDigest,
+			PayloadDigest:      item.payloadDigest,
 			RedactionStatus:    "unredacted",
 		}
-		if event.SessionID == "" && rawSessionID != "" {
-			event.SessionID = sessionID
-		} else if rawSessionID != "" {
-			event.SessionID = sessionID
+		if item.rawSessionID != "" {
+			event.SessionID = item.sessionID
 		}
 
 		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(*event))
@@ -246,31 +259,30 @@ func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput f
 
 		rawLinkedEventID := firstNonEmptyString(evt.RawLinkedEventID, evt.ParentUUID)
 		if rawLinkedEventID != "" {
-			rawLinkedSessionID := firstNonEmptyString(evt.RawLinkedSessionID, rawParentSessionID, rawSessionID)
-			linkedSessionID := globalID("session", identity.CollectorID, source.SourceID, rawLinkedSessionID)
-			linkedEventUID := resolvedRawEvents[rawEventKey(source.SourceID, rawLinkedSessionID, rawLinkedEventID)]
+			rawLinkedSessionID := firstNonEmptyString(evt.RawLinkedSessionID, item.rawParentSessionID, item.rawSessionID)
+			linkedSessionID := globalID("session", identity.CollectorID, item.source.SourceID, rawLinkedSessionID)
+			linkedEventUID := resolvedRawEvents[rawEventKey(item.source.SourceID, rawLinkedSessionID, rawLinkedEventID)]
 			resolutionStatus := "resolved"
 			if linkedEventUID == "" {
-				linkedEventUID = globalID("event", identity.CollectorID, source.SourceID, rawLinkedSessionID, rawLinkedEventID)
 				resolutionStatus = "unresolved"
 			}
 			linkScope := "same_session"
-			if rawLinkedSessionID != "" && rawSessionID != "" && rawLinkedSessionID != rawSessionID {
+			if rawLinkedSessionID != "" && item.rawSessionID != "" && rawLinkedSessionID != item.rawSessionID {
 				linkScope = "cross_session"
 			}
 			batch.EventLinks = append(batch.EventLinks, models.EventLink{
-				EventUID:           uid,
+				EventUID:           item.eventUID,
 				LinkedEventUID:     linkedEventUID,
 				LinkType:           "parent",
 				LinkScope:          linkScope,
 				ResolutionStatus:   resolutionStatus,
 				SessionID:          event.SessionID,
-				RawSessionID:       rawSessionID,
+				RawSessionID:       item.rawSessionID,
 				LinkedSessionID:    linkedSessionID,
 				RawLinkedSessionID: rawLinkedSessionID,
 				RawLinkedEventID:   rawLinkedEventID,
 				CollectorID:        identity.CollectorID,
-				SourceID:           source.SourceID,
+				SourceID:           item.source.SourceID,
 				BatchID:            batchID,
 				ControlPlaneEpoch:  identity.ControlPlaneEpoch,
 			})
@@ -278,9 +290,9 @@ func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput f
 
 		if evt.ToolPhase != "" && (evt.ToolInput != "" || evt.ToolOutput != "") {
 			payload := models.ToolPayload{
-				EventUID:          uid,
+				EventUID:          item.eventUID,
 				CollectorID:       identity.CollectorID,
-				SourceID:          source.SourceID,
+				SourceID:          item.source.SourceID,
 				ToolName:          evt.ToolName,
 				ToolPhase:         evt.ToolPhase,
 				InputJSON:         evt.ToolInput,
@@ -296,6 +308,19 @@ func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput f
 		}
 	}
 	return batch
+}
+
+type preparedEvent struct {
+	normalized         NormalizedEvent
+	source             FleetSourceIdentity
+	rawSessionID       string
+	rawParentSessionID string
+	rawEventID         string
+	sourceEventIndex   uint64
+	payloadDigest      string
+	sessionID          string
+	parentSessionID    string
+	eventUID           string
 }
 
 // eventUID generates a deterministic UID for idempotent replay.
@@ -345,27 +370,45 @@ func batchID(events []NormalizedEvent, identity FleetIdentity) string {
 	return globalID("batch", parts...)
 }
 
-func normalizedRawEventID(evt NormalizedEvent, sourceEventIndex uint64, ordinal int) string {
+func normalizedRawEventID(evt NormalizedEvent, sourceEventIndex uint64) string {
 	if evt.RawEventID != "" {
 		return evt.RawEventID
 	}
 	if evt.MessageUUID != "" {
-		if ordinal == 0 {
-			return evt.MessageUUID
-		}
-		return fmt.Sprintf("%s#%d", evt.MessageUUID, ordinal)
+		return evt.MessageUUID
 	}
 	return fmt.Sprintf("%s:%d:%d:%d:%d", evt.SourceFile, evt.SourceGeneration, evt.SourceLineNo, evt.SourceOffset, sourceEventIndex)
 }
 
-func normalizedSourceEventIndex(evt NormalizedEvent, ordinal int) uint64 {
+func normalizedSourceEventIndex(evt NormalizedEvent) uint64 {
 	if evt.SourceEventIndex > 0 {
 		return evt.SourceEventIndex
 	}
-	if evt.SourceLineNo > 0 {
-		return uint64(evt.SourceLineNo)*100000 + uint64(ordinal)
+	hashed := hashUint64(
+		evt.SourceFile,
+		fmt.Sprint(evt.SourceGeneration),
+		fmt.Sprint(evt.SourceLineNo),
+		fmt.Sprint(evt.SourceOffset),
+		evt.RawSessionID,
+		evt.SessionID,
+		evt.RawEventID,
+		evt.MessageUUID,
+		evt.EventKind,
+		evt.PayloadType,
+		evt.ActorRole,
+		evt.ToolName,
+		evt.ToolUseID,
+		evt.ToolPhase,
+		evt.ErrorCode,
+		evt.RawPayload,
+	)
+	if hashed == 0 {
+		hashed = 1
 	}
-	return hashUint64(evt.SourceFile, fmt.Sprint(evt.SourceGeneration), fmt.Sprint(evt.SourceOffset), fmt.Sprint(ordinal), evt.RawPayload)
+	if evt.SourceLineNo > 0 {
+		return uint64(evt.SourceLineNo)*1000000000 + hashed%1000000000
+	}
+	return hashed
 }
 
 func rawEventKey(sourceID, rawSessionID, rawEventID string) string {

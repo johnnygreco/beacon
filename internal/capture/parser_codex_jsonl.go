@@ -35,7 +35,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 		SourceName:   "codex",
 		Provider:     models.ProviderOpenAI,
 		Timestamp:    ts,
-		RawEventID:   firstNonEmptyString(stringField(raw, "id"), stringField(payload, "id"), stringField(payload, "call_id")),
+		RawEventID:   firstNonEmptyString(stringField(raw, "id"), stringField(payload, "id")),
 		SourceFile:   file,
 		SourceLineNo: lineNo,
 		SourceOffset: offset,
@@ -115,7 +115,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ToolPhase = models.ToolPhaseCall
 			evt.ToolInput = stringField(payload, "arguments")
 			evt.ToolUseID = stringField(payload, "call_id")
-			evt.RawEventID = firstNonEmpty(evt.RawEventID, evt.ToolUseID)
+			evt.RawEventID = firstNonEmpty(evt.RawEventID, scopedMessageUUID(evt.ToolUseID, models.ToolPhaseCall))
 			evt.TextContent = evt.ToolName
 			// Map spawn_agent to Agent for UI subagent dispatch rendering
 			if evt.ToolName == "spawn_agent" {
@@ -131,7 +131,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ToolPhase = models.ToolPhaseResult
 			evt.ToolOutput = stringField(payload, "output")
 			evt.ToolUseID = stringField(payload, "call_id")
-			evt.RawEventID = firstNonEmpty(evt.RawEventID, evt.ToolUseID)
+			evt.RawEventID = firstNonEmpty(evt.RawEventID, scopedMessageUUID(evt.ToolUseID, models.ToolPhaseResult))
 			evt.TextContent = stringField(payload, "output")
 			// For spawn_agent results, reformat output so agentID() can extract
 			// the session ID. Codex output: {"agent_id":"xxx","nickname":"yyy"}
@@ -157,7 +157,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ToolPhase = models.ToolPhaseResult
 			evt.ToolOutput = stringField(payload, "output")
 			evt.ToolUseID = stringField(payload, "call_id")
-			evt.RawEventID = firstNonEmpty(evt.RawEventID, evt.ToolUseID)
+			evt.RawEventID = firstNonEmpty(evt.RawEventID, scopedMessageUUID(evt.ToolUseID, models.ToolPhaseResult))
 			evt.TextContent = stringField(payload, "output")
 			events = append(events, evt)
 
@@ -170,7 +170,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ToolPhase = models.ToolPhaseCall
 			evt.ToolInput = stringField(payload, "input")
 			evt.ToolUseID = stringField(payload, "call_id")
-			evt.RawEventID = firstNonEmpty(evt.RawEventID, evt.ToolUseID)
+			evt.RawEventID = firstNonEmpty(evt.RawEventID, scopedMessageUUID(evt.ToolUseID, models.ToolPhaseCall))
 			evt.TextContent = evt.ToolName
 			events = append(events, evt)
 
@@ -182,7 +182,7 @@ func ParseCodexJSONL(line []byte, file string, lineNo int, offset int64) ([]Norm
 			evt.ToolPhase = models.ToolPhaseResult
 			evt.ToolOutput = stringField(payload, "output")
 			evt.ToolUseID = stringField(payload, "call_id")
-			evt.RawEventID = firstNonEmpty(evt.RawEventID, evt.ToolUseID)
+			evt.RawEventID = firstNonEmpty(evt.RawEventID, scopedMessageUUID(evt.ToolUseID, models.ToolPhaseResult))
 			evt.TextContent = stringField(payload, "output")
 			if isCodexToolError(evt.ToolOutput) {
 				evt.EventKind = models.EventKindToolError

@@ -253,6 +253,39 @@ func TestProcessFileLegacyCheckpointReplaysContextButEmitsOnlyNewRows(t *testing
 	}
 }
 
+func TestProcessFileUsesConfiguredSourceName(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "session.jsonl")
+	if err := os.WriteFile(file, []byte("one\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeWatcherStore()
+	events := make(chan BatchEvent, 2)
+	src := WatchSource{
+		Name:     "codex-work",
+		Runtime:  "codex",
+		Provider: "openai",
+		Format:   "jsonl",
+		Parser: func(line []byte, file string, lineNo int, offset int64) ([]NormalizedEvent, error) {
+			evt := lineEvent(file, lineNo, offset, string(line))
+			evt.SourceName = "codex"
+			return []NormalizedEvent{evt}, nil
+		},
+	}
+	w := newFakeWatcher(src, fake, events)
+
+	w.processFile(ctx, src, file)
+
+	got := drainBatchEvents(events)
+	if len(got) != 1 {
+		t.Fatalf("events = %#v, want one row", got)
+	}
+	if got[0].SourceName != "codex-work" {
+		t.Fatalf("source name = %q, want configured source name", got[0].SourceName)
+	}
+}
+
 func TestProcessFileRotationIncrementsSourceGeneration(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -361,14 +394,14 @@ func TestProcessWholeFileParserEmitsRowsAndSavesCheckpoint(t *testing.T) {
 	fake := newFakeWatcherStore()
 	events := make(chan BatchEvent, 4)
 	src := WatchSource{
-		Name:     "hermes",
+		Name:     "hermes-cloud",
 		Runtime:  "hermes-agent",
 		Provider: "multi",
 		Format:   "sqlite",
 		FileParser: func(file string) ([]NormalizedEvent, error) {
 			return []NormalizedEvent{
-				{SessionID: "session-1", EventKind: "message", TextContent: "hello", SourceFile: file, RawPayload: "one"},
-				{SessionID: "session-1", EventKind: "message", TextContent: "world", SourceFile: file, RawPayload: "two"},
+				{SessionID: "session-1", SourceName: "hermes", EventKind: "message", TextContent: "hello", SourceFile: file, RawPayload: "one"},
+				{SessionID: "session-1", SourceName: "hermes", EventKind: "message", TextContent: "world", SourceFile: file, RawPayload: "two"},
 			}, nil
 		},
 	}
@@ -381,7 +414,7 @@ func TestProcessWholeFileParserEmitsRowsAndSavesCheckpoint(t *testing.T) {
 		t.Fatalf("events = %#v, want two whole-file rows", got)
 	}
 	for _, evt := range got {
-		if evt.SourceName != "hermes" || evt.Runtime != "hermes-agent" || evt.Provider != "multi" || evt.Format != "sqlite" {
+		if evt.SourceName != "hermes-cloud" || evt.Runtime != "hermes-agent" || evt.Provider != "multi" || evt.Format != "sqlite" {
 			t.Fatalf("whole-file metadata = %#v", evt)
 		}
 	}

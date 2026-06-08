@@ -17,7 +17,7 @@ func NewRawRecord(event models.Event) models.RawRecord {
 		payloadDigest = recordPayloadDigest(event.PayloadJSON)
 	}
 	return models.RawRecord{
-		RecordUID:         recordUID(event.CollectorID, event.SourceID, event.RawSessionID, rawEventID, payloadDigest),
+		RecordUID:         recordUID(event.CollectorID, event.SourceID, event.RawSessionID, rawEventID, event.SourceEventIndex, payloadDigest),
 		EventUID:          event.EventUID,
 		NodeID:            event.NodeID,
 		CollectorID:       event.CollectorID,
@@ -49,8 +49,8 @@ func recordPayloadDigest(payload string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func recordUID(collectorID, sourceID, rawSessionID, rawEventID, payloadDigest string) string {
+func recordUID(collectorID, sourceID, rawSessionID, rawEventID string, sourceEventIndex uint64, payloadDigest string) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%s|%s|%s|%s", collectorID, sourceID, rawSessionID, rawEventID, payloadDigest)
+	fmt.Fprintf(h, "%s|%s|%s|%s|%d|%s", collectorID, sourceID, rawSessionID, rawEventID, sourceEventIndex, payloadDigest)
 	return hex.EncodeToString(h.Sum(nil))[:32]
 }

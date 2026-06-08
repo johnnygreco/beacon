@@ -72,6 +72,9 @@ func captureFleetIdentity(snapshot *controlplane.Snapshot) capture.FleetIdentity
 	identity.CollectorID = snapshot.LocalCollectorID
 	identity.ControlPlaneEpoch = snapshot.SchemaEpoch
 	for _, source := range snapshot.Sources {
+		if source.CollectorID != snapshot.LocalCollectorID {
+			continue
+		}
 		identity.Sources[source.Name] = capture.FleetSourceIdentity{SourceID: source.ID}
 	}
 	return identity

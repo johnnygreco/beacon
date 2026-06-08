@@ -235,16 +235,17 @@ func TestBuildSearchRowsSkipsEmptyDocuments(t *testing.T) {
 }
 
 func TestRecordUIDChangesWithFleetRawIdentityAndPayload(t *testing.T) {
-	base := recordUID("collector-a", "source-a", "raw-session", "raw-event", "digest-one")
+	base := recordUID("collector-a", "source-a", "raw-session", "raw-event", 42, "digest-one")
 	tests := []struct {
 		name string
 		uid  string
 	}{
-		{name: "same inputs", uid: recordUID("collector-a", "source-a", "raw-session", "raw-event", "digest-one")},
-		{name: "different collector", uid: recordUID("collector-b", "source-a", "raw-session", "raw-event", "digest-one")},
-		{name: "different source", uid: recordUID("collector-a", "source-b", "raw-session", "raw-event", "digest-one")},
-		{name: "different raw event", uid: recordUID("collector-a", "source-a", "raw-session", "raw-event-2", "digest-one")},
-		{name: "different payload", uid: recordUID("collector-a", "source-a", "raw-session", "raw-event", "digest-two")},
+		{name: "same inputs", uid: recordUID("collector-a", "source-a", "raw-session", "raw-event", 42, "digest-one")},
+		{name: "different collector", uid: recordUID("collector-b", "source-a", "raw-session", "raw-event", 42, "digest-one")},
+		{name: "different source", uid: recordUID("collector-a", "source-b", "raw-session", "raw-event", 42, "digest-one")},
+		{name: "different raw event", uid: recordUID("collector-a", "source-a", "raw-session", "raw-event-2", 42, "digest-one")},
+		{name: "different source index", uid: recordUID("collector-a", "source-a", "raw-session", "raw-event", 43, "digest-one")},
+		{name: "different payload", uid: recordUID("collector-a", "source-a", "raw-session", "raw-event", 42, "digest-two")},
 	}
 
 	if len(base) != 32 {

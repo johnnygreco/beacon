@@ -418,13 +418,7 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 		}
 
 		for i := range events {
-			events[i].SourceName = firstNonEmpty(events[i].SourceName, src.Name)
-			events[i].Runtime = firstNonEmpty(events[i].Runtime, src.Runtime)
-			events[i].Provider = firstNonEmpty(events[i].Provider, src.Provider)
-			events[i].Format = firstNonEmpty(events[i].Format, src.Format)
-			if cp != nil {
-				events[i].SourceGeneration = cp.SourceGeneration
-			}
+			applyWatchSourceMetadata(&events[i], src, cp)
 		}
 		allEvents = append(allEvents, events...)
 		offset += lineLen
@@ -704,13 +698,7 @@ func (w *Watcher) processWholeFile(ctx context.Context, src WatchSource, file st
 	}
 
 	for i := range events {
-		events[i].SourceName = firstNonEmpty(events[i].SourceName, src.Name)
-		events[i].Runtime = firstNonEmpty(events[i].Runtime, src.Runtime)
-		events[i].Provider = firstNonEmpty(events[i].Provider, src.Provider)
-		events[i].Format = firstNonEmpty(events[i].Format, src.Format)
-		if cp != nil {
-			events[i].SourceGeneration = cp.SourceGeneration
-		}
+		applyWatchSourceMetadata(&events[i], src, cp)
 	}
 	PropagateModel(events)
 	events = DeduplicateTokens(events)
@@ -735,6 +723,16 @@ func (w *Watcher) processWholeFile(ctx context.Context, src WatchSource, file st
 	}
 	if err := w.checkpoints[src.Name].Save(ctx, newCP); err != nil {
 		w.logger.Error("save checkpoint failed", "file", file, "error", err)
+	}
+}
+
+func applyWatchSourceMetadata(evt *NormalizedEvent, src WatchSource, cp *models.Checkpoint) {
+	evt.SourceName = src.Name
+	evt.Runtime = firstNonEmpty(evt.Runtime, src.Runtime)
+	evt.Provider = firstNonEmpty(evt.Provider, src.Provider)
+	evt.Format = firstNonEmpty(evt.Format, src.Format)
+	if cp != nil {
+		evt.SourceGeneration = cp.SourceGeneration
 	}
 }
 

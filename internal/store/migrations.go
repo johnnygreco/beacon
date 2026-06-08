@@ -43,71 +43,12 @@ func Migrate(ctx context.Context, db *sql.DB, database string) error {
 	if err != nil {
 		return err
 	}
-	if state.hasVersionRow && state.version == 1 {
-		if err := migrateSchemaV1ToV2(ctx, db, database); err != nil {
-			return err
-		}
-		state.version = CurrentSchemaVersion
-	}
 	if err := validateSchemaState(state, database, true); err != nil {
 		return err
 	}
 	for _, stmt := range Schema(database) {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			return err
-		}
-	}
-	return writeSchemaVersion(ctx, db, database)
-}
-
-func migrateSchemaV1ToV2(ctx context.Context, db *sql.DB, database string) error {
-	statements := []string{
-		`ALTER TABLE ` + database + `.raw_records ADD COLUMN IF NOT EXISTS event_uid String`,
-		`ALTER TABLE ` + database + `.raw_records ADD COLUMN IF NOT EXISTS node_id String`,
-		`ALTER TABLE ` + database + `.raw_records ADD COLUMN IF NOT EXISTS collector_id String`,
-		`ALTER TABLE ` + database + `.raw_records ADD COLUMN IF NOT EXISTS source_id String`,
-		`ALTER TABLE ` + database + `.raw_records ADD COLUMN IF NOT EXISTS raw_session_id String`,
-		`ALTER TABLE ` + database + `.raw_records ADD COLUMN IF NOT EXISTS raw_event_id String`,
-		`ALTER TABLE ` + database + `.raw_records ADD COLUMN IF NOT EXISTS source_event_index UInt64`,
-		`ALTER TABLE ` + database + `.raw_records ADD COLUMN IF NOT EXISTS batch_id String`,
-		`ALTER TABLE ` + database + `.raw_records ADD COLUMN IF NOT EXISTS control_plane_epoch String`,
-		`ALTER TABLE ` + database + `.raw_records ADD COLUMN IF NOT EXISTS payload_digest String`,
-		`ALTER TABLE ` + database + `.raw_records ADD COLUMN IF NOT EXISTS redaction_status LowCardinality(String)`,
-		`ALTER TABLE ` + database + `.raw_records ADD COLUMN IF NOT EXISTS redaction_version String`,
-		`ALTER TABLE ` + database + `.activity_events ADD COLUMN IF NOT EXISTS raw_session_id String`,
-		`ALTER TABLE ` + database + `.activity_events ADD COLUMN IF NOT EXISTS raw_parent_session_id String`,
-		`ALTER TABLE ` + database + `.activity_events ADD COLUMN IF NOT EXISTS node_id String`,
-		`ALTER TABLE ` + database + `.activity_events ADD COLUMN IF NOT EXISTS collector_id String`,
-		`ALTER TABLE ` + database + `.activity_events ADD COLUMN IF NOT EXISTS source_id String`,
-		`ALTER TABLE ` + database + `.activity_events ADD COLUMN IF NOT EXISTS raw_event_id String`,
-		`ALTER TABLE ` + database + `.activity_events ADD COLUMN IF NOT EXISTS source_event_index UInt64`,
-		`ALTER TABLE ` + database + `.activity_events ADD COLUMN IF NOT EXISTS batch_id String`,
-		`ALTER TABLE ` + database + `.activity_events ADD COLUMN IF NOT EXISTS control_plane_epoch String`,
-		`ALTER TABLE ` + database + `.activity_events ADD COLUMN IF NOT EXISTS payload_digest String`,
-		`ALTER TABLE ` + database + `.activity_events ADD COLUMN IF NOT EXISTS redaction_status LowCardinality(String)`,
-		`ALTER TABLE ` + database + `.activity_events ADD COLUMN IF NOT EXISTS redaction_version String`,
-		`ALTER TABLE ` + database + `.event_links ADD COLUMN IF NOT EXISTS link_scope LowCardinality(String)`,
-		`ALTER TABLE ` + database + `.event_links ADD COLUMN IF NOT EXISTS resolution_status LowCardinality(String)`,
-		`ALTER TABLE ` + database + `.event_links ADD COLUMN IF NOT EXISTS session_id String`,
-		`ALTER TABLE ` + database + `.event_links ADD COLUMN IF NOT EXISTS raw_session_id String`,
-		`ALTER TABLE ` + database + `.event_links ADD COLUMN IF NOT EXISTS linked_session_id String`,
-		`ALTER TABLE ` + database + `.event_links ADD COLUMN IF NOT EXISTS raw_linked_session_id String`,
-		`ALTER TABLE ` + database + `.event_links ADD COLUMN IF NOT EXISTS raw_linked_event_id String`,
-		`ALTER TABLE ` + database + `.event_links ADD COLUMN IF NOT EXISTS collector_id String`,
-		`ALTER TABLE ` + database + `.event_links ADD COLUMN IF NOT EXISTS source_id String`,
-		`ALTER TABLE ` + database + `.event_links ADD COLUMN IF NOT EXISTS batch_id String`,
-		`ALTER TABLE ` + database + `.event_links ADD COLUMN IF NOT EXISTS control_plane_epoch String`,
-		`ALTER TABLE ` + database + `.tool_payloads ADD COLUMN IF NOT EXISTS collector_id String`,
-		`ALTER TABLE ` + database + `.tool_payloads ADD COLUMN IF NOT EXISTS source_id String`,
-		`ALTER TABLE ` + database + `.tool_payloads ADD COLUMN IF NOT EXISTS batch_id String`,
-		`ALTER TABLE ` + database + `.tool_payloads ADD COLUMN IF NOT EXISTS control_plane_epoch String`,
-		`ALTER TABLE ` + database + `.tool_payloads ADD COLUMN IF NOT EXISTS payload_digest String`,
-		`ALTER TABLE ` + database + `.tool_payloads ADD COLUMN IF NOT EXISTS redaction_status LowCardinality(String)`,
-		`ALTER TABLE ` + database + `.tool_payloads ADD COLUMN IF NOT EXISTS redaction_version String`,
-	}
-	for _, stmt := range statements {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("migrate Beacon ClickHouse schema v1 to v2: %w", err)
 		}
 	}
 	return writeSchemaVersion(ctx, db, database)

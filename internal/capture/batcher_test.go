@@ -97,14 +97,92 @@ func TestBuildInsertRowBatchSyntheticSourceEventIndexAndUnresolvedLink(t *testin
 		Sources:     map[string]FleetSourceIdentity{"claude": {SourceID: "source-claude-a"}},
 	})
 
-	if got := batch.ActivityEvents[0].SourceEventIndex; got != 700000 {
-		t.Fatalf("source event index = %d, want line-derived synthetic index", got)
+	if got := batch.ActivityEvents[0].SourceEventIndex; got == 0 {
+		t.Fatal("source event index is empty, want deterministic synthetic index")
 	}
 	if len(batch.EventLinks) != 1 {
 		t.Fatalf("event links = %d, want one unresolved parent link", len(batch.EventLinks))
 	}
 	link := batch.EventLinks[0]
-	if link.RawLinkedEventID != "missing-parent" || link.ResolutionStatus != "unresolved" || link.LinkScope != "same_session" {
+	if link.RawLinkedEventID != "missing-parent" || link.ResolutionStatus != "unresolved" ||
+		link.LinkScope != "same_session" || link.LinkedEventUID != "" {
 		t.Fatalf("link identity = %#v, want unresolved same-session raw parent", link)
+	}
+}
+
+func TestBuildInsertRowBatchSubeventIdentityIsFlushIndependent(t *testing.T) {
+	base := NormalizedEvent{
+		SessionID:    "raw-session",
+		RawSessionID: "raw-session",
+		RawEventID:   "row-1",
+		SourceName:   "hermes",
+		SourceFile:   "state.db",
+		SourceLineNo: 42,
+		SourceOffset: 100,
+		RawPayload:   `{"row":1}`,
+	}
+	message := base
+	message.EventKind = "message"
+	message.TextContent = "assistant text"
+	tool := base
+	tool.EventKind = "tool_call"
+	tool.ToolPhase = "call"
+	tool.ToolName = "bash"
+	tool.ToolUseID = "tool-1"
+	tool.TextContent = "bash"
+	identity := FleetIdentity{
+		CollectorID: "collector-a",
+		Sources:     map[string]FleetSourceIdentity{"hermes": {SourceID: "source-hermes-a"}},
+	}
+
+	together := buildInsertRowBatch([]NormalizedEvent{message, tool}, 0, 0, identity)
+	messageOnly := buildInsertRowBatch([]NormalizedEvent{message}, 0, 0, identity)
+	toolOnly := buildInsertRowBatch([]NormalizedEvent{tool}, 0, 0, identity)
+
+	if together.ActivityEvents[0].EventUID != messageOnly.ActivityEvents[0].EventUID {
+		t.Fatalf("message UID changed across flush shape: %q vs %q", together.ActivityEvents[0].EventUID, messageOnly.ActivityEvents[0].EventUID)
+	}
+	if together.ActivityEvents[1].EventUID != toolOnly.ActivityEvents[0].EventUID {
+		t.Fatalf("tool UID changed across flush shape: %q vs %q", together.ActivityEvents[1].EventUID, toolOnly.ActivityEvents[0].EventUID)
+	}
+	if together.ActivityEvents[0].EventUID == together.ActivityEvents[1].EventUID {
+		t.Fatalf("distinct subevents collapsed to one UID: %q", together.ActivityEvents[0].EventUID)
+	}
+	if together.ActivityEvents[0].SourceEventIndex == together.ActivityEvents[1].SourceEventIndex {
+		t.Fatalf("distinct subevents share source_event_index: %#v", together.ActivityEvents)
+	}
+}
+
+func TestBuildInsertRowBatchParentLinksResolveOutOfOrder(t *testing.T) {
+	child := NormalizedEvent{
+		SessionID:        "raw-session",
+		RawSessionID:     "raw-session",
+		RawEventID:       "child-raw",
+		RawLinkedEventID: "parent-raw",
+		SourceName:       "claude",
+		EventKind:        "message",
+		SourceLineNo:     8,
+		RawPayload:       `{"uuid":"child-raw","parentUuid":"parent-raw"}`,
+	}
+	parent := NormalizedEvent{
+		SessionID:    "raw-session",
+		RawSessionID: "raw-session",
+		RawEventID:   "parent-raw",
+		SourceName:   "claude",
+		EventKind:    "message",
+		SourceLineNo: 7,
+		RawPayload:   `{"uuid":"parent-raw"}`,
+	}
+	batch := buildInsertRowBatch([]NormalizedEvent{child, parent}, 0, 0, FleetIdentity{
+		CollectorID: "collector-a",
+		Sources:     map[string]FleetSourceIdentity{"claude": {SourceID: "source-claude-a"}},
+	})
+
+	if len(batch.EventLinks) != 1 {
+		t.Fatalf("event links = %d, want one parent link", len(batch.EventLinks))
+	}
+	link := batch.EventLinks[0]
+	if link.ResolutionStatus != "resolved" || link.LinkedEventUID != batch.ActivityEvents[1].EventUID {
+		t.Fatalf("link = %#v, want resolved link to later parent %q", link, batch.ActivityEvents[1].EventUID)
 	}
 }

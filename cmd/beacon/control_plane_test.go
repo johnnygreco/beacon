@@ -77,3 +77,24 @@ func TestInitializeControlPlaneCreatesSnapshot(t *testing.T) {
 		t.Fatalf("snapshot = %#v, want one node, collector, and source", snapshot)
 	}
 }
+
+func TestCaptureFleetIdentityOnlyUsesLocalCollectorSources(t *testing.T) {
+	snapshot := &controlplane.Snapshot{
+		LocalNodeID:      "node-local",
+		LocalCollectorID: "collector-local",
+		SchemaEpoch:      "7",
+		Sources: []controlplane.Source{
+			{ID: "source-remote", CollectorID: "collector-remote", Name: "codex"},
+			{ID: "source-local", CollectorID: "collector-local", Name: "codex"},
+		},
+	}
+
+	identity := captureFleetIdentity(snapshot)
+	source := identity.Sources["codex"]
+	if identity.NodeID != "node-local" || identity.CollectorID != "collector-local" || identity.ControlPlaneEpoch != "7" {
+		t.Fatalf("identity = %#v, want local node/collector/epoch", identity)
+	}
+	if source.SourceID != "source-local" {
+		t.Fatalf("source identity = %#v, want local collector source", source)
+	}
+}

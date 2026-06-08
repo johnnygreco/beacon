@@ -21,14 +21,14 @@ tables before ingest starts. `store.OpenReadOnly` does not run migrations, but i
 still requires the current schema version marker before serving read-only tools.
 
 The current schema version is recorded in the `schema_version` table. Fresh
-empty databases are initialized to the current version. Schema v1 databases are
-upgraded to v2 with additive fleet-identity columns before ingest starts.
-Databases with Beacon tables but no version marker, an empty version marker, or
-an unsupported version fail with reset guidance.
+empty databases are initialized to the current version. Databases with Beacon
+tables but no version marker, an empty version marker, or an unsupported version
+fail with reset guidance before ingest starts.
 
-Migrations are intentionally simple: they create the current schema, apply the
-small set of supported additive upgrades, and record the supported schema
-version.
+Migrations are intentionally simple: they create the current schema and record
+the supported schema version. Beacon does not mix old local identity layouts
+with the current fleet-aware identity schema; reset and reimport when changing
+between incompatible schema versions.
 
 ## Schema ownership
 
