@@ -243,6 +243,34 @@ func TestOpenRejectsSQLiteDSNPath(t *testing.T) {
 	}
 }
 
+func TestOpenRejectsMetadataSidecarSymlink(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), ".beacon")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatalf("create metadata dir: %v", err)
+	}
+	path := filepath.Join(dir, "control-plane.db")
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, []byte("target"), 0644); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	if err := os.Chmod(target, 0644); err != nil {
+		t.Fatalf("chmod target: %v", err)
+	}
+	if err := os.Symlink(target, path+"-wal"); err != nil {
+		t.Fatalf("create sidecar symlink: %v", err)
+	}
+
+	store, err := Open(path)
+	if err == nil {
+		store.Close()
+		t.Fatal("Open returned nil error for sidecar symlink")
+	}
+	if !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("Open error = %v, want symlink rejection", err)
+	}
+	assertMode(t, target, 0644)
+}
+
 func TestMetadataStoreSurvivesCapturedDataResetBoundary(t *testing.T) {
 	home := t.TempDir()
 	metadataPath := filepath.Join(home, ".beacon", "control-plane.db")

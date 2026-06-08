@@ -318,7 +318,20 @@ func shouldSecureMetadataDir(dir string, dirExisted bool) bool {
 
 func restrictMetadataFiles(path string) error {
 	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
-		if err := os.Chmod(candidate, 0600); err != nil && !errors.Is(err, os.ErrNotExist) {
+		info, err := os.Lstat(candidate)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect control-plane metadata file %q: %w", candidate, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("control-plane metadata file %q must not be a symlink", candidate)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("control-plane metadata file %q must be a regular file", candidate)
+		}
+		if err := os.Chmod(candidate, 0600); err != nil {
 			return fmt.Errorf("secure control-plane metadata file %q: %w", candidate, err)
 		}
 	}
