@@ -49,6 +49,19 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println()
 
+	if snapshot, err := controlPlaneStatus(cmd.Context(), cfg); err != nil {
+		fmt.Printf("Control Plane: unavailable (%v)\n", err)
+	} else {
+		fmt.Printf("Control Plane: schema_epoch=%s metadata=%s nodes=%d collectors=%d sources=%d\n",
+			snapshot.SchemaEpoch,
+			snapshot.Path,
+			len(snapshot.Nodes),
+			len(snapshot.Collectors),
+			len(snapshot.Sources),
+		)
+	}
+	fmt.Println()
+
 	// Store stats
 	opts := storeOptionsFromConfig(cfg)
 	ch, err := statusOpenStore(cmd.Context(), opts)
