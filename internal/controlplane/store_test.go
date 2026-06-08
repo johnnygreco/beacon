@@ -117,6 +117,95 @@ func TestEnsureLocalAssignsDeterministicLocalIDs(t *testing.T) {
 	}
 }
 
+func TestEnsureLocalKeepsGeneratedIDsWhenDisplayNameChanges(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+
+	first, err := store.EnsureLocal(context.Background(), Bootstrap{
+		NodeName: "Workstation A",
+		Sources:  []SourceRegistration{{Name: "codex", Runtime: "codex", Provider: "openai", Format: "jsonl", WatchRoot: "/tmp/codex"}},
+	})
+	if err != nil {
+		t.Fatalf("EnsureLocal first: %v", err)
+	}
+	second, err := store.EnsureLocal(context.Background(), Bootstrap{
+		NodeName: "Workstation B",
+		Sources:  []SourceRegistration{{Name: "codex", Runtime: "codex", Provider: "openai", Format: "jsonl", WatchRoot: "/tmp/codex"}},
+	})
+	if err != nil {
+		t.Fatalf("EnsureLocal second: %v", err)
+	}
+	if first.Nodes[0].ID != second.Nodes[0].ID || first.Collectors[0].ID != second.Collectors[0].ID || first.Sources[0].ID != second.Sources[0].ID {
+		t.Fatalf("identity changed after display-name update: %#v -> %#v", first, second)
+	}
+	if second.Nodes[0].DisplayName != "Workstation B" || second.Collectors[0].DisplayName != "Workstation B" {
+		t.Fatalf("display names not updated: nodes=%#v collectors=%#v", second.Nodes, second.Collectors)
+	}
+}
+
+func TestEnsureLocalReconcilesRemovedSources(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+
+	boot := Bootstrap{
+		NodeID:      "node-local",
+		NodeName:    "Local",
+		CollectorID: "collector-local",
+		Sources: []SourceRegistration{
+			{Name: "codex", Runtime: "codex", Provider: "openai", Format: "jsonl", WatchRoot: "/tmp/codex"},
+			{Name: "claude", Runtime: "claude-code", Provider: "anthropic", Format: "jsonl", WatchRoot: "/tmp/claude"},
+		},
+	}
+	if _, err := store.EnsureLocal(context.Background(), boot); err != nil {
+		t.Fatalf("EnsureLocal first: %v", err)
+	}
+	boot.Sources = boot.Sources[:1]
+	snapshot, err := store.EnsureLocal(context.Background(), boot)
+	if err != nil {
+		t.Fatalf("EnsureLocal second: %v", err)
+	}
+	if len(snapshot.Sources) != 1 || snapshot.Sources[0].Name != "codex" {
+		t.Fatalf("sources after reconcile = %#v, want only codex", snapshot.Sources)
+	}
+}
+
+func TestOpenRestrictsExistingPermissiveMetadataPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "metadata")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("create metadata dir: %v", err)
+	}
+	path := filepath.Join(dir, "control-plane.db")
+
+	store, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if _, err := store.EnsureLocal(context.Background(), Bootstrap{
+		NodeID:      "node-local",
+		NodeName:    "Local",
+		CollectorID: "collector-local",
+		Sources:     []SourceRegistration{{Name: "codex", Runtime: "codex", Provider: "openai", Format: "jsonl", WatchRoot: "/tmp/codex"}},
+	}); err != nil {
+		t.Fatalf("EnsureLocal: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	assertMode(t, dir, 0700)
+	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+		if _, err := os.Stat(candidate); err == nil {
+			assertMode(t, candidate, 0600)
+		}
+	}
+}
+
 func TestMetadataStoreSurvivesCapturedDataResetBoundary(t *testing.T) {
 	home := t.TempDir()
 	metadataPath := filepath.Join(home, ".beacon", "control-plane.db")
@@ -160,5 +249,16 @@ func TestMetadataStoreSurvivesCapturedDataResetBoundary(t *testing.T) {
 	}
 	if len(snapshot.Collectors) != 1 || snapshot.Collectors[0].ID != "collector-local" {
 		t.Fatalf("collector metadata lost after captured-data reset boundary: %#v", snapshot.Collectors)
+	}
+}
+
+func assertMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("mode %s = %v, want %v", path, got, want)
 	}
 }

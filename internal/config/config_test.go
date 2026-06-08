@@ -114,7 +114,7 @@ reconcile_interval = "45s"
 name = " Workstation A "
 
 [fleet]
-role = "collector"
+role = "both"
 metadata_path = "~/custom-control-plane.db"
 control_plane_url = "https://beacon.example"
 node_id = "node.mac-mini"
@@ -167,8 +167,8 @@ format = "jsonl"
 	if cfg.Dashboard.Name != "Workstation A" {
 		t.Errorf("Dashboard.Name = %q, want %q", cfg.Dashboard.Name, "Workstation A")
 	}
-	if cfg.Fleet.Role != FleetRoleCollector {
-		t.Errorf("Fleet.Role = %q, want %q", cfg.Fleet.Role, FleetRoleCollector)
+	if cfg.Fleet.Role != FleetRoleBoth {
+		t.Errorf("Fleet.Role = %q, want %q", cfg.Fleet.Role, FleetRoleBoth)
 	}
 	if cfg.Fleet.MetadataPath != filepath.Join(os.Getenv("HOME"), "custom-control-plane.db") {
 		t.Errorf("Fleet.MetadataPath = %q, want expanded custom path", cfg.Fleet.MetadataPath)
@@ -336,13 +336,28 @@ func TestLoad_InvalidValues(t *testing.T) {
 			wantErr: "fleet.metadata_path is required",
 		},
 		{
-			name:    "fleet collector url required",
+			name:    "fleet metadata path relative",
+			body:    "[fleet]\nmetadata_path = \"control-plane.db\"\n",
+			wantErr: "fleet.metadata_path must be absolute",
+		},
+		{
+			name:    "fleet metadata path memory",
+			body:    "[fleet]\nmetadata_path = \":memory:\"\n",
+			wantErr: "fleet.metadata_path must be a durable filesystem path",
+		},
+		{
+			name:    "fleet metadata path uri",
+			body:    "[fleet]\nmetadata_path = \"file:/tmp/control-plane.db?mode=memory\"\n",
+			wantErr: "fleet.metadata_path must be a durable filesystem path",
+		},
+		{
+			name:    "fleet collector role reserved",
 			body:    "[fleet]\nrole = \"collector\"\n",
-			wantErr: "fleet.control_plane_url is required",
+			wantErr: `fleet.role "collector" is reserved`,
 		},
 		{
 			name:    "fleet collector url scheme",
-			body:    "[fleet]\nrole = \"collector\"\ncontrol_plane_url = \"ssh://beacon.example\"\n",
+			body:    "[fleet]\ncontrol_plane_url = \"ssh://beacon.example\"\n",
 			wantErr: "fleet.control_plane_url must use http or https",
 		},
 		{

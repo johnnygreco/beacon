@@ -23,12 +23,25 @@ Beacon can store the following content from configured capture sources:
   and timing data;
 - capture checkpoints and capture errors used to replay files safely.
 
+Beacon also stores a small control-plane metadata database containing the local
+owner instance ID, schema epoch, node and collector IDs, source names, runtime
+metadata, platform, hostname, and configured source roots. This metadata is
+separate from captured ClickHouse data so reset/replay coordination can keep
+stable local identity.
+
 The ClickHouse schema and table ownership are documented in
 [clickhouse.md](clickhouse.md).
 
 ## Storage locations
 
 Beacon's default config file is `~/.beacon/beacon.toml`.
+
+Beacon's default control-plane metadata database is
+`~/.beacon/control-plane.db`, with SQLite sidecar files such as
+`~/.beacon/control-plane.db-wal` and `~/.beacon/control-plane.db-shm` when SQLite
+uses WAL mode. Beacon creates these files owner-readable only. `beacon status`
+reports the metadata path, schema epoch, and counts for nodes, collectors, and
+sources when the metadata store has been initialized.
 
 When Beacon manages native ClickHouse, local database files are under
 `~/.beacon/clickhouse`, including:
@@ -69,10 +82,10 @@ Current cleanup options:
 
 - `beacon db reset --force` drops and recreates Beacon-owned ClickHouse tables in
   the configured database. This deletes Beacon data from those tables but does
-  not remove original agent session files.
+  not remove original agent session files or the control-plane metadata database.
 - `curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh`
   removes the installed `beacon` binary and deletes `~/.beacon`, including
-  Beacon-managed native ClickHouse data.
+  Beacon-managed native ClickHouse data and the control-plane metadata database.
 - For Docker ClickHouse, `beacon db reset --force` deletes Beacon table data.
   Removing the Docker volume `beacon-clickhouse-data` is a separate Docker
   operation and is destructive to that volume.

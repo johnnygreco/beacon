@@ -395,7 +395,9 @@ func validateSources(sources []SourceConfig) error {
 func validateFleet(fleet *FleetConfig) error {
 	fleet.Role = strings.TrimSpace(fleet.Role)
 	switch fleet.Role {
-	case FleetRoleBoth, FleetRoleControlPlane, FleetRoleCollector:
+	case FleetRoleBoth:
+	case FleetRoleControlPlane, FleetRoleCollector:
+		return fmt.Errorf("fleet.role %q is reserved until dedicated control-plane and collector modes are implemented; use %q", fleet.Role, FleetRoleBoth)
 	default:
 		return fmt.Errorf("fleet.role must be one of %q, %q, or %q", FleetRoleBoth, FleetRoleControlPlane, FleetRoleCollector)
 	}
@@ -404,6 +406,13 @@ func validateFleet(fleet *FleetConfig) error {
 	if fleet.MetadataPath == "" {
 		return fmt.Errorf("fleet.metadata_path is required")
 	}
+	if isSQLiteSpecialPath(fleet.MetadataPath) {
+		return fmt.Errorf("fleet.metadata_path must be a durable filesystem path, not a SQLite DSN")
+	}
+	if !filepath.IsAbs(fleet.MetadataPath) {
+		return fmt.Errorf("fleet.metadata_path must be absolute")
+	}
+	fleet.MetadataPath = filepath.Clean(fleet.MetadataPath)
 
 	fleet.ControlPlaneURL = strings.TrimSpace(fleet.ControlPlaneURL)
 	if fleet.ControlPlaneURL != "" {
@@ -414,9 +423,6 @@ func validateFleet(fleet *FleetConfig) error {
 		if parsed.Scheme != "http" && parsed.Scheme != "https" {
 			return fmt.Errorf("fleet.control_plane_url must use http or https")
 		}
-	}
-	if fleet.Role == FleetRoleCollector && fleet.ControlPlaneURL == "" {
-		return fmt.Errorf("fleet.control_plane_url is required when fleet.role is %q", FleetRoleCollector)
 	}
 
 	fleet.NodeID = strings.TrimSpace(fleet.NodeID)
@@ -432,6 +438,11 @@ func validateFleet(fleet *FleetConfig) error {
 		return fmt.Errorf("fleet.collector_id %q must match %s", fleet.CollectorID, fleetIDPattern.String())
 	}
 	return nil
+}
+
+func isSQLiteSpecialPath(path string) bool {
+	lower := strings.ToLower(strings.TrimSpace(path))
+	return lower == ":memory:" || strings.HasPrefix(lower, "file:")
 }
 
 func expandHomePath(path string) string {

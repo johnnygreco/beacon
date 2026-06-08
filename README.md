@@ -151,6 +151,11 @@ secure = false
 [dashboard]
 name = "Workstation A"
 
+[fleet]
+role = "both"
+metadata_path = "~/.beacon/control-plane.db"
+node_name = "Workstation A"
+
 [[capture.sources]]
 name = "codex"
 runtime = "codex"
@@ -170,6 +175,14 @@ Set `[dashboard].name` when you run Beacon dashboards for multiple machines or
 workspaces. The configured name becomes the dashboard heading and browser tab
 title; the heading can also be renamed locally from the dashboard without
 editing the config file.
+
+Beacon also keeps a small durable control-plane metadata database at
+`[fleet].metadata_path`, defaulting to `~/.beacon/control-plane.db`. It records
+the local owner instance, schema epoch, node, collector, and source assignments
+so future multi-machine collector features have stable identity outside
+ClickHouse table reset. In this release, keep `[fleet].role = "both"`; dedicated
+collector and control-plane modes are reserved for the multi-machine follow-up
+work.
 
 If `[database].addrs` points to a remote ClickHouse host, Beacon will not start ClickHouse for you. Start the database yourself and run `beacon db migrate`.
 

@@ -83,8 +83,8 @@ func Open(path string) (*Store, error) {
 	if path == "" {
 		return nil, fmt.Errorf("control-plane metadata path is required")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return nil, fmt.Errorf("create control-plane metadata directory: %w", err)
+	if err := prepareMetadataFile(path); err != nil {
+		return nil, err
 	}
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
@@ -97,6 +97,10 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	if err := s.migrate(context.Background()); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := restrictMetadataFiles(path); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -138,11 +142,23 @@ func (s *Store) EnsureLocal(ctx context.Context, boot Bootstrap) (*Snapshot, err
 	}
 	defer tx.Rollback()
 
-	if err := ensureMetadata(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
+	if _, err := ensureMetadataValue(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
 		return nil, err
 	}
-	if err := ensureMetadata(ctx, tx, "schema_epoch", InitialSchemaEpoch, now); err != nil {
+	if _, err := ensureMetadataValue(ctx, tx, "schema_epoch", InitialSchemaEpoch, now); err != nil {
 		return nil, err
+	}
+	if boot.NodeID == "" {
+		boot.NodeID, err = ensureMetadataValue(ctx, tx, "local_node_id", generatedID("node"), now)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if boot.CollectorID == "" {
+		boot.CollectorID, err = ensureMetadataValue(ctx, tx, "local_collector_id", generatedID("collector"), now)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := upsertNode(ctx, tx, boot, now); err != nil {
 		return nil, err
@@ -155,8 +171,14 @@ func (s *Store) EnsureLocal(ctx context.Context, boot Bootstrap) (*Snapshot, err
 			return nil, err
 		}
 	}
+	if err := reconcileSources(ctx, tx, boot.CollectorID, boot.Sources); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit control-plane metadata: %w", err)
+	}
+	if err := restrictMetadataFiles(s.path); err != nil {
+		return nil, err
 	}
 	return s.Snapshot(ctx)
 }
@@ -245,9 +267,9 @@ func (s *Store) migrate(ctx context.Context) error {
 func normalizeBootstrap(boot Bootstrap) Bootstrap {
 	hostname := localHostname()
 	boot.NodeName = firstNonEmpty(boot.NodeName, hostname, "local")
-	boot.NodeID = firstNonEmpty(boot.NodeID, stableID("node", boot.NodeName, hostname))
+	boot.NodeID = strings.TrimSpace(boot.NodeID)
 	boot.CollectorName = firstNonEmpty(boot.CollectorName, boot.NodeName)
-	boot.CollectorID = firstNonEmpty(boot.CollectorID, stableID("collector", boot.NodeID, "local"))
+	boot.CollectorID = strings.TrimSpace(boot.CollectorID)
 	for i := range boot.Sources {
 		boot.Sources[i].Name = strings.TrimSpace(boot.Sources[i].Name)
 		boot.Sources[i].Runtime = strings.TrimSpace(boot.Sources[i].Runtime)
@@ -258,16 +280,50 @@ func normalizeBootstrap(boot Bootstrap) Bootstrap {
 	return boot
 }
 
-func ensureMetadata(ctx context.Context, tx *sql.Tx, key, value string, now time.Time) error {
+func prepareMetadataFile(path string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("create control-plane metadata directory: %w", err)
+	}
+	if err := os.Chmod(dir, 0700); err != nil {
+		return fmt.Errorf("secure control-plane metadata directory: %w", err)
+	}
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("control-plane metadata path %q must not be a symlink", path)
+	}
+	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0600)
+	if err != nil {
+		return fmt.Errorf("create control-plane metadata file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close control-plane metadata file: %w", err)
+	}
+	return restrictMetadataFiles(path)
+}
+
+func restrictMetadataFiles(path string) error {
+	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Chmod(candidate, 0600); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("secure control-plane metadata file %q: %w", candidate, err)
+		}
+	}
+	return nil
+}
+
+func ensureMetadataValue(ctx context.Context, tx *sql.Tx, key, value string, now time.Time) (string, error) {
 	if _, err := tx.ExecContext(ctx,
 		`INSERT OR IGNORE INTO metadata (key, value, updated_at) VALUES (?, ?, ?)`,
 		key,
 		value,
 		formatTime(now),
 	); err != nil {
-		return fmt.Errorf("ensure metadata %q: %w", key, err)
+		return "", fmt.Errorf("ensure metadata %q: %w", key, err)
 	}
-	return nil
+	var stored string
+	if err := tx.QueryRowContext(ctx, `SELECT value FROM metadata WHERE key = ?`, key).Scan(&stored); err != nil {
+		return "", fmt.Errorf("read metadata %q: %w", key, err)
+	}
+	return stored, nil
 }
 
 func upsertNode(ctx context.Context, tx *sql.Tx, boot Bootstrap, now time.Time) error {
@@ -364,6 +420,27 @@ func upsertSource(ctx context.Context, tx *sql.Tx, collectorID string, source So
 		formatTime(now),
 	); err != nil {
 		return fmt.Errorf("upsert source %q: %w", source.Name, err)
+	}
+	return nil
+}
+
+func reconcileSources(ctx context.Context, tx *sql.Tx, collectorID string, sources []SourceRegistration) error {
+	if len(sources) == 0 {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM sources WHERE collector_id = ?`, collectorID); err != nil {
+			return fmt.Errorf("reconcile sources for collector %q: %w", collectorID, err)
+		}
+		return nil
+	}
+	ids := make([]string, 0, len(sources))
+	args := make([]any, 0, len(sources)+1)
+	args = append(args, collectorID)
+	for _, source := range sources {
+		ids = append(ids, "?")
+		args = append(args, stableID("source", collectorID, source.Name))
+	}
+	query := fmt.Sprintf(`DELETE FROM sources WHERE collector_id = ? AND source_id NOT IN (%s)`, strings.Join(ids, ","))
+	if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+		return fmt.Errorf("reconcile sources for collector %q: %w", collectorID, err)
 	}
 	return nil
 }
