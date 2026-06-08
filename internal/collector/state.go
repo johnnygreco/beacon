@@ -158,6 +158,40 @@ func (s *StateStore) MarkSpooledBatch(sequence, nextSequence uint64, checkpoints
 	return nil
 }
 
+func (s *StateStore) UnmarkSpooledBatch(sequence uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sequence = normalizedSequence(sequence)
+	ackedNext := normalizedSequence(s.AckedNextSequence)
+	next := ackedNext
+	acked := cloneCheckpointMap(s.Checkpoints)
+	spooledBatches := cloneCheckpointBatchMap(s.SpooledBatchCheckpoints)
+	delete(spooledBatches, sequenceKey(sequence))
+	spooled := checkpointsFromBatches(spooledBatches)
+	for key := range spooledBatches {
+		batchSequence, err := strconv.ParseUint(key, 10, 64)
+		if err == nil && batchSequence >= next {
+			next = batchSequence + 1
+		}
+	}
+	if err := s.saveDataLocked(s.ControlPlaneEpoch, next, ackedNext, acked, spooled, spooledBatches); err != nil {
+		return err
+	}
+	s.NextSequence = next
+	s.AckedNextSequence = ackedNext
+	s.Checkpoints = acked
+	s.SpooledCheckpoints = spooled
+	s.SpooledBatchCheckpoints = spooledBatches
+	return nil
+}
+
+func (s *StateStore) HasSpooledBatch(sequence uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.SpooledBatchCheckpoints[sequenceKey(sequence)]
+	return ok
+}
+
 func (s *StateStore) MarkAcked(nextSequence uint64, checkpoints []models.Checkpoint) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -205,9 +239,6 @@ func (s *StateStore) MarkBatchAcked(nextSequence, sequence uint64, fallbackCheck
 	spooled := cloneCheckpointMap(s.SpooledCheckpoints)
 	spooledBatches := cloneCheckpointBatchMap(s.SpooledBatchCheckpoints)
 	checkpoints := spooledBatches[sequenceKey(sequence)]
-	if len(checkpoints) == 0 {
-		checkpoints = fallbackCheckpoints
-	}
 	applyAckedCheckpoints(acked, spooled, checkpoints)
 	delete(spooledBatches, sequenceKey(sequence))
 	deleteAckedBatchCheckpoints(spooledBatches, nextSequence)
@@ -267,9 +298,6 @@ func (s *StateStore) ReplaceSpooledBatches(nextSequence uint64, active []SpoolBa
 	for _, batch := range active {
 		key := sequenceKey(batch.Request.Sequence)
 		checkpoints := existingBatches[key]
-		if len(checkpoints) == 0 {
-			checkpoints = batch.Request.Checkpoints
-		}
 		spooledBatches[key] = cloneCheckpointSlice(checkpoints)
 		for _, checkpoint := range checkpoints {
 			if checkpoint.SourceFile == "" {
@@ -287,6 +315,19 @@ func (s *StateStore) ReplaceSpooledBatches(nextSequence uint64, active []SpoolBa
 	s.SpooledCheckpoints = spooled
 	s.SpooledBatchCheckpoints = spooledBatches
 	return nil
+}
+
+func checkpointsFromBatches(batches map[string][]models.Checkpoint) map[string]models.Checkpoint {
+	spooled := make(map[string]models.Checkpoint)
+	for _, checkpoints := range batches {
+		for _, checkpoint := range checkpoints {
+			if checkpoint.SourceFile == "" {
+				continue
+			}
+			spooled[checkpointKey(checkpoint.SourceName, checkpoint.SourceFile)] = checkpoint
+		}
+	}
+	return spooled
 }
 
 func (s *StateStore) Checkpoint(sourceName, sourceFile string) *models.Checkpoint {

@@ -66,6 +66,9 @@ func RedactCheckpoint(checkpoint models.Checkpoint, policy *redaction.Policy) mo
 	if policy == nil {
 		policy = redaction.DefaultPolicy()
 	}
+	if checkpoint.SourceFileKey == "" {
+		checkpoint.SourceFileKey = models.CheckpointSourceFileKey(checkpoint.SourceName, checkpoint.SourceFile)
+	}
 	checkpoint.SourceFile = policy.RedactPath(checkpoint.SourceFile)
 	checkpoint.StateJSON = policy.Redact(checkpoint.StateJSON)
 	return checkpoint

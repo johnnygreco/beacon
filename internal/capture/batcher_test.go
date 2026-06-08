@@ -69,6 +69,7 @@ func TestRedactCaptureErrorsAndCheckpointsCoverStoredFields(t *testing.T) {
 		ContextFragment: "Bearer fragment-secret",
 	}}, policy)
 	checkpoints := RedactCheckpoints([]models.Checkpoint{{
+		SourceName: "codex",
 		SourceFile: "/Users/example/private/session.jsonl",
 		StateJSON:  `{"api_key":"state-secret","path":"/Users/example/private/session.jsonl"}`,
 	}}, policy)
@@ -81,6 +82,9 @@ func TestRedactCaptureErrorsAndCheckpointsCoverStoredFields(t *testing.T) {
 	}
 	if !strings.Contains(got, redaction.PathMarker) || !strings.Contains(got, redaction.SecretMarker) {
 		t.Fatalf("redacted rows missing expected markers: %s", got)
+	}
+	if want := models.CheckpointSourceFileKey("codex", "/Users/example/private/session.jsonl"); checkpoints[0].SourceFileKey != want {
+		t.Fatalf("checkpoint source file key = %q, want %q", checkpoints[0].SourceFileKey, want)
 	}
 }
 

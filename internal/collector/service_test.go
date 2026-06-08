@@ -51,9 +51,7 @@ func TestServiceRetryKeepsPendingUntilAckAndThenAdvancesCheckpoint(t *testing.T)
 		LastOffset:  10,
 		LastLineNo:  1,
 	}}
-	if _, err := service.cfg.Spool.WritePending(context.Background(), req); err != nil {
-		t.Fatalf("WritePending: %v", err)
-	}
+	writePendingWithPrivateState(t, service, req)
 
 	if err := service.SendPending(context.Background()); err == nil {
 		t.Fatal("first SendPending returned nil, want retryable outage")
@@ -101,16 +99,11 @@ func TestServiceSendPendingRequeuesInflightBeforeLaterPending(t *testing.T) {
 	}))
 	defer server.Close()
 	service, _, _ := newTestService(t, server.URL, 1<<20)
-	first, err := service.cfg.Spool.WritePending(context.Background(), testBatchRequest(t, 1, "batch-inflight"))
-	if err != nil {
-		t.Fatalf("WritePending first: %v", err)
-	}
+	first := writePendingWithPrivateState(t, service, testBatchRequest(t, 1, "batch-inflight"))
 	if _, err := service.cfg.Spool.MarkInflight(*first); err != nil {
 		t.Fatalf("MarkInflight: %v", err)
 	}
-	if _, err := service.cfg.Spool.WritePending(context.Background(), testBatchRequest(t, 2, "batch-pending")); err != nil {
-		t.Fatalf("WritePending second: %v", err)
-	}
+	writePendingWithPrivateState(t, service, testBatchRequest(t, 2, "batch-pending"))
 
 	if err := service.SendPending(context.Background()); err != nil {
 		t.Fatalf("SendPending: %v", err)
@@ -131,9 +124,7 @@ func TestServiceSendPendingPausesWhenCorruptEarlierBatchIsQuarantined(t *testing
 	if err := os.WriteFile(corruptPath, []byte("{"), 0600); err != nil {
 		t.Fatalf("write corrupt pending spool file: %v", err)
 	}
-	if _, err := service.cfg.Spool.WritePending(context.Background(), testBatchRequest(t, 2, "batch-pending")); err != nil {
-		t.Fatalf("WritePending second: %v", err)
-	}
+	writePendingWithPrivateState(t, service, testBatchRequest(t, 2, "batch-pending"))
 
 	if err := service.SendPending(context.Background()); err != nil {
 		t.Fatalf("SendPending: %v", err)
@@ -185,6 +176,9 @@ func TestServiceSpoolFullPausesBeforeCheckpointAndSequenceAdvance(t *testing.T) 
 	}
 	if cp := state.Checkpoint("codex", file); cp != nil {
 		t.Fatalf("checkpoint advanced while spool full: %#v", cp)
+	}
+	if cp := state.SpooledCheckpoint("codex", file); cp != nil {
+		t.Fatalf("spooled checkpoint survived spool-full rollback: %#v", cp)
 	}
 	status := service.Status()
 	if !status.BlockedSpoolFull {
@@ -239,6 +233,58 @@ func TestServiceRedactsBeforeCollectorSpoolAndPreservesInternalCheckpointPath(t 
 	}
 	if cp := state.SpooledCheckpoint("codex", file); cp == nil || cp.SourceFile != file || cp.LastLineNo != 1 {
 		t.Fatalf("internal spooled checkpoint = %#v, want original source path %q", cp, file)
+	}
+}
+
+func TestServiceRecoverDiscardsSpoolBatchWithoutPrivateCheckpointState(t *testing.T) {
+	service, state, file := newTestServiceWithLines(t, "http://127.0.0.1:1", 1<<20, 500, []string{
+		`{"msg":"api_key=first"}`,
+		`{"msg":"api_key=second"}`,
+	})
+	policy := redaction.NewPolicy(redaction.Config{PathMasks: []string{filepath.Dir(file)}})
+	service.cfg.RedactionPolicy = policy
+	src := service.cfg.Sources[0]
+	result, err := capture.ReadSourceFileWindow(context.Background(), src, file, nil, nil, 500, policy)
+	if err != nil {
+		t.Fatalf("ReadSourceFileWindow: %v", err)
+	}
+	checkpoints := enrichCollectorCheckpoints(result.Checkpoint, service.cfg.Identity, src.Name, "source-test")
+	req, err := service.buildBatchRequest(
+		1,
+		"source-test",
+		capture.RedactNormalizedEvents(result.Events, policy),
+		nil,
+		capture.RedactCheckpoints(checkpoints, policy),
+	)
+	if err != nil {
+		t.Fatalf("build orphan request: %v", err)
+	}
+	if _, err := service.cfg.Spool.WritePending(context.Background(), req); err != nil {
+		t.Fatalf("WritePending orphan: %v", err)
+	}
+
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("ScanOnce: %v", err)
+	}
+	pending, err := service.cfg.Spool.Pending()
+	if err != nil {
+		t.Fatalf("Pending: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending after orphan recovery = %#v, want one replay batch", pending)
+	}
+	if len(pending[0].Request.Events) != 2 || pending[0].Request.Sequence != 1 {
+		t.Fatalf("replay pending request = %#v, want full replay at sequence 1", pending[0].Request)
+	}
+	spoolBytes, err := os.ReadFile(pending[0].Path)
+	if err != nil {
+		t.Fatalf("read replay pending spool: %v", err)
+	}
+	if strings.Contains(string(spoolBytes), filepath.Dir(file)) || strings.Contains(string(spoolBytes), file) {
+		t.Fatalf("replay spool leaked source path: %s", spoolBytes)
+	}
+	if cp := state.SpooledCheckpoint("codex", file); cp == nil || cp.SourceFile != file || cp.LastLineNo != 2 {
+		t.Fatalf("internal spooled checkpoint = %#v, want original source path at line 2", cp)
 	}
 }
 
@@ -382,7 +428,14 @@ func TestServiceSpoolFullDuringMultiChunkReadLeavesNoPartialBatch(t *testing.T) 
 	if len(result.Events) != 1 || !result.HasMore {
 		t.Fatalf("window = events %d hasMore %v, want one event with more", len(result.Events), result.HasMore)
 	}
-	firstReq, err := service.buildBatchRequest(1, "source-test", RedactEvents(result.Events), nil, enrichCollectorCheckpoints(result.Checkpoint, service.cfg.Identity, source.Name, "source-test"))
+	policy := service.redactionPolicy()
+	firstReq, err := service.buildBatchRequest(
+		1,
+		"source-test",
+		capture.RedactNormalizedEvents(result.Events, policy),
+		nil,
+		capture.RedactCheckpoints(enrichCollectorCheckpoints(result.Checkpoint, service.cfg.Identity, source.Name, "source-test"), policy),
+	)
 	if err != nil {
 		t.Fatalf("build first request: %v", err)
 	}
@@ -420,9 +473,7 @@ func TestServiceTerminalSendErrorKeepsBatchPendingAndBlocksScan(t *testing.T) {
 
 	service, _, _ := newTestService(t, server.URL, 1<<20)
 	req := testBatchRequest(t, 1, "batch-terminal")
-	if _, err := service.cfg.Spool.WritePending(context.Background(), req); err != nil {
-		t.Fatalf("WritePending: %v", err)
-	}
+	writePendingWithPrivateState(t, service, req)
 	if err := service.SendPending(context.Background()); err == nil {
 		t.Fatal("SendPending returned nil, want terminal send error")
 	}
@@ -722,9 +773,7 @@ func TestServiceRunCancelsDuringRetryBackoff(t *testing.T) {
 	service, _, _ := newTestService(t, "http://127.0.0.1:1", 1<<20)
 	service.cfg.RetryMin = time.Hour
 	service.cfg.RetryMax = time.Hour
-	if _, err := service.cfg.Spool.WritePending(context.Background(), testBatchRequest(t, 1, "batch-cancel")); err != nil {
-		t.Fatalf("WritePending: %v", err)
-	}
+	writePendingWithPrivateState(t, service, testBatchRequest(t, 1, "batch-cancel"))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() {
@@ -844,6 +893,18 @@ func appendSourceLine(t *testing.T, file, line string) {
 	if err := f.Close(); err != nil {
 		t.Fatalf("close source append: %v", err)
 	}
+}
+
+func writePendingWithPrivateState(t *testing.T, service *Service, req ingest.BatchRequest) *SpoolBatch {
+	t.Helper()
+	if err := service.cfg.State.MarkSpooledBatch(req.Sequence, req.Sequence+1, req.Checkpoints); err != nil {
+		t.Fatalf("MarkSpooledBatch: %v", err)
+	}
+	written, err := service.cfg.Spool.WritePending(context.Background(), req)
+	if err != nil {
+		t.Fatalf("WritePending: %v", err)
+	}
+	return written
 }
 
 func jsonlTestSource(name, file string) capture.WatchSource {

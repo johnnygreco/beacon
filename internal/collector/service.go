@@ -190,9 +190,9 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 					return err
 				}
 				cp := s.cfg.State.SpooledCheckpoint(src.Name, file)
-				result, err := capture.ReadSourceFileWindow(ctx, src, file, cp, s.cfg.Logger, windowSize)
+				result, err := capture.ReadSourceFileWindow(ctx, src, file, cp, s.cfg.Logger, windowSize, s.redactionPolicy())
 				if err != nil {
-					s.cfg.Logger.Warn("collector read source file failed", "source", src.Name, "file", file, "error", err)
+					s.cfg.Logger.Warn("collector read source file failed", "source", src.Name, "file", s.redactionPolicy().RedactPath(file), "error", err)
 					break
 				}
 				if len(result.Events) == 0 && len(result.CaptureErrors) == 0 && result.Checkpoint == nil {
@@ -404,12 +404,13 @@ func (s *Service) spoolReadResult(ctx context.Context, src capture.WatchSource, 
 	if err := s.validateBatchBodySize(req); err != nil {
 		return err
 	}
-	written, err := s.cfg.Spool.WritePending(ctx, req)
-	if err != nil {
+	if err := s.cfg.State.MarkSpooledBatch(sequence, sequence+1, checkpoints); err != nil {
 		return err
 	}
-	if err := s.cfg.State.MarkSpooledBatch(sequence, sequence+1, checkpoints); err != nil {
-		_ = s.cfg.Spool.Discard(*written)
+	if _, err := s.cfg.Spool.WritePending(ctx, req); err != nil {
+		if rollbackErr := s.cfg.State.UnmarkSpooledBatch(sequence); rollbackErr != nil {
+			return fmt.Errorf("%w; additionally failed to rollback collector state: %v", err, rollbackErr)
+		}
 		return err
 	}
 	return nil
@@ -564,6 +565,12 @@ func (s *Service) recoverSpooledStateFromSpool() error {
 		if sequence != expected {
 			if err := s.cfg.Spool.Discard(batch); err != nil {
 				return fmt.Errorf("discard orphaned spool batch sequence %d: %w", sequence, err)
+			}
+			continue
+		}
+		if !s.cfg.State.HasSpooledBatch(sequence) {
+			if err := s.cfg.Spool.Discard(batch); err != nil {
+				return fmt.Errorf("discard spool batch without private checkpoint state sequence %d: %w", sequence, err)
 			}
 			continue
 		}

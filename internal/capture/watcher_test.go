@@ -428,6 +428,55 @@ func TestProcessFileRedactsCaptureErrorsBeforeInsert(t *testing.T) {
 	}
 }
 
+func TestProcessFileStoresRedactedCheckpointRowsAndResumesBySourceFileKey(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	privateDir := filepath.Join(dir, "private")
+	file := filepath.Join(privateDir, "session.jsonl")
+	if err := os.MkdirAll(privateDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("first\nsecond\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeWatcherStore()
+	events := make(chan BatchEvent, 4)
+	src := WatchSource{Name: "codex", Runtime: "codex", Provider: "openai", Format: "jsonl", Parser: lineTextParser(t)}
+	w := newFakeWatcher(src, fake, events)
+	w.redactor = redaction.NewPolicy(redaction.Config{PathMasks: []string{privateDir}})
+
+	w.processFile(ctx, src, file)
+
+	if got := drainBatchEvents(events); len(got) != 2 {
+		t.Fatalf("events = %#v, want both source lines", got)
+	}
+	fake.mu.Lock()
+	if len(fake.saved) == 0 {
+		fake.mu.Unlock()
+		t.Fatal("no saved checkpoint")
+	}
+	saved := fake.saved[len(fake.saved)-1]
+	fake.mu.Unlock()
+	if strings.Contains(saved.SourceFile, privateDir) || strings.Contains(saved.SourceFile, file) {
+		t.Fatalf("saved checkpoint leaked source file: %#v", saved)
+	}
+	if !strings.Contains(saved.SourceFile, redaction.PathMarker) {
+		t.Fatalf("saved checkpoint source file = %q, want path marker", saved.SourceFile)
+	}
+	wantKey := models.CheckpointSourceFileKey("codex", file)
+	if saved.SourceFileKey != wantKey {
+		t.Fatalf("saved source file key = %q, want %q", saved.SourceFileKey, wantKey)
+	}
+
+	restartEvents := make(chan BatchEvent, 4)
+	restarted := newFakeWatcher(src, fake, restartEvents)
+	restarted.redactor = w.redactor
+	restarted.processFile(ctx, src, file)
+	if got := drainBatchEvents(restartEvents); len(got) != 0 {
+		t.Fatalf("restart events = %#v, want unchanged file skipped", got)
+	}
+}
+
 func TestProcessFileHoldsUnterminatedFinalLine(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -765,7 +814,8 @@ func (f *fakeWatcherStore) seed(source string, cp models.Checkpoint) {
 		f.checkpoints[source] = make(map[string]*models.Checkpoint)
 	}
 	cpCopy := cp
-	f.checkpoints[source][cp.SourceFile] = &cpCopy
+	key := cp.EffectiveSourceFileKey()
+	f.checkpoints[source][key] = &cpCopy
 }
 
 func (f *fakeWatcherStore) LoadCheckpoints(_ context.Context, sourceName string) (map[string]*models.Checkpoint, error) {
@@ -785,8 +835,9 @@ func (f *fakeWatcherStore) UpsertCheckpoint(_ context.Context, cp models.Checkpo
 	if f.checkpoints[cp.SourceName] == nil {
 		f.checkpoints[cp.SourceName] = make(map[string]*models.Checkpoint)
 	}
+	key := cp.EffectiveSourceFileKey()
 	cpCopy := cp
-	f.checkpoints[cp.SourceName][cp.SourceFile] = &cpCopy
+	f.checkpoints[cp.SourceName][key] = &cpCopy
 	f.saved = append(f.saved, cp)
 	return nil
 }

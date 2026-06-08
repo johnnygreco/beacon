@@ -2,6 +2,7 @@ package capture
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 	"syscall"
@@ -47,17 +48,37 @@ func (cm *CheckpointManager) Load(ctx context.Context) error {
 func (cm *CheckpointManager) Get(file string) *models.Checkpoint {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	return cm.cache[file]
+	return cm.cache[cm.checkpointKey(file)]
 }
 
 // Save persists a checkpoint to the database and updates the cache.
 func (cm *CheckpointManager) Save(ctx context.Context, cp *models.Checkpoint) error {
-	if err := cm.store.UpsertCheckpoint(ctx, *cp); err != nil {
+	if cp == nil {
+		return fmt.Errorf("checkpoint is required")
+	}
+	protected := *cp
+	if protected.SourceFileKey == "" {
+		protected.SourceFileKey = cm.checkpointKey(cp.SourceFile)
+	}
+	return cm.SaveProtected(ctx, cp, protected)
+}
+
+func (cm *CheckpointManager) SaveProtected(ctx context.Context, cp *models.Checkpoint, protected models.Checkpoint) error {
+	if cp == nil {
+		return fmt.Errorf("checkpoint is required")
+	}
+	key := cm.checkpointKey(cp.SourceFile)
+	if protected.SourceFileKey == "" {
+		protected.SourceFileKey = key
+	}
+	if err := cm.store.UpsertCheckpoint(ctx, protected); err != nil {
 		return err
 	}
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	cm.cache[cp.SourceFile] = cp
+	cpCopy := *cp
+	cpCopy.SourceFileKey = key
+	cm.cache[key] = &cpCopy
 	return nil
 }
 
@@ -66,7 +87,7 @@ func (cm *CheckpointManager) Save(ctx context.Context, cp *models.Checkpoint) er
 func (cm *CheckpointManager) CheckRotation(file string, fi os.FileInfo) bool {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	cp := cm.cache[file]
+	cp := cm.cache[cm.checkpointKey(file)]
 	if cp == nil {
 		return false
 	}
@@ -81,6 +102,10 @@ func (cm *CheckpointManager) CheckRotation(file string, fi os.FileInfo) bool {
 	}
 
 	return false
+}
+
+func (cm *CheckpointManager) checkpointKey(file string) string {
+	return models.CheckpointSourceFileKey(cm.sourceName, file)
 }
 
 // fileInode extracts the inode number from FileInfo (unix only).

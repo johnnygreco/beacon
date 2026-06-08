@@ -128,7 +128,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var watcher *capture.Watcher
 	if cfg.Capture.Enabled {
 		for _, s := range sources {
-			logger.Info("capture source configured", "name", s.Name, "runtime", s.Runtime, "provider", s.Provider, "globs", s.Globs)
+			logger.Info("capture source configured",
+				"name", s.Name,
+				"runtime", s.Runtime,
+				"provider", s.Provider,
+				"globs", redactStrings(redactionPolicy, s.Globs),
+				"watch_roots", redactStrings(redactionPolicy, s.WatchRoots),
+			)
 		}
 		watcher = capture.NewWatcher(
 			sources,

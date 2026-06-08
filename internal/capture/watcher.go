@@ -346,13 +346,13 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 		if existing := cm.Get(file); existing != nil {
 			cp.SourceGeneration = existing.SourceGeneration + 1
 		}
-		if err := cm.Save(ctx, cp); err != nil {
+		if err := w.saveCheckpoint(ctx, cm, cp); err != nil {
 			w.logger.Error("save rotation checkpoint failed", "file", w.redactionPolicy().RedactPath(file), "error", err)
 		}
 	}
 
 	cp := cm.Get(file)
-	result, err := ReadSourceFile(ctx, src, file, cp, w.logger)
+	result, err := ReadSourceFile(ctx, src, file, cp, w.logger, w.redactionPolicy())
 	if err != nil {
 		w.logger.Error("read source file failed", "file", w.redactionPolicy().RedactPath(file), "error", err)
 		return
@@ -370,7 +370,7 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 	if result.Checkpoint == nil {
 		return
 	}
-	if err := cm.Save(ctx, result.Checkpoint); err != nil {
+	if err := w.saveCheckpoint(ctx, cm, result.Checkpoint); err != nil {
 		w.logger.Error("save checkpoint failed", "file", w.redactionPolicy().RedactPath(file), "error", err)
 	}
 }
@@ -382,18 +382,26 @@ func (w *Watcher) redactionPolicy() *redaction.Policy {
 	return redaction.DefaultPolicy()
 }
 
-func replayStartFromPrefix(file string, limitOffset int64, limitLineNo int, overlapLines int, logger *slog.Logger) (int64, int) {
+func (w *Watcher) saveCheckpoint(ctx context.Context, cm *CheckpointManager, cp *models.Checkpoint) error {
+	if cp == nil {
+		return nil
+	}
+	protected := RedactCheckpoint(*cp, w.redactionPolicy())
+	return cm.SaveProtected(ctx, cp, protected)
+}
+
+func replayStartFromPrefix(file string, limitOffset int64, limitLineNo int, overlapLines int, logger *slog.Logger, policies ...*redaction.Policy) (int64, int) {
 	if limitOffset <= 0 || overlapLines <= 0 {
 		return limitOffset, limitLineNo
 	}
-	lines := tailLinesBeforeOffset(file, limitOffset, limitLineNo, overlapLines, incrementalReplayBytes, logger)
+	lines := tailLinesBeforeOffset(file, limitOffset, limitLineNo, overlapLines, incrementalReplayBytes, logger, policies...)
 	if len(lines) == 0 {
 		return limitOffset, limitLineNo
 	}
 	return lines[0].offset, lines[0].lineNo - 1
 }
 
-func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, overlapLines int, maxReadBytes int64, logger *slog.Logger) []replayLine {
+func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, overlapLines int, maxReadBytes int64, logger *slog.Logger, policies ...*redaction.Policy) []replayLine {
 	if limitOffset <= 0 || overlapLines <= 0 || maxReadBytes <= 0 {
 		return nil
 	}
@@ -402,6 +410,7 @@ func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, over
 		return nil
 	}
 	defer f.Close()
+	logFile := redactionPolicyFromArgs(policies...).RedactPath(file)
 
 	readStart := limitOffset - maxReadBytes
 	if readStart < 0 {
@@ -410,20 +419,20 @@ func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, over
 	if readStart > 0 {
 		if _, err := f.Seek(readStart-1, io.SeekStart); err != nil {
 			if logger != nil {
-				logger.Warn("seek replay prefix failed", "file", file, "offset", readStart-1, "error", err)
+				logger.Warn("seek replay prefix failed", "file", logFile, "offset", readStart-1, "error", err)
 			}
 			return nil
 		}
 		var prev [1]byte
 		if _, err := io.ReadFull(f, prev[:]); err != nil {
 			if logger != nil {
-				logger.Warn("read replay prefix failed", "file", file, "offset", readStart-1, "error", err)
+				logger.Warn("read replay prefix failed", "file", logFile, "offset", readStart-1, "error", err)
 			}
 			return nil
 		}
 		if _, err := f.Seek(readStart, io.SeekStart); err != nil {
 			if logger != nil {
-				logger.Warn("seek replay prefix failed", "file", file, "offset", readStart, "error", err)
+				logger.Warn("seek replay prefix failed", "file", logFile, "offset", readStart, "error", err)
 			}
 			return nil
 		}
@@ -433,20 +442,20 @@ func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, over
 			readStart += int64(len(skipped))
 			if err != nil {
 				if err != io.EOF && logger != nil {
-					logger.Warn("read replay prefix failed", "file", file, "error", err)
+					logger.Warn("read replay prefix failed", "file", logFile, "error", err)
 				}
 				return nil
 			}
 			if _, err := f.Seek(readStart, io.SeekStart); err != nil {
 				if logger != nil {
-					logger.Warn("seek replay prefix failed", "file", file, "offset", readStart, "error", err)
+					logger.Warn("seek replay prefix failed", "file", logFile, "offset", readStart, "error", err)
 				}
 				return nil
 			}
 		}
 	} else if _, err := f.Seek(0, io.SeekStart); err != nil {
 		if logger != nil {
-			logger.Warn("seek replay prefix failed", "file", file, "error", err)
+			logger.Warn("seek replay prefix failed", "file", logFile, "error", err)
 		}
 		return nil
 	}
@@ -477,7 +486,7 @@ func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, over
 		}
 		if err != nil {
 			if err != io.EOF && logger != nil {
-				logger.Warn("scan prefix failed", "file", file, "error", err)
+				logger.Warn("scan prefix failed", "file", logFile, "error", err)
 			}
 			break
 		}
@@ -486,6 +495,13 @@ func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, over
 		lines[i].lineNo = limitLineNo - completeLineCount + lines[i].seq
 	}
 	return lines
+}
+
+func redactionPolicyFromArgs(policies ...*redaction.Policy) *redaction.Policy {
+	if len(policies) > 0 && policies[0] != nil {
+		return policies[0]
+	}
+	return redaction.DefaultPolicy()
 }
 
 func appendReplayLine(lines []replayLine, line replayLine, limit int) []replayLine {

@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 7
+	CurrentSchemaVersion = 8
 
 	schemaVersionTable = "schema_version"
 	schemaVersionRowID = 1
@@ -64,6 +64,13 @@ func Migrate(ctx context.Context, db *sql.DB, database string) error {
 			}
 		case 6:
 			if err := migrateSchemaV6ToV7(ctx, db, database); err != nil {
+				return err
+			}
+			if err := migrateSchemaV7ToV8(ctx, db, database); err != nil {
+				return err
+			}
+		case 7:
+			if err := migrateSchemaV7ToV8(ctx, db, database); err != nil {
 				return err
 			}
 		}
@@ -305,6 +312,18 @@ func migrateSchemaV6ToV7(ctx context.Context, db *sql.DB, database string) error
 	} {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("advance schema v6 to v7: %w", err)
+		}
+	}
+	return writeSchemaVersion(ctx, db, database)
+}
+
+func migrateSchemaV7ToV8(ctx context.Context, db *sql.DB, database string) error {
+	for _, stmt := range []string{
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_checkpoints`, database),
+		captureCheckpointsSchema(database),
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("advance schema v7 to v8: %w", err)
 		}
 	}
 	return writeSchemaVersion(ctx, db, database)
@@ -602,6 +621,7 @@ func captureCheckpointsSchema(database string) string {
 			collector_id String,
 			source_id String,
 			source_name LowCardinality(String),
+			source_file_key String,
 			source_file String,
 			source_inode UInt64,
 			source_generation UInt32,
@@ -611,7 +631,7 @@ func captureCheckpointsSchema(database string) string {
 			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
 			)
 			ENGINE = ReplacingMergeTree(updated_at)
-			ORDER BY (collector_id, source_id, source_name, source_file)`
+			ORDER BY (collector_id, source_id, source_name, source_file_key)`
 }
 
 func captureErrorsSchema(database string) string {

@@ -15,3 +15,17 @@ func redactionPolicyFromConfig(cfg *config.Config) *redaction.Policy {
 		LiteralMasks: cfg.Redaction.LiteralMasks,
 	})
 }
+
+func redactStrings(policy *redaction.Policy, values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	if policy == nil {
+		policy = redaction.DefaultPolicy()
+	}
+	out := make([]string, len(values))
+	for i, value := range values {
+		out[i] = policy.Redact(value)
+	}
+	return out
+}

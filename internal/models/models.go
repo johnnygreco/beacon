@@ -1,6 +1,8 @@
 package models
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"time"
 )
@@ -179,12 +181,30 @@ type Checkpoint struct {
 	CollectorID      string `json:"collector_id,omitempty"`
 	SourceID         string `json:"source_id,omitempty"`
 	SourceName       string `json:"source_name"`
+	SourceFileKey    string `json:"source_file_key,omitempty"`
 	SourceFile       string `json:"source_file"`
 	SourceInode      int64  `json:"source_inode"`
 	SourceGeneration int    `json:"source_generation"`
 	LastOffset       int64  `json:"last_offset"`
 	LastLineNo       int    `json:"last_line_no"`
 	StateJSON        string `json:"state_json"`
+}
+
+func CheckpointSourceFileKey(sourceName, sourceFile string) string {
+	sourceName = strings.TrimSpace(sourceName)
+	sourceFile = strings.TrimSpace(sourceFile)
+	if sourceName == "" || sourceFile == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(sourceName + "\x00" + sourceFile))
+	return "file_" + hex.EncodeToString(sum[:])[:32]
+}
+
+func (cp Checkpoint) EffectiveSourceFileKey() string {
+	if strings.TrimSpace(cp.SourceFileKey) != "" {
+		return strings.TrimSpace(cp.SourceFileKey)
+	}
+	return CheckpointSourceFileKey(cp.SourceName, cp.SourceFile)
 }
 
 type CaptureHeartbeat struct {
