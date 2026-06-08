@@ -18,6 +18,8 @@ const (
 
 	MaxBodyBytes = 32 << 20
 
+	RedactionVersionV1 = "redact-v1"
+
 	StatusCommitted       = "committed"
 	StatusRetryable       = "retryable"
 	StatusTerminalFailure = "terminal_failure"
@@ -149,6 +151,9 @@ func ValidateBatch(req BatchRequest) error {
 	}
 	if len(req.Events) == 0 && len(req.CaptureErrors) == 0 && len(req.Checkpoints) == 0 {
 		return fmt.Errorf("batch must contain events, capture_errors, or checkpoints")
+	}
+	if req.RedactionVersion != RedactionVersionV1 {
+		return fmt.Errorf("redaction_version must be %q", RedactionVersionV1)
 	}
 	want, err := ComputeBatchDigest(req)
 	if err != nil {

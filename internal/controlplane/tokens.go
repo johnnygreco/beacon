@@ -42,6 +42,7 @@ var (
 	ErrTokenUsed            = errors.New("token already used")
 	ErrTokenScopeDenied     = errors.New("token scope denied")
 	ErrTokenBindingMismatch = errors.New("token binding mismatch")
+	ErrEnrollmentInvalid    = errors.New("enrollment invalid")
 )
 
 type TokenRecord struct {

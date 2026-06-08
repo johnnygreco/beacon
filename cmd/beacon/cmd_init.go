@@ -140,7 +140,8 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	if err != nil {
 		return err
 	}
-	resp, err := postRemoteEnrollment(commandContext(cmd), normalizedURL, token, enrollBootstrapFromControlPlane(controlPlaneBootstrap(cfg)))
+	boot := remoteEnrollmentBootstrap(commandContext(cmd), cfg)
+	resp, err := postRemoteEnrollment(commandContext(cmd), normalizedURL, token, enrollBootstrapFromControlPlane(boot))
 	if err != nil {
 		return err
 	}
@@ -150,10 +151,10 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	}
 	defer store.Close()
 
-	boot := controlPlaneBootstrap(cfg)
-	boot.NodeID = resp.Assignment.NodeID
-	boot.CollectorID = resp.Assignment.CollectorID
-	if _, err := store.EnsureLocal(commandContext(cmd), boot); err != nil {
+	localBoot := controlPlaneBootstrap(cfg)
+	localBoot.NodeID = resp.Assignment.NodeID
+	localBoot.CollectorID = resp.Assignment.CollectorID
+	if _, err := store.EnsureLocal(commandContext(cmd), localBoot); err != nil {
 		return fmt.Errorf("write local collector metadata: %w", err)
 	}
 	if err := writeIngestTokenFile(cfg.Fleet.IngestTokenFile, resp.IngestToken); err != nil {
@@ -168,6 +169,27 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	fmt.Fprintf(out, "Ingest token file: %s\n", cfg.Fleet.IngestTokenFile)
 	fmt.Fprintf(out, "Run collector: %s\n", remoteCollectCommand(normalizedURL))
 	return nil
+}
+
+func remoteEnrollmentBootstrap(ctx context.Context, cfg *config.Config) controlplane.Bootstrap {
+	boot := controlPlaneBootstrap(cfg)
+	if !controlplane.Exists(cfg.Fleet.MetadataPath) {
+		return boot
+	}
+	store, err := controlplane.Open(cfg.Fleet.MetadataPath)
+	if err != nil {
+		return boot
+	}
+	defer store.Close()
+	snapshot, err := store.Snapshot(ctx)
+	if err != nil {
+		return boot
+	}
+	if snapshot.LocalNodeID != "" && snapshot.LocalCollectorID != "" {
+		boot.NodeID = snapshot.LocalNodeID
+		boot.CollectorID = snapshot.LocalCollectorID
+	}
+	return boot
 }
 
 func postRemoteEnrollment(ctx context.Context, controlPlaneURL, token string, boot ingest.EnrollBootstrap) (*ingest.EnrollResponse, error) {

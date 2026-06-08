@@ -31,6 +31,7 @@ type wholeFileCheckpointState struct {
 	Sidecars      []wholeFileSidecarState `json:"sidecars,omitempty"`
 	EventIndex    int                     `json:"event_index,omitempty"`
 	Complete      bool                    `json:"complete,omitempty"`
+	ErrorID       string                  `json:"error_id,omitempty"`
 }
 
 type wholeFileSidecarState struct {
@@ -240,7 +241,8 @@ func readWholeSourceFile(ctx context.Context, src WatchSource, file string, fi o
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
-	if wholeFileUnchanged(src, file, cp, fi) {
+	beforeState := wholeFileCheckpointStateFor(src, file, fi)
+	if wholeFileUnchanged(cp, beforeState) {
 		return result, nil
 	}
 	events, err := src.FileParser(file)
@@ -249,8 +251,12 @@ func readWholeSourceFile(ctx context.Context, src WatchSource, file string, fi o
 		if cp != nil {
 			sourceGeneration = cp.SourceGeneration
 		}
+		errorID := wholeFileErrorID(src.Name, file, fi, sourceGeneration, err)
+		if wholeFileDuplicateParseError(cp, beforeState, errorID) {
+			return result, nil
+		}
 		result.CaptureErrors = append(result.CaptureErrors, models.CaptureError{
-			ID:              wholeFileErrorID(src.Name, file, fi, sourceGeneration, err),
+			ID:              errorID,
 			SourceName:      src.Name,
 			SourceFile:      file,
 			ErrorClass:      "parse_error",
@@ -262,9 +268,9 @@ func readWholeSourceFile(ctx context.Context, src WatchSource, file string, fi o
 			SourceFile:       file,
 			SourceInode:      fileInode(fi),
 			SourceGeneration: sourceGeneration,
-			LastOffset:       fi.Size(),
+			LastOffset:       0,
 			LastLineNo:       0,
-			StateJSON:        encodeWholeFileCheckpointState(src, file, fi, 0, true),
+			StateJSON:        encodeWholeFileCheckpointState(beforeState, 0, false, errorID),
 		}
 		return result, nil
 	}
@@ -273,7 +279,7 @@ func readWholeSourceFile(ctx context.Context, src WatchSource, file string, fi o
 	}
 	PropagateModel(events)
 	events = DeduplicateTokens(events)
-	start := wholeFileCheckpointEventIndex(src, file, cp, fi)
+	start := wholeFileCheckpointEventIndex(cp, beforeState)
 	if start > len(events) {
 		start = len(events)
 	}
@@ -285,6 +291,16 @@ func readWholeSourceFile(ctx context.Context, src WatchSource, file string, fi o
 		result.HasMore = true
 	}
 	result.Events = events[start:end]
+	checkpointState := beforeState
+	if afterFI, err := os.Stat(file); err != nil {
+		return result, err
+	} else {
+		afterState := wholeFileCheckpointStateFor(src, file, afterFI)
+		if !wholeFileCheckpointStatesMatch(beforeState, afterState) {
+			complete = false
+			result.HasMore = true
+		}
+	}
 
 	sourceGeneration := 0
 	if cp != nil {
@@ -297,26 +313,23 @@ func readWholeSourceFile(ctx context.Context, src WatchSource, file string, fi o
 		SourceGeneration: sourceGeneration,
 		LastOffset:       wholeFileCheckpointOffset(fi, complete),
 		LastLineNo:       end,
-		StateJSON:        encodeWholeFileCheckpointState(src, file, fi, end, complete),
+		StateJSON:        encodeWholeFileCheckpointState(checkpointState, end, complete, ""),
 	}
 	return result, nil
 }
 
-func wholeFileUnchanged(src WatchSource, file string, cp *models.Checkpoint, fi os.FileInfo) bool {
+func wholeFileUnchanged(cp *models.Checkpoint, current wholeFileCheckpointState) bool {
 	if cp == nil {
-		return false
-	}
-	if inode := fileInode(fi); inode > 0 && cp.SourceInode > 0 && inode != cp.SourceInode {
 		return false
 	}
 	var state wholeFileCheckpointState
 	if err := json.Unmarshal([]byte(cp.StateJSON), &state); err != nil {
 		return false
 	}
-	return wholeFileCheckpointMatches(src, file, state, fi) && state.Complete
+	return wholeFileCheckpointStatesMatch(state, current) && state.Complete
 }
 
-func wholeFileCheckpointEventIndex(src WatchSource, file string, cp *models.Checkpoint, fi os.FileInfo) int {
+func wholeFileCheckpointEventIndex(cp *models.Checkpoint, current wholeFileCheckpointState) int {
 	if cp == nil {
 		return 0
 	}
@@ -324,7 +337,7 @@ func wholeFileCheckpointEventIndex(src WatchSource, file string, cp *models.Chec
 	if err := json.Unmarshal([]byte(cp.StateJSON), &state); err != nil {
 		return 0
 	}
-	if !wholeFileCheckpointMatches(src, file, state, fi) || state.Complete {
+	if !wholeFileCheckpointStatesMatch(state, current) || state.Complete {
 		return 0
 	}
 	if state.EventIndex < 0 {
@@ -333,16 +346,26 @@ func wholeFileCheckpointEventIndex(src WatchSource, file string, cp *models.Chec
 	return state.EventIndex
 }
 
-func wholeFileCheckpointMatches(src WatchSource, file string, state wholeFileCheckpointState, fi os.FileInfo) bool {
-	if state.Version != 2 || state.Size != fi.Size() || state.ModTimeUnixNS != fi.ModTime().UnixNano() {
+func wholeFileDuplicateParseError(cp *models.Checkpoint, current wholeFileCheckpointState, errorID string) bool {
+	if cp == nil || errorID == "" {
 		return false
 	}
-	currentSidecars := wholeFileSidecarStates(src, file)
-	if len(state.Sidecars) != len(currentSidecars) {
+	var state wholeFileCheckpointState
+	if err := json.Unmarshal([]byte(cp.StateJSON), &state); err != nil {
 		return false
 	}
-	for i := range currentSidecars {
-		if state.Sidecars[i] != currentSidecars[i] {
+	return !state.Complete && state.ErrorID == errorID && wholeFileCheckpointStatesMatch(state, current)
+}
+
+func wholeFileCheckpointStatesMatch(left, right wholeFileCheckpointState) bool {
+	if left.Version != 2 || right.Version != 2 || left.Size != right.Size || left.ModTimeUnixNS != right.ModTimeUnixNS {
+		return false
+	}
+	if len(left.Sidecars) != len(right.Sidecars) {
+		return false
+	}
+	for i := range left.Sidecars {
+		if left.Sidecars[i] != right.Sidecars[i] {
 			return false
 		}
 	}
@@ -356,19 +379,24 @@ func wholeFileCheckpointOffset(fi os.FileInfo, complete bool) int64 {
 	return 0
 }
 
-func encodeWholeFileCheckpointState(src WatchSource, file string, fi os.FileInfo, eventIndex int, complete bool) string {
-	data, err := json.Marshal(wholeFileCheckpointState{
-		Version:       2,
-		Size:          fi.Size(),
-		ModTimeUnixNS: fi.ModTime().UnixNano(),
-		Sidecars:      wholeFileSidecarStates(src, file),
-		EventIndex:    eventIndex,
-		Complete:      complete,
-	})
+func encodeWholeFileCheckpointState(state wholeFileCheckpointState, eventIndex int, complete bool, errorID string) string {
+	state.EventIndex = eventIndex
+	state.Complete = complete
+	state.ErrorID = errorID
+	data, err := json.Marshal(state)
 	if err != nil {
 		return ""
 	}
 	return string(data)
+}
+
+func wholeFileCheckpointStateFor(src WatchSource, file string, fi os.FileInfo) wholeFileCheckpointState {
+	return wholeFileCheckpointState{
+		Version:       2,
+		Size:          fi.Size(),
+		ModTimeUnixNS: fi.ModTime().UnixNano(),
+		Sidecars:      wholeFileSidecarStates(src, file),
+	}
 }
 
 func wholeFileSidecarStates(src WatchSource, file string) []wholeFileSidecarState {

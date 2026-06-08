@@ -30,6 +30,7 @@ type ServiceConfig struct {
 	State             *StateStore
 	Client            *Client
 	BatchSize         int
+	MaxBatchBodyBytes int
 	ScanInterval      time.Duration
 	RetryMin          time.Duration
 	RetryMax          time.Duration
@@ -57,6 +58,7 @@ type Status struct {
 }
 
 var ErrTerminalBlocked = errors.New("collector is blocked on terminal ingest failure")
+var ErrBatchTooLarge = errors.New("collector batch exceeds ingest limit")
 
 func NewService(cfg ServiceConfig) (*Service, error) {
 	if cfg.Spool == nil {
@@ -70,6 +72,9 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	}
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = 500
+	}
+	if cfg.MaxBatchBodyBytes <= 0 {
+		cfg.MaxBatchBodyBytes = ingest.MaxBodyBytes
 	}
 	if cfg.ScanInterval <= 0 {
 		cfg.ScanInterval = 30 * time.Second
@@ -149,12 +154,13 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 	for _, src := range s.cfg.Sources {
 		files := resolveSourceGlobs(src.Globs)
 		for _, file := range files {
+			windowSize := s.cfg.BatchSize
 			for {
 				if err := ctx.Err(); err != nil {
 					return err
 				}
 				cp := s.cfg.State.SpooledCheckpoint(src.Name, file)
-				result, err := capture.ReadSourceFileWindow(ctx, src, file, cp, s.cfg.Logger, s.cfg.BatchSize)
+				result, err := capture.ReadSourceFileWindow(ctx, src, file, cp, s.cfg.Logger, windowSize)
 				if err != nil {
 					s.cfg.Logger.Warn("collector read source file failed", "source", src.Name, "file", file, "error", err)
 					break
@@ -163,12 +169,27 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 					break
 				}
 				if err := s.spoolReadResult(ctx, src, result); err != nil {
+					if errors.Is(err, ErrBatchTooLarge) {
+						if windowSize > 1 {
+							windowSize = max(1, windowSize/2)
+							continue
+						}
+						if err := s.spoolOversizeReadResult(ctx, src, result); err != nil {
+							return err
+						}
+						windowSize = s.cfg.BatchSize
+						if !result.HasMore {
+							break
+						}
+						continue
+					}
 					if err == ErrSpoolFull {
 						s.setSpoolFull(true)
 						return nil
 					}
 					return err
 				}
+				windowSize = s.cfg.BatchSize
 				if !result.HasMore {
 					break
 				}
@@ -316,7 +337,7 @@ func (s *Service) spoolReadResult(ctx context.Context, src capture.WatchSource, 
 	if err != nil {
 		return err
 	}
-	if err := validateBatchBodySize(req); err != nil {
+	if err := s.validateBatchBodySize(req); err != nil {
 		return err
 	}
 	written, err := s.cfg.Spool.WritePending(ctx, req)
@@ -328,6 +349,69 @@ func (s *Service) spoolReadResult(ctx context.Context, src capture.WatchSource, 
 		return err
 	}
 	return nil
+}
+
+func (s *Service) spoolOversizeReadResult(ctx context.Context, src capture.WatchSource, result capture.SourceReadResult) error {
+	if result.Checkpoint == nil {
+		return fmt.Errorf("%w: oversized source result has no checkpoint", ErrBatchTooLarge)
+	}
+	errRow, ok := oversizedCaptureError(src, result)
+	if !ok {
+		return fmt.Errorf("%w: oversized source result has no record to skip", ErrBatchTooLarge)
+	}
+	return s.spoolReadResult(ctx, src, capture.SourceReadResult{
+		CaptureErrors: []models.CaptureError{errRow},
+		Checkpoint:    result.Checkpoint,
+	})
+}
+
+func oversizedCaptureError(src capture.WatchSource, result capture.SourceReadResult) (models.CaptureError, bool) {
+	if len(result.Events) > 0 {
+		event := result.Events[0]
+		fragment := firstNonEmptyCollector(event.RawPayload, event.TextContent, event.ToolInput, event.ToolOutput, event.ErrorMessage)
+		return models.CaptureError{
+			ID:              oversizedCaptureErrorID(src.Name, event.SourceFile, event.SourceLineNo, event.SourceOffset, event.SourceGeneration),
+			SourceName:      src.Name,
+			SourceFile:      event.SourceFile,
+			SourceLineNo:    event.SourceLineNo,
+			SourceOffset:    event.SourceOffset,
+			ErrorClass:      "oversize_record",
+			ErrorMessage:    "capture record exceeds ingest batch size limit and was skipped",
+			ContextFragment: truncateCollectorFragment(fragment, 500),
+		}, true
+	}
+	if len(result.CaptureErrors) > 0 {
+		errRow := result.CaptureErrors[0]
+		errRow.ID = oversizedCaptureErrorID(src.Name, errRow.SourceFile, errRow.SourceLineNo, errRow.SourceOffset, 0)
+		errRow.SourceName = src.Name
+		errRow.ErrorClass = "oversize_record"
+		errRow.ErrorMessage = "capture error exceeds ingest batch size limit and was skipped"
+		errRow.ContextFragment = truncateCollectorFragment(errRow.ContextFragment, 500)
+		return errRow, true
+	}
+	return models.CaptureError{}, false
+}
+
+func oversizedCaptureErrorID(sourceName, file string, lineNo int, offset int64, sourceGeneration int) string {
+	h := sha256.New()
+	fmt.Fprintf(h, "oversize-record\x00%s\x00%s\x00%d\x00%d\x00%d", sourceName, file, lineNo, offset, sourceGeneration)
+	return "capture_error_" + hex.EncodeToString(h.Sum(nil))[:32]
+}
+
+func firstNonEmptyCollector(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func truncateCollectorFragment(value string, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	return value[:limit]
 }
 
 func (s *Service) buildBatchRequest(sequence uint64, sourceID string, events []capture.NormalizedEvent, captureErrors []models.CaptureError, checkpoints []models.Checkpoint) (ingest.BatchRequest, error) {
@@ -353,8 +437,8 @@ func (s *Service) buildBatchRequest(sequence uint64, sourceID string, events []c
 	return req, nil
 }
 
-func validateBatchBodySize(req ingest.BatchRequest) error {
-	return validateBatchBodySizeLimit(req, ingest.MaxBodyBytes)
+func (s *Service) validateBatchBodySize(req ingest.BatchRequest) error {
+	return validateBatchBodySizeLimit(req, s.cfg.MaxBatchBodyBytes)
 }
 
 func validateBatchBodySizeLimit(req ingest.BatchRequest, maxBytes int) error {
@@ -367,14 +451,14 @@ func validateBatchBodySizeLimit(req ingest.BatchRequest, maxBytes int) error {
 
 func validateEncodedBatchBodySize(body []byte, maxBytes int) error {
 	if len(body) > maxBytes {
-		return fmt.Errorf("collector batch JSON body exceeds ingest limit: %d > %d", len(body), maxBytes)
+		return fmt.Errorf("%w: JSON body %d > %d", ErrBatchTooLarge, len(body), maxBytes)
 	}
 	compressedLen, err := gzipEncodedLen(body)
 	if err != nil {
 		return err
 	}
 	if compressedLen > maxBytes {
-		return fmt.Errorf("collector batch gzip body exceeds ingest limit: %d > %d", compressedLen, maxBytes)
+		return fmt.Errorf("%w: gzip body exceeds ingest limit: %d > %d", ErrBatchTooLarge, compressedLen, maxBytes)
 	}
 	return nil
 }

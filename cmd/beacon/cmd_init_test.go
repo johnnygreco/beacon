@@ -246,6 +246,40 @@ func TestRunRemoteEnrollPrintsConfigAndCollectorUsesAssignedMetadata(t *testing.
 	if snapshot.LocalNodeID == "node-cli" || snapshot.LocalCollectorID == "collector-cli" {
 		t.Fatalf("local metadata kept claimed IDs: node=%s collector=%s", snapshot.LocalNodeID, snapshot.LocalCollectorID)
 	}
+	firstNodeID := snapshot.LocalNodeID
+	firstCollectorID := snapshot.LocalCollectorID
+	firstToken, err := os.ReadFile(cfg.Fleet.IngestTokenFile)
+	if err != nil {
+		t.Fatalf("read first ingest token: %v", err)
+	}
+
+	secondEnroll, err := control.CreateToken(context.Background(), controlplane.CreateTokenRequest{Type: controlplane.TokenTypeEnroll})
+	if err != nil {
+		t.Fatalf("CreateToken second enroll: %v", err)
+	}
+	out.Reset()
+	if err := runRemoteEnroll(cmd, cfg, server.URL, secondEnroll.Plaintext); err != nil {
+		t.Fatalf("second runRemoteEnroll: %v", err)
+	}
+	local, err = controlplane.Open(metadataPath)
+	if err != nil {
+		t.Fatalf("Open local metadata after second enroll: %v", err)
+	}
+	snapshot, err = local.Snapshot(context.Background())
+	_ = local.Close()
+	if err != nil {
+		t.Fatalf("second local Snapshot: %v", err)
+	}
+	if snapshot.LocalNodeID != firstNodeID || snapshot.LocalCollectorID != firstCollectorID {
+		t.Fatalf("second enroll assignment = %s/%s, want existing %s/%s", snapshot.LocalNodeID, snapshot.LocalCollectorID, firstNodeID, firstCollectorID)
+	}
+	secondToken, err := os.ReadFile(cfg.Fleet.IngestTokenFile)
+	if err != nil {
+		t.Fatalf("read second ingest token: %v", err)
+	}
+	if string(secondToken) == string(firstToken) {
+		t.Fatal("second remote enrollment did not rotate ingest token")
+	}
 
 	cfg.Fleet.ControlPlaneURL = server.URL
 	service, cleanup, err := buildCollectorService(context.Background(), cfg, nil)

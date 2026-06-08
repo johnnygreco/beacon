@@ -106,6 +106,13 @@ func TestIngestBatchRejectsBindingEpochAndDigestConflicts(t *testing.T) {
 			},
 			wantCode: http.StatusForbidden,
 		},
+		{
+			name: "unsupported redaction version",
+			mutate: func(req *ingest.BatchRequest, _ *fakeIngestCommitter) {
+				req.RedactionVersion = ""
+			},
+			wantCode: http.StatusBadRequest,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -164,6 +171,26 @@ func TestIngestEnrollCompletesRemoteEnrollment(t *testing.T) {
 	}
 	if _, ok := raw["token"]; ok {
 		t.Fatalf("enrollment response leaked token metadata: %s", rec.Body.String())
+	}
+}
+
+func TestIngestEnrollClassifiesInvalidBootstrapAsBadRequest(t *testing.T) {
+	control, enrollToken := testEnrollControlPlane(t)
+	handler := NewIngestHandlers(control, &fakeIngestCommitter{}, 0, 0, nil, nil)
+	req := ingest.EnrollRequest{
+		Schema: ingest.SchemaV1,
+		Bootstrap: ingest.EnrollBootstrap{
+			Sources: []ingest.EnrollSourceRegistration{{
+				Runtime:   models.RuntimeCodex,
+				Provider:  models.ProviderOpenAI,
+				Format:    models.FormatJSONL,
+				WatchRoot: "~/.codex",
+			}},
+		},
+	}
+	rec := postIngestJSON(t, handler.Enroll, req, enrollToken)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s, want 400", rec.Code, rec.Body.String())
 	}
 }
 

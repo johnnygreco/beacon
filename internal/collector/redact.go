@@ -4,10 +4,11 @@ import (
 	"regexp"
 
 	"github.com/johnnygreco/beacon/internal/capture"
+	"github.com/johnnygreco/beacon/internal/ingest"
 	"github.com/johnnygreco/beacon/internal/models"
 )
 
-const RedactionVersion = "redact-v1"
+const RedactionVersion = ingest.RedactionVersionV1
 
 var tokenPattern = regexp.MustCompile(`bcn_(owner|enroll|ingest|read|admin)_[A-Za-z0-9_:-]+_[A-Fa-f0-9]{16,}`)
 

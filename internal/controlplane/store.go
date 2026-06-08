@@ -200,8 +200,17 @@ func ensureRemoteRegistrationTx(ctx context.Context, tx *sql.Tx, boot Bootstrap,
 	if _, err := ensureMetadataValue(ctx, tx, "schema_epoch", InitialSchemaEpoch, now); err != nil {
 		return Bootstrap{}, err
 	}
-	boot.NodeID = generatedID("node")
-	boot.CollectorID = generatedID("collector")
+	if err := validateRemoteBootstrap(boot); err != nil {
+		return Bootstrap{}, err
+	}
+	existing, err := existingRemoteCollector(ctx, tx, boot)
+	if err != nil {
+		return Bootstrap{}, err
+	}
+	if !existing {
+		boot.NodeID = generatedID("node")
+		boot.CollectorID = generatedID("collector")
+	}
 	if err := upsertNode(ctx, tx, boot, now); err != nil {
 		return Bootstrap{}, err
 	}
@@ -217,6 +226,52 @@ func ensureRemoteRegistrationTx(ctx context.Context, tx *sql.Tx, boot Bootstrap,
 		return Bootstrap{}, err
 	}
 	return boot, nil
+}
+
+func validateRemoteBootstrap(boot Bootstrap) error {
+	if len(boot.Sources) == 0 {
+		return fmt.Errorf("%w: at least one source is required", ErrEnrollmentInvalid)
+	}
+	for i, source := range boot.Sources {
+		prefix := fmt.Sprintf("source %d", i+1)
+		if source.Name == "" {
+			return fmt.Errorf("%w: %s name is required", ErrEnrollmentInvalid, prefix)
+		}
+		if source.Runtime == "" {
+			return fmt.Errorf("%w: %s runtime is required", ErrEnrollmentInvalid, prefix)
+		}
+		if source.Provider == "" {
+			return fmt.Errorf("%w: %s provider is required", ErrEnrollmentInvalid, prefix)
+		}
+		if source.Format == "" {
+			return fmt.Errorf("%w: %s format is required", ErrEnrollmentInvalid, prefix)
+		}
+		if source.WatchRoot == "" {
+			return fmt.Errorf("%w: %s watch_root is required", ErrEnrollmentInvalid, prefix)
+		}
+	}
+	return nil
+}
+
+func existingRemoteCollector(ctx context.Context, tx *sql.Tx, boot Bootstrap) (bool, error) {
+	if boot.NodeID == "" || boot.CollectorID == "" {
+		return false, nil
+	}
+	var nodeID string
+	err := tx.QueryRowContext(ctx,
+		`SELECT node_id FROM collectors WHERE collector_id = ?`,
+		boot.CollectorID,
+	).Scan(&nodeID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return false, nil
+	case err != nil:
+		return false, fmt.Errorf("read remote collector %q: %w", boot.CollectorID, err)
+	case nodeID != boot.NodeID:
+		return false, fmt.Errorf("%w: collector %q is bound to node %q, not %q", ErrEnrollmentInvalid, boot.CollectorID, nodeID, boot.NodeID)
+	default:
+		return true, nil
+	}
 }
 
 func (s *Store) Snapshot(ctx context.Context) (*Snapshot, error) {

@@ -80,7 +80,7 @@ func (h *IngestHandlers) Enroll(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := h.control.CompleteRemoteEnrollment(r.Context(), token, controlplaneBootstrapFromEnroll(req.Bootstrap))
 	if err != nil {
-		h.authError(w, err)
+		h.enrollmentError(w, err)
 		return
 	}
 	h.jsonResponse(w, ingest.EnrollResponse{
@@ -346,15 +346,34 @@ func (h *IngestHandlers) decode(w http.ResponseWriter, r *http.Request, dst any)
 
 func (h *IngestHandlers) authError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, controlplane.ErrTokenExpired),
-		errors.Is(err, controlplane.ErrTokenRevoked),
-		errors.Is(err, controlplane.ErrTokenUsed),
-		errors.Is(err, controlplane.ErrTokenScopeDenied),
-		errors.Is(err, controlplane.ErrTokenBindingMismatch):
+	case isTokenForbiddenError(err):
 		h.jsonError(w, "forbidden", http.StatusForbidden)
 	default:
 		h.jsonError(w, "unauthorized", http.StatusUnauthorized)
 	}
+}
+
+func (h *IngestHandlers) enrollmentError(w http.ResponseWriter, err error) {
+	switch {
+	case isTokenAuthError(err):
+		h.authError(w, err)
+	case errors.Is(err, controlplane.ErrEnrollmentInvalid):
+		h.jsonError(w, err.Error(), http.StatusBadRequest)
+	default:
+		h.internalError(w, "complete remote enrollment", err)
+	}
+}
+
+func isTokenAuthError(err error) bool {
+	return errors.Is(err, controlplane.ErrTokenInvalid) || isTokenForbiddenError(err)
+}
+
+func isTokenForbiddenError(err error) bool {
+	return errors.Is(err, controlplane.ErrTokenExpired) ||
+		errors.Is(err, controlplane.ErrTokenRevoked) ||
+		errors.Is(err, controlplane.ErrTokenUsed) ||
+		errors.Is(err, controlplane.ErrTokenScopeDenied) ||
+		errors.Is(err, controlplane.ErrTokenBindingMismatch)
 }
 
 func (h *IngestHandlers) commitError(w http.ResponseWriter, err error) {

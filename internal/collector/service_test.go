@@ -180,28 +180,116 @@ func TestValidateBatchBodySizeRejectsGzipTransportLimit(t *testing.T) {
 	}
 }
 
-func TestServiceOversizeBatchRejectedBeforeSpool(t *testing.T) {
-	line := `{"msg":"` + strings.Repeat("x", 1<<20) + `"}`
-	lines := make([]string, 40)
+func TestServiceOversizeBatchSplitsBeforeSpool(t *testing.T) {
+	line := `{"msg":"` + strings.Repeat("x", 512) + `"}`
+	lines := make([]string, 10)
 	for i := range lines {
 		lines[i] = line
 	}
-	service, state, file := newTestServiceWithLines(t, "http://127.0.0.1:1", int64(ingest.MaxBodyBytes*2), len(lines), lines)
-	if err := service.ScanOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "exceeds ingest limit") {
-		t.Fatalf("ScanOnce error = %v, want ingest limit", err)
+	service, state, file := newTestServiceWithLines(t, "http://127.0.0.1:1", 1<<20, len(lines), lines)
+	service.cfg.MaxBatchBodyBytes = 9000
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("ScanOnce: %v", err)
 	}
 	pending, err := service.cfg.Spool.Pending()
 	if err != nil {
 		t.Fatalf("Pending: %v", err)
 	}
-	if len(pending) != 0 {
-		t.Fatalf("pending after oversize batch = %d, want 0", len(pending))
+	if len(pending) <= 1 {
+		t.Fatalf("pending after split = %d, want multiple batches", len(pending))
 	}
-	if got := state.Next(); got != 1 {
-		t.Fatalf("next sequence = %d, want 1", got)
+	if got := state.Next(); got != uint64(len(pending)+1) {
+		t.Fatalf("next sequence = %d, want %d", got, len(pending)+1)
 	}
-	if cp := state.SpooledCheckpoint("codex", file); cp != nil {
-		t.Fatalf("spooled checkpoint after oversize = %#v, want nil", cp)
+	if cp := state.SpooledCheckpoint("codex", file); cp == nil || cp.LastLineNo != len(lines) {
+		t.Fatalf("spooled checkpoint after split = %#v, want line %d", cp, len(lines))
+	}
+	for i, batch := range pending {
+		if batch.Request.Sequence != uint64(i+1) {
+			t.Fatalf("pending[%d] sequence = %d, want %d", i, batch.Request.Sequence, i+1)
+		}
+	}
+}
+
+func TestServiceSingleOversizeRecordEmitsCaptureErrorAndAdvances(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "state.db")
+	if err := os.WriteFile(file, []byte("sqlite"), 0600); err != nil {
+		t.Fatalf("write whole-file source: %v", err)
+	}
+	spool, err := OpenSpool(filepath.Join(dir, "spool"), int64(ingest.MaxBodyBytes*2))
+	if err != nil {
+		t.Fatalf("OpenSpool: %v", err)
+	}
+	state, err := OpenStateStore(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatalf("OpenStateStore: %v", err)
+	}
+	client, err := NewClient("http://127.0.0.1:1", "token", time.Second)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	hugePayload := strings.Repeat("x", 4096)
+	source := capture.WatchSource{
+		Name:     "hermes",
+		Runtime:  models.RuntimeHermesAgent,
+		Provider: models.ProviderMulti,
+		Format:   models.FormatSQLite,
+		Globs:    []string{file},
+		FileParser: func(file string) ([]capture.NormalizedEvent, error) {
+			return []capture.NormalizedEvent{
+				{SessionID: "session-test", SourceName: "hermes", Runtime: models.RuntimeHermesAgent, Provider: models.ProviderMulti, Format: models.FormatSQLite, EventKind: models.EventKindMessage, ActorRole: models.ActorRoleAssistant, Timestamp: time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC), TextContent: hugePayload, RawPayload: hugePayload, SourceFile: file},
+				{SessionID: "session-test", SourceName: "hermes", Runtime: models.RuntimeHermesAgent, Provider: models.ProviderMulti, Format: models.FormatSQLite, EventKind: models.EventKindMessage, ActorRole: models.ActorRoleAssistant, Timestamp: time.Date(2026, 6, 7, 12, 0, 1, 0, time.UTC), TextContent: "small", RawPayload: `{"msg":"small"}`, SourceFile: file},
+			}, nil
+		},
+	}
+	service, err := NewService(ServiceConfig{
+		Sources: []capture.WatchSource{source},
+		Identity: capture.FleetIdentity{
+			NodeID:            "node-test",
+			CollectorID:       "collector-test",
+			ControlPlaneEpoch: "1",
+			Sources: map[string]capture.FleetSourceIdentity{
+				"hermes": {SourceID: "source-hermes"},
+			},
+		},
+		Spool:             spool,
+		State:             state,
+		Client:            client,
+		BatchSize:         1,
+		MaxBatchBodyBytes: 2048,
+		ScanInterval:      time.Hour,
+		RetryMin:          time.Millisecond,
+		RetryMax:          time.Millisecond,
+		HeartbeatInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("ScanOnce: %v", err)
+	}
+	pending, err := service.cfg.Spool.Pending()
+	if err != nil {
+		t.Fatalf("Pending: %v", err)
+	}
+	if len(pending) != 2 {
+		t.Fatalf("pending batches = %d, want oversize error and following small event", len(pending))
+	}
+	if len(pending[0].Request.Events) != 0 || len(pending[0].Request.CaptureErrors) != 1 {
+		t.Fatalf("first batch = events %#v errors %#v, want one capture error", pending[0].Request.Events, pending[0].Request.CaptureErrors)
+	}
+	if pending[0].Request.CaptureErrors[0].ErrorClass != "oversize_record" {
+		t.Fatalf("capture error class = %q, want oversize_record", pending[0].Request.CaptureErrors[0].ErrorClass)
+	}
+	if len(pending[1].Request.Events) != 1 || pending[1].Request.Events[0].TextContent != "small" {
+		t.Fatalf("second batch events = %#v, want small follow-up event", pending[1].Request.Events)
+	}
+	if got := state.Next(); got != 3 {
+		t.Fatalf("next sequence = %d, want 3", got)
+	}
+	if cp := state.SpooledCheckpoint("hermes", file); cp == nil || cp.LastLineNo != 2 {
+		t.Fatalf("spooled checkpoint = %#v, want line 2", cp)
 	}
 }
 

@@ -323,18 +323,69 @@ func TestReadWholeSourceFileSQLiteSidecarsInvalidateCheckpoint(t *testing.T) {
 	}
 }
 
-func TestReadWholeSourceFileParseErrorHasStableCheckpointAndID(t *testing.T) {
+func TestReadWholeSourceFileSidecarChangeDuringParseForcesReread(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "state.db")
+	if err := os.WriteFile(file, []byte("state"), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	var parses int
+	source := WatchSource{
+		Name:     "hermes",
+		Runtime:  models.RuntimeHermesAgent,
+		Provider: models.ProviderMulti,
+		Format:   models.FormatSQLite,
+		FileParser: func(file string) ([]NormalizedEvent, error) {
+			parses++
+			if parses == 1 {
+				if err := os.WriteFile(file+"-wal", []byte("changed during parse"), 0644); err != nil {
+					return nil, err
+				}
+			}
+			return []NormalizedEvent{{
+				SessionID:  "one",
+				SourceName: "hermes",
+				Runtime:    models.RuntimeHermesAgent,
+				Provider:   models.ProviderMulti,
+				Format:     models.FormatSQLite,
+				EventKind:  models.EventKindMessage,
+				ActorRole:  models.ActorRoleAssistant,
+				Timestamp:  time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC),
+				SourceFile: file,
+			}}, nil
+		},
+	}
+
+	first, err := ReadSourceFile(context.Background(), source, file, nil, nil)
+	if err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+	if len(first.Events) != 1 || first.Checkpoint == nil || !first.HasMore || first.Checkpoint.LastOffset != 0 {
+		t.Fatalf("first read events=%#v checkpoint=%#v hasMore=%v, want non-complete checkpoint", first.Events, first.Checkpoint, first.HasMore)
+	}
+	second, err := ReadSourceFile(context.Background(), source, file, first.Checkpoint, nil)
+	if err != nil {
+		t.Fatalf("second read: %v", err)
+	}
+	if parses != 2 || len(second.Events) != 1 || second.Checkpoint == nil || second.HasMore || second.Checkpoint.LastOffset == 0 {
+		t.Fatalf("second read parses=%d events=%#v checkpoint=%#v hasMore=%v, want stable reread completion", parses, second.Events, second.Checkpoint, second.HasMore)
+	}
+}
+
+func TestReadWholeSourceFileParseErrorRetriesAndDeduplicates(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "state.db")
 	if err := os.WriteFile(file, []byte("bad"), 0644); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
+	var parses int
 	source := WatchSource{
 		Name:     "hermes",
 		Runtime:  models.RuntimeHermesAgent,
 		Provider: models.ProviderMulti,
 		Format:   models.FormatSQLite,
 		FileParser: func(string) ([]NormalizedEvent, error) {
+			parses++
 			return nil, errors.New("cannot parse database")
 		},
 	}
@@ -342,7 +393,7 @@ func TestReadWholeSourceFileParseErrorHasStableCheckpointAndID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first read: %v", err)
 	}
-	if len(first.CaptureErrors) != 1 || first.Checkpoint == nil {
+	if len(first.CaptureErrors) != 1 || first.Checkpoint == nil || first.Checkpoint.LastOffset != 0 {
 		t.Fatalf("first read errors=%#v checkpoint=%#v", first.CaptureErrors, first.Checkpoint)
 	}
 	second, err := ReadSourceFile(context.Background(), source, file, first.Checkpoint, nil)
@@ -350,7 +401,10 @@ func TestReadWholeSourceFileParseErrorHasStableCheckpointAndID(t *testing.T) {
 		t.Fatalf("second read: %v", err)
 	}
 	if len(second.CaptureErrors) != 0 || second.Checkpoint != nil {
-		t.Fatalf("second unchanged read errors=%#v checkpoint=%#v, want skipped", second.CaptureErrors, second.Checkpoint)
+		t.Fatalf("second unchanged read errors=%#v checkpoint=%#v, want duplicate diagnostic suppressed", second.CaptureErrors, second.Checkpoint)
+	}
+	if parses != 2 {
+		t.Fatalf("parses = %d, want retry before suppressing duplicate diagnostic", parses)
 	}
 
 	fresh, err := ReadSourceFile(context.Background(), source, file, nil, nil)
