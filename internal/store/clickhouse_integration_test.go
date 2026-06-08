@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -452,6 +453,88 @@ func TestClickHouseIngestBatchStateVersionBreaksTimestampTies(t *testing.T) {
 	}
 	if !ok || record.Status != BatchStateCommitted || record.StateVersion != 2 {
 		t.Fatalf("record = %#v ok=%v, want committed state_version 2", record, ok)
+	}
+}
+
+func TestClickHouseCommitIngestBatchConcurrentDuplicateIsIdempotent(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	meta := IngestBatchMeta{
+		CollectorID:       "collector-concurrent",
+		BatchID:           "batch-concurrent",
+		NodeID:            "node-concurrent",
+		Sequence:          1,
+		ControlPlaneEpoch: "1",
+		PayloadDigest:     "sha256:concurrent",
+		RedactionVersion:  "redact-v1",
+		CreatedAt:         time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC),
+	}
+	event := models.Event{
+		EventUID:          "evt-concurrent",
+		SessionID:         "session-concurrent",
+		NodeID:            meta.NodeID,
+		CollectorID:       meta.CollectorID,
+		SourceID:          "source-concurrent",
+		SourceName:        "codex",
+		Runtime:           "codex",
+		Provider:          "openai",
+		Format:            "jsonl",
+		EventKind:         "message",
+		ActorRole:         "assistant",
+		Timestamp:         time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC),
+		TextContent:       "concurrent duplicate",
+		TextPreview:       "concurrent duplicate",
+		SourceFile:        "session.jsonl",
+		SourceLineNo:      1,
+		BatchID:           meta.BatchID,
+		ControlPlaneEpoch: meta.ControlPlaneEpoch,
+		PayloadDigest:     meta.PayloadDigest,
+		RedactionStatus:   "redacted",
+		RedactionVersion:  meta.RedactionVersion,
+	}
+	rows := RowBatch{
+		ActivityEvents: []models.Event{event},
+		RawRecords:     []models.RawRecord{NewRawRecord(event)},
+	}
+
+	const workers = 4
+	acks := make(chan IngestBatchAck, workers)
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ack, err := ch.CommitIngestBatch(ctx, meta, rows)
+			if err != nil {
+				errs <- err
+				return
+			}
+			acks <- ack
+		}()
+	}
+	wg.Wait()
+	close(acks)
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent CommitIngestBatch: %v", err)
+	}
+	var first IngestBatchAck
+	for ack := range acks {
+		if first.BatchID == "" {
+			first = ack
+			continue
+		}
+		if ack != first {
+			t.Fatalf("ack = %#v, want %#v", ack, first)
+		}
+	}
+	record, ok, err := ch.GetIngestBatch(ctx, meta.CollectorID, meta.BatchID)
+	if err != nil {
+		t.Fatalf("GetIngestBatch: %v", err)
+	}
+	if !ok || record.Status != BatchStateCommitted {
+		t.Fatalf("record = %#v ok=%v, want committed", record, ok)
 	}
 }
 

@@ -166,6 +166,7 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	fmt.Fprintf(out, "Node: %s\n", resp.Token.NodeID)
 	fmt.Fprintf(out, "Collector: %s\n", resp.Token.CollectorID)
 	fmt.Fprintf(out, "Ingest token file: %s\n", cfg.Fleet.IngestTokenFile)
+	fmt.Fprintf(out, "Run collector: beacon collect --control-plane-url %s\n", normalizedURL)
 	return nil
 }
 

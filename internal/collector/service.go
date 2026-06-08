@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -49,6 +50,7 @@ type Status struct {
 	LastScanAt         time.Time  `json:"last_scan_at,omitempty"`
 	LastHeartbeatAt    time.Time  `json:"last_heartbeat_at,omitempty"`
 	LastHeartbeatError string     `json:"last_heartbeat_error,omitempty"`
+	BlockedTerminal    bool       `json:"blocked_terminal"`
 }
 
 func NewService(cfg ServiceConfig) (*Service, error) {
@@ -88,11 +90,15 @@ func (s *Service) Run(ctx context.Context) error {
 	heartbeatTicker := time.NewTicker(s.cfg.HeartbeatInterval)
 	defer heartbeatTicker.Stop()
 
+	shouldScan := true
 	if err := s.SendPending(ctx); err != nil {
 		s.setError(err)
+		shouldScan = retryableSendError(err)
 	}
-	if err := s.ScanOnce(ctx); err != nil {
-		s.setError(err)
+	if shouldScan {
+		if err := s.ScanOnce(ctx); err != nil {
+			s.setError(err)
+		}
 	}
 
 	for {
@@ -102,6 +108,11 @@ func (s *Service) Run(ctx context.Context) error {
 		case <-scanTicker.C:
 			if err := s.SendPending(ctx); err != nil {
 				s.setError(err)
+				if retryableSendError(err) {
+					if scanErr := s.ScanOnce(ctx); scanErr != nil {
+						s.setError(scanErr)
+					}
+				}
 				time.Sleep(s.retryDelay())
 				continue
 			}
@@ -117,11 +128,14 @@ func (s *Service) Run(ctx context.Context) error {
 }
 
 func (s *Service) ScanOnce(ctx context.Context) error {
-	hasUnacked, err := s.cfg.Spool.HasUnacked()
+	if err := s.recoverSpooledStateFromSpool(); err != nil {
+		return err
+	}
+	stats, err := s.cfg.Spool.Stats()
 	if err != nil {
 		return err
 	}
-	if hasUnacked {
+	if stats.CorruptCount > 0 || s.terminalBlocked() {
 		return nil
 	}
 
@@ -131,7 +145,7 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			cp := s.cfg.State.Checkpoint(src.Name, file)
+			cp := s.cfg.State.SpooledCheckpoint(src.Name, file)
 			result, err := capture.ReadSourceFile(ctx, src, file, cp, s.cfg.Logger)
 			if err != nil {
 				s.cfg.Logger.Warn("collector read source file failed", "source", src.Name, "file", file, "error", err)
@@ -174,6 +188,7 @@ func (s *Service) SendPending(ctx context.Context) error {
 				if _, moveErr := s.cfg.Spool.MarkPending(inflight); moveErr != nil {
 					return moveErr
 				}
+				s.setTerminalBlocked(err)
 				return err
 			}
 			if _, moveErr := s.cfg.Spool.MarkPending(inflight); moveErr != nil {
@@ -185,7 +200,9 @@ func (s *Service) SendPending(ctx context.Context) error {
 			if _, moveErr := s.cfg.Spool.MarkPending(inflight); moveErr != nil {
 				return moveErr
 			}
-			return fmt.Errorf("ingest ack did not match batch")
+			err := fmt.Errorf("ingest ack did not match batch")
+			s.setTerminalBlocked(err)
+			return err
 		}
 		if err := s.cfg.State.MarkAcked(ack.NextSequence, inflight.Request.Checkpoints); err != nil {
 			if _, moveErr := s.cfg.Spool.MarkPending(inflight); moveErr != nil {
@@ -275,11 +292,17 @@ func (s *Service) spoolReadResult(ctx context.Context, src capture.WatchSource, 
 		}
 		requests = append(requests, req)
 	}
-	if _, err := s.cfg.Spool.WritePendingGroup(ctx, requests); err != nil {
+	written, err := s.cfg.Spool.WritePendingGroup(ctx, requests)
+	if err != nil {
 		return err
 	}
 	if len(requests) > 0 {
-		return s.cfg.State.AdvanceNext(sequence + uint64(len(requests)))
+		if err := s.cfg.State.MarkSpooled(sequence+uint64(len(requests)), checkpointsFromRequests(requests)); err != nil {
+			for _, batch := range written {
+				_ = s.cfg.Spool.Discard(batch)
+			}
+			return err
+		}
 	}
 	return nil
 }
@@ -323,6 +346,33 @@ func chunkEvents(events []capture.NormalizedEvent, size int) [][]capture.Normali
 		chunks = append(chunks, events[start:end])
 	}
 	return chunks
+}
+
+func (s *Service) recoverSpooledStateFromSpool() error {
+	active, err := s.cfg.Spool.Active()
+	if err != nil {
+		return err
+	}
+	var next uint64
+	var checkpoints []models.Checkpoint
+	for _, batch := range active {
+		if batch.Request.Sequence >= next {
+			next = batch.Request.Sequence + 1
+		}
+		checkpoints = append(checkpoints, batch.Request.Checkpoints...)
+	}
+	if next == 0 && len(checkpoints) == 0 {
+		return nil
+	}
+	return s.cfg.State.MarkSpooled(next, checkpoints)
+}
+
+func checkpointsFromRequests(requests []ingest.BatchRequest) []models.Checkpoint {
+	var checkpoints []models.Checkpoint
+	for _, req := range requests {
+		checkpoints = append(checkpoints, req.Checkpoints...)
+	}
+	return checkpoints
 }
 
 func enrichCollectorCheckpoints(cp *models.Checkpoint, identity capture.FleetIdentity, sourceName, sourceID string) []models.Checkpoint {
@@ -411,6 +461,11 @@ func (s *Service) retryDelay() time.Duration {
 	return delay
 }
 
+func retryableSendError(err error) bool {
+	var sendErr *SendError
+	return err != nil && errors.As(err, &sendErr) && sendErr.Retryable
+}
+
 func (s *Service) setError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -449,4 +504,20 @@ func (s *Service) setAcked(batchID string) {
 	s.status.LastAckAt = time.Now().UTC()
 	s.status.LastError = ""
 	s.status.BlockedSpoolFull = false
+	s.status.BlockedTerminal = false
+}
+
+func (s *Service) setTerminalBlocked(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.status.BlockedTerminal = true
+	if err != nil {
+		s.status.LastError = err.Error()
+	}
+}
+
+func (s *Service) terminalBlocked() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.status.BlockedTerminal
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -25,9 +26,10 @@ type Options struct {
 }
 
 type Store struct {
-	DB       *sql.DB
-	native   driver.Conn
-	database string
+	DB             *sql.DB
+	native         driver.Conn
+	database       string
+	ingestCommitMu sync.Mutex
 }
 
 func DefaultOptions() Options {

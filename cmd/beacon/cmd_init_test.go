@@ -178,6 +178,41 @@ func TestRunRemoteEnrollRejectsNonLoopbackHTTPBeforeRequest(t *testing.T) {
 	}
 }
 
+func TestWriteIngestTokenFileSecuresExistingFileWithoutChmodParent(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "custom")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatalf("mkdir custom dir: %v", err)
+	}
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatalf("chmod custom dir: %v", err)
+	}
+	path := filepath.Join(dir, "ingest-token")
+	if err := os.WriteFile(path, []byte("old\n"), 0644); err != nil {
+		t.Fatalf("write existing token: %v", err)
+	}
+	if err := writeIngestTokenFile(path, "new-token"); err != nil {
+		t.Fatalf("writeIngestTokenFile: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read token: %v", err)
+	}
+	if string(data) != "new-token\n" {
+		t.Fatalf("token data = %q, want new token", string(data))
+	}
+	assertFileMode(t, path, 0600)
+	assertFileMode(t, dir, 0755)
+}
+
+func TestWriteIngestTokenFileCreatesPrivateParent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "new", "ingest-token")
+	if err := writeIngestTokenFile(path, "new-token"); err != nil {
+		t.Fatalf("writeIngestTokenFile: %v", err)
+	}
+	assertFileMode(t, path, 0600)
+	assertFileMode(t, filepath.Dir(path), 0700)
+}
+
 func writeInitTestConfig(t *testing.T) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -219,4 +254,15 @@ func tokensFromOutput(output string) []string {
 		}
 	}
 	return tokens
+}
+
+func assertFileMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("mode(%s) = %o, want %o", path, got, want)
+	}
 }

@@ -76,8 +76,13 @@ func (h *IngestHandlers) Enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.jsonResponse(w, ingest.EnrollResponse{
-		Schema:      ingest.SchemaV1,
-		Snapshot:    *result.Snapshot,
+		Schema: ingest.SchemaV1,
+		Assignment: ingest.EnrollAssignment{
+			NodeID:            result.IngestToken.Record.NodeID,
+			CollectorID:       result.IngestToken.Record.CollectorID,
+			SourceIDs:         result.IngestToken.Record.SourceIDs,
+			ControlPlaneEpoch: result.Snapshot.SchemaEpoch,
+		},
 		IngestToken: result.IngestToken.Plaintext,
 		Token:       result.IngestToken.Record,
 	})

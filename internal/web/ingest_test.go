@@ -152,6 +152,17 @@ func TestIngestEnrollCompletesRemoteEnrollment(t *testing.T) {
 	if resp.IngestToken == "" || resp.Token.CollectorID == "collector-claimed" || resp.Token.NodeID == "node-claimed" || len(resp.Token.SourceIDs) != 1 {
 		t.Fatalf("enrollment response = %#v", resp)
 	}
+	if resp.Assignment.NodeID != resp.Token.NodeID || resp.Assignment.CollectorID != resp.Token.CollectorID ||
+		len(resp.Assignment.SourceIDs) != 1 || resp.Assignment.ControlPlaneEpoch == "" {
+		t.Fatalf("assignment response = %#v token=%#v", resp.Assignment, resp.Token)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode raw enrollment response: %v", err)
+	}
+	if _, ok := raw["snapshot"]; ok {
+		t.Fatalf("enrollment response leaked full snapshot: %s", rec.Body.String())
+	}
 }
 
 func TestIngestGzipRequiresBearerBeforeDecodeAndCapsDecompressedBody(t *testing.T) {

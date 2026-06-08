@@ -12,11 +12,12 @@ import (
 )
 
 type StateStore struct {
-	path         string
-	mu           sync.Mutex
-	loaded       bool
-	NextSequence uint64                       `json:"next_sequence"`
-	Checkpoints  map[string]models.Checkpoint `json:"checkpoints"`
+	path               string
+	mu                 sync.Mutex
+	loaded             bool
+	NextSequence       uint64                       `json:"next_sequence"`
+	Checkpoints        map[string]models.Checkpoint `json:"checkpoints"`
+	SpooledCheckpoints map[string]models.Checkpoint `json:"spooled_checkpoints"`
 }
 
 func OpenStateStore(path string) (*StateStore, error) {
@@ -30,9 +31,10 @@ func OpenStateStore(path string) (*StateStore, error) {
 		return nil, fmt.Errorf("secure collector state directory: %w", err)
 	}
 	store := &StateStore{
-		path:         path,
-		NextSequence: 1,
-		Checkpoints:  make(map[string]models.Checkpoint),
+		path:               path,
+		NextSequence:       1,
+		Checkpoints:        make(map[string]models.Checkpoint),
+		SpooledCheckpoints: make(map[string]models.Checkpoint),
 	}
 	if err := store.loadLocked(); err != nil {
 		return nil, err
@@ -72,6 +74,24 @@ func (s *StateStore) AdvanceNext(nextSequence uint64) error {
 	return s.saveLocked()
 }
 
+func (s *StateStore) MarkSpooled(nextSequence uint64, checkpoints []models.Checkpoint) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if nextSequence > s.NextSequence {
+		s.NextSequence = nextSequence
+	}
+	if s.NextSequence == 0 {
+		s.NextSequence = 1
+	}
+	for _, checkpoint := range checkpoints {
+		if checkpoint.SourceFile == "" {
+			continue
+		}
+		s.SpooledCheckpoints[checkpointKey(checkpoint.SourceName, checkpoint.SourceFile)] = checkpoint
+	}
+	return s.saveLocked()
+}
+
 func (s *StateStore) MarkAcked(nextSequence uint64, checkpoints []models.Checkpoint) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -85,7 +105,11 @@ func (s *StateStore) MarkAcked(nextSequence uint64, checkpoints []models.Checkpo
 		if checkpoint.SourceFile == "" {
 			continue
 		}
-		s.Checkpoints[checkpointKey(checkpoint.SourceName, checkpoint.SourceFile)] = checkpoint
+		key := checkpointKey(checkpoint.SourceName, checkpoint.SourceFile)
+		s.Checkpoints[key] = checkpoint
+		if spooled, ok := s.SpooledCheckpoints[key]; ok && checkpointCovers(checkpoint, spooled) {
+			delete(s.SpooledCheckpoints, key)
+		}
 	}
 	return s.saveLocked()
 }
@@ -99,6 +123,21 @@ func (s *StateStore) Checkpoint(sourceName, sourceFile string) *models.Checkpoin
 	}
 	cp := checkpoint
 	return &cp
+}
+
+func (s *StateStore) SpooledCheckpoint(sourceName, sourceFile string) *models.Checkpoint {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := checkpointKey(sourceName, sourceFile)
+	if checkpoint, ok := s.SpooledCheckpoints[key]; ok {
+		cp := checkpoint
+		return &cp
+	}
+	if checkpoint, ok := s.Checkpoints[key]; ok {
+		cp := checkpoint
+		return &cp
+	}
+	return nil
 }
 
 func (s *StateStore) loadLocked() error {
@@ -125,6 +164,9 @@ func (s *StateStore) loadLocked() error {
 	if s.Checkpoints == nil {
 		s.Checkpoints = make(map[string]models.Checkpoint)
 	}
+	if s.SpooledCheckpoints == nil {
+		s.SpooledCheckpoints = make(map[string]models.Checkpoint)
+	}
 	return nil
 }
 
@@ -134,6 +176,9 @@ func (s *StateStore) saveLocked() error {
 	}
 	if s.Checkpoints == nil {
 		s.Checkpoints = make(map[string]models.Checkpoint)
+	}
+	if s.SpooledCheckpoints == nil {
+		s.SpooledCheckpoints = make(map[string]models.Checkpoint)
 	}
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
@@ -177,4 +222,14 @@ func (s *StateStore) saveLocked() error {
 
 func checkpointKey(sourceName, sourceFile string) string {
 	return sourceName + "\x00" + sourceFile
+}
+
+func checkpointCovers(acked, spooled models.Checkpoint) bool {
+	if acked.SourceGeneration != spooled.SourceGeneration {
+		return acked.SourceGeneration > spooled.SourceGeneration
+	}
+	if acked.LastOffset != spooled.LastOffset {
+		return acked.LastOffset >= spooled.LastOffset
+	}
+	return acked.LastLineNo >= spooled.LastLineNo
 }

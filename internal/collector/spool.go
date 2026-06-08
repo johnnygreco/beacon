@@ -154,12 +154,21 @@ func (s *Spool) Pending() ([]SpoolBatch, error) {
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(batches, func(i, j int) bool {
-		if batches[i].Request.Sequence == batches[j].Request.Sequence {
-			return batches[i].Request.BatchID < batches[j].Request.BatchID
-		}
-		return batches[i].Request.Sequence < batches[j].Request.Sequence
-	})
+	sortBatches(batches)
+	return batches, nil
+}
+
+func (s *Spool) Active() ([]SpoolBatch, error) {
+	pending, err := s.readBatches(spoolPending)
+	if err != nil {
+		return nil, err
+	}
+	inflight, err := s.readBatches(spoolInflight)
+	if err != nil {
+		return nil, err
+	}
+	batches := append(pending, inflight...)
+	sortBatches(batches)
 	return batches, nil
 }
 
@@ -184,6 +193,16 @@ func (s *Spool) Ack(batch SpoolBatch) error {
 func (s *Spool) Quarantine(batch SpoolBatch) error {
 	_, err := s.move(batch, spoolQuarantine)
 	return err
+}
+
+func (s *Spool) Discard(batch SpoolBatch) error {
+	if batch.Path == "" {
+		return fmt.Errorf("spool batch path is required")
+	}
+	if err := os.Remove(batch.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return syncDir(filepath.Dir(batch.Path))
 }
 
 func (s *Spool) Stats() (SpoolStats, error) {
@@ -345,6 +364,15 @@ func (s *Spool) countState(state string) (int, int64, error) {
 		bytes += info.Size()
 	}
 	return count, bytes, nil
+}
+
+func sortBatches(batches []SpoolBatch) {
+	sort.Slice(batches, func(i, j int) bool {
+		if batches[i].Request.Sequence == batches[j].Request.Sequence {
+			return batches[i].Request.BatchID < batches[j].Request.BatchID
+		}
+		return batches[i].Request.Sequence < batches[j].Request.Sequence
+	})
 }
 
 func readSpoolBatch(path, state string) (SpoolBatch, error) {

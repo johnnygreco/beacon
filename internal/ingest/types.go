@@ -29,9 +29,16 @@ type EnrollRequest struct {
 
 type EnrollResponse struct {
 	Schema      string                   `json:"schema"`
-	Snapshot    controlplane.Snapshot    `json:"snapshot"`
+	Assignment  EnrollAssignment         `json:"assignment"`
 	IngestToken string                   `json:"ingest_token"`
 	Token       controlplane.TokenRecord `json:"token"`
+}
+
+type EnrollAssignment struct {
+	NodeID            string   `json:"node_id"`
+	CollectorID       string   `json:"collector_id"`
+	SourceIDs         []string `json:"source_ids"`
+	ControlPlaneEpoch string   `json:"control_plane_epoch"`
 }
 
 type BatchRequest struct {

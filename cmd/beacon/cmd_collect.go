@@ -51,7 +51,11 @@ func runCollect(cmd *cobra.Command, once bool, controlPlaneURL string) error {
 	defer cancel()
 	if once {
 		if err := service.SendPending(ctx); err != nil {
-			return err
+			var sendErr *collector.SendError
+			if !errors.As(err, &sendErr) || !sendErr.Retryable {
+				return err
+			}
+			logger.Warn("send pending failed; scanning local sources before retry", "error", err)
 		}
 		if err := service.ScanOnce(ctx); err != nil {
 			return err
@@ -167,13 +171,65 @@ func writeIngestTokenFile(path, token string) error {
 	if path == "" || token == "" {
 		return fmt.Errorf("ingest token file path and token are required")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	dir := filepath.Dir(path)
+	_, statErr := os.Stat(dir)
+	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return statErr
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
-	if err := os.Chmod(filepath.Dir(path), 0700); err != nil {
+	if errors.Is(statErr, os.ErrNotExist) {
+		if err := os.Chmod(dir, 0700); err != nil {
+			return err
+		}
+	}
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(token+"\n"), 0600)
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write([]byte(token + "\n")); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
+	}
+	cleanup = false
+	if err := os.Chmod(path, 0600); err != nil {
+		return err
+	}
+	return syncFileDir(dir)
+}
+
+func syncFileDir(dir string) error {
+	f, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func collectorStatePath(cfg *config.Config) string {

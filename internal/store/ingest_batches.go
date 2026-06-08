@@ -58,6 +58,9 @@ type IngestBatchAck struct {
 }
 
 func (s *Store) CommitIngestBatch(ctx context.Context, meta IngestBatchMeta, rows RowBatch) (IngestBatchAck, error) {
+	s.ingestCommitMu.Lock()
+	defer s.ingestCommitMu.Unlock()
+
 	meta.CreatedAt = nonZeroTime(meta.CreatedAt, time.Now().UTC())
 	if existing, ok, err := s.GetIngestBatch(ctx, meta.CollectorID, meta.BatchID); err != nil {
 		return IngestBatchAck{}, err

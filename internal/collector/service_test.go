@@ -172,6 +172,57 @@ func TestServiceTerminalSendErrorKeepsBatchPendingAndBlocksScan(t *testing.T) {
 	}
 }
 
+func TestServiceRetryableOutageContinuesSpoolingFromSpooledCheckpoint(t *testing.T) {
+	service, state, file := newTestService(t, "http://127.0.0.1:1", 1<<20)
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("initial ScanOnce: %v", err)
+	}
+	if state.Checkpoint("codex", file) != nil {
+		t.Fatalf("acked checkpoint advanced before server ack")
+	}
+	firstSpooled := state.SpooledCheckpoint("codex", file)
+	if firstSpooled == nil || firstSpooled.LastLineNo != 1 {
+		t.Fatalf("spooled checkpoint after first scan = %#v, want line 1", firstSpooled)
+	}
+	f, err := os.OpenFile(file, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatalf("open source append: %v", err)
+	}
+	if _, err := f.WriteString(`{"msg":"api_key=second"}` + "\n"); err != nil {
+		_ = f.Close()
+		t.Fatalf("append source: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close source append: %v", err)
+	}
+
+	if err := service.SendPending(context.Background()); err == nil {
+		t.Fatal("SendPending returned nil, want retryable outage")
+	}
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("ScanOnce during outage: %v", err)
+	}
+	pending, err := service.cfg.Spool.Pending()
+	if err != nil {
+		t.Fatalf("Pending: %v", err)
+	}
+	if len(pending) != 2 {
+		t.Fatalf("pending batches = %d, want 2", len(pending))
+	}
+	if pending[0].Request.Sequence != 1 || pending[1].Request.Sequence != 2 {
+		t.Fatalf("pending sequences = %d/%d, want 1/2", pending[0].Request.Sequence, pending[1].Request.Sequence)
+	}
+	if len(pending[1].Request.Events) != 1 || pending[1].Request.Events[0].SourceLineNo != 2 {
+		t.Fatalf("second batch events = %#v, want line 2 only", pending[1].Request.Events)
+	}
+	if state.Checkpoint("codex", file) != nil {
+		t.Fatalf("acked checkpoint advanced before ack during outage")
+	}
+	if got := state.Next(); got != 3 {
+		t.Fatalf("next sequence = %d, want 3", got)
+	}
+}
+
 func TestServiceCheckpointAdvancesOnlyAfterAck(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeGzipBatch(t, r)

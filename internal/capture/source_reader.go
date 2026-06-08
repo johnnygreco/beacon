@@ -2,7 +2,10 @@ package capture
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
+	"io"
 	"log/slog"
 	"os"
 
@@ -13,6 +16,12 @@ type SourceReadResult struct {
 	Events        []NormalizedEvent
 	CaptureErrors []models.CaptureError
 	Checkpoint    *models.Checkpoint
+}
+
+type wholeFileCheckpointState struct {
+	Version       int   `json:"version"`
+	Size          int64 `json:"size"`
+	ModTimeUnixNS int64 `json:"mod_time_unix_ns"`
 }
 
 func ReadSourceFile(ctx context.Context, src WatchSource, file string, cp *models.Checkpoint, logger *slog.Logger) (SourceReadResult, error) {
@@ -71,23 +80,54 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 		}
 	}
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, scannerMaxTokenBytes), scannerMaxTokenBytes)
+	reader := bufio.NewReader(f)
 
 	var allEvents []NormalizedEvent
 	var replayLines []replayLine
 
-	for scanner.Scan() {
+	for {
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
+		line, err := reader.ReadBytes('\n')
+		if len(line) == 0 && err == io.EOF {
+			break
+		}
+		if err != nil && err != io.EOF {
+			return result, err
+		}
+		hasDelimiter := len(line) > 0 && line[len(line)-1] == '\n'
+		if !hasDelimiter && err == io.EOF {
+			break
+		}
 		lineNo++
-		lineBytes := scanner.Bytes()
-		lineLen := int64(len(lineBytes)) + 1
+		lineLen := int64(len(line))
+		lineBytes := bytes.TrimSuffix(line, []byte{'\n'})
+		lineBytes = bytes.TrimSuffix(lineBytes, []byte{'\r'})
 		replayLines = appendReplayLine(replayLines, replayLine{offset: offset, lineNo: lineNo}, incrementalReplayLines)
 
 		if len(lineBytes) == 0 {
 			offset += lineLen
+			if err == io.EOF {
+				break
+			}
+			continue
+		}
+		if len(lineBytes) > scannerMaxTokenBytes {
+			result.CaptureErrors = append(result.CaptureErrors, models.CaptureError{
+				ID:              genID(),
+				SourceName:      src.Name,
+				SourceFile:      file,
+				SourceLineNo:    lineNo,
+				SourceOffset:    offset,
+				ErrorClass:      "parse_error",
+				ErrorMessage:    "line exceeds maximum capture token size",
+				ContextFragment: truncate(string(lineBytes[:min(len(lineBytes), 500)]), 500),
+			})
+			offset += lineLen
+			if err == io.EOF {
+				break
+			}
 			continue
 		}
 
@@ -112,9 +152,9 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 		}
 		allEvents = append(allEvents, events...)
 		offset += lineLen
-	}
-	if err := scanner.Err(); err != nil {
-		return result, err
+		if err == io.EOF {
+			break
+		}
 	}
 
 	PropagateModelWithInitial(allEvents, initialState.Models)
@@ -144,6 +184,9 @@ func readWholeSourceFile(ctx context.Context, src WatchSource, file string, fi o
 	if err := ctx.Err(); err != nil {
 		return result, err
 	}
+	if wholeFileUnchanged(cp, fi) {
+		return result, nil
+	}
 	events, err := src.FileParser(file)
 	if err != nil {
 		result.CaptureErrors = append(result.CaptureErrors, models.CaptureError{
@@ -171,10 +214,37 @@ func readWholeSourceFile(ctx context.Context, src WatchSource, file string, fi o
 		SourceFile:       file,
 		SourceInode:      fileInode(fi),
 		SourceGeneration: sourceGeneration,
-		LastOffset:       0,
+		LastOffset:       fi.Size(),
 		LastLineNo:       0,
+		StateJSON:        encodeWholeFileCheckpointState(fi),
 	}
 	return result, nil
+}
+
+func wholeFileUnchanged(cp *models.Checkpoint, fi os.FileInfo) bool {
+	if cp == nil {
+		return false
+	}
+	if inode := fileInode(fi); inode > 0 && cp.SourceInode > 0 && inode != cp.SourceInode {
+		return false
+	}
+	var state wholeFileCheckpointState
+	if err := json.Unmarshal([]byte(cp.StateJSON), &state); err != nil {
+		return false
+	}
+	return state.Version == 1 && state.Size == fi.Size() && state.ModTimeUnixNS == fi.ModTime().UnixNano()
+}
+
+func encodeWholeFileCheckpointState(fi os.FileInfo) string {
+	data, err := json.Marshal(wholeFileCheckpointState{
+		Version:       1,
+		Size:          fi.Size(),
+		ModTimeUnixNS: fi.ModTime().UnixNano(),
+	})
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func checkpointAfterRotation(src WatchSource, file string, fi os.FileInfo, cp *models.Checkpoint) *models.Checkpoint {
