@@ -710,7 +710,7 @@ function fleetPayload(scenario: Scenario, url?: URL) {
           collector_id: 'collector-c',
           source_id: 'source-c',
           source_name: 'source-b',
-          status: 'offline',
+          status: 'missing',
           queue_depth: 0,
           spool_bytes: 0,
           active_files: 0,

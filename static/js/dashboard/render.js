@@ -819,12 +819,13 @@ function renderFleetHeader(totals) {
 	setHTMLIfChanged(wrap, metrics.join(''));
 }
 
-function fleetScopeChip(field, value, label, display, kind) {
+function fleetScopeChip(field, value, label, display, kind, accessibleDisplay) {
 	value = String(value || '').trim();
 	if (!value) return '';
 	display = String(display || value).trim() || value;
+	accessibleDisplay = String(accessibleDisplay || display).trim() || display;
 	kind = String(kind || field || '').trim();
-	return '<button type="button" class="dashboard-fleet-chip dashboard-fleet-chip-' + escapeAttr(kind) + (kind === 'runtime' ? ' dashboard-fleet-runtime' : '') + '" data-dashboard-scope-field="' + escapeAttr(field) + '" data-dashboard-scope-value="' + escapeAttr(value) + '" aria-label="Filter dashboard to ' + escapeAttr(label) + ' ' + escapeAttr(display) + '" title="Filter dashboard to ' + escapeAttr(label) + ' ' + escapeAttr(display) + '">' + escapeHTML(display) + '</button>';
+	return '<button type="button" class="dashboard-fleet-chip dashboard-fleet-chip-' + escapeAttr(kind) + (kind === 'runtime' ? ' dashboard-fleet-runtime' : '') + '" data-dashboard-scope-field="' + escapeAttr(field) + '" data-dashboard-scope-value="' + escapeAttr(value) + '" aria-label="Filter dashboard to ' + escapeAttr(label) + ' ' + escapeAttr(accessibleDisplay) + '" title="Filter dashboard to ' + escapeAttr(label) + ' ' + escapeAttr(accessibleDisplay) + '">' + escapeHTML(display) + '</button>';
 }
 
 function fleetScopeChips(field, values, label, kind, formatter, limit) {
@@ -867,7 +868,7 @@ function fleetSourceChips(node) {
 		if (!value || seen[key]) return '';
 		seen[key] = true;
 		if (sourceID && sourceName) dashboardSourceScopeLabels[sourceID] = sourceName;
-		return fleetScopeChip(field, value, 'source', sourceName || sourceID, 'source');
+		return fleetScopeChip(field, value, 'source', sourceName || sourceID, 'source', sourceID && sourceName && sourceID !== sourceName ? sourceName + ' (' + sourceID + ')' : '');
 	}).filter(function(html) { return !!html; });
 	if (chips.length > 0) return chips.slice(0, 4).join('');
 	return fleetScopeChips('source_name', node.sources || [], 'source', 'source', null, 4);
@@ -875,8 +876,9 @@ function fleetSourceChips(node) {
 
 function activeScopeChip(field, value, label) {
 	var display = field === 'source_id' && dashboardSourceScopeLabels[value] ? dashboardSourceScopeLabels[value] : value;
+	var visible = display === value ? display : display + ' (' + value + ')';
 	var title = display === value ? 'Clear ' + label + ' filter ' + value : 'Clear ' + label + ' filter ' + display + ' (' + value + ')';
-	return '<button type="button" class="dashboard-scope-chip" data-dashboard-scope-clear="' + escapeAttr(field) + '" data-dashboard-scope-value="' + escapeAttr(value) + '" aria-label="' + escapeAttr(title) + '" title="' + escapeAttr(title) + '"><span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(display) + '</strong></button>';
+	return '<button type="button" class="dashboard-scope-chip" data-dashboard-scope-clear="' + escapeAttr(field) + '" data-dashboard-scope-value="' + escapeAttr(value) + '" aria-label="' + escapeAttr(title) + '" title="' + escapeAttr(title) + '"><span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(visible) + '</strong></button>';
 }
 
 function syncDashboardScopeControls() {

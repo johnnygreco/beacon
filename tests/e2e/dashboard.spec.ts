@@ -685,7 +685,31 @@ test.describe('dashboard battle-tested workflows', () => {
     await waitForCompletedRows(page, 30);
 
     await expect(page.locator('.dashboard-fleet-chip-source', { hasText: /^source-b$/ })).toHaveCount(2);
-    await expect(page.locator('.dashboard-fleet-chip-source[data-dashboard-scope-value="source-c"]')).toHaveText('source-b');
+    const duplicateSourceChip = page.locator('.dashboard-fleet-chip-source[data-dashboard-scope-value="source-c"]');
+    await expect(duplicateSourceChip).toHaveText('source-b');
+    await expect(duplicateSourceChip).toHaveAttribute('aria-label', 'Filter dashboard to source source-b (source-c)');
+    const sourceCScope = (url: URL) => url.searchParams.get('source_id') === 'source-c';
+    const sourceCResponses = waitForDashboardPanelResponses(page, sourceCScope);
+    await duplicateSourceChip.click();
+    await Promise.all(sourceCResponses);
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('source_id') === 'source-c');
+    const activeSourceCChip = page.locator('#dashboard-scope-chips [data-dashboard-scope-clear="source_id"][data-dashboard-scope-value="source-c"]');
+    await expect(activeSourceCChip).toContainText('source-b');
+    await expect(activeSourceCChip).toContainText('source-c');
+    await expect(activeSourceCChip).toHaveAttribute('aria-label', 'Clear Source filter source-b (source-c)');
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(1);
+    await expect(page.locator('#dashboard-fleet')).toContainText('Node C');
+    await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(3);
+    await waitForCompletedRows(page, 0);
+    await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(0);
+
+    clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoFleetScope);
+    await page.locator('[data-dashboard-scope-clear="all"]').click();
+    await Promise.all(clearResponses);
+    await waitForNoDashboardScopeInURL(page);
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(3);
+    await waitForCompletedRows(page, 30);
+
     const sourceScope = (url: URL) => url.searchParams.get('source_id') === 'source-b';
     const sourceResponses = waitForDashboardPanelResponses(page, sourceScope);
     await page.locator('.dashboard-fleet-chip-source[data-dashboard-scope-value="source-b"]').click();
