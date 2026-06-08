@@ -831,6 +831,81 @@ func TestClickHouseSchemaVersionRecorded(t *testing.T) {
 	}
 }
 
+func TestClickHouseMigrateV6RecreatesAnalyticsProjectionWithRefreshID(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	database := "beacon_test_schema_v6_to_v7"
+	if _, err := ch.DB.ExecContext(ctx, "DROP DATABASE IF EXISTS "+database); err != nil {
+		t.Fatalf("drop test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = ch.DB.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+database)
+	})
+
+	for _, stmt := range []string{
+		"CREATE DATABASE " + database,
+		`CREATE TABLE ` + database + `.` + schemaVersionTable + ` (
+			id UInt8,
+			version UInt32,
+			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
+		)
+		ENGINE = ReplacingMergeTree(updated_at)
+		ORDER BY id`,
+		`INSERT INTO ` + database + `.` + schemaVersionTable + ` (id, version) VALUES (1, 6)`,
+		`CREATE TABLE ` + database + `.analytics_projection (
+			session_id String,
+			node_id String,
+			collector_id String,
+			source_id String,
+			source_name LowCardinality(String),
+			runtime LowCardinality(String),
+			format LowCardinality(String),
+			project_key String,
+			project_path String,
+			minute DateTime64(3, 'UTC'),
+			provider LowCardinality(String),
+			model LowCardinality(String),
+			tool_name LowCardinality(String),
+			event_kind LowCardinality(String),
+			event_count UInt64,
+			call_count UInt64,
+			tool_call_count UInt64,
+			tool_result_count UInt64,
+			input_tokens UInt64,
+			output_tokens UInt64,
+			cache_read_tokens UInt64,
+			cache_create_tokens UInt64,
+			total_tokens UInt64,
+			duration_ms_sum UInt64,
+			cost_usd_sum Float64,
+			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
+		)
+		ENGINE = ReplacingMergeTree(updated_at)
+		ORDER BY (session_id, minute)`,
+	} {
+		if _, err := ch.DB.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("prepare v6 schema: %v\n%s", err, stmt)
+		}
+	}
+
+	if err := Migrate(ctx, ch.DB, database); err != nil {
+		t.Fatalf("migrate v6 to current: %v", err)
+	}
+	version, ok, err := DetectSchemaVersion(ctx, ch.DB, database)
+	if err != nil {
+		t.Fatalf("detect migrated schema version: %v", err)
+	}
+	if !ok || version != CurrentSchemaVersion {
+		t.Fatalf("migrated schema version = %d ok=%v, want %d true", version, ok, CurrentSchemaVersion)
+	}
+	columns := clickHouseColumnSet(t, ch.DB, database, "analytics_projection")
+	for _, column := range []string{"refresh_id", "updated_at"} {
+		if !columns[column] {
+			t.Fatalf("migrated analytics_projection missing %s; columns=%v", column, columns)
+		}
+	}
+}
+
 func TestClickHouseInsertCaptureHeartbeats(t *testing.T) {
 	ch := setupLiveClickHouse(t)
 	ctx := context.Background()
@@ -1246,6 +1321,28 @@ func clickHouseCreateStatements(t *testing.T, db *sql.DB, database string) map[s
 		schema[table] = stmt
 	}
 	return schema
+}
+
+func clickHouseColumnSet(t *testing.T, db *sql.DB, database, table string) map[string]bool {
+	t.Helper()
+	rows, err := db.QueryContext(context.Background(), fmt.Sprintf("DESCRIBE TABLE %s.%s", database, table))
+	if err != nil {
+		t.Fatalf("describe table %s: %v", table, err)
+	}
+	defer rows.Close()
+
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var name, typ, defaultType, defaultExpression, comment, codecExpression, ttlExpression string
+		if err := rows.Scan(&name, &typ, &defaultType, &defaultExpression, &comment, &codecExpression, &ttlExpression); err != nil {
+			t.Fatalf("scan column: %v", err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("read columns: %v", err)
+	}
+	return columns
 }
 
 func assertBeaconTableSet(t *testing.T, tables map[string]bool) {

@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 6
+	CurrentSchemaVersion = 7
 
 	schemaVersionTable = "schema_version"
 	schemaVersionRowID = 1
@@ -60,6 +60,10 @@ func Migrate(ctx context.Context, db *sql.DB, database string) error {
 			}
 		case 5:
 			if err := migrateSchemaV5ToV6(ctx, db, database); err != nil {
+				return err
+			}
+		case 6:
+			if err := migrateSchemaV6ToV7(ctx, db, database); err != nil {
 				return err
 			}
 		}
@@ -290,6 +294,17 @@ func migrateSchemaV5ToV6(ctx context.Context, db *sql.DB, database string) error
 	} {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			return fmt.Errorf("advance schema v5 to v6: %w", err)
+		}
+	}
+	return writeSchemaVersion(ctx, db, database)
+}
+
+func migrateSchemaV6ToV7(ctx context.Context, db *sql.DB, database string) error {
+	for _, stmt := range []string{
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.analytics_projection`, database),
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("advance schema v6 to v7: %w", err)
 		}
 	}
 	return writeSchemaVersion(ctx, db, database)
