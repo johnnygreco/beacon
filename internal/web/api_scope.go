@@ -108,7 +108,7 @@ func (s APIScopeFilters) eventAndSessionProjectSQLAndClause(eventAlias, cwdExpr,
 	if len(projectKeys) > 0 {
 		projectExpr := projectKeyExpr(cwdExpr)
 		if strings.TrimSpace(sessionAlias) != "" {
-			projectExpr = "COALESCE(NULLIF(" + sessionAlias + ".project_key, ''), " + projectExpr + ")"
+			projectExpr = "COALESCE(NULLIF(" + projectExpr + ", ''), NULLIF(" + sessionAlias + ".project_key, ''))"
 		}
 		appendScopePredicate(&predicates, &args, projectExpr, projectKeys)
 	}

@@ -106,6 +106,87 @@ func TestClickHouseResetDropsRowsAndRecreatesTables(t *testing.T) {
 	}
 }
 
+func TestAnalyticsProjectionProjectFallbackReplacesChangedRows(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	sessionID := "analytics-project-fallback"
+	meta := models.Event{
+		EventUID:     "analytics-project-meta",
+		SessionID:    sessionID,
+		SourceName:   "codex",
+		Runtime:      "codex",
+		Provider:     "openai",
+		Format:       models.FormatJSONL,
+		EventKind:    models.EventKindSessionMeta,
+		ActorRole:    models.ActorRoleSystem,
+		Timestamp:    now,
+		TextPreview:  "session started",
+		CWD:          "/Users/example/projects/beacon",
+		EventVersion: 1,
+		SourceFile:   "analytics-project.jsonl",
+		SourceLineNo: 1,
+	}
+	message := models.Event{
+		EventUID:     "analytics-project-message",
+		SessionID:    sessionID,
+		SourceName:   "codex",
+		Runtime:      "codex",
+		Provider:     "openai",
+		Format:       models.FormatJSONL,
+		EventKind:    models.EventKindMessage,
+		ActorRole:    models.ActorRoleAssistant,
+		Timestamp:    now.Add(time.Second),
+		TextContent:  "analytics fallback message",
+		TextPreview:  "analytics fallback message",
+		InputTokens:  3,
+		OutputTokens: 4,
+		EventVersion: 1,
+		SourceFile:   "analytics-project.jsonl",
+		SourceLineNo: 2,
+		SourceOffset: 1,
+	}
+	flushEvents := func(events ...models.Event) {
+		t.Helper()
+		batch := RowBatch{ActivityEvents: events}
+		for _, event := range events {
+			batch.RawRecords = append(batch.RawRecords, NewRawRecord(event))
+		}
+		if err := ch.Flush(ctx, batch); err != nil {
+			t.Fatalf("flush: %v", err)
+		}
+	}
+	analyticsTotals := func(projectKey string) (uint64, uint64) {
+		t.Helper()
+		var rows, tokens uint64
+		if err := ch.DB.QueryRowContext(ctx, `SELECT count(), COALESCE(sum(total_tokens), 0)
+			FROM analytics_projection FINAL
+			WHERE session_id = ? AND project_key = ?`, sessionID, projectKey).Scan(&rows, &tokens); err != nil {
+			t.Fatalf("analytics totals %q: %v", projectKey, err)
+		}
+		return rows, tokens
+	}
+
+	flushEvents(meta, message)
+	rows, tokens := analyticsTotals("beacon")
+	if rows == 0 || tokens != 7 {
+		t.Fatalf("beacon analytics rows/tokens = %d/%d, want fallback rows with 7 tokens", rows, tokens)
+	}
+
+	updatedMeta := meta
+	updatedMeta.CWD = "/Users/example/projects/other"
+	updatedMeta.SourceOffset = 10
+	flushEvents(updatedMeta)
+	rows, tokens = analyticsTotals("beacon")
+	if rows != 0 || tokens != 0 {
+		t.Fatalf("old beacon analytics remained after project change: rows/tokens=%d/%d", rows, tokens)
+	}
+	rows, tokens = analyticsTotals("other")
+	if rows == 0 || tokens != 7 {
+		t.Fatalf("other analytics rows/tokens = %d/%d, want recalculated rows with 7 tokens", rows, tokens)
+	}
+}
+
 func TestClickHouseRefreshOutdatedProjectionsRepairsMissingAndStaleProjection(t *testing.T) {
 	ch := setupLiveClickHouse(t)
 	ctx := context.Background()

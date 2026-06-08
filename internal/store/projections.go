@@ -266,8 +266,14 @@ func (s *Store) RefreshAnalyticsProjections(ctx context.Context, ids []string) e
 		args[i] = id
 	}
 
+	deleteQuery := `ALTER TABLE analytics_projection DELETE WHERE session_id IN (` + placeholders + `) SETTINGS mutations_sync = 1`
+	if _, err := s.DB.ExecContext(ctx, deleteQuery, args...); err != nil {
+		return err
+	}
+
 	query := analyticsProjectionInsertSQL(placeholders)
-	_, err := s.DB.ExecContext(ctx, query, args...)
+	insertArgs := append(append([]any{}, args...), args...)
+	_, err := s.DB.ExecContext(ctx, query, insertArgs...)
 	return err
 }
 
@@ -282,7 +288,7 @@ func analyticsProjectionInsertSQL(placeholders string) string {
 			runtime,
 			format,
 			%[2]s AS project_key,
-			cwd AS project_path,
+			project_path,
 			toStartOfMinute(timestamp) AS minute,
 			provider,
 			model,
@@ -301,31 +307,40 @@ func analyticsProjectionInsertSQL(placeholders string) string {
 			sum(cost_usd) AS cost_usd_sum,
 			now64(3) AS updated_at
 		FROM (
-			SELECT event_uid,
-			       argMax(session_id, captured_at) AS projected_session_id,
-			       argMax(node_id, captured_at) AS node_id,
-			       argMax(collector_id, captured_at) AS collector_id,
-			       argMax(source_id, captured_at) AS source_id,
-			       argMax(source_name, captured_at) AS source_name,
-			       argMax(runtime, captured_at) AS runtime,
-			       argMax(format, captured_at) AS format,
-			       argMax(provider, captured_at) AS provider,
-			       argMax(timestamp, captured_at) AS timestamp,
-			       argMax(event_kind, captured_at) AS event_kind,
-			       argMax(tool_name, captured_at) AS tool_name,
-			       argMax(model, captured_at) AS model,
-			       argMax(input_tokens, captured_at) AS input_tokens,
-			       argMax(output_tokens, captured_at) AS output_tokens,
-			       argMax(cache_read_tokens, captured_at) AS cache_read_tokens,
-			       argMax(cache_create_tokens, captured_at) AS cache_create_tokens,
-			       argMax(duration_ms, captured_at) AS duration_ms,
-			       argMax(cost_usd, captured_at) AS cost_usd,
-			       argMax(cwd, captured_at) AS cwd
-			FROM activity_events
-			WHERE session_id IN (%[1]s)
-			GROUP BY event_uid
+			SELECT latest_events.*,
+			       if(cwd != '', cwd, COALESCE(NULLIF(sp.project_path, ''), '')) AS project_path
+			FROM (
+				SELECT event_uid,
+				       argMax(session_id, captured_at) AS projected_session_id,
+				       argMax(node_id, captured_at) AS node_id,
+				       argMax(collector_id, captured_at) AS collector_id,
+				       argMax(source_id, captured_at) AS source_id,
+				       argMax(source_name, captured_at) AS source_name,
+				       argMax(runtime, captured_at) AS runtime,
+				       argMax(format, captured_at) AS format,
+				       argMax(provider, captured_at) AS provider,
+				       argMax(timestamp, captured_at) AS timestamp,
+				       argMax(event_kind, captured_at) AS event_kind,
+				       argMax(tool_name, captured_at) AS tool_name,
+				       argMax(model, captured_at) AS model,
+				       argMax(input_tokens, captured_at) AS input_tokens,
+				       argMax(output_tokens, captured_at) AS output_tokens,
+				       argMax(cache_read_tokens, captured_at) AS cache_read_tokens,
+				       argMax(cache_create_tokens, captured_at) AS cache_create_tokens,
+				       argMax(duration_ms, captured_at) AS duration_ms,
+				       argMax(cost_usd, captured_at) AS cost_usd,
+				       argMax(cwd, captured_at) AS cwd
+				FROM activity_events
+				WHERE session_id IN (%[1]s)
+				GROUP BY event_uid
+			) AS latest_events
+			LEFT JOIN (
+				SELECT session_id, project_path
+				FROM session_projection FINAL
+				WHERE session_id IN (%[1]s)
+			) AS sp ON sp.session_id = latest_events.projected_session_id
 		)
-		GROUP BY projected_session_id, node_id, collector_id, source_id, source_name, runtime, format, project_key, project_path, minute, provider, model, tool_name, event_kind`, placeholders, projectKeySQL("cwd"))
+		GROUP BY projected_session_id, node_id, collector_id, source_id, source_name, runtime, format, project_key, project_path, minute, provider, model, tool_name, event_kind`, placeholders, projectKeySQL("project_path"))
 }
 
 func projectKeySQL(pathExpr string) string {

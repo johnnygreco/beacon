@@ -67,10 +67,13 @@ func TestAPIScopeEventProjectKeyDerivesFromCWD(t *testing.T) {
 
 func TestAPIScopeEventAndSessionProjectKeyUsesProjectionFallback(t *testing.T) {
 	clause, args := APIScopeFilters{ProjectKeys: []string{"beacon"}}.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
-	for _, want := range []string{"COALESCE(NULLIF(s.project_key, ''),", "e.cwd", "IN (?)"} {
+	for _, want := range []string{"COALESCE(NULLIF(if(e.cwd", "NULLIF(s.project_key, '')", "IN (?)"} {
 		if !strings.Contains(clause, want) {
 			t.Fatalf("event/session project scope missing %q: %s", want, clause)
 		}
+	}
+	if strings.Index(clause, "if(e.cwd") > strings.Index(clause, "s.project_key") {
+		t.Fatalf("event cwd project must be preferred before session fallback: %s", clause)
 	}
 	if fmt.Sprint(args) != "[beacon]" {
 		t.Fatalf("scope args = %#v, want [beacon]", args)

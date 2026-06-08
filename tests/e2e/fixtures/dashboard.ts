@@ -266,17 +266,43 @@ const labels = [
 ];
 
 function chartRangeFactor(range: string) {
-  if (range === '1h') return 0.25;
-  if (range === '7d') return 3;
+	if (range === '1h') return 0.25;
+	if (range === '7d') return 3;
   if (range === '30d') return 8;
   if (range === '') return 13;
-  return 1;
+	return 1;
 }
 
-function chartPayload(scenario: Scenario, range = '24h') {
-  const errorHeavy = scenario === 'error-heavy';
-  const empty = scenario === 'empty';
-  const factor = chartRangeFactor(range);
+function scopeValues(url: URL | undefined, singular: string, plural: string) {
+	if (!url) return [];
+	const values = [
+		...url.searchParams.getAll(singular),
+		...url.searchParams.getAll(plural),
+	].flatMap((value) => value.split(','));
+	return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function scopeMetadata(url?: URL) {
+	const filters: Record<string, string[]> = {};
+	const entries: Array<[string, string, string]> = [
+		['node_ids', 'node_id', 'node_ids'],
+		['collector_ids', 'collector_id', 'collector_ids'],
+		['source_ids', 'source_id', 'source_ids'],
+		['source_names', 'source_name', 'source_names'],
+		['runtimes', 'runtime', 'runtimes'],
+		['project_keys', 'project_key', 'project_keys'],
+	];
+	for (const [field, singular, plural] of entries) {
+		const values = scopeValues(url, singular, plural);
+		if (values.length > 0) filters[field] = values;
+	}
+	return { auth_scope_applied: false, filters };
+}
+
+function chartPayload(scenario: Scenario, range = '24h', url?: URL) {
+	const errorHeavy = scenario === 'error-heavy';
+	const empty = scenario === 'empty';
+	const factor = chartRangeFactor(range);
   const datasets = empty ? [] : [
     {
       label: 'claude-sonnet-4',
@@ -319,12 +345,13 @@ function chartPayload(scenario: Scenario, range = '24h') {
     call_count: Math.round(31 * factor),
     error_rate: errorHeavy ? 13.8 : 1.9,
     error_count: errorHeavy ? 18 : 2,
-  };
-  return {
-    range,
-    token_cumulative: {
-      labels,
-      datasets,
+	};
+	return {
+		range,
+		scope: scopeMetadata(url),
+		token_cumulative: {
+			labels,
+			datasets,
       summary,
       time_unit: 'hour',
       bucket_minutes: 60,
@@ -533,13 +560,13 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
   const sessionID = (url.searchParams.get('session_id') || '').toLowerCase();
   const sort = url.searchParams.get('sort') || 'relevance';
   const limit = Number(url.searchParams.get('limit') || 30);
-  const active = query !== '' || eventKind !== '' || sessionID !== '' || sort !== 'relevance' || limit !== 30;
-  if (!active) {
-    return { state: 'idle', sort, limit, has_more: false, items: [] };
-  }
-  if (scenario === 'empty') {
-    return { state: 'ready', query, range, event_kind: eventKind, session_id: sessionID, sort, limit, has_more: false, items: [] };
-  }
+	const active = query !== '' || eventKind !== '' || sessionID !== '' || sort !== 'relevance' || limit !== 30;
+	if (!active) {
+		return { state: 'idle', sort, limit, scope: scopeMetadata(url), has_more: false, items: [] };
+	}
+	if (scenario === 'empty') {
+		return { state: 'ready', query, range, event_kind: eventKind, session_id: sessionID, sort, limit, scope: scopeMetadata(url), has_more: false, items: [] };
+	}
   const denseSearchFixture = scenario === 'search-many';
   const source = denseSearchFixture || query.toLowerCase() === 'many'
     ? dashboardSearchManyResults(range)
@@ -602,12 +629,13 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
     query,
     range,
     event_kind: eventKind,
-    session_id: sessionID,
-    sort,
-    limit,
-    has_more: sorted.length > limit,
-    items: sorted.slice(0, limit),
-  };
+		session_id: sessionID,
+		sort,
+		limit,
+		scope: scopeMetadata(url),
+		has_more: sorted.length > limit,
+		items: sorted.slice(0, limit),
+	};
 }
 
 function completedForRequest(url: URL, scenario: Scenario) {
@@ -903,18 +931,27 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
       const activeScenario = activeSequence[Math.min(activeRequestCount, activeSequence.length - 1)];
       activeRequestCount += 1;
       if (activeScenario === 'error') return fulfillJSON(route, { error: 'fixture failure' }, 500);
-      return fulfillJSON(route, { state: 'active', range: '', offset: 0, limit: 30, has_more: false, items: activeForScenario(activeScenario) }, 200, 'APIDashboardSessionsResponse');
-    }
-    const completed = completedForRequest(url, scenario);
-    return fulfillJSON(route, {
+			return fulfillJSON(route, {
+				state: 'active',
+				range: '',
+				offset: 0,
+				limit: 30,
+				scope: scopeMetadata(url),
+				has_more: false,
+				items: activeForScenario(activeScenario),
+			}, 200, 'APIDashboardSessionsResponse');
+		}
+		const completed = completedForRequest(url, scenario);
+		return fulfillJSON(route, {
       state: 'completed',
       range: panelRange(url, ['completed_range', 'range', 'search_range']),
-      query: url.searchParams.get('q') || '',
-      offset: Number(url.searchParams.get('offset') || 0),
-      limit: Number(url.searchParams.get('limit') || 30),
-      has_more: completed.hasMore,
-      items: completed.items,
-    }, 200, 'APIDashboardSessionsResponse');
+			query: url.searchParams.get('q') || '',
+			offset: Number(url.searchParams.get('offset') || 0),
+			limit: Number(url.searchParams.get('limit') || 30),
+			scope: scopeMetadata(url),
+			has_more: completed.hasMore,
+			items: completed.items,
+		}, 200, 'APIDashboardSessionsResponse');
   });
 
   await page.route('**/api/dashboard/search**', async (route) => {
@@ -931,12 +968,13 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
         query: url.searchParams.get('q') || '',
         range: panelRange(url, ['completed_range', 'range', 'search_range'], ''),
         event_kind: url.searchParams.get('event_kind') || '',
-        session_id: url.searchParams.get('session_id') || '',
-        sort: url.searchParams.get('sort') || 'relevance',
-        limit: Number(url.searchParams.get('limit') || 30),
-        has_more: false,
-        items: [],
-      }, 200, 'APIDashboardSearchResponse');
+			session_id: url.searchParams.get('session_id') || '',
+			sort: url.searchParams.get('sort') || 'relevance',
+			limit: Number(url.searchParams.get('limit') || 30),
+			scope: scopeMetadata(url),
+			has_more: false,
+			items: [],
+		}, 200, 'APIDashboardSearchResponse');
     }
     return fulfillJSON(route, dashboardSearchForRequest(url, scenario), 200, 'APIDashboardSearchResponse');
   });
@@ -945,11 +983,11 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
     const url = new URL(route.request().url());
     if (options.chartDelayMs && options.chartDelayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, options.chartDelayMs));
-    }
-    if (failures.delete('charts')) return fulfillJSON(route, { error: 'fixture failure' }, 500);
-    const range = panelRange(url, ['chart_range', 'range']);
-    return fulfillJSON(route, chartPayload(scenario, range), 200, 'APIDashboardCharts');
-  });
+		}
+		if (failures.delete('charts')) return fulfillJSON(route, { error: 'fixture failure' }, 500);
+		const range = panelRange(url, ['chart_range', 'range']);
+		return fulfillJSON(route, chartPayload(scenario, range, url), 200, 'APIDashboardCharts');
+	});
 
   await page.route('**/api/dashboard/activity**', async (route) => {
     if (failures.delete('activity')) return fulfillJSON(route, { error: 'fixture failure' }, 500);

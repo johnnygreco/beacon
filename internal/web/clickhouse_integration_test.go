@@ -55,6 +55,9 @@ func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 	event := models.Event{
 		EventUID:     eventID,
 		SessionID:    sessionID,
+		NodeID:       "api-node",
+		CollectorID:  "api-collector",
+		SourceID:     "api-source",
 		SourceName:   "test-source",
 		Runtime:      "test-runtime",
 		Provider:     "test-provider",
@@ -70,6 +73,7 @@ func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 		Model:        "gpt-4",
 		InputTokens:  4,
 		OutputTokens: 5,
+		CWD:          "/Users/example/projects/beacon",
 		EventVersion: 1,
 		PayloadJSON:  `{"event":"preview"}`,
 		SourceFile:   "api-live.jsonl",
@@ -112,6 +116,22 @@ func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 	if events[0].EventUID != eventID || events[0].InputPreview != inputPreview || events[0].OutputPreview != outputPreview {
 		t.Fatalf("unexpected event preview payload: %#v", events[0])
 	}
+	scopedEventsBody := recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+sessionID+"/events?limit=10&collector_id=api-collector&source_id=api-source&project_key=beacon", "id", sessionID)
+	events = nil
+	if err := json.Unmarshal([]byte(scopedEventsBody), &events); err != nil {
+		t.Fatalf("decode scoped session events: %v\n%s", err, scopedEventsBody)
+	}
+	if len(events) != 1 || events[0].EventUID != eventID {
+		t.Fatalf("scoped session events = %#v, want only %s", events, eventID)
+	}
+	outScopedEventsBody := recordAPIResponse(t, api.GetSessionEvents, "/api/sessions/"+sessionID+"/events?limit=10&project_key=other", "id", sessionID)
+	events = nil
+	if err := json.Unmarshal([]byte(outScopedEventsBody), &events); err != nil {
+		t.Fatalf("decode out-of-scope session events: %v\n%s", err, outScopedEventsBody)
+	}
+	if len(events) != 0 {
+		t.Fatalf("out-of-scope session events leaked: %#v", events)
+	}
 
 	eventBody := recordAPIResponse(t, api.GetEvent, "/api/events/"+eventID, "event_id", eventID)
 	if strings.Contains(eventBody, fullMarker) {
@@ -124,6 +144,14 @@ func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 	if single.EventUID != eventID || single.InputPreview != inputPreview || single.OutputPreview != outputPreview {
 		t.Fatalf("unexpected single event preview payload: %#v", single)
 	}
+	scopedEventBody := recordAPIResponse(t, api.GetEvent, "/api/events/"+eventID+"?collector_id=api-collector&source_id=api-source&project_key=beacon", "event_id", eventID)
+	if err := json.Unmarshal([]byte(scopedEventBody), &single); err != nil {
+		t.Fatalf("decode scoped event: %v\n%s", err, scopedEventBody)
+	}
+	if single.EventUID != eventID {
+		t.Fatalf("scoped event = %#v, want %s", single, eventID)
+	}
+	recordAPIStatus(t, api.GetEvent, "/api/events/"+eventID+"?project_key=other", http.StatusNotFound, "event_id", eventID)
 
 	payloadBody := recordAPIResponse(t, api.GetToolPayload, "/api/tool-payloads/"+eventID, "event_id", eventID)
 	if !strings.Contains(payloadBody, fullMarker) {
@@ -136,6 +164,14 @@ func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 	if full.EventUID != eventID || !strings.Contains(full.InputJSON, fullMarker) || !strings.Contains(full.OutputJSON, fullMarker) {
 		t.Fatalf("unexpected full tool payload: %#v", full)
 	}
+	scopedPayloadBody := recordAPIResponse(t, api.GetToolPayload, "/api/tool-payloads/"+eventID+"?collector_id=api-collector&source_id=api-source&project_key=beacon", "event_id", eventID)
+	if err := json.Unmarshal([]byte(scopedPayloadBody), &full); err != nil {
+		t.Fatalf("decode scoped tool payload: %v\n%s", err, scopedPayloadBody)
+	}
+	if full.EventUID != eventID || !strings.Contains(full.InputJSON, fullMarker) {
+		t.Fatalf("scoped tool payload = %#v, want full payload for %s", full, eventID)
+	}
+	recordAPIStatus(t, api.GetToolPayload, "/api/tool-payloads/"+eventID+"?project_key=other", http.StatusNotFound, "event_id", eventID)
 }
 
 func TestAPISessionEventsTailReturnsLatestBoundedSliceChronologically(t *testing.T) {
@@ -567,6 +603,24 @@ func metricSeriesTotal(datasets []views.ModelSeriesDataset) float64 {
 
 func recordAPIResponse(t *testing.T, handler http.HandlerFunc, target string, routeParams ...string) string {
 	t.Helper()
+	rec := recordAPI(t, handler, target, routeParams...)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%s returned %d: %s", target, rec.Code, rec.Body.String())
+	}
+	return rec.Body.String()
+}
+
+func recordAPIStatus(t *testing.T, handler http.HandlerFunc, target string, want int, routeParams ...string) string {
+	t.Helper()
+	rec := recordAPI(t, handler, target, routeParams...)
+	if rec.Code != want {
+		t.Fatalf("%s returned %d, want %d: %s", target, rec.Code, want, rec.Body.String())
+	}
+	return rec.Body.String()
+}
+
+func recordAPI(t *testing.T, handler http.HandlerFunc, target string, routeParams ...string) *httptest.ResponseRecorder {
+	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, target, nil)
 	if len(routeParams)%2 != 0 {
 		t.Fatalf("route params must be key/value pairs")
@@ -581,8 +635,5 @@ func recordAPIResponse(t *testing.T, handler http.HandlerFunc, target string, ro
 
 	rec := httptest.NewRecorder()
 	handler(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("%s returned %d: %s", target, rec.Code, rec.Body.String())
-	}
-	return rec.Body.String()
+	return rec
 }

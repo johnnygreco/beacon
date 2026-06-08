@@ -86,7 +86,7 @@ func QueryRecentActivityFilteredByKindScoped(ctx context.Context, db *sql.DB, si
 			FROM session_projection FINAL
 			WHERE session_id != ''
 		) AS s ON s.session_id = ae.session_id`
-		where += ` AND COALESCE(NULLIF(s.project_key, ''), ` + projectKeyExpr("ae.cwd") + `) IN (` + sqlPlaceholders(len(projectKeys)) + `)`
+		where += ` AND COALESCE(NULLIF(` + projectKeyExpr("ae.cwd") + `, ''), NULLIF(s.project_key, '')) IN (` + sqlPlaceholders(len(projectKeys)) + `)`
 		for _, projectKey := range projectKeys {
 			args = append(args, projectKey)
 		}

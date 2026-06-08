@@ -131,6 +131,8 @@ func TestProjectionInsertSQLUsesDedupedActivityEvents(t *testing.T) {
 				"argMax(session_id, captured_at) AS projected_session_id",
 				"argMax(runtime, captured_at) AS runtime",
 				"WHERE session_id IN (?,?,?)",
+				"LEFT JOIN (\n\t\t\t\tSELECT session_id, project_path",
+				"if(cwd != '', cwd, COALESCE(NULLIF(sp.project_path, ''), '')) AS project_path",
 				"GROUP BY event_uid",
 				"GROUP BY projected_session_id, node_id, collector_id, source_id, source_name, runtime, format, project_key, project_path, minute, provider, model, tool_name, event_kind",
 			},
@@ -145,6 +147,36 @@ func TestProjectionInsertSQLUsesDedupedActivityEvents(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestChangedSessionSearchProjectsDetectsEmptyTransitions(t *testing.T) {
+	ids := []string{"session-a", "session-b", "session-a"}
+	previous := map[string]sessionSearchProject{
+		"session-a": {projectPath: "/Users/example/projects/beacon", projectKey: "beacon"},
+		"session-b": {projectPath: "/Users/example/projects/other", projectKey: "other"},
+	}
+	current := map[string]sessionSearchProject{
+		"session-a": {},
+		"session-b": {projectPath: "/Users/example/projects/other", projectKey: "other"},
+	}
+
+	got := changedSessionSearchProjects(ids, previous, current)
+	if !reflect.DeepEqual(got, []string{"session-a"}) {
+		t.Fatalf("changed sessions = %#v, want session-a", got)
+	}
+}
+
+func TestEventsOutsideSessionsFiltersChangedFallbackSessions(t *testing.T) {
+	events := []models.Event{
+		{EventUID: "event-a", SessionID: "session-a"},
+		{EventUID: "event-b", SessionID: "session-b"},
+		{EventUID: "event-c", SessionID: "session-c"},
+	}
+
+	got := eventsOutsideSessions(events, []string{"session-b"})
+	if len(got) != 2 || got[0].EventUID != "event-a" || got[1].EventUID != "event-c" {
+		t.Fatalf("filtered events = %#v", got)
 	}
 }
 

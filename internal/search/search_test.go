@@ -341,6 +341,28 @@ func TestSearch_ProjectFilterUsesSessionCWDForEventsWithoutCWD(t *testing.T) {
 		results[0].ProjectPath != "/Users/example/projects/beacon" {
 		t.Fatalf("unexpected project-scoped result: %#v", results[0])
 	}
+
+	clearedMeta := sessionMeta
+	clearedMeta.CWD = ""
+	clearedMeta.SourceOffset = 2
+	if err := ch.Flush(context.Background(), store.RowBatch{
+		ActivityEvents: []models.Event{clearedMeta},
+		RawRecords:     []models.RawRecord{store.NewRawRecord(clearedMeta)},
+	}); err != nil {
+		t.Fatalf("flush cleared session metadata: %v", err)
+	}
+
+	results, err = s.Search(context.Background(), search.SearchQuery{
+		Query:       "needle",
+		Limit:       10,
+		ProjectKeys: []string{"beacon"},
+	})
+	if err != nil {
+		t.Fatalf("Search after cleared project error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("expected cleared session project to remove old scoped result, got %#v", results)
+	}
 }
 
 func TestSearch_NewestSortConsistentAcrossTimeRanges(t *testing.T) {

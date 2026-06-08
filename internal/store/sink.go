@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/johnnygreco/beacon/internal/models"
 )
@@ -18,6 +17,12 @@ type RowBatch struct {
 }
 
 func (s *Store) Flush(ctx context.Context, rows RowBatch) error {
+	activitySessionIDs := sessionIDs(rows.ActivityEvents)
+	previousSearchProjects, err := s.sessionSearchProjects(ctx, activitySessionIDs)
+	if err != nil {
+		return fmt.Errorf("query search project metadata: %w", err)
+	}
+
 	if len(rows.RawRecords) > 0 {
 		if err := s.insertRawRecords(ctx, rows.RawRecords); err != nil {
 			return fmt.Errorf("insert raw records: %w", err)
@@ -49,31 +54,97 @@ func (s *Store) Flush(ctx context.Context, rows RowBatch) error {
 		}
 	}
 	if len(rows.ActivityEvents) > 0 {
-		ids := sessionIDs(rows.ActivityEvents)
-		if err := s.RefreshSessionProjections(ctx, ids); err != nil {
+		if err := s.RefreshSessionProjections(ctx, activitySessionIDs); err != nil {
 			return fmt.Errorf("refresh session projections: %w", err)
 		}
-		if err := s.RefreshAnalyticsProjections(ctx, ids); err != nil {
+		if err := s.RefreshAnalyticsProjections(ctx, activitySessionIDs); err != nil {
 			return fmt.Errorf("refresh analytics projections: %w", err)
 		}
-		if searchProjectMetadataChanged(rows.ActivityEvents) {
-			if _, err := s.RefreshSearchIndexForSessions(ctx, ids, 0); err != nil {
+		currentSearchProjects, err := s.sessionSearchProjects(ctx, activitySessionIDs)
+		if err != nil {
+			return fmt.Errorf("query updated search project metadata: %w", err)
+		}
+		changedSearchProjectSessions := changedSessionSearchProjects(activitySessionIDs, previousSearchProjects, currentSearchProjects)
+		if len(changedSearchProjectSessions) > 0 {
+			if _, err := s.RefreshSearchIndexForSessions(ctx, changedSearchProjectSessions, 0); err != nil {
 				return fmt.Errorf("refresh search index: %w", err)
 			}
-		} else if _, err := s.RefreshSearchIndexForEvents(ctx, rows.ActivityEvents, 0); err != nil {
-			return fmt.Errorf("refresh search index: %w", err)
+		}
+		if events := eventsOutsideSessions(rows.ActivityEvents, changedSearchProjectSessions); len(events) > 0 {
+			if _, err := s.RefreshSearchIndexForEvents(ctx, events, 0); err != nil {
+				return fmt.Errorf("refresh search index: %w", err)
+			}
 		}
 	}
 	return nil
 }
 
-func searchProjectMetadataChanged(events []models.Event) bool {
-	for _, event := range events {
-		if strings.TrimSpace(event.CWD) != "" {
-			return true
+type sessionSearchProject struct {
+	projectPath string
+	projectKey  string
+}
+
+func (s *Store) sessionSearchProjects(ctx context.Context, ids []string) (map[string]sessionSearchProject, error) {
+	ids = uniqStrings(ids)
+	projects := make(map[string]sessionSearchProject, len(ids))
+	for _, id := range ids {
+		projects[id] = sessionSearchProject{}
+	}
+	if len(ids) == 0 || s == nil || s.DB == nil {
+		return projects, nil
+	}
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	rows, err := s.DB.QueryContext(ctx, `SELECT session_id, COALESCE(project_path, ''), COALESCE(project_key, '')
+		FROM session_projection FINAL
+		WHERE session_id IN (`+placeholders(len(ids))+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sessionID string
+		var project sessionSearchProject
+		if err := rows.Scan(&sessionID, &project.projectPath, &project.projectKey); err != nil {
+			return nil, err
+		}
+		projects[sessionID] = project
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return projects, nil
+}
+
+func changedSessionSearchProjects(ids []string, previous, current map[string]sessionSearchProject) []string {
+	ids = uniqStrings(ids)
+	changed := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if previous[id] != current[id] {
+			changed = append(changed, id)
 		}
 	}
-	return false
+	return changed
+}
+
+func eventsOutsideSessions(events []models.Event, sessionIDs []string) []models.Event {
+	if len(events) == 0 || len(sessionIDs) == 0 {
+		return events
+	}
+	excluded := make(map[string]struct{}, len(sessionIDs))
+	for _, id := range sessionIDs {
+		excluded[id] = struct{}{}
+	}
+	filtered := make([]models.Event, 0, len(events))
+	for _, event := range events {
+		if _, ok := excluded[event.SessionID]; ok {
+			continue
+		}
+		filtered = append(filtered, event)
+	}
+	return filtered
 }
 
 func (s *Store) InsertCaptureError(ctx context.Context, errRow models.CaptureError) error {
