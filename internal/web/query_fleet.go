@@ -43,15 +43,6 @@ type fleetHeartbeatAggregate struct {
 	LastHeartbeatAt time.Time
 }
 
-type fleetHeartbeatCollectorAggregate struct {
-	NodeID          string
-	CollectorID     string
-	QueueDepth      int64
-	SpoolBytes      int64
-	ActiveFiles     int64
-	LastHeartbeatAt time.Time
-}
-
 type fleetNodeBuilder struct {
 	node APIDashboardFleetNode
 
@@ -83,16 +74,7 @@ func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters)
 		addMany(builder.runtimes, row.Runtimes)
 		addMany(builder.projects, row.Projects)
 	}
-	for _, row := range queryFleetHeartbeatCollectorAggregates(ctx, db, scope) {
-		builder := fleetBuilderFor(builders, row.NodeID)
-		addNonEmpty(builder.collectors, row.CollectorID)
-		builder.node.QueueDepth += row.QueueDepth
-		builder.node.SpoolBytes += row.SpoolBytes
-		builder.node.ActiveFiles += row.ActiveFiles
-		if !row.LastHeartbeatAt.IsZero() {
-			setMaxTimePtr(&builder.node.LastHeartbeatAt, row.LastHeartbeatAt)
-		}
-	}
+	collectorMetrics := map[string]fleetHeartbeatAggregate{}
 	for _, row := range queryFleetHeartbeatAggregates(ctx, db, scope) {
 		builder := fleetBuilderFor(builders, row.NodeID)
 		addNonEmpty(builder.collectors, row.CollectorID)
@@ -125,11 +107,24 @@ func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters)
 		default:
 			addNonEmpty(builder.offlineCollectors, row.CollectorID)
 		}
+		key := fleetCollectorKey(row.NodeID, row.CollectorID)
+		if key != "" {
+			if current, ok := collectorMetrics[key]; !ok || row.LastHeartbeatAt.After(current.LastHeartbeatAt) {
+				collectorMetrics[key] = row
+			}
+		}
+	}
+	for _, row := range collectorMetrics {
+		builder := fleetBuilderFor(builders, row.NodeID)
+		builder.node.QueueDepth += row.QueueDepth
+		builder.node.SpoolBytes += row.SpoolBytes
+		builder.node.ActiveFiles += row.ActiveFiles
 	}
 
 	nodes := make([]APIDashboardFleetNode, 0, len(builders))
 	totals := APIDashboardFleetTotals{}
-	allCollectors := map[string]string{}
+	allCollectors := map[string]struct{}{}
+	healthCollectors := map[string]string{}
 	for _, builder := range builders {
 		node := builder.node
 		node.Collectors = sortedMapValues(builder.collectors)
@@ -140,8 +135,9 @@ func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters)
 		if node.CollectorCount == 0 && node.NodeID != "" {
 			node.CollectorCount = 1
 		}
+		node.MissingHeartbeats = fleetMissingHeartbeatCollectorCount(builder, node.Collectors)
 		node.Status = fleetNodeStatus(builder)
-		if node.LastHeartbeatAt == nil && node.ActiveSessions > 0 {
+		if node.MissingHeartbeats > 0 && node.LastHeartbeatAt == nil {
 			node.HeartbeatStatus = "missing"
 		} else {
 			node.HeartbeatStatus = node.Status
@@ -169,7 +165,11 @@ func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters)
 		totals.HeartbeatErrorCount += node.HeartbeatErrorCount
 		for _, collector := range node.Collectors {
 			if collector != "" {
-				allCollectors[collector] = mergeFleetCollectorStatus(allCollectors[collector], fleetCollectorStatus(builder, collector))
+				allCollectors[collector] = struct{}{}
+				status := fleetCollectorStatus(builder, collector)
+				if status != "missing" {
+					healthCollectors[collector] = mergeFleetCollectorStatus(healthCollectors[collector], status)
+				}
 			}
 		}
 	}
@@ -186,7 +186,7 @@ func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters)
 		}
 		return a.Label < b.Label
 	})
-	for _, status := range allCollectors {
+	for _, status := range healthCollectors {
 		switch status {
 		case "online":
 			totals.OnlineCollectors++
@@ -198,6 +198,7 @@ func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters)
 	}
 	totals.NodeCount = len(nodes)
 	totals.CollectorCount = len(allCollectors)
+	totals.MissingHeartbeats = len(allCollectors) - len(healthCollectors)
 	return APIDashboardFleetResponse{Scope: scope.metadata(), Totals: totals, Nodes: nodes}
 }
 
@@ -307,44 +308,6 @@ func queryFleetHeartbeatAggregates(ctx context.Context, db *sql.DB, scope APISco
 	return out
 }
 
-func queryFleetHeartbeatCollectorAggregates(ctx context.Context, db *sql.DB, scope APIScopeFilters) []fleetHeartbeatCollectorAggregate {
-	if db == nil {
-		return nil
-	}
-	scopeClause, scopeArgs := fleetHeartbeatScopeClause(scope)
-	rows, err := db.QueryContext(ctx,
-		`SELECT COALESCE(NULLIF(h.node_id, ''), 'local') AS node_key,
-		        COALESCE(h.collector_id, ''),
-		        COALESCE(argMax(h.queue_depth, h.created_at), 0),
-		        COALESCE(argMax(h.spool_bytes, h.created_at), 0),
-		        COALESCE(argMax(h.active_files, h.created_at), 0),
-		        max(h.created_at)
-		 FROM capture_heartbeats AS h
-		 WHERE h.collector_id != ''`+scopeClause+`
-		 GROUP BY node_key, h.collector_id
-		 ORDER BY node_key, h.collector_id`, scopeArgs...)
-	if err != nil {
-		logQueryError("dashboard fleet heartbeat collectors", err)
-		return nil
-	}
-	defer rows.Close()
-
-	var out []fleetHeartbeatCollectorAggregate
-	for rows.Next() {
-		var row fleetHeartbeatCollectorAggregate
-		if err := rows.Scan(&row.NodeID, &row.CollectorID, &row.QueueDepth, &row.SpoolBytes, &row.ActiveFiles, &row.LastHeartbeatAt); err != nil {
-			logQueryScanError("dashboard fleet heartbeat collectors", err)
-			continue
-		}
-		out = append(out, row)
-	}
-	if err := rows.Err(); err != nil {
-		logQueryError("dashboard fleet heartbeat collectors rows", err)
-		return nil
-	}
-	return out
-}
-
 func fleetHeartbeatScopeClause(scope APIScopeFilters) (string, []any) {
 	scopeClause, args := scope.withoutProjectKeysAndRuntimes().sqlAndClause("h")
 	if len(compactScopeValues(scope.Runtimes)) == 0 && len(compactScopeValues(scope.ProjectKeys)) == 0 {
@@ -362,6 +325,18 @@ func fleetHeartbeatScopeClause(scope APIScopeFilters) (string, []any) {
 			WHERE collector_id != '' AND source_id != ''` + sessionClause + `
 			GROUP BY collector_id, source_id
 		)`, args
+}
+
+func fleetCollectorKey(nodeID, collectorID string) string {
+	collectorID = strings.TrimSpace(collectorID)
+	if collectorID == "" {
+		return ""
+	}
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		nodeID = "local"
+	}
+	return nodeID + "\x00" + collectorID
 }
 
 func fleetBuilderFor(builders map[string]*fleetNodeBuilder, nodeID string) *fleetNodeBuilder {
@@ -448,10 +423,17 @@ func fleetCollectorStatus(builder *fleetNodeBuilder, collector string) string {
 	if _, ok := builder.offlineCollectors[collector]; ok {
 		return "offline"
 	}
-	if builder.node.ActiveSessions > 0 {
-		return "stale"
+	return "missing"
+}
+
+func fleetMissingHeartbeatCollectorCount(builder *fleetNodeBuilder, collectors []string) int {
+	var missing int
+	for _, collector := range collectors {
+		if collector != "" && fleetCollectorStatus(builder, collector) == "missing" {
+			missing++
+		}
 	}
-	return "offline"
+	return missing
 }
 
 func mergeFleetCollectorStatus(current, next string) string {

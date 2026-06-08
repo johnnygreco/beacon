@@ -376,6 +376,34 @@ function filterSessionsByScope<T extends Record<string, unknown>>(items: T[], ur
   return items.filter((item) => sessionMatchesScope(item, url));
 }
 
+function matchesAnyScopeValue(values: unknown[], selected: string[]) {
+  if (selected.length === 0) return true;
+  const normalized = new Set(values.map((value) => String(value || '').trim()).filter(Boolean));
+  return selected.some((value) => normalized.has(value));
+}
+
+function fleetNodeMatchesScope(node: {
+  node_id?: string;
+  collectors?: string[];
+  runtimes?: string[];
+  projects?: string[];
+  sources?: string[];
+  sources_detail?: Array<{ source_id?: string; source_name?: string }>;
+}, url?: URL) {
+  const sourceDetails = node.sources_detail || [];
+  const sourceIDs = sourceDetails.map((source) => source.source_id || '');
+  const sourceNames = [
+    ...(node.sources || []),
+    ...sourceDetails.map((source) => source.source_name || ''),
+  ];
+  return matchesScopeValue(node.node_id, scopeValues(url, 'node_id', 'node_ids')) &&
+    matchesAnyScopeValue(node.collectors || [], scopeValues(url, 'collector_id', 'collector_ids')) &&
+    matchesAnyScopeValue(sourceIDs, scopeValues(url, 'source_id', 'source_ids')) &&
+    matchesAnyScopeValue(sourceNames, scopeValues(url, 'source_name', 'source_names')) &&
+    matchesAnyScopeValue(node.runtimes || [], scopeValues(url, 'runtime', 'runtimes')) &&
+    matchesAnyScopeValue(node.projects || [], scopeValues(url, 'project_key', 'project_keys'));
+}
+
 function chartPayload(scenario: Scenario, range = '24h', url?: URL) {
 	const errorHeavy = scenario === 'error-heavy';
 	const empty = scenario === 'empty';
@@ -582,9 +610,10 @@ function fleetPayload(scenario: Scenario, url?: URL) {
     {
       node_id: 'macbook-local',
       label: 'MacBook Local',
-      status: 'online',
-      collector_count: 1,
-      collectors: ['collector-macbook'],
+	      status: 'online',
+	      collector_count: 1,
+	      missing_heartbeat_collectors: 0,
+	      collectors: ['collector-macbook'],
       sources: ['claude'],
       runtimes: ['claude-code'],
       projects: ['beacon', 'dashboard'],
@@ -615,9 +644,10 @@ function fleetPayload(scenario: Scenario, url?: URL) {
     {
       node_id: 'mac-mini-codex',
       label: 'Mac mini Codex',
-      status: scenario === 'error-heavy' ? 'stale' : 'online',
-      collector_count: 1,
-      collectors: ['collector-mac-mini'],
+	      status: scenario === 'error-heavy' ? 'stale' : 'online',
+	      collector_count: 1,
+	      missing_heartbeat_collectors: 0,
+	      collectors: ['collector-mac-mini'],
       sources: ['codex'],
       runtimes: ['codex'],
       projects: ['beacon'],
@@ -648,9 +678,10 @@ function fleetPayload(scenario: Scenario, url?: URL) {
     {
       node_id: 'hermes-cloud',
       label: 'Hermes Cloud',
-      status: 'offline',
-      collector_count: 1,
-      collectors: ['collector-hermes-cloud'],
+	      status: 'offline',
+	      collector_count: 1,
+	      missing_heartbeat_collectors: 0,
+	      collectors: ['collector-hermes-cloud'],
       sources: ['hermes'],
       runtimes: ['hermes-agent'],
       projects: ['hermes'],
@@ -679,20 +710,16 @@ function fleetPayload(scenario: Scenario, url?: URL) {
       ],
     },
   ];
-  const nodeScope = new Set(scopeValues(url, 'node_id', 'node_ids'));
-  const runtimeScope = new Set(scopeValues(url, 'runtime', 'runtimes'));
-  const filtered = nodes.filter((node) => {
-    if (nodeScope.size > 0 && !nodeScope.has(node.node_id)) return false;
-    if (runtimeScope.size > 0 && !node.runtimes.some((runtime) => runtimeScope.has(runtime))) return false;
-    return true;
-  });
-  const totals = filtered.reduce((acc, node) => {
-    acc.node_count += 1;
-    acc.collector_count += node.collector_count;
-    if (node.status === 'online') acc.online_collectors += node.collector_count;
-    else if (node.status === 'stale') acc.stale_collectors += node.collector_count;
-    else acc.offline_collectors += node.collector_count;
-    acc.active_sessions += node.active_sessions;
+	  const filtered = nodes.filter((node) => fleetNodeMatchesScope(node, url));
+	  const totals = filtered.reduce((acc, node) => {
+	    acc.node_count += 1;
+	    acc.collector_count += node.collector_count;
+	    acc.missing_heartbeat_collectors += node.missing_heartbeat_collectors;
+	    const healthCollectors = Math.max(0, node.collector_count - node.missing_heartbeat_collectors);
+	    if (node.status === 'online') acc.online_collectors += healthCollectors;
+	    else if (node.status === 'stale') acc.stale_collectors += healthCollectors;
+	    else if (node.status !== 'active') acc.offline_collectors += healthCollectors;
+	    acc.active_sessions += node.active_sessions;
     acc.attention_sessions += node.attention_sessions;
     acc.total_sessions += node.total_sessions;
     acc.total_tokens += node.total_tokens;
@@ -705,8 +732,9 @@ function fleetPayload(scenario: Scenario, url?: URL) {
     collector_count: 0,
     online_collectors: 0,
     stale_collectors: 0,
-    offline_collectors: 0,
-    active_sessions: 0,
+	    offline_collectors: 0,
+	    missing_heartbeat_collectors: 0,
+	    active_sessions: 0,
     attention_sessions: 0,
     total_sessions: 0,
     total_tokens: 0,
@@ -1329,8 +1357,8 @@ export function attachPageGuards(page: Page) {
   };
 }
 
-export async function gotoDashboard(page: Page) {
-  await page.goto('/', { waitUntil: 'domcontentloaded' });
+export async function gotoDashboard(page: Page, path = '/') {
+  await page.goto(path, { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: 'Beacon Realtime Dashboard' })).toBeVisible();
   await expect(page.locator('#dashboard-analytics-summary > div')).toHaveCount(4);
   await expect(page.locator('#dashboard-last-updated')).toHaveCount(0);

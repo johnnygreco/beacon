@@ -164,6 +164,7 @@ type APIDashboardFleetTotals struct {
 	OnlineCollectors    int   `json:"online_collectors"`
 	StaleCollectors     int   `json:"stale_collectors"`
 	OfflineCollectors   int   `json:"offline_collectors"`
+	MissingHeartbeats   int   `json:"missing_heartbeat_collectors"`
 	ActiveSessions      int64 `json:"active_sessions"`
 	AttentionSessions   int64 `json:"attention_sessions"`
 	TotalSessions       int64 `json:"total_sessions"`
@@ -178,6 +179,7 @@ type APIDashboardFleetNode struct {
 	Label               string                    `json:"label"`
 	Status              string                    `json:"status"`
 	CollectorCount      int                       `json:"collector_count"`
+	MissingHeartbeats   int                       `json:"missing_heartbeat_collectors"`
 	Collectors          []string                  `json:"collectors,omitempty"`
 	Sources             []string                  `json:"sources,omitempty"`
 	Runtimes            []string                  `json:"runtimes,omitempty"`

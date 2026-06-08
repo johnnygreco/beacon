@@ -348,7 +348,7 @@ func buildFilters(alias string, q SearchQuery) (string, []any) {
 			args = append(args, kind)
 		}
 	}
-	appendInFilter(&clauses, &args, prefix+"node_id", q.NodeIDs)
+	appendInFilter(&clauses, &args, nodeFilterExpr(prefix+"node_id"), q.NodeIDs)
 	appendInFilter(&clauses, &args, prefix+"collector_id", q.CollectorIDs)
 	appendInFilter(&clauses, &args, prefix+"source_id", q.SourceIDs)
 	appendInFilter(&clauses, &args, prefix+"source_name", q.SourceNames)
@@ -381,6 +381,14 @@ func appendInFilter(clauses *[]string, args *[]any, column string, values []stri
 	for _, value := range values {
 		*args = append(*args, value)
 	}
+}
+
+func nodeFilterExpr(column string) string {
+	column = strings.TrimSpace(column)
+	if column == "" {
+		column = "node_id"
+	}
+	return "COALESCE(NULLIF(" + column + ", ''), 'local')"
 }
 
 func searchSortOrder(sortBy string) string {

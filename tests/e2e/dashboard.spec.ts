@@ -646,6 +646,23 @@ test.describe('dashboard battle-tested workflows', () => {
     await waitForCompletedRows(page, 30);
     await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(4);
 
+    const projectScope = (url: URL) => url.searchParams.get('project_key') === 'hermes';
+    const projectResponses = [
+      waitForDashboardEndpoint(page, '/api/dashboard/fleet', projectScope),
+      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => projectScope(url) && url.searchParams.get('state') === 'active'),
+      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => projectScope(url) && url.searchParams.get('state') === 'completed'),
+      waitForDashboardEndpoint(page, '/api/dashboard/activity', projectScope),
+      waitForDashboardEndpoint(page, '/api/dashboard/charts', projectScope),
+    ];
+    await gotoDashboard(page, '/?project_key=hermes');
+    await Promise.all(projectResponses);
+    await expect(page.locator('#dashboard-scope-chips')).toContainText('hermes');
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(1);
+    await expect(page.locator('#dashboard-fleet')).toContainText('Hermes Cloud');
+    await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(3);
+    await waitForCompletedRows(page, 0);
+    await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(0);
+
     await guards.expectClean();
   });
 
@@ -683,8 +700,11 @@ test.describe('dashboard battle-tested workflows', () => {
     expect(sectionOrder.summaryInAnalyticsPanel).toBe(true);
     expect(sectionOrder.summaryInSearchHeader).toBe(false);
 
+    const activeCard = page.locator(`#active-sessions [data-active-session-id="${ACTIVE_SESSION_ID}"]`);
     const tracker = page.locator(`#active-sessions [href="/sessions/${ACTIVE_SESSION_ID}"] .active-session-tracker`);
-    await expect(tracker).toHaveAttribute('aria-label', 'Active session live stats');
+    await expect(activeCard.getByRole('group', { name: 'Active session live stats' })).toBeVisible();
+    await expect(activeCard.getByRole('group', { name: 'Active session scope filters' })).toBeVisible();
+    await expect(activeCard.getByRole('group', { name: 'Active session row controls' })).toBeVisible();
     await expect(tracker).toContainText('Run');
     await expect(tracker).toContainText('Turns');
     await expect(tracker).toContainText('Tools');

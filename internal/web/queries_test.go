@@ -134,11 +134,15 @@ func TestFleetHeartbeatScopeAvoidsHeartbeatOnlyMissingColumns(t *testing.T) {
 }
 
 func TestFleetNodeStatusMarksActiveSessionOnlyNodes(t *testing.T) {
-	status := fleetNodeStatus(&fleetNodeBuilder{
+	builder := &fleetNodeBuilder{
 		node: APIDashboardFleetNode{ActiveSessions: 1},
-	})
+	}
+	status := fleetNodeStatus(builder)
 	if status != "active" {
 		t.Fatalf("session-only active node status = %q, want active", status)
+	}
+	if collectorStatus := fleetCollectorStatus(builder, "collector-local"); collectorStatus != "missing" {
+		t.Fatalf("session-only collector health = %q, want missing", collectorStatus)
 	}
 }
 

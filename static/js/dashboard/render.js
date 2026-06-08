@@ -48,14 +48,14 @@ function nodeBadge(value, interactive) {
 	var raw = String(value || '').trim();
 	var label = nodeLabel(raw);
 	if (interactive === false || !raw) return '<span class="dashboard-scope-inline-chip dashboard-scope-inline-chip-static">' + escapeHTML(label) + '</span>';
-	return '<button type="button" class="dashboard-scope-inline-chip" data-dashboard-scope-field="node_id" data-dashboard-scope-value="' + escapeAttr(raw) + '" title="Filter dashboard to node ' + escapeAttr(label) + '">' + escapeHTML(label) + '</button>';
+	return '<button type="button" class="dashboard-scope-inline-chip" data-dashboard-scope-field="node_id" data-dashboard-scope-value="' + escapeAttr(raw) + '" aria-label="Filter dashboard to node ' + escapeAttr(label) + '" title="Filter dashboard to node ' + escapeAttr(label) + '">' + escapeHTML(label) + '</button>';
 }
 
 function runtimeBadge(value, fallback, interactive) {
 	var raw = String(value || '').trim();
 	var label = runtimeLabel(raw, fallback);
 	if (interactive === false || !raw) return '<span class="dashboard-scope-inline-chip dashboard-scope-inline-chip-static dashboard-scope-inline-chip-runtime">' + escapeHTML(label) + '</span>';
-	return '<button type="button" class="dashboard-scope-inline-chip dashboard-scope-inline-chip-runtime" data-dashboard-scope-field="runtime" data-dashboard-scope-value="' + escapeAttr(raw) + '" title="Filter dashboard to runtime ' + escapeAttr(label) + '">' + escapeHTML(label) + '</button>';
+	return '<button type="button" class="dashboard-scope-inline-chip dashboard-scope-inline-chip-runtime" data-dashboard-scope-field="runtime" data-dashboard-scope-value="' + escapeAttr(raw) + '" aria-label="Filter dashboard to runtime ' + escapeAttr(label) + '" title="Filter dashboard to runtime ' + escapeAttr(label) + '">' + escapeHTML(label) + '</button>';
 }
 
 function attentionStateLabel(state) {
@@ -641,7 +641,7 @@ function activeSessionTracker(session, turnCount, toolCount, errorCount) {
 	if (errorCount > 0) {
 		cells.push(activeTrackerCell('Errors', String(errorCount), 'error'));
 	}
-	return '<div class="active-session-tracker" aria-label="Active session live stats">' + cells.join('') + '</div>';
+	return '<div class="active-session-tracker" role="group" aria-label="Active session live stats">' + cells.join('') + '</div>';
 }
 
 function activeSessionActionIcon(name) {
@@ -669,7 +669,7 @@ function activeSessionActions(session, context) {
 		? activeSessionActionButton('move-up', session, 'Move session up: ' + title, 'Move session up', orderIndex <= 0, false, 'up') +
 			activeSessionActionButton('move-down', session, 'Move session down: ' + title, 'Move session down', orderIndex < 0 || orderIndex >= orderCount - 1, false, 'down')
 		: '';
-	return '<div class="active-session-actions" aria-label="Active session row controls">' +
+	return '<div class="active-session-actions" role="group" aria-label="Active session row controls">' +
 		activeSessionActionButton('toggle-pin', session, (pinned ? 'Unpin ' : 'Pin ') + title, pinned ? 'Unpin session' : 'Pin to top', false, pinned, 'pin') +
 		moveButtons +
 		'</div>';
@@ -678,7 +678,7 @@ function activeSessionActions(session, context) {
 function activeSessionScopeControls(session) {
 	var controls = nodeBadge(session.node_id, true) + runtimeBadge(session.runtime, session.source || session.provider, true);
 	if (!controls) return '';
-	return '<div class="active-session-scope-controls" aria-label="Active session scope filters">' + controls + '</div>';
+	return '<div class="active-session-scope-controls" role="group" aria-label="Active session scope filters">' + controls + '</div>';
 }
 
 function activeSessionLinkContent(session, statusDot, live, sub, turnCount, toolCount, errorCount) {
@@ -806,17 +806,21 @@ function renderFleetHeader(totals) {
 	if (!wrap) return;
 	totals = totals || {};
 	var offline = nonNegativeInt(totals.offline_collectors) + nonNegativeInt(totals.stale_collectors);
-	setHTMLIfChanged(wrap, [
+	var metrics = [
 		headerMetric('active', String(nonNegativeInt(totals.active_sessions)), ''),
 		headerMetric('online', String(nonNegativeInt(totals.online_collectors)), 'ok'),
 		headerMetric('stale/offline', String(offline), offline > 0 ? 'warn' : ''),
 		headerMetric('tokens', formatTokens(totals.total_tokens), ''),
 		headerMetric('attention', String(nonNegativeInt(totals.attention_sessions)), nonNegativeInt(totals.attention_sessions) > 0 ? 'danger' : '')
-	].join(''));
+	];
+	if (nonNegativeInt(totals.missing_heartbeat_collectors) > 0) {
+		metrics.splice(3, 0, headerMetric('missing heartbeat', String(nonNegativeInt(totals.missing_heartbeat_collectors)), 'warn'));
+	}
+	setHTMLIfChanged(wrap, metrics.join(''));
 }
 
 function activeScopeChip(field, value, label) {
-	return '<button type="button" class="dashboard-scope-chip" data-dashboard-scope-clear="' + escapeAttr(field) + '" title="Clear ' + escapeAttr(label) + ' filter"><span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(value) + '</strong></button>';
+	return '<button type="button" class="dashboard-scope-chip" data-dashboard-scope-clear="' + escapeAttr(field) + '" aria-label="Clear ' + escapeAttr(label) + ' filter ' + escapeAttr(value) + '" title="Clear ' + escapeAttr(label) + ' filter"><span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(value) + '</strong></button>';
 }
 
 function syncDashboardScopeControls() {
@@ -839,7 +843,7 @@ function syncDashboardScopeControls() {
 		});
 	});
 	if (chips.length > 0) {
-		chips.push('<button type="button" class="dashboard-scope-clear-all" data-dashboard-scope-clear="all">Clear all</button>');
+		chips.push('<button type="button" class="dashboard-scope-clear-all" data-dashboard-scope-clear="all" aria-label="Clear all dashboard filters">Clear all</button>');
 		setHTMLIfChanged(wrap, chips.join(''));
 	} else {
 		setHTMLIfChanged(wrap, '<span class="dashboard-scope-empty">All fleet</span>');
@@ -854,25 +858,28 @@ function fleetNodeCard(node) {
 	var sources = (node.sources || []).slice(0, 4);
 	var projects = (node.projects || []).slice(0, 3);
 	var runtimeChips = runtimes.map(function(runtime) {
-		return '<button type="button" class="dashboard-fleet-runtime" data-dashboard-scope-field="runtime" data-dashboard-scope-value="' + escapeAttr(runtime) + '">' + escapeHTML(runtimeLabel(runtime)) + '</button>';
+		return '<button type="button" class="dashboard-fleet-runtime" data-dashboard-scope-field="runtime" data-dashboard-scope-value="' + escapeAttr(runtime) + '" aria-label="Filter dashboard to runtime ' + escapeAttr(runtimeLabel(runtime)) + '">' + escapeHTML(runtimeLabel(runtime)) + '</button>';
 	}).join('');
 	var sourceText = sources.length ? sources.join(', ') : 'No source heartbeat yet';
 	var projectText = projects.length ? projects.join(', ') : 'All projects';
+	var missing = nonNegativeInt(node.missing_heartbeat_collectors);
+	var missingHealth = missing > 0 ? '<span><strong>' + missing + '</strong> missing heartbeat</span>' : '';
 	return '<article class="dashboard-fleet-node ' + fleetStatusClass(status) + '">' +
-		'<button type="button" class="dashboard-fleet-node-main" data-dashboard-scope-field="node_id" data-dashboard-scope-value="' + escapeAttr(nodeID) + '">' +
+		'<button type="button" class="dashboard-fleet-node-main" data-dashboard-scope-field="node_id" data-dashboard-scope-value="' + escapeAttr(nodeID) + '" aria-label="Filter dashboard to node ' + escapeAttr(node.label || nodeLabel(nodeID)) + '">' +
 			'<span class="dashboard-fleet-node-top"><strong>' + escapeHTML(node.label || nodeLabel(nodeID)) + '</strong><span>' + escapeHTML(fleetStatusLabel(status)) + '</span></span>' +
 			'<span class="dashboard-fleet-node-stats">' +
 				'<span><strong>' + nonNegativeInt(node.active_sessions) + '</strong> active</span>' +
 				'<span><strong>' + nonNegativeInt(node.attention_sessions) + '</strong> attention</span>' +
 				'<span><strong>' + formatTokens(node.total_tokens) + '</strong> tokens</span>' +
-			'</span>' +
-			'<span class="dashboard-fleet-node-health">' +
-				'<span>' + nonNegativeInt(node.collector_count) + ' collectors</span>' +
-				'<span>' + formatBytes(node.spool_bytes) + ' spool</span>' +
-				'<span>' + nonNegativeInt(node.queue_depth) + ' queued</span>' +
-				'<span>' + escapeHTML(node.last_seen_label || 'not seen') + '</span>' +
-			'</span>' +
-		'</button>' +
+				'</span>' +
+				'<span class="dashboard-fleet-node-health">' +
+					'<span>' + nonNegativeInt(node.collector_count) + ' collectors</span>' +
+					'<span>' + formatBytes(node.spool_bytes) + ' spool</span>' +
+					'<span>' + nonNegativeInt(node.queue_depth) + ' queued</span>' +
+					missingHealth +
+					'<span>' + escapeHTML(node.last_seen_label || 'not seen') + '</span>' +
+				'</span>' +
+			'</button>' +
 		'<div class="dashboard-fleet-node-meta">' +
 			'<div class="dashboard-fleet-runtimes">' + (runtimeChips || '<span class="dashboard-fleet-muted">No runtimes yet</span>') + '</div>' +
 			'<p title="' + escapeAttr(sourceText) + '">' + escapeHTML(sourceText) + '</p>' +

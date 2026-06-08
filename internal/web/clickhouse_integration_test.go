@@ -839,6 +839,112 @@ func TestRecentActivityProjectScopeUsesLatestReplayedEvent(t *testing.T) {
 	}
 }
 
+func TestDashboardFleetScopesHeartbeatsByRuntimeAndProject(t *testing.T) {
+	ch := setupLiveWebStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	beaconPath := "/Users/example/projects/beacon"
+
+	codexPrimary := liveEvent("fleet-codex-primary", "fleet-codex-primary-session", "message", "user", now, "openai", "gpt-5.4-codex", "", 12, 8, 0)
+	codexPrimary.NodeID = "mac-mini-codex"
+	codexPrimary.CollectorID = "collector-codex"
+	codexPrimary.SourceID = "source-codex-primary"
+	codexPrimary.SourceName = "codex"
+	codexPrimary.Runtime = "codex"
+	codexPrimary.CWD = beaconPath
+
+	codexSidecar := liveEvent("fleet-codex-sidecar", "fleet-codex-sidecar-session", "message", "user", now.Add(time.Second), "openai", "gpt-5.4-codex", "", 10, 6, 0)
+	codexSidecar.NodeID = "mac-mini-codex"
+	codexSidecar.CollectorID = "collector-codex"
+	codexSidecar.SourceID = "source-codex-sidecar"
+	codexSidecar.SourceName = "codex-sidecar"
+	codexSidecar.Runtime = "codex"
+	codexSidecar.CWD = beaconPath
+
+	hermes := liveEvent("fleet-hermes", "fleet-hermes-session", "message", "user", now.Add(2*time.Second), "anthropic", "claude-haiku-4", "", 4, 4, 0)
+	hermes.NodeID = "hermes-cloud"
+	hermes.CollectorID = "collector-hermes"
+	hermes.SourceID = "source-hermes"
+	hermes.SourceName = "hermes"
+	hermes.Runtime = "hermes-agent"
+	hermes.CWD = "/srv/hermes/work/hermes"
+
+	events := []models.Event{codexPrimary, codexSidecar, hermes}
+	batch := store.RowBatch{ActivityEvents: events}
+	for _, event := range events {
+		batch.RawRecords = append(batch.RawRecords, store.NewRawRecord(event))
+	}
+	if err := ch.Flush(ctx, batch); err != nil {
+		t.Fatalf("flush fleet events: %v", err)
+	}
+
+	lastCodexEvent := now.Add(3 * time.Second)
+	lastHermesEvent := now.Add(4 * time.Second)
+	if err := ch.InsertCaptureHeartbeats(ctx, []models.CaptureHeartbeat{
+		{
+			NodeID:      "mac-mini-codex",
+			CollectorID: "collector-codex",
+			SourceID:    "source-codex-primary",
+			SourceName:  "codex",
+			Status:      "healthy",
+			QueueDepth:  4,
+			SpoolBytes:  4096,
+			ActiveFiles: 2,
+			LastEventAt: &lastCodexEvent,
+			CreatedAt:   now.Add(5 * time.Second),
+		},
+		{
+			NodeID:      "mac-mini-codex",
+			CollectorID: "collector-codex",
+			SourceID:    "source-codex-sidecar",
+			SourceName:  "codex-sidecar",
+			Status:      "healthy",
+			QueueDepth:  4,
+			SpoolBytes:  4096,
+			ActiveFiles: 2,
+			LastEventAt: &lastCodexEvent,
+			CreatedAt:   now.Add(5 * time.Second),
+		},
+		{
+			NodeID:      "hermes-cloud",
+			CollectorID: "collector-hermes",
+			SourceID:    "source-hermes",
+			SourceName:  "hermes",
+			Status:      "healthy",
+			QueueDepth:  99,
+			SpoolBytes:  99999,
+			ActiveFiles: 9,
+			LastEventAt: &lastHermesEvent,
+			CreatedAt:   now.Add(5 * time.Second),
+		},
+	}); err != nil {
+		t.Fatalf("insert fleet heartbeats: %v", err)
+	}
+
+	fleet := QueryDashboardFleet(ctx, ch.DB, APIScopeFilters{Runtimes: []string{"codex"}, ProjectKeys: []string{"beacon"}})
+	if fleet.Totals.NodeCount != 1 || fleet.Totals.CollectorCount != 1 || fleet.Totals.OnlineCollectors != 1 {
+		t.Fatalf("fleet totals = %#v, want one scoped online codex collector", fleet.Totals)
+	}
+	if fleet.Totals.QueueDepth != 4 || fleet.Totals.SpoolBytes != 4096 || fleet.Totals.MissingHeartbeats != 0 {
+		t.Fatalf("fleet heartbeat totals = %#v, want deduped codex heartbeat metrics", fleet.Totals)
+	}
+	if len(fleet.Nodes) != 1 {
+		t.Fatalf("fleet nodes = %#v, want one node", fleet.Nodes)
+	}
+	node := fleet.Nodes[0]
+	if node.NodeID != "mac-mini-codex" || node.QueueDepth != 4 || node.SpoolBytes != 4096 {
+		t.Fatalf("fleet node = %#v, want deduped mac mini codex metrics", node)
+	}
+	if len(node.SourcesDetail) != 2 {
+		t.Fatalf("source details = %#v, want two scoped codex sources", node.SourcesDetail)
+	}
+	for _, source := range node.SourcesDetail {
+		if source.CollectorID != "collector-codex" || strings.Contains(source.SourceName, "hermes") {
+			t.Fatalf("out-of-scope source detail leaked: %#v", node.SourcesDetail)
+		}
+	}
+}
+
 func liveEvent(uid, sessionID, kind, role string, ts time.Time, provider, model, tool string, input, output, duration int64) models.Event {
 	return models.Event{
 		EventUID:     uid,
