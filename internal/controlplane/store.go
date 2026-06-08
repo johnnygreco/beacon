@@ -301,8 +301,15 @@ func prepareMetadataFile(path string) error {
 			return fmt.Errorf("secure control-plane metadata directory: %w", err)
 		}
 	}
-	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("control-plane metadata path %q must not be a symlink", path)
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("control-plane metadata file %q must not be a symlink", path)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("control-plane metadata file %q must be a regular file", path)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect control-plane metadata file %q: %w", path, err)
 	}
 	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0600)
 	if err != nil {

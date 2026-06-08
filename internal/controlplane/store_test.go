@@ -271,6 +271,106 @@ func TestOpenRejectsMetadataSidecarSymlink(t *testing.T) {
 	assertMode(t, target, 0644)
 }
 
+func TestOpenRejectsMainMetadataSymlink(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), ".beacon")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatalf("create metadata dir: %v", err)
+	}
+	path := filepath.Join(dir, "control-plane.db")
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, []byte("target"), 0644); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	if err := os.Chmod(target, 0644); err != nil {
+		t.Fatalf("chmod target: %v", err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatalf("create main DB symlink: %v", err)
+	}
+
+	store, err := Open(path)
+	if err == nil {
+		store.Close()
+		t.Fatal("Open returned nil error for main DB symlink")
+	}
+	if !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("Open error = %v, want symlink rejection", err)
+	}
+	assertMode(t, target, 0644)
+}
+
+func TestOpenRejectsNonRegularMetadataFiles(t *testing.T) {
+	tests := []struct {
+		name       string
+		createPath func(path string) error
+		openPath   func(dir string) string
+	}{
+		{
+			name: "main db directory",
+			createPath: func(path string) error {
+				return os.Mkdir(path, 0700)
+			},
+			openPath: func(dir string) string {
+				return filepath.Join(dir, "control-plane.db")
+			},
+		},
+		{
+			name: "sidecar directory",
+			createPath: func(path string) error {
+				return os.Mkdir(path+"-wal", 0700)
+			},
+			openPath: func(dir string) string {
+				return filepath.Join(dir, "control-plane.db")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), ".beacon")
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatalf("create metadata dir: %v", err)
+			}
+			path := tt.openPath(dir)
+			if err := tt.createPath(path); err != nil {
+				t.Fatalf("create non-regular metadata path: %v", err)
+			}
+
+			store, err := Open(path)
+			if err == nil {
+				store.Close()
+				t.Fatal("Open returned nil error for non-regular metadata path")
+			}
+			if !strings.Contains(err.Error(), "must be a regular file") {
+				t.Fatalf("Open error = %v, want regular file rejection", err)
+			}
+		})
+	}
+}
+
+func TestPrepareMetadataFileRestrictsPreexistingRegularSidecars(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), ".beacon")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatalf("create metadata dir: %v", err)
+	}
+	path := filepath.Join(dir, "control-plane.db")
+	for _, sidecar := range []string{path + "-wal", path + "-shm"} {
+		if err := os.WriteFile(sidecar, []byte("sidecar"), 0644); err != nil {
+			t.Fatalf("write sidecar %s: %v", sidecar, err)
+		}
+		if err := os.Chmod(sidecar, 0644); err != nil {
+			t.Fatalf("chmod sidecar %s: %v", sidecar, err)
+		}
+	}
+
+	if err := prepareMetadataFile(path); err != nil {
+		t.Fatalf("prepareMetadataFile: %v", err)
+	}
+	assertMode(t, path, 0600)
+	assertMode(t, path+"-wal", 0600)
+	assertMode(t, path+"-shm", 0600)
+}
+
 func TestOpenRejectsMetadataDirectorySymlink(t *testing.T) {
 	base := t.TempDir()
 	targetDir := filepath.Join(base, "target")
