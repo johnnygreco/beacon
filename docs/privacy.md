@@ -4,6 +4,9 @@ Beacon is a local observability tool. It reads agent session files that already
 exist on the machine, normalizes them, and stores derived rows in ClickHouse so
 the dashboard, search UI, and MCP tools can query them quickly.
 
+For multi-machine personal-production setup and operator runbooks, see
+[Personal production guide](production.md).
+
 Beacon does not implement retention expiry. Beacon applies a best-effort
 destructive redaction policy before local capture writes, collector spool files,
 and HTTP ingest commits. Treat the Beacon database and collector spools as
