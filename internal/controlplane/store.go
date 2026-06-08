@@ -200,12 +200,8 @@ func ensureRemoteRegistrationTx(ctx context.Context, tx *sql.Tx, boot Bootstrap,
 	if _, err := ensureMetadataValue(ctx, tx, "schema_epoch", InitialSchemaEpoch, now); err != nil {
 		return Bootstrap{}, err
 	}
-	if boot.NodeID == "" {
-		boot.NodeID = generatedID("node")
-	}
-	if boot.CollectorID == "" {
-		boot.CollectorID = generatedID("collector")
-	}
+	boot.NodeID = generatedID("node")
+	boot.CollectorID = generatedID("collector")
 	if err := upsertNode(ctx, tx, boot, now); err != nil {
 		return Bootstrap{}, err
 	}

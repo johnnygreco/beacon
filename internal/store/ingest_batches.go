@@ -37,6 +37,7 @@ type IngestBatchMeta struct {
 type IngestBatchRecord struct {
 	IngestBatchMeta
 	ReceivedAt       time.Time
+	StateVersion     uint64
 	EventCount       int
 	RawCount         int
 	ToolPayloadCount int
@@ -69,26 +70,34 @@ func (s *Store) CommitIngestBatch(ctx context.Context, meta IngestBatchMeta, row
 		}
 	}
 
+	stateVersion, err := s.nextIngestBatchStateVersion(ctx, meta.CollectorID, meta.BatchID)
+	if err != nil {
+		return IngestBatchAck{}, err
+	}
 	if err := s.validateBatchSequence(ctx, meta); err != nil {
-		record := batchRecordFromRows(meta, rows, BatchStateFailedTerminal, err.Error())
+		record := batchRecordFromRows(meta, rows, stateVersion, BatchStateFailedTerminal, err.Error())
 		_ = s.insertIngestBatchRecord(ctx, record)
 		return IngestBatchAck{}, err
 	}
-	if err := s.insertIngestBatchRecord(ctx, batchRecordFromRows(meta, rows, BatchStateReceiving, "")); err != nil {
+	if err := s.insertIngestBatchRecord(ctx, batchRecordFromRows(meta, rows, stateVersion, BatchStateReceiving, "")); err != nil {
 		return IngestBatchAck{}, err
 	}
-	if err := s.insertIngestBatchRecord(ctx, batchRecordFromRows(meta, rows, BatchStateWritingPrimary, "")); err != nil {
+	stateVersion++
+	if err := s.insertIngestBatchRecord(ctx, batchRecordFromRows(meta, rows, stateVersion, BatchStateWritingPrimary, "")); err != nil {
 		return IngestBatchAck{}, err
 	}
-	if err := s.insertIngestBatchRecord(ctx, batchRecordFromRows(meta, rows, BatchStateRefreshingDerived, "")); err != nil {
+	stateVersion++
+	if err := s.insertIngestBatchRecord(ctx, batchRecordFromRows(meta, rows, stateVersion, BatchStateRefreshingDerived, "")); err != nil {
 		return IngestBatchAck{}, err
 	}
 	if err := s.Flush(ctx, rows); err != nil {
-		record := batchRecordFromRows(meta, rows, BatchStateFailedRetryable, err.Error())
+		stateVersion++
+		record := batchRecordFromRows(meta, rows, stateVersion, BatchStateFailedRetryable, err.Error())
 		_ = s.insertIngestBatchRecord(ctx, record)
 		return IngestBatchAck{}, err
 	}
-	committed := batchRecordFromRows(meta, rows, BatchStateCommitted, "")
+	stateVersion++
+	committed := batchRecordFromRows(meta, rows, stateVersion, BatchStateCommitted, "")
 	now := time.Now().UTC()
 	committed.CommittedAt = &now
 	if err := s.insertIngestBatchRecord(ctx, committed); err != nil {
@@ -102,24 +111,25 @@ func (s *Store) GetIngestBatch(ctx context.Context, collectorID, batchID string)
 	var committedAt sql.NullTime
 	err := s.DB.QueryRowContext(ctx,
 		`SELECT
-			argMax(node_id, updated_at),
-			argMax(sequence, updated_at),
-			argMax(control_plane_epoch, updated_at),
-			argMax(payload_digest, updated_at),
-			argMax(redaction_version, updated_at),
-			argMax(created_at, updated_at),
-			argMax(received_at, updated_at),
-			argMax(event_count, updated_at),
-			argMax(raw_count, updated_at),
-			argMax(tool_payload_count, updated_at),
-			argMax(checkpoint_count, updated_at),
-			argMax(status, updated_at),
-			argMax(error_message, updated_at),
-			argMax(committed_at, updated_at),
-			max(updated_at)
-		 FROM ingest_batches
-		 WHERE collector_id = ? AND batch_id = ?
-		 GROUP BY collector_id, batch_id`,
+				argMax(node_id, state_version),
+				argMax(sequence, state_version),
+				argMax(control_plane_epoch, state_version),
+				argMax(payload_digest, state_version),
+				argMax(redaction_version, state_version),
+				argMax(created_at, state_version),
+				argMax(received_at, state_version),
+				max(state_version),
+				argMax(event_count, state_version),
+				argMax(raw_count, state_version),
+				argMax(tool_payload_count, state_version),
+				argMax(checkpoint_count, state_version),
+				argMax(status, state_version),
+				argMax(error_message, state_version),
+				argMax(committed_at, state_version),
+				argMax(updated_at, state_version)
+			 FROM ingest_batches
+			 WHERE collector_id = ? AND batch_id = ?
+			 GROUP BY collector_id, batch_id`,
 		collectorID,
 		batchID,
 	).Scan(
@@ -130,6 +140,7 @@ func (s *Store) GetIngestBatch(ctx context.Context, collectorID, batchID string)
 		&row.RedactionVersion,
 		&row.CreatedAt,
 		&row.ReceivedAt,
+		&row.StateVersion,
 		&row.EventCount,
 		&row.RawCount,
 		&row.ToolPayloadCount,
@@ -151,6 +162,20 @@ func (s *Store) GetIngestBatch(ctx context.Context, collectorID, batchID string)
 		row.CommittedAt = &committedAt.Time
 	}
 	return row, true, nil
+}
+
+func (s *Store) nextIngestBatchStateVersion(ctx context.Context, collectorID, batchID string) (uint64, error) {
+	var maxVersion uint64
+	if err := s.DB.QueryRowContext(ctx,
+		`SELECT COALESCE(max(state_version), 0)
+		 FROM ingest_batches
+		 WHERE collector_id = ? AND batch_id = ?`,
+		collectorID,
+		batchID,
+	).Scan(&maxVersion); err != nil {
+		return 0, err
+	}
+	return maxVersion + 1, nil
 }
 
 func (s *Store) validateBatchSequence(ctx context.Context, meta IngestBatchMeta) error {
@@ -177,11 +202,11 @@ func (s *Store) validateBatchSequence(ctx context.Context, meta IngestBatchMeta)
 func (s *Store) insertIngestBatchRecord(ctx context.Context, record IngestBatchRecord) error {
 	_, err := s.DB.ExecContext(ctx,
 		`INSERT INTO ingest_batches (
-			collector_id, batch_id, node_id, sequence, control_plane_epoch,
-			payload_digest, redaction_version, created_at, received_at,
-			event_count, raw_count, tool_payload_count, checkpoint_count,
-			status, error_message, committed_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				collector_id, batch_id, node_id, sequence, control_plane_epoch,
+				payload_digest, redaction_version, created_at, received_at,
+				state_version, event_count, raw_count, tool_payload_count, checkpoint_count,
+				status, error_message, committed_at, updated_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		record.CollectorID,
 		record.BatchID,
 		record.NodeID,
@@ -191,6 +216,7 @@ func (s *Store) insertIngestBatchRecord(ctx context.Context, record IngestBatchR
 		record.RedactionVersion,
 		nonZeroTime(record.CreatedAt, time.Now().UTC()),
 		nonZeroTime(record.ReceivedAt, time.Now().UTC()),
+		record.StateVersion,
 		uint64(nonNegativeInt(record.EventCount)),
 		uint64(nonNegativeInt(record.RawCount)),
 		uint64(nonNegativeInt(record.ToolPayloadCount)),
@@ -203,11 +229,12 @@ func (s *Store) insertIngestBatchRecord(ctx context.Context, record IngestBatchR
 	return err
 }
 
-func batchRecordFromRows(meta IngestBatchMeta, rows RowBatch, status, errorMessage string) IngestBatchRecord {
+func batchRecordFromRows(meta IngestBatchMeta, rows RowBatch, stateVersion uint64, status, errorMessage string) IngestBatchRecord {
 	now := time.Now().UTC()
 	return IngestBatchRecord{
 		IngestBatchMeta:  meta,
 		ReceivedAt:       now,
+		StateVersion:     stateVersion,
 		EventCount:       len(rows.ActivityEvents),
 		RawCount:         len(rows.RawRecords),
 		ToolPayloadCount: len(rows.ToolPayloads),

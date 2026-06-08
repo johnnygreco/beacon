@@ -102,42 +102,51 @@ func (s *Spool) WritePending(ctx context.Context, req ingest.BatchRequest) (*Spo
 		return nil, ErrSpoolFull
 	}
 
-	name := spoolFileName(req)
-	tmp, err := os.CreateTemp(filepath.Join(s.root, spoolTmp), name+".*.tmp")
+	batch, err := s.writePendingPayload(ctx, req, payload)
 	if err != nil {
-		return nil, fmt.Errorf("create spool temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if err := tmp.Chmod(0600); err != nil {
-		_ = tmp.Close()
-		return nil, fmt.Errorf("secure spool temp file: %w", err)
-	}
-	if _, err := tmp.Write(payload); err != nil {
-		_ = tmp.Close()
-		return nil, fmt.Errorf("write spool temp file: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return nil, fmt.Errorf("sync spool temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return nil, fmt.Errorf("close spool temp file: %w", err)
-	}
-	finalPath := filepath.Join(s.root, spoolPending, name)
-	if err := os.Rename(tmpPath, finalPath); err != nil {
-		return nil, fmt.Errorf("commit spool file: %w", err)
-	}
-	cleanup = false
-	if err := syncDir(filepath.Dir(finalPath)); err != nil {
 		return nil, err
 	}
-	return &SpoolBatch{Path: finalPath, State: spoolPending, Size: int64(len(payload)), Request: req}, nil
+	return &batch, nil
+}
+
+func (s *Spool) WritePendingGroup(ctx context.Context, reqs []ingest.BatchRequest) ([]SpoolBatch, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if len(reqs) == 0 {
+		return nil, nil
+	}
+	payloads := make([][]byte, len(reqs))
+	var totalBytes int64
+	for i, req := range reqs {
+		payload, err := encodeSpoolEnvelope(req)
+		if err != nil {
+			return nil, err
+		}
+		payloads[i] = payload
+		totalBytes += int64(len(payload))
+	}
+	activeBytes, err := s.activeBytes()
+	if err != nil {
+		return nil, err
+	}
+	if activeBytes+totalBytes > s.maxBytes {
+		return nil, ErrSpoolFull
+	}
+
+	written := make([]SpoolBatch, 0, len(reqs))
+	for i, req := range reqs {
+		batch, err := s.writePendingPayload(ctx, req, payloads[i])
+		if err != nil {
+			for _, prior := range written {
+				_ = os.Remove(prior.Path)
+			}
+			_ = syncDir(filepath.Join(s.root, spoolPending))
+			return nil, err
+		}
+		written = append(written, batch)
+	}
+	return written, nil
 }
 
 func (s *Spool) Pending() ([]SpoolBatch, error) {
@@ -163,8 +172,13 @@ func (s *Spool) MarkPending(batch SpoolBatch) (SpoolBatch, error) {
 }
 
 func (s *Spool) Ack(batch SpoolBatch) error {
-	_, err := s.move(batch, spoolAcked)
-	return err
+	if batch.Path == "" {
+		return fmt.Errorf("spool batch path is required")
+	}
+	if err := os.Remove(batch.Path); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(batch.Path))
 }
 
 func (s *Spool) Quarantine(batch SpoolBatch) error {
@@ -201,7 +215,7 @@ func (s *Spool) HasUnacked() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return stats.PendingCount+stats.InflightCount > 0, nil
+	return stats.PendingCount+stats.InflightCount+stats.CorruptCount > 0, nil
 }
 
 func (s *Spool) readBatches(state string) ([]SpoolBatch, error) {
@@ -268,6 +282,48 @@ func (s *Spool) activeBytes() (int64, error) {
 		return 0, err
 	}
 	return pending + inflight, nil
+}
+
+func (s *Spool) writePendingPayload(ctx context.Context, req ingest.BatchRequest, payload []byte) (SpoolBatch, error) {
+	if err := ctx.Err(); err != nil {
+		return SpoolBatch{}, err
+	}
+	name := spoolFileName(req)
+	tmp, err := os.CreateTemp(filepath.Join(s.root, spoolTmp), name+".*.tmp")
+	if err != nil {
+		return SpoolBatch{}, fmt.Errorf("create spool temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if err := tmp.Chmod(0600); err != nil {
+		_ = tmp.Close()
+		return SpoolBatch{}, fmt.Errorf("secure spool temp file: %w", err)
+	}
+	if _, err := tmp.Write(payload); err != nil {
+		_ = tmp.Close()
+		return SpoolBatch{}, fmt.Errorf("write spool temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return SpoolBatch{}, fmt.Errorf("sync spool temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return SpoolBatch{}, fmt.Errorf("close spool temp file: %w", err)
+	}
+	finalPath := filepath.Join(s.root, spoolPending, name)
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		return SpoolBatch{}, fmt.Errorf("commit spool file: %w", err)
+	}
+	cleanup = false
+	if err := syncDir(filepath.Dir(finalPath)); err != nil {
+		return SpoolBatch{}, err
+	}
+	return SpoolBatch{Path: finalPath, State: spoolPending, Size: int64(len(payload)), Request: req}, nil
 }
 
 func (s *Spool) countState(state string) (int, int64, error) {

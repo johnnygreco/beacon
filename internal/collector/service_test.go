@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -99,6 +100,78 @@ func TestServiceSpoolFullPausesBeforeCheckpointAndSequenceAdvance(t *testing.T) 
 	}
 }
 
+func TestServiceSpoolFullDuringMultiChunkReadLeavesNoPartialBatch(t *testing.T) {
+	service, state, _ := newTestServiceWithLines(t, "http://127.0.0.1:1", 1<<20, 1, []string{
+		`{"msg":"api_key=first"}`,
+		`{"msg":"api_key=second"}`,
+	})
+	source := service.cfg.Sources[0]
+	result, err := capture.ReadSourceFile(context.Background(), source, source.Globs[0], nil, nil)
+	if err != nil {
+		t.Fatalf("ReadSourceFile: %v", err)
+	}
+	if len(result.Events) != 2 {
+		t.Fatalf("events = %d, want 2", len(result.Events))
+	}
+	redacted := RedactEvents(result.Events)
+	firstReq, err := service.buildBatchRequest(1, "source-test", redacted[:1], nil, nil)
+	if err != nil {
+		t.Fatalf("build first request: %v", err)
+	}
+	firstPayload, err := encodeSpoolEnvelope(firstReq)
+	if err != nil {
+		t.Fatalf("encode first request: %v", err)
+	}
+	service.cfg.Spool.maxBytes = int64(len(firstPayload)) + 1
+
+	if err := service.spoolReadResult(context.Background(), source, result); !errors.Is(err, ErrSpoolFull) {
+		t.Fatalf("spoolReadResult error = %v, want ErrSpoolFull", err)
+	}
+	pending, err := service.cfg.Spool.Pending()
+	if err != nil {
+		t.Fatalf("Pending: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending after partial group failure = %d, want 0", len(pending))
+	}
+	if state.Next() != 1 {
+		t.Fatalf("next sequence after partial group failure = %d, want 1", state.Next())
+	}
+}
+
+func TestServiceTerminalSendErrorKeepsBatchPendingAndBlocksScan(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	service, _, _ := newTestService(t, server.URL, 1<<20)
+	req := testBatchRequest(t, 1, "batch-terminal")
+	if _, err := service.cfg.Spool.WritePending(context.Background(), req); err != nil {
+		t.Fatalf("WritePending: %v", err)
+	}
+	if err := service.SendPending(context.Background()); err == nil {
+		t.Fatal("SendPending returned nil, want terminal send error")
+	}
+	stats, err := service.cfg.Spool.Stats()
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if stats.PendingCount != 1 || stats.InflightCount != 0 || stats.CorruptCount != 0 {
+		t.Fatalf("spool stats after terminal error = %#v, want one pending and no quarantine", stats)
+	}
+	if err := service.ScanOnce(context.Background()); err != nil {
+		t.Fatalf("ScanOnce with pending terminal batch: %v", err)
+	}
+	pending, err := service.cfg.Spool.Pending()
+	if err != nil {
+		t.Fatalf("Pending: %v", err)
+	}
+	if len(pending) != 1 || pending[0].Request.BatchID != req.BatchID {
+		t.Fatalf("pending after blocked scan = %#v, want original batch", pending)
+	}
+}
+
 func TestServiceCheckpointAdvancesOnlyAfterAck(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		req := decodeGzipBatch(t, r)
@@ -140,9 +213,14 @@ func TestServiceCheckpointAdvancesOnlyAfterAck(t *testing.T) {
 
 func newTestService(t *testing.T, serverURL string, spoolMax int64) (*Service, *StateStore, string) {
 	t.Helper()
+	return newTestServiceWithLines(t, serverURL, spoolMax, 500, []string{`{"msg":"api_key=secret"}`})
+}
+
+func newTestServiceWithLines(t *testing.T, serverURL string, spoolMax int64, batchSize int, lines []string) (*Service, *StateStore, string) {
+	t.Helper()
 	dir := t.TempDir()
 	file := filepath.Join(dir, "session.jsonl")
-	if err := os.WriteFile(file, []byte(`{"msg":"api_key=secret"}`+"\n"), 0644); err != nil {
+	if err := os.WriteFile(file, []byte(strings.Join(lines, "\n")+"\n"), 0644); err != nil {
 		t.Fatalf("write source: %v", err)
 	}
 	spool, err := OpenSpool(filepath.Join(dir, "spool"), spoolMax)
@@ -194,6 +272,7 @@ func newTestService(t *testing.T, serverURL string, spoolMax int64) (*Service, *
 		Spool:             spool,
 		State:             state,
 		Client:            client,
+		BatchSize:         batchSize,
 		ScanInterval:      time.Hour,
 		RetryMin:          time.Millisecond,
 		RetryMax:          time.Millisecond,

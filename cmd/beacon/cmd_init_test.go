@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/controlplane"
 )
 
@@ -162,6 +163,18 @@ func TestEnrollCommandRejectsTokenArgv(t *testing.T) {
 	}
 	if strings.Contains(errOut.String(), token) {
 		t.Fatalf("stderr echoed token: %q", errOut.String())
+	}
+}
+
+func TestRunRemoteEnrollRejectsNonLoopbackHTTPBeforeRequest(t *testing.T) {
+	configPath, _ := writeInitTestConfig(t)
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load config: %v", err)
+	}
+	err = runRemoteEnroll(newEnrollCmd(), cfg, "http://beacon.example", "bcn_enroll_secret")
+	if err == nil || !strings.Contains(err.Error(), "https for non-loopback") {
+		t.Fatalf("runRemoteEnroll error = %v, want non-loopback HTTPS rejection", err)
 	}
 }
 

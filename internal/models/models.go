@@ -158,15 +158,20 @@ type ToolPayload struct {
 }
 
 type CaptureError struct {
-	ID              string    `json:"id"`
-	SourceName      string    `json:"source_name"`
-	SourceFile      string    `json:"source_file"`
-	SourceLineNo    int       `json:"source_line_no"`
-	SourceOffset    int64     `json:"source_offset"`
-	ErrorClass      string    `json:"error_class"`
-	ErrorMessage    string    `json:"error_message"`
-	ContextFragment string    `json:"context_fragment"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID                string    `json:"id"`
+	NodeID            string    `json:"node_id,omitempty"`
+	CollectorID       string    `json:"collector_id,omitempty"`
+	SourceID          string    `json:"source_id,omitempty"`
+	SourceName        string    `json:"source_name"`
+	SourceFile        string    `json:"source_file"`
+	SourceLineNo      int       `json:"source_line_no"`
+	SourceOffset      int64     `json:"source_offset"`
+	BatchID           string    `json:"batch_id,omitempty"`
+	ControlPlaneEpoch string    `json:"control_plane_epoch,omitempty"`
+	ErrorClass        string    `json:"error_class"`
+	ErrorMessage      string    `json:"error_message"`
+	ContextFragment   string    `json:"context_fragment"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 type Checkpoint struct {

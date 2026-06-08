@@ -28,8 +28,9 @@ fail with reset guidance before ingest starts.
 Migrations are intentionally simple: they create the current schema and record
 the supported schema version. Beacon does not mix old local identity layouts
 with the current fleet-aware identity schema; reset and reimport when changing
-between incompatible schema versions. The schema-3 advance adds durable ingest
-batch receipts and rebuilds checkpoint state with collector/source keys.
+between incompatible schema versions. The schema-4 advance adds durable ingest
+batch receipts, fleet/batch-aware capture errors, and checkpoint state keyed by
+collector, source, source name, and file.
 
 ## Schema ownership
 
@@ -86,17 +87,19 @@ Owner: capture normalizer and `Store.Flush`.
 
 ### `capture_errors`
 
-Purpose: parser and capture failures with source position and context fragment.
-Used by status and diagnostics.
+Purpose: parser and capture failures with fleet/source/batch identity, source
+position, and context fragment. Ingest replay can replace the same error row by
+`collector_id`, `batch_id`, and error id.
 
 Owner: capture pipeline through `Store.InsertCaptureError` or `Store.Flush`.
 
 ### `capture_checkpoints`
 
-Purpose: per-source file checkpoint state keyed by collector/source/file:
-inode, generation, last processed offset and line, plus source-specific
-`state_json`. Used to resume capture without replaying already-acknowledged
-data.
+Purpose: per-source file checkpoint state keyed by collector, source id, source
+name, and file: inode, generation, last processed offset and line, plus
+source-specific `state_json`. The source name remains in the key so local
+watcher checkpoints with blank collector/source IDs do not collapse when two
+sources share a path.
 
 Owner: capture watcher/checkpoint code through `Store.UpsertCheckpoint` and
 `Store.Flush`.
@@ -105,10 +108,10 @@ Owner: capture watcher/checkpoint code through `Store.UpsertCheckpoint` and
 
 Purpose: durable HTTP ingest receipt and idempotency state keyed by
 `collector_id` and `batch_id`. It records payload digest, sequence,
-control-plane epoch, row counts, redaction version, status, retryable/terminal
-failure messages, and commit timestamps. Duplicate committed batches with the
-same digest return success; duplicate batch IDs with different digests are
-rejected.
+control-plane epoch, row counts, redaction version, monotonic state version,
+status, retryable/terminal failure messages, and commit timestamps. Duplicate
+committed batches with the same digest return success; duplicate batch IDs with
+different digests are rejected.
 
 Owner: HTTP ingest through `Store.CommitIngestBatch`.
 
@@ -155,9 +158,10 @@ duration.
 
 Owner: `internal/search.Searcher`.
 
-Most primary tables use `ReplacingMergeTree` with a timestamp column so Beacon can
-re-ingest or refresh rows for the same logical key and have `FINAL`/`argMax`
-queries select the latest version. Tables that are append-only diagnostics or
+Most primary tables use `ReplacingMergeTree` with a timestamp column so Beacon
+can re-ingest or refresh rows for the same logical key and have `FINAL`/`argMax`
+queries select the latest version. `ingest_batches` uses `MergeTree` plus a
+monotonic `state_version` because it stores a durable state history; append-only
 logs use plain `MergeTree`.
 
 ## Projection tables

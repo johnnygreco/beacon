@@ -464,16 +464,11 @@ func validateFleet(fleet *FleetConfig) error {
 
 	fleet.ControlPlaneURL = strings.TrimSpace(fleet.ControlPlaneURL)
 	if fleet.ControlPlaneURL != "" {
-		parsed, err := url.Parse(fleet.ControlPlaneURL)
-		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			return fmt.Errorf("fleet.control_plane_url must be an absolute URL")
+		normalized, err := NormalizeControlPlaneURL(fleet.ControlPlaneURL, "fleet.control_plane_url")
+		if err != nil {
+			return err
 		}
-		if parsed.Scheme != "http" && parsed.Scheme != "https" {
-			return fmt.Errorf("fleet.control_plane_url must use http or https")
-		}
-		if parsed.Scheme == "http" && !isLoopbackURLHost(parsed.Host) {
-			return fmt.Errorf("fleet.control_plane_url must use https for non-loopback hosts")
-		}
+		fleet.ControlPlaneURL = normalized
 	}
 
 	fleet.NodeID = strings.TrimSpace(fleet.NodeID)
@@ -593,6 +588,25 @@ func validateHostPort(field, value string) error {
 		return fmt.Errorf("%s port must be numeric", field)
 	}
 	return validatePort(field+" port", port)
+}
+
+func NormalizeControlPlaneURL(raw, field string) (string, error) {
+	field = strings.TrimSpace(field)
+	if field == "" {
+		field = "control plane URL"
+	}
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", fmt.Errorf("%s must be an absolute URL", field)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("%s must use http or https", field)
+	}
+	if parsed.Scheme == "http" && !isLoopbackURLHost(parsed.Host) {
+		return "", fmt.Errorf("%s must use https for non-loopback hosts", field)
+	}
+	return raw, nil
 }
 
 func isLoopbackURLHost(hostport string) bool {

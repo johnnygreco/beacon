@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 3
+	CurrentSchemaVersion = 4
 
 	schemaVersionTable = "schema_version"
 	schemaVersionRowID = 1
@@ -44,9 +44,16 @@ func Migrate(ctx context.Context, db *sql.DB, database string) error {
 	if err != nil {
 		return err
 	}
-	if state.hasVersionRow && state.version == 2 {
-		if err := migrateSchemaV2ToV3(ctx, db, database); err != nil {
-			return err
+	if state.hasVersionRow {
+		switch state.version {
+		case 2:
+			if err := migrateSchemaV2ToV4(ctx, db, database); err != nil {
+				return err
+			}
+		case 3:
+			if err := migrateSchemaV3ToV4(ctx, db, database); err != nil {
+				return err
+			}
 		}
 		state, err = inspectSchemaState(ctx, db, database)
 		if err != nil {
@@ -206,14 +213,33 @@ func writeSchemaVersion(ctx context.Context, db *sql.DB, database string) error 
 	return err
 }
 
-func migrateSchemaV2ToV3(ctx context.Context, db *sql.DB, database string) error {
+func migrateSchemaV2ToV4(ctx context.Context, db *sql.DB, database string) error {
 	for _, stmt := range []string{
 		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_checkpoints`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_errors`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.ingest_batches`, database),
+		captureErrorsSchema(database),
 		captureCheckpointsSchema(database),
 		ingestBatchesSchema(database),
 	} {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("advance schema v2 to v3: %w", err)
+			return fmt.Errorf("advance schema v2 to v4: %w", err)
+		}
+	}
+	return writeSchemaVersion(ctx, db, database)
+}
+
+func migrateSchemaV3ToV4(ctx context.Context, db *sql.DB, database string) error {
+	for _, stmt := range []string{
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_checkpoints`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_errors`, database),
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s.ingest_batches`, database),
+		captureErrorsSchema(database),
+		captureCheckpointsSchema(database),
+		ingestBatchesSchema(database),
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("advance schema v3 to v4: %w", err)
 		}
 	}
 	return writeSchemaVersion(ctx, db, database)
@@ -357,19 +383,7 @@ func Schema(database string) []string {
 		ENGINE = ReplacingMergeTree(captured_at)
 		ORDER BY (event_uid, collector_id, source_id)`,
 
-		`CREATE TABLE IF NOT EXISTS ` + db("capture_errors") + ` (
-			id String,
-			source_name LowCardinality(String),
-			source_file String,
-			source_line_no UInt32,
-			source_offset UInt64,
-			error_class LowCardinality(String),
-			error_message String,
-			context_fragment String,
-			created_at DateTime64(3, 'UTC') DEFAULT now64(3)
-		)
-		ENGINE = MergeTree
-		ORDER BY (source_name, source_file, source_line_no, id)`,
+		captureErrorsSchema(database),
 
 		captureCheckpointsSchema(database),
 
@@ -494,9 +508,31 @@ func captureCheckpointsSchema(database string) string {
 			last_line_no UInt32,
 			state_json String DEFAULT '',
 			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
-		)
-		ENGINE = ReplacingMergeTree(updated_at)
-		ORDER BY (collector_id, source_id, source_file)`
+			)
+			ENGINE = ReplacingMergeTree(updated_at)
+			ORDER BY (collector_id, source_id, source_name, source_file)`
+}
+
+func captureErrorsSchema(database string) string {
+	db := cleanIdent(database) + ".capture_errors"
+	return `CREATE TABLE IF NOT EXISTS ` + db + ` (
+				id String,
+				node_id String,
+				collector_id String,
+				source_id String,
+				source_name LowCardinality(String),
+				source_file String,
+				source_line_no UInt32,
+				source_offset UInt64,
+				batch_id String,
+				control_plane_epoch String,
+				error_class LowCardinality(String),
+				error_message String,
+				context_fragment String,
+				created_at DateTime64(3, 'UTC') DEFAULT now64(3)
+			)
+			ENGINE = ReplacingMergeTree(created_at)
+			ORDER BY (collector_id, batch_id, id)`
 }
 
 func ingestBatchesSchema(database string) string {
@@ -508,20 +544,21 @@ func ingestBatchesSchema(database string) string {
 			sequence UInt64,
 			control_plane_epoch String,
 			payload_digest String,
-			redaction_version String,
-			created_at DateTime64(3, 'UTC'),
-			received_at DateTime64(3, 'UTC'),
-			event_count UInt64,
-			raw_count UInt64,
+				redaction_version String,
+				created_at DateTime64(3, 'UTC'),
+				received_at DateTime64(3, 'UTC'),
+				state_version UInt64,
+				event_count UInt64,
+				raw_count UInt64,
 			tool_payload_count UInt64,
 			checkpoint_count UInt64,
 			status LowCardinality(String),
 			error_message String,
-			committed_at Nullable(DateTime64(3, 'UTC')),
-			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
-		)
-		ENGINE = ReplacingMergeTree(updated_at)
-		ORDER BY (collector_id, batch_id)`
+				committed_at Nullable(DateTime64(3, 'UTC')),
+				updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
+			)
+			ENGINE = MergeTree
+			ORDER BY (collector_id, batch_id, state_version)`
 }
 
 func cleanIdent(v string) string {

@@ -4,8 +4,10 @@ Beacon is a local observability tool. It reads agent session files that already
 exist on the machine, normalizes them, and stores derived rows in ClickHouse so
 the dashboard, search UI, and MCP tools can query them quickly.
 
-Beacon does not currently implement automatic redaction or retention expiry.
-Treat the Beacon database as sensitive local data.
+Beacon does not implement retention expiry. Local capture preserves source
+content by default, and remote collector mode applies only limited best-effort
+redaction before spool/ingest. Treat the Beacon database and collector spools as
+sensitive local data.
 
 ## Data Beacon stores
 
@@ -114,12 +116,18 @@ unless those tools or the user delete them.
 
 ## Redaction policy
 
-Beacon currently preserves captured content rather than redacting it. This keeps
-transcripts, search, diagnostics, and MCP retrieval faithful to the source
-session data, but it also means secrets copied into prompts, responses, tool
-arguments, file paths, or tool outputs may be stored and indexed.
+Beacon's local capture path preserves captured content rather than redacting it.
+This keeps transcripts, search, diagnostics, and MCP retrieval faithful to the
+source session data, but it also means secrets copied into prompts, responses,
+tool arguments, file paths, or tool outputs may be stored and indexed.
 
-Any future redaction feature should define:
+Remote collector mode is different: `beacon collect` runs limited `redact-v1`
+filtering before writing spool files or sending HTTP ingest. It removes Beacon
+tokens and common `api_key`, `token`, `secret`, and `password` assignment
+patterns from normalized event text, tool/raw payloads, and capture-error
+fragments. This is a safety net, not a complete secret-scanning policy.
+
+Any broader redaction feature should define:
 
 - which fields are redacted before insertion into raw records, activity events,
   tool payloads, and search documents;
@@ -128,5 +136,5 @@ Any future redaction feature should define:
 - tests that prove redacted content does not appear in raw payloads, previews,
   search indexes, web API responses, or MCP tool output.
 
-Until such a feature exists, use Beacon only on machines and ClickHouse
-instances whose local data access is trusted.
+Until such a feature exists, use Beacon only on machines, collector spools, and
+ClickHouse instances whose local data access is trusted.

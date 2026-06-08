@@ -45,17 +45,29 @@ func NewIngestHandlers(control *controlplane.Store, committer IngestBatchCommitt
 }
 
 func (h *IngestHandlers) Enroll(w http.ResponseWriter, r *http.Request) {
+	if h.control == nil {
+		h.internalError(w, "ingest is not configured", errors.New("missing ingest dependencies"))
+		return
+	}
+	token := bearerToken(r.Header.Get("Authorization"))
+	if token == "" {
+		h.jsonError(w, "missing bearer token", http.StatusUnauthorized)
+		return
+	}
+	if _, err := h.control.AuthenticateToken(r.Context(), controlplane.AuthenticateTokenRequest{
+		Plaintext:      token,
+		AllowedTypes:   []string{controlplane.TokenTypeEnroll},
+		RequiredScopes: []string{controlplane.ScopeEnroll},
+	}); err != nil {
+		h.authError(w, err)
+		return
+	}
 	var req ingest.EnrollRequest
 	if !h.decode(w, r, &req) {
 		return
 	}
 	if strings.TrimSpace(req.Schema) != ingest.SchemaV1 {
 		h.jsonError(w, "invalid ingest schema", http.StatusBadRequest)
-		return
-	}
-	token := bearerToken(r.Header.Get("Authorization"))
-	if token == "" {
-		h.jsonError(w, "missing bearer token", http.StatusUnauthorized)
 		return
 	}
 	result, err := h.control.CompleteRemoteEnrollment(r.Context(), token, req.Bootstrap)
@@ -72,6 +84,9 @@ func (h *IngestHandlers) Enroll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
+	if !h.requireBearer(w, r) {
+		return
+	}
 	var req ingest.BatchRequest
 	if !h.decode(w, r, &req) {
 		return
@@ -119,7 +134,12 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 		RedactionStatus:  "redacted",
 		RedactionVersion: req.RedactionVersion,
 	})
-	rows.CaptureErrors = enrichCaptureErrors(req.CaptureErrors)
+	enrichedErrors, err := enrichCaptureErrors(req.CaptureErrors, req, sourceByName)
+	if err != nil {
+		h.jsonError(w, err.Error(), http.StatusForbidden)
+		return
+	}
+	rows.CaptureErrors = enrichedErrors
 	enrichedCheckpoints, err := enrichCheckpoints(req.Checkpoints, req.NodeID, req.CollectorID, sourceByName, sourceByID)
 	if err != nil {
 		h.jsonError(w, err.Error(), http.StatusForbidden)
@@ -156,6 +176,9 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *IngestHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
+	if !h.requireBearer(w, r) {
+		return
+	}
 	var req ingest.HeartbeatRequest
 	if !h.decode(w, r, &req) {
 		return
@@ -204,6 +227,18 @@ func (h *IngestHandlers) authenticateIngestToken(ctx context.Context, r *http.Re
 	return err
 }
 
+func (h *IngestHandlers) requireBearer(w http.ResponseWriter, r *http.Request) bool {
+	if h.control == nil || h.committer == nil {
+		h.internalError(w, "ingest is not configured", errors.New("missing ingest dependencies"))
+		return false
+	}
+	if bearerToken(r.Header.Get("Authorization")) == "" {
+		h.jsonError(w, "missing bearer token", http.StatusUnauthorized)
+		return false
+	}
+	return true
+}
+
 func (h *IngestHandlers) decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 	if h.control == nil || h.committer == nil {
 		h.internalError(w, "ingest is not configured", errors.New("missing ingest dependencies"))
@@ -215,15 +250,39 @@ func (h *IngestHandlers) decode(w http.ResponseWriter, r *http.Request, dst any)
 	if strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
 		gz, err := gzip.NewReader(body)
 		if err != nil {
+			var maxErr *http.MaxBytesError
+			if errors.As(err, &maxErr) {
+				h.jsonError(w, "request body too large", http.StatusRequestEntityTooLarge)
+				return false
+			}
 			h.jsonError(w, "invalid gzip body", http.StatusBadRequest)
 			return false
 		}
 		defer gz.Close()
 		reader = gz
 	}
-	decoder := json.NewDecoder(reader)
+	limited := &io.LimitedReader{R: reader, N: maxIngestBodyBytes + 1}
+	decoder := json.NewDecoder(limited)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(dst); err != nil {
+		var maxErr *http.MaxBytesError
+		if limited.N <= 0 || errors.As(err, &maxErr) {
+			h.jsonError(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return false
+		}
+		h.jsonError(w, "invalid JSON body", http.StatusBadRequest)
+		return false
+	}
+	if limited.N <= 0 {
+		h.jsonError(w, "request body too large", http.StatusRequestEntityTooLarge)
+		return false
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if limited.N <= 0 {
+			h.jsonError(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return false
+		}
 		h.jsonError(w, "invalid JSON body", http.StatusBadRequest)
 		return false
 	}
@@ -332,10 +391,22 @@ func validateBatchEvents(events []capture.NormalizedEvent, sourceByName map[stri
 	return nil
 }
 
-func enrichCaptureErrors(errorsIn []models.CaptureError) []models.CaptureError {
-	out := make([]models.CaptureError, len(errorsIn))
-	copy(out, errorsIn)
-	return out
+func enrichCaptureErrors(errorsIn []models.CaptureError, req ingest.BatchRequest, sourceByName map[string]controlplane.Source) ([]models.CaptureError, error) {
+	out := make([]models.CaptureError, 0, len(errorsIn))
+	for _, captureErr := range errorsIn {
+		source, ok := sourceByName[captureErr.SourceName]
+		if !ok {
+			return nil, fmt.Errorf("capture error source %q is not bound to collector", captureErr.SourceName)
+		}
+		captureErr.NodeID = req.NodeID
+		captureErr.CollectorID = req.CollectorID
+		captureErr.SourceID = source.ID
+		captureErr.SourceName = source.Name
+		captureErr.BatchID = req.BatchID
+		captureErr.ControlPlaneEpoch = req.ControlPlaneEpoch
+		out = append(out, captureErr)
+	}
+	return out, nil
 }
 
 func enrichCheckpoints(checkpoints []models.Checkpoint, nodeID, collectorID string, sourceByName, sourceByID map[string]controlplane.Source) ([]models.Checkpoint, error) {

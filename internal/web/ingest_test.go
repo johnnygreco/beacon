@@ -2,11 +2,13 @@ package web
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +24,17 @@ func TestIngestBatchAuthenticatesWritesRowsAndReturnsAck(t *testing.T) {
 	committer := &fakeIngestCommitter{}
 	handler := NewIngestHandlers(control, committer, 0, 0, nil, nil)
 	req := testIngestBatchRequest(t, sourceID)
+	req.CaptureErrors = []models.CaptureError{{
+		ID:              "capture-error-web",
+		SourceName:      "codex",
+		SourceFile:      "session.jsonl",
+		SourceLineNo:    2,
+		SourceOffset:    40,
+		ErrorClass:      "parse_error",
+		ErrorMessage:    "redacted parse error",
+		ContextFragment: "redacted context",
+	}}
+	req.PayloadDigest = computeTestBatchDigest(t, req)
 
 	rec := postIngestJSON(t, handler.Batch, req, token)
 	if rec.Code != http.StatusOK {
@@ -45,6 +58,12 @@ func TestIngestBatchAuthenticatesWritesRowsAndReturnsAck(t *testing.T) {
 	}
 	if len(committer.rows.Checkpoints) != 1 || committer.rows.Checkpoints[0].CollectorID != "collector-web" || committer.rows.Checkpoints[0].SourceID != sourceID {
 		t.Fatalf("checkpoint rows = %#v", committer.rows.Checkpoints)
+	}
+	if len(committer.rows.CaptureErrors) != 1 ||
+		committer.rows.CaptureErrors[0].CollectorID != "collector-web" ||
+		committer.rows.CaptureErrors[0].SourceID != sourceID ||
+		committer.rows.CaptureErrors[0].BatchID != req.BatchID {
+		t.Fatalf("capture error rows = %#v", committer.rows.CaptureErrors)
 	}
 }
 
@@ -76,6 +95,17 @@ func TestIngestBatchRejectsBindingEpochAndDigestConflicts(t *testing.T) {
 			},
 			wantCode: http.StatusConflict,
 		},
+		{
+			name: "capture error source binding mismatch",
+			mutate: func(req *ingest.BatchRequest, _ *fakeIngestCommitter) {
+				req.CaptureErrors = []models.CaptureError{{
+					ID:         "capture-error-wrong-source",
+					SourceName: "wrong",
+					SourceFile: "session.jsonl",
+				}}
+			},
+			wantCode: http.StatusForbidden,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -83,11 +113,7 @@ func TestIngestBatchRejectsBindingEpochAndDigestConflicts(t *testing.T) {
 			handler := NewIngestHandlers(control, committer, 0, 0, nil, nil)
 			req := testIngestBatchRequest(t, sourceID)
 			tt.mutate(&req, committer)
-			digest, err := ingest.ComputeBatchDigest(req)
-			if err != nil {
-				t.Fatalf("digest: %v", err)
-			}
-			req.PayloadDigest = digest
+			req.PayloadDigest = computeTestBatchDigest(t, req)
 			rec := postIngestJSON(t, handler.Batch, req, token)
 			if rec.Code != tt.wantCode {
 				t.Fatalf("status = %d body=%s, want %d", rec.Code, rec.Body.String(), tt.wantCode)
@@ -103,9 +129,9 @@ func TestIngestEnrollCompletesRemoteEnrollment(t *testing.T) {
 	req := ingest.EnrollRequest{
 		Schema: ingest.SchemaV1,
 		Bootstrap: controlplane.Bootstrap{
-			NodeID:      "node-remote",
+			NodeID:      "node-claimed",
 			NodeName:    "Remote",
-			CollectorID: "collector-remote",
+			CollectorID: "collector-claimed",
 			Sources: []controlplane.SourceRegistration{{
 				Name:      "codex",
 				Runtime:   models.RuntimeCodex,
@@ -123,8 +149,31 @@ func TestIngestEnrollCompletesRemoteEnrollment(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode enrollment: %v", err)
 	}
-	if resp.IngestToken == "" || resp.Token.CollectorID != "collector-remote" || len(resp.Token.SourceIDs) != 1 {
+	if resp.IngestToken == "" || resp.Token.CollectorID == "collector-claimed" || resp.Token.NodeID == "node-claimed" || len(resp.Token.SourceIDs) != 1 {
 		t.Fatalf("enrollment response = %#v", resp)
+	}
+}
+
+func TestIngestGzipRequiresBearerBeforeDecodeAndCapsDecompressedBody(t *testing.T) {
+	control, _, _ := testIngestControlPlane(t)
+	handler := NewIngestHandlers(control, &fakeIngestCommitter{}, 0, 0, nil, nil)
+	hugeCompressed := gzipBytes(t, []byte(strings.Repeat(" ", maxIngestBodyBytes+1)))
+
+	missingAuth := httptest.NewRequest(http.MethodPost, "/api/ingest/v1/batches", bytes.NewReader(hugeCompressed))
+	missingAuth.Header.Set("Content-Encoding", "gzip")
+	rec := httptest.NewRecorder()
+	handler.Batch(rec, missingAuth)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("missing auth status = %d body=%s, want 401", rec.Code, rec.Body.String())
+	}
+
+	withBearer := httptest.NewRequest(http.MethodPost, "/api/ingest/v1/batches", bytes.NewReader(hugeCompressed))
+	withBearer.Header.Set("Content-Encoding", "gzip")
+	withBearer.Header.Set("Authorization", "Bearer invalid")
+	rec = httptest.NewRecorder()
+	handler.Batch(rec, withBearer)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized gzip status = %d body=%s, want 413", rec.Code, rec.Body.String())
 	}
 }
 
@@ -248,12 +297,30 @@ func testIngestBatchRequest(t *testing.T, sourceID string) ingest.BatchRequest {
 			LastLineNo: 1,
 		}},
 	}
+	req.PayloadDigest = computeTestBatchDigest(t, req)
+	return req
+}
+
+func computeTestBatchDigest(t *testing.T, req ingest.BatchRequest) string {
+	t.Helper()
 	digest, err := ingest.ComputeBatchDigest(req)
 	if err != nil {
 		t.Fatalf("ComputeBatchDigest: %v", err)
 	}
-	req.PayloadDigest = digest
-	return req
+	return digest
+}
+
+func gzipBytes(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := gz.Write(data); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	return buf.Bytes()
 }
 
 func postIngestJSON(t *testing.T, handler http.HandlerFunc, payload any, token string) *httptest.ResponseRecorder {

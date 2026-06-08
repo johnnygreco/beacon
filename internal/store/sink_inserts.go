@@ -198,9 +198,10 @@ func (s *Store) insertToolPayloads(ctx context.Context, payloads []models.ToolPa
 
 func (s *Store) insertCaptureErrors(ctx context.Context, errors []models.CaptureError) error {
 	batch, err := s.native.PrepareBatch(ctx, `INSERT INTO capture_errors (
-		id, source_name, source_file, source_line_no, source_offset,
-		error_class, error_message, context_fragment, created_at
-	)`)
+			id, node_id, collector_id, source_id, source_name, source_file,
+			source_line_no, source_offset, batch_id, control_plane_epoch,
+			error_class, error_message, context_fragment, created_at
+		)`)
 	if err != nil {
 		return err
 	}
@@ -209,10 +210,15 @@ func (s *Store) insertCaptureErrors(ctx context.Context, errors []models.Capture
 	for _, e := range errors {
 		if err := batch.Append(
 			e.ID,
+			e.NodeID,
+			e.CollectorID,
+			e.SourceID,
 			e.SourceName,
 			e.SourceFile,
 			uint32(nonNegativeInt(e.SourceLineNo)),
 			uint64(nonNegativeInt64(e.SourceOffset)),
+			e.BatchID,
+			e.ControlPlaneEpoch,
 			e.ErrorClass,
 			e.ErrorMessage,
 			e.ContextFragment,

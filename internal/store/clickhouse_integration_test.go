@@ -392,9 +392,9 @@ func TestClickHouseCommitIngestBatchIsIdempotent(t *testing.T) {
 
 	var status string
 	if err := ch.DB.QueryRowContext(ctx,
-		`SELECT argMax(status, updated_at)
-		 FROM ingest_batches
-		 WHERE collector_id = ? AND batch_id = ?`,
+		`SELECT argMax(status, state_version)
+			 FROM ingest_batches
+			 WHERE collector_id = ? AND batch_id = ?`,
 		meta.CollectorID,
 		meta.BatchID,
 	).Scan(&status); err != nil {
@@ -416,6 +416,105 @@ func TestClickHouseCommitIngestBatchIsIdempotent(t *testing.T) {
 	}
 	if checkpointOffset != 42 {
 		t.Fatalf("checkpoint offset = %d, want 42", checkpointOffset)
+	}
+}
+
+func TestClickHouseIngestBatchStateVersionBreaksTimestampTies(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	meta := IngestBatchMeta{
+		CollectorID:       "collector-state-version",
+		BatchID:           "batch-state-version",
+		NodeID:            "node-state-version",
+		Sequence:          1,
+		ControlPlaneEpoch: "1",
+		PayloadDigest:     "sha256:state-version",
+		RedactionVersion:  "redact-v1",
+		CreatedAt:         time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC),
+	}
+	tiedAt := time.Date(2026, 6, 7, 12, 1, 2, 123000000, time.UTC)
+	receiving := batchRecordFromRows(meta, RowBatch{}, 1, BatchStateReceiving, "")
+	receiving.ReceivedAt = tiedAt
+	receiving.UpdatedAt = tiedAt
+	committed := batchRecordFromRows(meta, RowBatch{}, 2, BatchStateCommitted, "")
+	committed.ReceivedAt = tiedAt
+	committed.UpdatedAt = tiedAt
+	committed.CommittedAt = &tiedAt
+	if err := ch.insertIngestBatchRecord(ctx, receiving); err != nil {
+		t.Fatalf("insert receiving: %v", err)
+	}
+	if err := ch.insertIngestBatchRecord(ctx, committed); err != nil {
+		t.Fatalf("insert committed: %v", err)
+	}
+	record, ok, err := ch.GetIngestBatch(ctx, meta.CollectorID, meta.BatchID)
+	if err != nil {
+		t.Fatalf("GetIngestBatch: %v", err)
+	}
+	if !ok || record.Status != BatchStateCommitted || record.StateVersion != 2 {
+		t.Fatalf("record = %#v ok=%v, want committed state_version 2", record, ok)
+	}
+}
+
+func TestClickHouseLocalCheckpointsDoNotCollapseBySharedFile(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	if err := ch.Flush(ctx, RowBatch{Checkpoints: []models.Checkpoint{
+		{SourceName: "codex", SourceFile: "shared-session.jsonl", LastOffset: 10, LastLineNo: 1},
+		{SourceName: "claude", SourceFile: "shared-session.jsonl", LastOffset: 20, LastLineNo: 2},
+	}}); err != nil {
+		t.Fatalf("Flush checkpoints: %v", err)
+	}
+	var count uint64
+	if err := ch.DB.QueryRowContext(ctx,
+		`SELECT count()
+		 FROM capture_checkpoints FINAL
+		 WHERE source_file = ?`,
+		"shared-session.jsonl",
+	).Scan(&count); err != nil {
+		t.Fatalf("query checkpoints: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("checkpoint count = %d, want 2", count)
+	}
+}
+
+func TestClickHouseCaptureErrorsAreReplayDeduped(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	errRow := models.CaptureError{
+		ID:                "capture-error-dedupe",
+		NodeID:            "node-errors",
+		CollectorID:       "collector-errors",
+		SourceID:          "source-errors",
+		SourceName:        "codex",
+		SourceFile:        "session.jsonl",
+		BatchID:           "batch-errors",
+		ControlPlaneEpoch: "1",
+		ErrorClass:        "parse_error",
+		ErrorMessage:      "bad json",
+		ContextFragment:   "{bad",
+		CreatedAt:         time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC),
+	}
+	rows := RowBatch{CaptureErrors: []models.CaptureError{errRow}}
+	if err := ch.Flush(ctx, rows); err != nil {
+		t.Fatalf("first Flush: %v", err)
+	}
+	if err := ch.Flush(ctx, rows); err != nil {
+		t.Fatalf("second Flush: %v", err)
+	}
+	var count uint64
+	if err := ch.DB.QueryRowContext(ctx,
+		`SELECT count()
+		 FROM capture_errors FINAL
+		 WHERE collector_id = ? AND batch_id = ? AND id = ?`,
+		errRow.CollectorID,
+		errRow.BatchID,
+		errRow.ID,
+	).Scan(&count); err != nil {
+		t.Fatalf("query capture errors: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("capture error count = %d, want 1", count)
 	}
 }
 

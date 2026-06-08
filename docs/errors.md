@@ -22,9 +22,9 @@ details in logs or persisted diagnostics.
   failures log the tool name, public message, and wrapped cause.
 - Dashboard query helpers that feed best-effort panels may log and return empty
   data when a partial panel failure should not take down the whole page.
-- Capture stores parse and ingest failures in `capture_errors` with source
-  coordinates where possible, and logs watcher or batcher failures with source
-  context.
+- Capture stores parse and ingest failures in `capture_errors` with fleet, batch,
+  and source coordinates where possible, and logs watcher or batcher failures
+  with source context.
 
 ## Tests
 

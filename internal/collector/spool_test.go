@@ -71,6 +71,34 @@ func TestSpoolFullRejectsWithoutWriting(t *testing.T) {
 	}
 }
 
+func TestSpoolAckDeletesCommittedBatch(t *testing.T) {
+	spool, err := OpenSpool(filepath.Join(t.TempDir(), "spool"), 1<<20)
+	if err != nil {
+		t.Fatalf("OpenSpool: %v", err)
+	}
+	written, err := spool.WritePending(context.Background(), testBatchRequest(t, 1, "batch-ack"))
+	if err != nil {
+		t.Fatalf("WritePending: %v", err)
+	}
+	inflight, err := spool.MarkInflight(*written)
+	if err != nil {
+		t.Fatalf("MarkInflight: %v", err)
+	}
+	if err := spool.Ack(inflight); err != nil {
+		t.Fatalf("Ack: %v", err)
+	}
+	if _, err := os.Stat(inflight.Path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("acked file stat error = %v, want not exist", err)
+	}
+	stats, err := spool.Stats()
+	if err != nil {
+		t.Fatalf("Stats: %v", err)
+	}
+	if stats.PendingCount != 0 || stats.InflightCount != 0 || stats.ActiveBytes != 0 {
+		t.Fatalf("stats after ack = %#v, want empty active spool", stats)
+	}
+}
+
 func testBatchRequest(t *testing.T, sequence uint64, batchID string) ingest.BatchRequest {
 	t.Helper()
 	req := ingest.BatchRequest{

@@ -136,11 +136,11 @@ func runEnroll(cmd *cobra.Command, args []string, tokenStdin bool, tokenEnv stri
 }
 
 func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, token string) error {
-	controlPlaneURL = strings.TrimRight(strings.TrimSpace(controlPlaneURL), "/")
-	if !looksLikeURL(controlPlaneURL) {
-		return fmt.Errorf("control-plane URL must be absolute")
+	normalizedURL, err := config.NormalizeControlPlaneURL(controlPlaneURL, "control-plane URL")
+	if err != nil {
+		return err
 	}
-	resp, err := postRemoteEnrollment(commandContext(cmd), controlPlaneURL, token, controlPlaneBootstrap(cfg))
+	resp, err := postRemoteEnrollment(commandContext(cmd), normalizedURL, token, controlPlaneBootstrap(cfg))
 	if err != nil {
 		return err
 	}
@@ -162,7 +162,7 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "Beacon remote enrollment complete\n")
-	fmt.Fprintf(out, "Control plane: %s\n", controlPlaneURL)
+	fmt.Fprintf(out, "Control plane: %s\n", normalizedURL)
 	fmt.Fprintf(out, "Node: %s\n", resp.Token.NodeID)
 	fmt.Fprintf(out, "Collector: %s\n", resp.Token.CollectorID)
 	fmt.Fprintf(out, "Ingest token file: %s\n", cfg.Fleet.IngestTokenFile)

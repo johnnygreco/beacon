@@ -171,8 +171,8 @@ func (s *Service) SendPending(ctx context.Context) error {
 		ack, err := s.cfg.Client.SendBatch(ctx, inflight.Request)
 		if err != nil {
 			if sendErr, ok := err.(*SendError); ok && !sendErr.Retryable {
-				if qErr := s.cfg.Spool.Quarantine(inflight); qErr != nil {
-					return qErr
+				if _, moveErr := s.cfg.Spool.MarkPending(inflight); moveErr != nil {
+					return moveErr
 				}
 				return err
 			}
@@ -182,15 +182,21 @@ func (s *Service) SendPending(ctx context.Context) error {
 			return err
 		}
 		if ack.PayloadDigest != inflight.Request.PayloadDigest || ack.BatchID != inflight.Request.BatchID {
-			if qErr := s.cfg.Spool.Quarantine(inflight); qErr != nil {
-				return qErr
+			if _, moveErr := s.cfg.Spool.MarkPending(inflight); moveErr != nil {
+				return moveErr
 			}
 			return fmt.Errorf("ingest ack did not match batch")
 		}
 		if err := s.cfg.State.MarkAcked(ack.NextSequence, inflight.Request.Checkpoints); err != nil {
+			if _, moveErr := s.cfg.Spool.MarkPending(inflight); moveErr != nil {
+				return fmt.Errorf("%w; additionally failed to return batch to pending: %v", err, moveErr)
+			}
 			return err
 		}
 		if err := s.cfg.Spool.Ack(inflight); err != nil {
+			if _, moveErr := s.cfg.Spool.MarkPending(inflight); moveErr != nil {
+				return fmt.Errorf("%w; additionally failed to return batch to pending: %v", err, moveErr)
+			}
 			return err
 		}
 		s.setAcked(ack.BatchID)
@@ -253,6 +259,8 @@ func (s *Service) spoolReadResult(ctx context.Context, src capture.WatchSource, 
 	if len(chunks) == 0 {
 		chunks = [][]capture.NormalizedEvent{{}}
 	}
+	sequence := s.cfg.State.Next()
+	requests := make([]ingest.BatchRequest, 0, len(chunks))
 	for i, chunk := range chunks {
 		last := i == len(chunks)-1
 		var batchErrors []models.CaptureError
@@ -261,15 +269,22 @@ func (s *Service) spoolReadResult(ctx context.Context, src capture.WatchSource, 
 			batchErrors = captureErrors
 			batchCheckpoints = checkpoints
 		}
-		if err := s.spoolBatch(ctx, sourceID, chunk, batchErrors, batchCheckpoints); err != nil {
+		req, err := s.buildBatchRequest(sequence+uint64(i), sourceID, chunk, batchErrors, batchCheckpoints)
+		if err != nil {
 			return err
 		}
+		requests = append(requests, req)
+	}
+	if _, err := s.cfg.Spool.WritePendingGroup(ctx, requests); err != nil {
+		return err
+	}
+	if len(requests) > 0 {
+		return s.cfg.State.AdvanceNext(sequence + uint64(len(requests)))
 	}
 	return nil
 }
 
-func (s *Service) spoolBatch(ctx context.Context, sourceID string, events []capture.NormalizedEvent, captureErrors []models.CaptureError, checkpoints []models.Checkpoint) error {
-	sequence := s.cfg.State.Next()
+func (s *Service) buildBatchRequest(sequence uint64, sourceID string, events []capture.NormalizedEvent, captureErrors []models.CaptureError, checkpoints []models.Checkpoint) (ingest.BatchRequest, error) {
 	req := ingest.BatchRequest{
 		Schema:            ingest.SchemaV1,
 		BatchID:           collectorBatchID(s.cfg.Identity, sequence, events, checkpoints),
@@ -286,13 +301,10 @@ func (s *Service) spoolBatch(ctx context.Context, sourceID string, events []capt
 	}
 	digest, err := ingest.ComputeBatchDigest(req)
 	if err != nil {
-		return err
+		return ingest.BatchRequest{}, err
 	}
 	req.PayloadDigest = digest
-	if _, err := s.cfg.Spool.WritePending(ctx, req); err != nil {
-		return err
-	}
-	return s.cfg.State.AdvanceNext(sequence + 1)
+	return req, nil
 }
 
 func chunkEvents(events []capture.NormalizedEvent, size int) [][]capture.NormalizedEvent {
