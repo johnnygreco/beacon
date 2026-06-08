@@ -118,6 +118,15 @@ func (s *Spool) Pending() ([]SpoolBatch, error) {
 	return batches, nil
 }
 
+func (s *Spool) Inflight() ([]SpoolBatch, error) {
+	batches, err := s.readBatches(spoolInflight)
+	if err != nil {
+		return nil, err
+	}
+	sortBatches(batches)
+	return batches, nil
+}
+
 func (s *Spool) Active() ([]SpoolBatch, error) {
 	pending, err := s.readBatches(spoolPending)
 	if err != nil {
@@ -222,7 +231,7 @@ func (s *Spool) readBatches(state string) ([]SpoolBatch, error) {
 }
 
 func (s *Spool) recoverInflight() error {
-	batches, err := s.readBatches(spoolInflight)
+	batches, err := s.Inflight()
 	if err != nil {
 		return err
 	}

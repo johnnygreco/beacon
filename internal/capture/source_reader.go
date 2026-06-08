@@ -4,10 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/johnnygreco/beacon/internal/models"
 )
@@ -200,14 +205,16 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 		}
 		result.Events = append(result.Events, evt)
 	}
-	result.Checkpoint = &models.Checkpoint{
-		SourceName:       src.Name,
-		SourceFile:       file,
-		SourceInode:      fileInode(fi),
-		SourceGeneration: sourceGeneration,
-		LastOffset:       offset,
-		LastLineNo:       lineNo,
-		StateJSON:        encodeLineParserCheckpointState(nextState, logger),
+	if checkpointAdvanced(cp, offset, lineNo, sourceGeneration) {
+		result.Checkpoint = &models.Checkpoint{
+			SourceName:       src.Name,
+			SourceFile:       file,
+			SourceInode:      fileInode(fi),
+			SourceGeneration: sourceGeneration,
+			LastOffset:       offset,
+			LastLineNo:       lineNo,
+			StateJSON:        encodeLineParserCheckpointState(nextState, logger),
+		}
 	}
 	return result, nil
 }
@@ -222,14 +229,27 @@ func readWholeSourceFile(ctx context.Context, src WatchSource, file string, fi o
 	}
 	events, err := src.FileParser(file)
 	if err != nil {
+		sourceGeneration := 0
+		if cp != nil {
+			sourceGeneration = cp.SourceGeneration
+		}
 		result.CaptureErrors = append(result.CaptureErrors, models.CaptureError{
-			ID:              genID(),
+			ID:              wholeFileErrorID(src.Name, file, fi, sourceGeneration, err),
 			SourceName:      src.Name,
 			SourceFile:      file,
 			ErrorClass:      "parse_error",
 			ErrorMessage:    err.Error(),
 			ContextFragment: file,
 		})
+		result.Checkpoint = &models.Checkpoint{
+			SourceName:       src.Name,
+			SourceFile:       file,
+			SourceInode:      fileInode(fi),
+			SourceGeneration: sourceGeneration,
+			LastOffset:       fi.Size(),
+			LastLineNo:       0,
+			StateJSON:        encodeWholeFileCheckpointState(fi, 0, true),
+		}
 		return result, nil
 	}
 	for i := range events {
@@ -320,6 +340,35 @@ func encodeWholeFileCheckpointState(fi os.FileInfo, eventIndex int, complete boo
 		return ""
 	}
 	return string(data)
+}
+
+func wholeFileErrorID(sourceName, file string, fi os.FileInfo, sourceGeneration int, err error) string {
+	parts := []string{
+		"whole-file-parse-error",
+		sourceName,
+		file,
+		fi.ModTime().UTC().Format(time.RFC3339Nano),
+		strconv.FormatInt(fi.Size(), 10),
+		strconv.Itoa(sourceGeneration),
+	}
+	if err != nil {
+		parts = append(parts, err.Error())
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	return "capture_error_" + hex.EncodeToString(sum[:])[:32]
+}
+
+func checkpointAdvanced(cp *models.Checkpoint, offset int64, lineNo, sourceGeneration int) bool {
+	if cp == nil {
+		return offset > 0 || lineNo > 0 || sourceGeneration > 0
+	}
+	if sourceGeneration != cp.SourceGeneration {
+		return true
+	}
+	if offset != cp.LastOffset {
+		return true
+	}
+	return lineNo != cp.LastLineNo
 }
 
 func sourceReadWindowFull(maxRecords, visibleRecords int) bool {

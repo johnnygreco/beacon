@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -178,6 +179,9 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 
 func (s *Service) SendPending(ctx context.Context) error {
 	for {
+		if err := s.requeueInflight(); err != nil {
+			return err
+		}
 		pending, err := s.cfg.Spool.Pending()
 		if err != nil {
 			return err
@@ -232,6 +236,19 @@ func (s *Service) SendPending(ctx context.Context) error {
 		s.setAcked(ack.BatchID)
 		s.nextRetry = s.cfg.RetryMin
 	}
+}
+
+func (s *Service) requeueInflight() error {
+	inflight, err := s.cfg.Spool.Inflight()
+	if err != nil {
+		return err
+	}
+	for _, batch := range inflight {
+		if _, err := s.cfg.Spool.MarkPending(batch); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) SendHeartbeat(ctx context.Context) error {
@@ -290,6 +307,9 @@ func (s *Service) spoolReadResult(ctx context.Context, src capture.WatchSource, 
 	if err != nil {
 		return err
 	}
+	if err := validateBatchBodySize(req); err != nil {
+		return err
+	}
 	written, err := s.cfg.Spool.WritePending(ctx, req)
 	if err != nil {
 		return err
@@ -322,6 +342,17 @@ func (s *Service) buildBatchRequest(sequence uint64, sourceID string, events []c
 	}
 	req.PayloadDigest = digest
 	return req, nil
+}
+
+func validateBatchBodySize(req ingest.BatchRequest) error {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	if len(body) > ingest.MaxBodyBytes {
+		return fmt.Errorf("collector batch JSON body exceeds ingest limit: %d > %d", len(body), ingest.MaxBodyBytes)
+	}
+	return nil
 }
 
 func (s *Service) recoverSpooledStateFromSpool() error {

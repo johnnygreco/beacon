@@ -19,8 +19,6 @@ import (
 	"github.com/johnnygreco/beacon/internal/store"
 )
 
-const maxIngestBodyBytes = 32 << 20
-
 type IngestBatchCommitter interface {
 	CommitIngestBatch(context.Context, store.IngestBatchMeta, store.RowBatch) (store.IngestBatchAck, error)
 }
@@ -301,7 +299,7 @@ func (h *IngestHandlers) decode(w http.ResponseWriter, r *http.Request, dst any)
 		h.internalError(w, "ingest is not configured", errors.New("missing ingest dependencies"))
 		return false
 	}
-	body := http.MaxBytesReader(w, r.Body, maxIngestBodyBytes)
+	body := http.MaxBytesReader(w, r.Body, ingest.MaxBodyBytes)
 	defer body.Close()
 	var reader io.Reader = body
 	if strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
@@ -318,7 +316,7 @@ func (h *IngestHandlers) decode(w http.ResponseWriter, r *http.Request, dst any)
 		defer gz.Close()
 		reader = gz
 	}
-	limited := &io.LimitedReader{R: reader, N: maxIngestBodyBytes + 1}
+	limited := &io.LimitedReader{R: reader, N: ingest.MaxBodyBytes + 1}
 	decoder := json.NewDecoder(limited)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(dst); err != nil {

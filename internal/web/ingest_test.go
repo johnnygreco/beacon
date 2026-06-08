@@ -170,7 +170,7 @@ func TestIngestEnrollCompletesRemoteEnrollment(t *testing.T) {
 func TestIngestGzipRequiresBearerBeforeDecodeAndCapsDecompressedBody(t *testing.T) {
 	control, token, _ := testIngestControlPlane(t)
 	handler := NewIngestHandlers(control, &fakeIngestCommitter{}, 0, 0, nil, nil)
-	hugeCompressed := gzipBytes(t, []byte(strings.Repeat(" ", maxIngestBodyBytes+1)))
+	hugeCompressed := gzipBytes(t, []byte(strings.Repeat(" ", ingest.MaxBodyBytes+1)))
 
 	missingAuth := httptest.NewRequest(http.MethodPost, "/api/ingest/v1/batches", bytes.NewReader(hugeCompressed))
 	missingAuth.Header.Set("Content-Encoding", "gzip")

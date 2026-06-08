@@ -2,7 +2,6 @@ package collector
 
 import (
 	"regexp"
-	"strings"
 
 	"github.com/johnnygreco/beacon/internal/capture"
 	"github.com/johnnygreco/beacon/internal/models"
@@ -10,9 +9,11 @@ import (
 
 const RedactionVersion = "redact-v1"
 
-var secretPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`bcn_(owner|enroll|ingest|read|admin)_[A-Za-z0-9_:-]+_[A-Fa-f0-9]{16,}`),
-	regexp.MustCompile(`(?i)(api[_-]?key|token|secret|password)\s*[:=]\s*["']?[^"'\s,}]+`),
+var tokenPattern = regexp.MustCompile(`bcn_(owner|enroll|ingest|read|admin)_[A-Za-z0-9_:-]+_[A-Fa-f0-9]{16,}`)
+
+var secretValuePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)(["']?)(api[_-]?key|token|secret|password)(["']?)(\s*[:=]\s*)(["']?)[^"'\s,}]+(["']?)`),
+	regexp.MustCompile(`(?i)(\\["'])(api[_-]?key|token|secret|password)(\\["'])(\s*:\s*)(\\["'])[^\\\s,}]+(\\["'])`),
 }
 
 func RedactEvents(events []capture.NormalizedEvent) []capture.NormalizedEvent {
@@ -47,16 +48,9 @@ func redactString(value string) string {
 	if value == "" {
 		return value
 	}
-	for _, pattern := range secretPatterns {
-		value = pattern.ReplaceAllStringFunc(value, func(match string) string {
-			if strings.HasPrefix(match, "bcn_") {
-				return "[REDACTED_TOKEN]"
-			}
-			if idx := strings.IndexAny(match, ":="); idx >= 0 {
-				return match[:idx+1] + "[REDACTED_SECRET]"
-			}
-			return "[REDACTED_SECRET]"
-		})
+	value = tokenPattern.ReplaceAllString(value, "[REDACTED_TOKEN]")
+	for _, pattern := range secretValuePatterns {
+		value = pattern.ReplaceAllString(value, `$1$2$3$4$5[REDACTED_SECRET]$6`)
 	}
 	return value
 }

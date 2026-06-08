@@ -2,6 +2,7 @@ package capture
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -142,6 +143,27 @@ func TestReadSourceFileWindowAdvancesLineCheckpoint(t *testing.T) {
 	}
 }
 
+func TestReadSourceFileSkipsNoProgressCheckpointForPartialLine(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "session.jsonl")
+	firstLine := `{"msg":"complete"}`
+	if err := os.WriteFile(file, []byte(firstLine+"\n"+`{"msg":"partial"`), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	source := testLineWindowSource(file)
+	first, err := ReadSourceFile(context.Background(), source, file, nil, nil)
+	if err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+	second, err := ReadSourceFile(context.Background(), source, file, first.Checkpoint, nil)
+	if err != nil {
+		t.Fatalf("second read: %v", err)
+	}
+	if len(second.Events) != 0 || len(second.CaptureErrors) != 0 || second.Checkpoint != nil {
+		t.Fatalf("second read = events %d errors %d checkpoint %#v, want no progress", len(second.Events), len(second.CaptureErrors), second.Checkpoint)
+	}
+}
+
 func TestReadWholeSourceFileWindowUsesEventIndexCheckpoint(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "state.db")
@@ -174,6 +196,45 @@ func TestReadWholeSourceFileWindowUsesEventIndexCheckpoint(t *testing.T) {
 	}
 	if len(second.Events) != 1 || second.Events[0].SessionID != "two" || second.HasMore || second.Checkpoint == nil || second.Checkpoint.LastOffset == 0 {
 		t.Fatalf("second whole-file window = %#v checkpoint=%#v hasMore=%v", second.Events, second.Checkpoint, second.HasMore)
+	}
+}
+
+func TestReadWholeSourceFileParseErrorHasStableCheckpointAndID(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "state.db")
+	if err := os.WriteFile(file, []byte("bad"), 0644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	source := WatchSource{
+		Name:     "hermes",
+		Runtime:  models.RuntimeHermesAgent,
+		Provider: models.ProviderMulti,
+		Format:   models.FormatSQLite,
+		FileParser: func(string) ([]NormalizedEvent, error) {
+			return nil, errors.New("cannot parse database")
+		},
+	}
+	first, err := ReadSourceFile(context.Background(), source, file, nil, nil)
+	if err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+	if len(first.CaptureErrors) != 1 || first.Checkpoint == nil {
+		t.Fatalf("first read errors=%#v checkpoint=%#v", first.CaptureErrors, first.Checkpoint)
+	}
+	second, err := ReadSourceFile(context.Background(), source, file, first.Checkpoint, nil)
+	if err != nil {
+		t.Fatalf("second read: %v", err)
+	}
+	if len(second.CaptureErrors) != 0 || second.Checkpoint != nil {
+		t.Fatalf("second unchanged read errors=%#v checkpoint=%#v, want skipped", second.CaptureErrors, second.Checkpoint)
+	}
+
+	fresh, err := ReadSourceFile(context.Background(), source, file, nil, nil)
+	if err != nil {
+		t.Fatalf("fresh read: %v", err)
+	}
+	if fresh.CaptureErrors[0].ID != first.CaptureErrors[0].ID {
+		t.Fatalf("parse error IDs = %q and %q, want stable", first.CaptureErrors[0].ID, fresh.CaptureErrors[0].ID)
 	}
 }
 

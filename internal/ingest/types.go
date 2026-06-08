@@ -16,6 +16,8 @@ import (
 const (
 	SchemaV1 = "beacon.ingest.v1"
 
+	MaxBodyBytes = 32 << 20
+
 	StatusCommitted       = "committed"
 	StatusRetryable       = "retryable"
 	StatusTerminalFailure = "terminal_failure"

@@ -83,6 +83,42 @@ func TestServiceRetryKeepsPendingUntilAckAndThenAdvancesCheckpoint(t *testing.T)
 	}
 }
 
+func TestServiceSendPendingRequeuesInflightBeforeLaterPending(t *testing.T) {
+	var sequences []uint64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		req := decodeGzipBatch(t, r)
+		sequences = append(sequences, req.Sequence)
+		_ = json.NewEncoder(w).Encode(ingest.BatchAck{
+			Status:            ingest.StatusCommitted,
+			BatchID:           req.BatchID,
+			PayloadDigest:     req.PayloadDigest,
+			EventsWritten:     len(req.Events),
+			RawRecordsWritten: len(req.Events),
+			NextSequence:      req.Sequence + 1,
+			ControlPlaneEpoch: req.ControlPlaneEpoch,
+		})
+	}))
+	defer server.Close()
+	service, _, _ := newTestService(t, server.URL, 1<<20)
+	first, err := service.cfg.Spool.WritePending(context.Background(), testBatchRequest(t, 1, "batch-inflight"))
+	if err != nil {
+		t.Fatalf("WritePending first: %v", err)
+	}
+	if _, err := service.cfg.Spool.MarkInflight(*first); err != nil {
+		t.Fatalf("MarkInflight: %v", err)
+	}
+	if _, err := service.cfg.Spool.WritePending(context.Background(), testBatchRequest(t, 2, "batch-pending")); err != nil {
+		t.Fatalf("WritePending second: %v", err)
+	}
+
+	if err := service.SendPending(context.Background()); err != nil {
+		t.Fatalf("SendPending: %v", err)
+	}
+	if len(sequences) != 2 || sequences[0] != 1 || sequences[1] != 2 {
+		t.Fatalf("sent sequences = %v, want [1 2]", sequences)
+	}
+}
+
 func TestServiceSpoolFullPausesBeforeCheckpointAndSequenceAdvance(t *testing.T) {
 	service, state, file := newTestService(t, "http://127.0.0.1:1", 16)
 	if err := service.ScanOnce(context.Background()); err != nil {
@@ -97,6 +133,31 @@ func TestServiceSpoolFullPausesBeforeCheckpointAndSequenceAdvance(t *testing.T) 
 	status := service.Status()
 	if !status.BlockedSpoolFull {
 		t.Fatalf("BlockedSpoolFull = false, want true")
+	}
+}
+
+func TestServiceOversizeBatchRejectedBeforeSpool(t *testing.T) {
+	line := `{"msg":"` + strings.Repeat("x", 1<<20) + `"}`
+	lines := make([]string, 40)
+	for i := range lines {
+		lines[i] = line
+	}
+	service, state, file := newTestServiceWithLines(t, "http://127.0.0.1:1", int64(ingest.MaxBodyBytes*2), len(lines), lines)
+	if err := service.ScanOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "exceeds ingest limit") {
+		t.Fatalf("ScanOnce error = %v, want ingest limit", err)
+	}
+	pending, err := service.cfg.Spool.Pending()
+	if err != nil {
+		t.Fatalf("Pending: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("pending after oversize batch = %d, want 0", len(pending))
+	}
+	if got := state.Next(); got != 1 {
+		t.Fatalf("next sequence = %d, want 1", got)
+	}
+	if cp := state.SpooledCheckpoint("codex", file); cp != nil {
+		t.Fatalf("spooled checkpoint after oversize = %#v, want nil", cp)
 	}
 }
 
