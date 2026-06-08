@@ -32,6 +32,7 @@ type Batcher struct {
 	defaultInput  float64
 	defaultOutput float64
 	identity      FleetIdentity
+	rawEventCache map[string]string
 }
 
 type FleetIdentity struct {
@@ -64,6 +65,7 @@ func NewBatcher(ch *store.Store, batchSize int, flushInterval time.Duration, def
 		flushInterval: flushInterval,
 		defaultInput:  defaultInput,
 		defaultOutput: defaultOutput,
+		rawEventCache: make(map[string]string),
 	}
 	b.identity = normalizeFleetIdentity(FleetIdentity{})
 	for _, option := range options {
@@ -150,22 +152,36 @@ func sessionIDsFromEvents(events []models.Event) []string {
 func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) []string {
 	start := time.Now()
 
-	batch := buildInsertRowBatch(events, b.defaultInput, b.defaultOutput, b.identity)
+	batch, rawEvents := buildInsertRowBatchWithKnown(events, b.defaultInput, b.defaultOutput, b.identity, b.rawEventCache)
 
 	if err := b.store.Flush(ctx, batch); err != nil {
 		b.logger.Error("clickhouse flush failed", "error", err, "rows", len(events))
 		return nil
+	}
+	for key, uid := range rawEvents {
+		if _, ok := b.rawEventCache[key]; !ok {
+			b.rawEventCache[key] = uid
+		}
 	}
 	b.logger.Debug("flushInserts complete", "rows", len(events), "duration", time.Since(start))
 	return sessionIDsFromEvents(batch.ActivityEvents)
 }
 
 func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput float64, identity FleetIdentity) store.RowBatch {
+	batch, _ := buildInsertRowBatchWithKnown(events, defaultInput, defaultOutput, identity, nil)
+	return batch
+}
+
+func buildInsertRowBatchWithKnown(events []NormalizedEvent, defaultInput, defaultOutput float64, identity FleetIdentity, knownRawEvents map[string]string) (store.RowBatch, map[string]string) {
 	var batch store.RowBatch
 	identity = normalizeFleetIdentity(identity)
 	batchID := batchID(events, identity)
 	prepared := make([]preparedEvent, 0, len(events))
 	resolvedRawEvents := make(map[string]string, len(events))
+	for key, uid := range knownRawEvents {
+		resolvedRawEvents[key] = uid
+	}
+	batchRawEvents := make(map[string]string, len(events))
 
 	for _, evt := range events {
 		source := identity.source(evt.SourceName)
@@ -183,6 +199,9 @@ func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput f
 		key := rawEventKey(source.SourceID, rawSessionID, rawEventID)
 		if _, ok := resolvedRawEvents[key]; !ok {
 			resolvedRawEvents[key] = uid
+		}
+		if _, ok := batchRawEvents[key]; !ok {
+			batchRawEvents[key] = uid
 		}
 		prepared = append(prepared, preparedEvent{
 			normalized:         evt,
@@ -259,7 +278,7 @@ func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput f
 
 		rawLinkedEventID := firstNonEmptyString(evt.RawLinkedEventID, evt.ParentUUID)
 		if rawLinkedEventID != "" {
-			rawLinkedSessionID := firstNonEmptyString(evt.RawLinkedSessionID, item.rawParentSessionID, item.rawSessionID)
+			rawLinkedSessionID := firstNonEmptyString(evt.RawLinkedSessionID, item.rawSessionID)
 			linkedSessionID := globalID("session", identity.CollectorID, item.source.SourceID, rawLinkedSessionID)
 			linkedEventUID := resolvedRawEvents[rawEventKey(item.source.SourceID, rawLinkedSessionID, rawLinkedEventID)]
 			resolutionStatus := "resolved"
@@ -307,7 +326,7 @@ func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput f
 			batch.ToolPayloads = append(batch.ToolPayloads, payload)
 		}
 	}
-	return batch
+	return batch, batchRawEvents
 }
 
 type preparedEvent struct {
@@ -393,13 +412,8 @@ func normalizedSourceEventIndex(evt NormalizedEvent) uint64 {
 		evt.SessionID,
 		evt.RawEventID,
 		evt.MessageUUID,
-		evt.EventKind,
-		evt.PayloadType,
-		evt.ActorRole,
-		evt.ToolName,
 		evt.ToolUseID,
 		evt.ToolPhase,
-		evt.ErrorCode,
 		evt.RawPayload,
 	)
 	if hashed == 0 {

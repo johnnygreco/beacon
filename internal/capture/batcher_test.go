@@ -186,3 +186,117 @@ func TestBuildInsertRowBatchParentLinksResolveOutOfOrder(t *testing.T) {
 		t.Fatalf("link = %#v, want resolved link to later parent %q", link, batch.ActivityEvents[1].EventUID)
 	}
 }
+
+func TestBuildInsertRowBatchParentLinksDefaultToCurrentSession(t *testing.T) {
+	parent := NormalizedEvent{
+		SessionID:          "child-session",
+		RawSessionID:       "child-session",
+		RawParentSessionID: "parent-session",
+		RawEventID:         "parent-event",
+		SourceName:         "pi",
+		EventKind:          "message",
+		SourceLineNo:       9,
+		RawPayload:         `{"id":"parent-event"}`,
+	}
+	child := NormalizedEvent{
+		SessionID:          "child-session",
+		RawSessionID:       "child-session",
+		RawParentSessionID: "parent-session",
+		RawEventID:         "child-event",
+		RawLinkedEventID:   "parent-event",
+		SourceName:         "pi",
+		EventKind:          "message",
+		SourceLineNo:       10,
+		RawPayload:         `{"id":"child-event","parentId":"parent-event"}`,
+	}
+	batch := buildInsertRowBatch([]NormalizedEvent{parent, child}, 0, 0, FleetIdentity{
+		CollectorID: "collector-a",
+		Sources:     map[string]FleetSourceIdentity{"pi": {SourceID: "source-pi-a"}},
+	})
+
+	if len(batch.EventLinks) != 1 {
+		t.Fatalf("event links = %d, want one parent link", len(batch.EventLinks))
+	}
+	link := batch.EventLinks[0]
+	if link.ResolutionStatus != "resolved" || link.LinkScope != "same_session" ||
+		link.RawLinkedSessionID != "child-session" || link.LinkedEventUID != batch.ActivityEvents[0].EventUID {
+		t.Fatalf("link = %#v, want resolved same-session child link to %q", link, batch.ActivityEvents[0].EventUID)
+	}
+}
+
+func TestBuildInsertRowBatchResolvesKnownRawParent(t *testing.T) {
+	identity := FleetIdentity{
+		CollectorID: "collector-a",
+		Sources:     map[string]FleetSourceIdentity{"claude": {SourceID: "source-claude-a"}},
+	}
+	parent := NormalizedEvent{
+		SessionID:    "raw-session",
+		RawSessionID: "raw-session",
+		RawEventID:   "parent-raw",
+		SourceName:   "claude",
+		EventKind:    "message",
+		SourceLineNo: 1,
+		RawPayload:   `{"uuid":"parent-raw"}`,
+	}
+	parentBatch, known := buildInsertRowBatchWithKnown([]NormalizedEvent{parent}, 0, 0, identity, nil)
+	child := NormalizedEvent{
+		SessionID:        "raw-session",
+		RawSessionID:     "raw-session",
+		RawEventID:       "child-raw",
+		RawLinkedEventID: "parent-raw",
+		SourceName:       "claude",
+		EventKind:        "message",
+		SourceLineNo:     2,
+		RawPayload:       `{"uuid":"child-raw","parentUuid":"parent-raw"}`,
+	}
+	childBatch, _ := buildInsertRowBatchWithKnown([]NormalizedEvent{child}, 0, 0, identity, known)
+
+	if len(childBatch.EventLinks) != 1 {
+		t.Fatalf("event links = %d, want one parent link", len(childBatch.EventLinks))
+	}
+	link := childBatch.EventLinks[0]
+	if link.ResolutionStatus != "resolved" || link.LinkedEventUID != parentBatch.ActivityEvents[0].EventUID {
+		t.Fatalf("link = %#v, want resolved link to prior batch parent %q", link, parentBatch.ActivityEvents[0].EventUID)
+	}
+}
+
+func TestBuildInsertRowBatchSourceEventIndexIgnoresMutableClassification(t *testing.T) {
+	base := NormalizedEvent{
+		SessionID:    "raw-session",
+		RawSessionID: "raw-session",
+		RawEventID:   "row-1",
+		MessageUUID:  "row-1:tool_result:tool-1",
+		ToolUseID:    "tool-1",
+		ToolPhase:    "result",
+		SourceName:   "opencode",
+		SourceFile:   "opencode.db",
+		SourceLineNo: 42,
+		SourceOffset: 100,
+		RawPayload:   `{"kind":"tool_result","id":"row-1"}`,
+	}
+	result := base
+	result.EventKind = "tool_result"
+	result.ToolOutput = "ok"
+	toolError := base
+	toolError.EventKind = "tool_error"
+	toolError.ErrorCode = "tool_execution_failed"
+	toolError.ToolOutput = "failed"
+	identity := FleetIdentity{
+		CollectorID: "collector-a",
+		Sources:     map[string]FleetSourceIdentity{"opencode": {SourceID: "source-opencode-a"}},
+	}
+
+	resultBatch := buildInsertRowBatch([]NormalizedEvent{result}, 0, 0, identity)
+	errorBatch := buildInsertRowBatch([]NormalizedEvent{toolError}, 0, 0, identity)
+
+	if resultBatch.ActivityEvents[0].SourceEventIndex != errorBatch.ActivityEvents[0].SourceEventIndex {
+		t.Fatalf("source indexes changed across mutable classification: %d vs %d",
+			resultBatch.ActivityEvents[0].SourceEventIndex,
+			errorBatch.ActivityEvents[0].SourceEventIndex)
+	}
+	if resultBatch.ActivityEvents[0].EventUID != errorBatch.ActivityEvents[0].EventUID {
+		t.Fatalf("event UID changed across mutable classification: %q vs %q",
+			resultBatch.ActivityEvents[0].EventUID,
+			errorBatch.ActivityEvents[0].EventUID)
+	}
+}

@@ -166,20 +166,16 @@ func ensureLocalTx(ctx context.Context, tx *sql.Tx, boot Bootstrap, now time.Tim
 	if _, err := ensureMetadataValue(ctx, tx, "schema_epoch", InitialSchemaEpoch, now); err != nil {
 		return Bootstrap{}, err
 	}
-	if boot.NodeID == "" {
-		nodeID, err := ensureMetadataValue(ctx, tx, "local_node_id", generatedID("node"), now)
-		if err != nil {
-			return Bootstrap{}, err
-		}
-		boot.NodeID = nodeID
+	nodeID, err := ensureLocalMetadataValue(ctx, tx, "local_node_id", boot.NodeID, generatedID("node"), now)
+	if err != nil {
+		return Bootstrap{}, err
 	}
-	if boot.CollectorID == "" {
-		collectorID, err := ensureMetadataValue(ctx, tx, "local_collector_id", generatedID("collector"), now)
-		if err != nil {
-			return Bootstrap{}, err
-		}
-		boot.CollectorID = collectorID
+	boot.NodeID = nodeID
+	collectorID, err := ensureLocalMetadataValue(ctx, tx, "local_collector_id", boot.CollectorID, generatedID("collector"), now)
+	if err != nil {
+		return Bootstrap{}, err
 	}
+	boot.CollectorID = collectorID
 	if err := upsertNode(ctx, tx, boot, now); err != nil {
 		return Bootstrap{}, err
 	}
@@ -399,6 +395,21 @@ func ensureMetadataValue(ctx context.Context, tx *sql.Tx, key, value string, now
 	var stored string
 	if err := tx.QueryRowContext(ctx, `SELECT value FROM metadata WHERE key = ?`, key).Scan(&stored); err != nil {
 		return "", fmt.Errorf("read metadata %q: %w", key, err)
+	}
+	return stored, nil
+}
+
+func ensureLocalMetadataValue(ctx context.Context, tx *sql.Tx, key, configuredValue, generatedValue string, now time.Time) (string, error) {
+	value := configuredValue
+	if value == "" {
+		value = generatedValue
+	}
+	stored, err := ensureMetadataValue(ctx, tx, key, value, now)
+	if err != nil {
+		return "", err
+	}
+	if configuredValue != "" && stored != configuredValue {
+		return "", fmt.Errorf("configured %s %q does not match existing metadata value %q", key, configuredValue, stored)
 	}
 	return stored, nil
 }

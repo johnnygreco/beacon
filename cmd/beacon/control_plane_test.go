@@ -73,6 +73,9 @@ func TestInitializeControlPlaneCreatesSnapshot(t *testing.T) {
 	if snapshot.SchemaEpoch != controlplane.InitialSchemaEpoch {
 		t.Fatalf("schema epoch = %q, want %q", snapshot.SchemaEpoch, controlplane.InitialSchemaEpoch)
 	}
+	if snapshot.LocalNodeID != "node-test" || snapshot.LocalCollectorID != "collector-test" {
+		t.Fatalf("local identity = node %q collector %q, want configured IDs", snapshot.LocalNodeID, snapshot.LocalCollectorID)
+	}
 	if len(snapshot.Nodes) != 1 || len(snapshot.Collectors) != 1 || len(snapshot.Sources) != 1 {
 		t.Fatalf("snapshot = %#v, want one node, collector, and source", snapshot)
 	}

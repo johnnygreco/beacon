@@ -292,7 +292,7 @@ func Schema(database string) []string {
 		)
 		ENGINE = ReplacingMergeTree(captured_at)
 		PARTITION BY toYYYYMM(timestamp)
-		ORDER BY (collector_id, source_id, session_id, timestamp, event_uid)`,
+		ORDER BY (session_id, collector_id, source_id, timestamp, event_uid)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("event_links") + ` (
 			event_uid String,
@@ -312,7 +312,7 @@ func Schema(database string) []string {
 			captured_at DateTime64(3, 'UTC') DEFAULT now64(3)
 		)
 		ENGINE = ReplacingMergeTree(captured_at)
-		ORDER BY (collector_id, source_id, event_uid, linked_event_uid, link_type)`,
+		ORDER BY (collector_id, source_id, event_uid, link_type, raw_linked_session_id, raw_linked_event_id)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("tool_payloads") + ` (
 			event_uid String,
@@ -332,7 +332,7 @@ func Schema(database string) []string {
 			captured_at DateTime64(3, 'UTC') DEFAULT now64(3)
 		)
 		ENGINE = ReplacingMergeTree(captured_at)
-		ORDER BY (collector_id, source_id, event_uid)`,
+		ORDER BY (event_uid, collector_id, source_id)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("capture_errors") + ` (
 			id String,

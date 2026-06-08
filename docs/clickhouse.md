@@ -68,7 +68,9 @@ Purpose: relationships between normalized events, such as parent-event,
 tool-call to tool-result, cross-session, or other parser-derived references.
 Rows preserve raw linked event/session IDs, global linked IDs when resolvable,
 link scope, resolution status, collector/source identity, batch id, and epoch so
-later reconciliation can resolve initially-unresolved links.
+later reconciliation can resolve initially-unresolved links. The table key uses
+the stable raw linked event/session identity, so a later resolved row can replace
+an unresolved row for the same source relationship.
 
 Owner: capture normalizer and `Store.Flush`.
 

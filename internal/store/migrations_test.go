@@ -112,7 +112,9 @@ func TestSchemaIncludesFleetAwareLinkColumns(t *testing.T) {
 		"raw_linked_event_id String",
 		"link_scope LowCardinality(String)",
 		"resolution_status LowCardinality(String)",
-		"ORDER BY (collector_id, source_id, event_uid, linked_event_uid, link_type)",
+		"ORDER BY (collector_id, source_id, event_uid, link_type, raw_linked_session_id, raw_linked_event_id)",
+		"ORDER BY (session_id, collector_id, source_id, timestamp, event_uid)",
+		"ORDER BY (event_uid, collector_id, source_id)",
 	} {
 		if !strings.Contains(schema, expected) {
 			t.Fatalf("schema missing %s", expected)
