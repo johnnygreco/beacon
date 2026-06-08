@@ -54,6 +54,7 @@ type datasetReport struct {
 	CommonSearchToken string `json:"common_search_token,omitempty"`
 	ScopedCollectorID string `json:"scoped_collector_id,omitempty"`
 	ScopedSourceID    string `json:"scoped_source_id,omitempty"`
+	ScopedProjectKey  string `json:"scoped_project_key,omitempty"`
 	Seeded            bool   `json:"seeded"`
 }
 
@@ -198,7 +199,7 @@ func validateSeededDataset(label string, dataset datasetReport) []checkResult {
 	if strings.TrimSpace(dataset.CommonSearchToken) == "" {
 		results = append(results, failf("%s seeded dataset common_search_token is missing", label))
 	}
-	if strings.TrimSpace(dataset.ScopedCollectorID) == "" || strings.TrimSpace(dataset.ScopedSourceID) == "" {
+	if strings.TrimSpace(dataset.ScopedCollectorID) == "" || strings.TrimSpace(dataset.ScopedSourceID) == "" || strings.TrimSpace(dataset.ScopedProjectKey) == "" {
 		results = append(results, failf("%s seeded dataset scoped search identifiers are missing", label))
 	}
 	return results

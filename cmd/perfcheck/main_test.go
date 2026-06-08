@@ -99,11 +99,23 @@ func TestRunFailsSeededReportMissingFleetMetadata(t *testing.T) {
 	report.Dataset.Events = 1000
 	report.Dataset.Payloads = 100
 	report.Dataset.SearchPostings = 5000
+	report.Dataset.CommonSearchToken = ""
 	path := writeReport(t, report)
 
 	err := run(config{reportPath: path, maxRegressionRatio: 1.25, minBrowserDelta: 5, minGoDeltaMS: 0.05, failOnMissing: true})
 	if err == nil || !strings.Contains(err.Error(), "performance check") {
 		t.Fatalf("run() error = %v, want missing seeded metadata failure", err)
+	}
+}
+
+func TestRunFailsSeededReportMissingScopedProjectKey(t *testing.T) {
+	report := passingReport()
+	report.Dataset.ScopedProjectKey = ""
+	path := writeReport(t, report)
+
+	err := run(config{reportPath: path, maxRegressionRatio: 1.25, minBrowserDelta: 5, minGoDeltaMS: 0.05, failOnMissing: true})
+	if err == nil || !strings.Contains(err.Error(), "performance check") {
+		t.Fatalf("run() error = %v, want missing scoped project key failure", err)
 	}
 }
 
@@ -195,8 +207,24 @@ func passingReport() labReport {
 		GitRevision: "testrev",
 		GitBranch:   "test",
 		Dataset: datasetReport{
-			Size:     "small",
-			Database: "beacon_perf_lab",
+			Size:              "small",
+			Database:          "beacon_perf_lab",
+			Seeded:            true,
+			Sessions:          250,
+			Events:            1000,
+			Payloads:          100,
+			SearchPostings:    5000,
+			Nodes:             25,
+			Collectors:        25,
+			Sources:           125,
+			Runtimes:          5,
+			Projects:          25,
+			ActiveSessions:    25,
+			IdleSessions:      50,
+			CommonSearchToken: "fleetcommon",
+			ScopedCollectorID: "collector-perf-00",
+			ScopedSourceID:    "source-perf-00-claude-code",
+			ScopedProjectKey:  "project-000",
 		},
 		Browser: &browserReport{},
 	}

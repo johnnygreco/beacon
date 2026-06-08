@@ -391,7 +391,7 @@ make test           # generate templates and run Go tests
 make test-race      # run Go tests with the race detector
 make test-cover     # run Go tests with race, coverage, and coverage floors
 make perf-fast      # run fast non-ClickHouse backend benchmarks
-make perf-bench     # run perf benchmarks; set PERF_SIZE=small|medium|large
+make perf-bench     # run perf benchmarks; set PERF_SIZE=small|medium|large|fleet (fleet is heavy/manual)
 make perf-browser   # run browser perf measurements; set BEACON_BROWSER_PERF_* as needed
 make perf-lab-smoke # seed/serve/run a local perf lab and write JSON/Markdown reports
 make perf-budget    # check a perf lab report against built-in smoke budgets

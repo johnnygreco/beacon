@@ -3,12 +3,19 @@ package perf_test
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/johnnygreco/beacon/internal/perf"
+	"github.com/johnnygreco/beacon/internal/search"
+	"github.com/johnnygreco/beacon/internal/web"
 )
 
 type explainWorkload struct {
@@ -40,28 +47,233 @@ func TestExplainQueryPlans(t *testing.T) {
 	}
 }
 
+func TestExplainWorkloadGuardsMatchProductionQueries(t *testing.T) {
+	workloads := explainWorkloadIndex()
+	ctx := context.Background()
+	db := newPlanCaptureDB(t)
+	since := time.Now().Add(-24 * time.Hour)
+	profile := perf.ProfileFor(perf.ParseSeedSize(os.Getenv("PERF_SIZE")))
+
+	cases := []struct {
+		name     string
+		run      func()
+		match    []string
+		required []string
+		forbid   []string
+	}{
+		{
+			name: "dashboard-active-sessions",
+			run: func() {
+				_ = web.QueryActiveSessionsLimited(ctx, db, 200)
+			},
+			match:    []string{"from (select", "session_projection final", "order by ended_at desc"},
+			required: []string{"coalesce(has_session_end", "order by ended_at desc", "limit ?"},
+			forbid:   []string{"search_postings"},
+		},
+		{
+			name: "dashboard-completed-sessions-filtered",
+			run: func() {
+				_, _ = web.QueryCompletedSessionsFiltered(ctx, db, &since, 0, 30, "perf", nil, "project", true)
+			},
+			match:    []string{"session_projection final", "parent_session_id", "limit ? offset ?"},
+			required: []string{"parent_session_id", "ended_at >=", "limit ? offset ?"},
+			forbid:   []string{"search_postings"},
+		},
+		{
+			name: "dashboard-model-analytics",
+			run: func() {
+				_, _ = web.QueryDashboardModelAnalytics(ctx, db, &since, "24h")
+			},
+			match:    []string{"top_models", "analytics_projection final"},
+			required: []string{"minute >= ?", "top_models", "limit 12"},
+		},
+		{
+			name: "search-common-token-scoped",
+			run: func() {
+				searcher := search.NewSearcher(db, slog.New(slog.NewTextHandler(io.Discard, nil)), 25, 0)
+				_, _ = searcher.Search(ctx, search.SearchQuery{
+					Query:        profile.CommonSearchToken,
+					Limit:        25,
+					CollectorIDs: []string{profile.ScopedCollectorID},
+					SourceIDs:    []string{profile.ScopedSourceID},
+					ProjectKeys:  []string{profile.ScopedProjectKey},
+					SkipQueryLog: true,
+				})
+			},
+			match:    []string{"from (select * from search_postings final) as p", "p.project_key in"},
+			required: []string{"p.collector_id in", "p.source_id in", "p.project_key in", "where p.token in"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			workload, ok := workloads[tc.name]
+			if !ok {
+				t.Fatalf("missing explain workload %q", tc.name)
+			}
+			resetPlanCaptureQueries()
+			tc.run()
+			query := capturedPlanQueryContaining(t, tc.match...)
+			forbidden := workload.forbiddenTables
+			if tc.forbid != nil {
+				forbidden = tc.forbid
+			}
+			assertSQLGuards(t, tc.name, query, workload.expectedTables, forbidden, tc.required)
+		})
+	}
+}
+
 func assertPlanGuards(t *testing.T, workload explainWorkload, plan string) {
 	t.Helper()
 	if strings.TrimSpace(plan) == "" {
 		t.Fatalf("%s plan is empty", workload.name)
 	}
-	combined := strings.ToLower(workload.query + "\n" + plan)
-	for _, table := range workload.expectedTables {
+	assertSQLGuards(t, workload.name, workload.query+"\n"+plan, workload.expectedTables, workload.forbiddenTables, workload.requiredSQL)
+}
+
+func assertSQLGuards(t *testing.T, name, sql string, expectedTables, forbiddenTables, requiredSQL []string) {
+	t.Helper()
+	combined := strings.ToLower(sql)
+	for _, table := range expectedTables {
 		if !strings.Contains(combined, strings.ToLower(table)) {
-			t.Fatalf("%s plan/query missing expected table %q:\n%s", workload.name, table, plan)
+			t.Fatalf("%s query missing expected table %q:\n%s", name, table, sql)
 		}
 	}
-	for _, table := range workload.forbiddenTables {
+	for _, table := range forbiddenTables {
 		if strings.Contains(combined, strings.ToLower(table)) {
-			t.Fatalf("%s plan/query unexpectedly references table %q:\n%s", workload.name, table, plan)
+			t.Fatalf("%s query unexpectedly references table %q:\n%s", name, table, sql)
 		}
 	}
-	queryLower := strings.ToLower(workload.query)
-	for _, required := range workload.requiredSQL {
-		if !strings.Contains(queryLower, strings.ToLower(required)) {
-			t.Fatalf("%s query missing required guard %q:\n%s", workload.name, required, workload.query)
+	for _, required := range requiredSQL {
+		if !strings.Contains(combined, strings.ToLower(required)) {
+			t.Fatalf("%s query missing required guard %q:\n%s", name, required, sql)
 		}
 	}
+}
+
+func explainWorkloadIndex() map[string]explainWorkload {
+	index := map[string]explainWorkload{}
+	for _, workload := range explainWorkloads() {
+		index[workload.name] = workload
+	}
+	return index
+}
+
+var (
+	registerPlanCaptureDriver sync.Once
+	planCaptureMu             sync.Mutex
+	planCaptureQueries        []string
+)
+
+type planCaptureDriver struct{}
+
+func (planCaptureDriver) Open(string) (driver.Conn, error) {
+	return planCaptureConn{}, nil
+}
+
+type planCaptureConn struct{}
+
+func (planCaptureConn) Prepare(string) (driver.Stmt, error) {
+	return nil, fmt.Errorf("plan capture driver does not support prepared statements")
+}
+
+func (planCaptureConn) Close() error {
+	return nil
+}
+
+func (planCaptureConn) Begin() (driver.Tx, error) {
+	return nil, fmt.Errorf("plan capture driver does not support transactions")
+}
+
+func (planCaptureConn) QueryContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Rows, error) {
+	recordPlanCaptureQuery(query)
+	return planCaptureRowsFor(query), nil
+}
+
+func (planCaptureConn) ExecContext(_ context.Context, query string, _ []driver.NamedValue) (driver.Result, error) {
+	recordPlanCaptureQuery(query)
+	return driver.RowsAffected(0), nil
+}
+
+type planCaptureRows struct {
+	columns []string
+	values  [][]driver.Value
+	index   int
+}
+
+func (r planCaptureRows) Columns() []string {
+	return r.columns
+}
+
+func (r planCaptureRows) Close() error {
+	return nil
+}
+
+func (r *planCaptureRows) Next(dest []driver.Value) error {
+	if r.index >= len(r.values) {
+		return io.EOF
+	}
+	copy(dest, r.values[r.index])
+	r.index++
+	return nil
+}
+
+func planCaptureRowsFor(query string) driver.Rows {
+	queryLower := strings.ToLower(query)
+	if strings.Contains(queryLower, "count() as documents") && strings.Contains(queryLower, "avg_doc_len") {
+		return &planCaptureRows{
+			columns: []string{"documents", "avg_doc_len"},
+			values:  [][]driver.Value{{int64(100000), float64(96)}},
+		}
+	}
+	return &planCaptureRows{columns: []string{"empty"}}
+}
+
+func newPlanCaptureDB(t *testing.T) *sql.DB {
+	t.Helper()
+	registerPlanCaptureDriver.Do(func() {
+		sql.Register("beacon_plan_capture", planCaptureDriver{})
+	})
+	resetPlanCaptureQueries()
+	db, err := sql.Open("beacon_plan_capture", "")
+	if err != nil {
+		t.Fatalf("open plan capture db: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+func recordPlanCaptureQuery(query string) {
+	planCaptureMu.Lock()
+	defer planCaptureMu.Unlock()
+	planCaptureQueries = append(planCaptureQueries, query)
+}
+
+func resetPlanCaptureQueries() {
+	planCaptureMu.Lock()
+	defer planCaptureMu.Unlock()
+	planCaptureQueries = nil
+}
+
+func capturedPlanQueryContaining(t *testing.T, fragments ...string) string {
+	t.Helper()
+	planCaptureMu.Lock()
+	defer planCaptureMu.Unlock()
+	for _, query := range planCaptureQueries {
+		queryLower := strings.ToLower(query)
+		matches := true
+		for _, fragment := range fragments {
+			if !strings.Contains(queryLower, strings.ToLower(fragment)) {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return query
+		}
+	}
+	t.Fatalf("no captured production query contained %v; captured %d queries:\n%s", fragments, len(planCaptureQueries), strings.Join(planCaptureQueries, "\n---\n"))
+	return ""
 }
 
 func requirePerfStoreForTest(t *testing.T) *sql.DB {

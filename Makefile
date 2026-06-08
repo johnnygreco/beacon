@@ -65,7 +65,7 @@ perf-fast: ## Run fast non-ClickHouse backend benchmarks
 	go test -run '^$$' -bench=$$PERF_FAST_BENCH -benchtime=$$PERF_FAST_BENCHTIME -benchmem -count=$$PERF_FAST_COUNT -timeout=10m \
 		./internal/capture ./internal/store ./internal/textindex ./internal/mcp ./internal/web ./internal/views/pages ./internal/views/components
 
-perf-bench: ## Run perf benchmarks (PERF_SIZE=small|medium|large)
+perf-bench: ## Run perf benchmarks (PERF_SIZE=small|medium|large|fleet; fleet is heavy/manual)
 	@PERF_SIZE=$${PERF_SIZE:-medium} && \
 	PERF_BENCH=$${PERF_BENCH:-.} && \
 	PERF_BENCHTIME=$${PERF_BENCHTIME:-1s} && \

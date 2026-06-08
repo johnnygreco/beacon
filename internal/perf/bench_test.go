@@ -20,6 +20,7 @@ import (
 	"github.com/johnnygreco/beacon/internal/perf"
 	"github.com/johnnygreco/beacon/internal/search"
 	"github.com/johnnygreco/beacon/internal/store"
+	"github.com/johnnygreco/beacon/internal/views"
 	"github.com/johnnygreco/beacon/internal/web"
 )
 
@@ -95,6 +96,8 @@ func TestMain(m *testing.M) {
 func BenchmarkQueryDashboardData(b *testing.B) {
 	ch := requirePerfStore(b)
 	ctx := context.Background()
+	data := web.QueryDashboardData(ctx, ch.DB)
+	requireDashboardData(b, data)
 	b.ResetTimer()
 	for b.Loop() {
 		_ = web.QueryDashboardData(ctx, ch.DB)
@@ -104,6 +107,9 @@ func BenchmarkQueryDashboardData(b *testing.B) {
 func BenchmarkQueryDashboardSessions(b *testing.B) {
 	ch := requirePerfStore(b)
 	ctx := context.Background()
+	active, completed, _ := web.QueryDashboardSessions(ctx, ch.DB)
+	requireSessionRows(b, "dashboard active sessions", active)
+	requireSessionRows(b, "dashboard completed sessions", completed)
 	b.ResetTimer()
 	for b.Loop() {
 		web.QueryDashboardSessions(ctx, ch.DB)
@@ -113,6 +119,8 @@ func BenchmarkQueryDashboardSessions(b *testing.B) {
 func BenchmarkQueryActiveSessions(b *testing.B) {
 	ch := requirePerfStore(b)
 	ctx := context.Background()
+	active := web.QueryActiveSessions(ctx, ch.DB)
+	requireSessionRows(b, "active sessions", active)
 	b.ResetTimer()
 	for b.Loop() {
 		web.QueryActiveSessions(ctx, ch.DB)
@@ -267,12 +275,18 @@ func runConcurrentRead(ctx context.Context, reader int, ch *store.Store, searche
 	defer cancel()
 	switch reader % 4 {
 	case 0:
-		_ = web.QueryDashboardData(readCtx, ch.DB)
+		data := web.QueryDashboardData(readCtx, ch.DB)
+		if err := validateDashboardData(data); err != nil {
+			return err
+		}
 	case 1:
-		_ = web.QueryActiveSessionsLimited(readCtx, ch.DB, 50)
+		active := web.QueryActiveSessionsLimited(readCtx, ch.DB, 50)
+		if len(active) == 0 {
+			return fmt.Errorf("active sessions query returned no rows")
+		}
 	case 2:
 		profile := perf.ProfileFor(perf.ParseSeedSize(os.Getenv("PERF_SIZE")))
-		_, err := searcher.Search(readCtx, search.SearchQuery{
+		results, err := searcher.Search(readCtx, search.SearchQuery{
 			Query:        profile.CommonSearchToken,
 			Limit:        10,
 			CollectorIDs: []string{profile.ScopedCollectorID},
@@ -280,7 +294,12 @@ func runConcurrentRead(ctx context.Context, reader int, ch *store.Store, searche
 			ProjectKeys:  []string{profile.ScopedProjectKey},
 			SkipQueryLog: true,
 		})
-		return err
+		if err != nil {
+			return err
+		}
+		if len(results) == 0 {
+			return fmt.Errorf("scoped common-token search returned no rows")
+		}
 	default:
 		req := httptest.NewRequest(http.MethodGet, "/api/dashboard/sessions?state=active&limit=25", nil).WithContext(readCtx)
 		rec := httptest.NewRecorder()
@@ -288,6 +307,43 @@ func runConcurrentRead(ctx context.Context, reader int, ch *store.Store, searche
 		if rec.Code != http.StatusOK {
 			return fmt.Errorf("dashboard sessions API status %d: %s", rec.Code, rec.Body.String())
 		}
+		var response web.APIDashboardSessionsResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+			return fmt.Errorf("decode dashboard sessions API: %w", err)
+		}
+		if len(response.Items) == 0 {
+			return fmt.Errorf("dashboard sessions API returned no rows")
+		}
+	}
+	return nil
+}
+
+func requireDashboardData(b *testing.B, data views.DashboardData) {
+	b.Helper()
+	if err := validateDashboardData(data); err != nil {
+		b.Fatal(err)
+	}
+}
+
+func requireSessionRows(b *testing.B, label string, rows []views.SessionSummary) {
+	b.Helper()
+	if len(rows) == 0 {
+		b.Fatalf("%s returned no rows", label)
+	}
+}
+
+func validateDashboardData(data views.DashboardData) error {
+	if len(data.ActiveSessions) == 0 {
+		return fmt.Errorf("dashboard data returned no active sessions")
+	}
+	if len(data.CompletedSessions) == 0 {
+		return fmt.Errorf("dashboard data returned no completed sessions")
+	}
+	if len(data.TokensByModel) == 0 {
+		return fmt.Errorf("dashboard data returned no token model summary")
+	}
+	if len(data.TokenCumulative.Datasets) == 0 {
+		return fmt.Errorf("dashboard data returned no token chart series")
 	}
 	return nil
 }
