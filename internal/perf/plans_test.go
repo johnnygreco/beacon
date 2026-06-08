@@ -59,7 +59,7 @@ func TestExplainWorkloadGuardsMatchProductionQueries(t *testing.T) {
 		run      func()
 		match    []string
 		required []string
-		forbid   []string
+		maxRefs  map[string]int
 	}{
 		{
 			name: "dashboard-active-sessions",
@@ -68,7 +68,7 @@ func TestExplainWorkloadGuardsMatchProductionQueries(t *testing.T) {
 			},
 			match:    []string{"from (select", "session_projection final", "order by ended_at desc"},
 			required: []string{"coalesce(has_session_end", "order by ended_at desc", "limit ?"},
-			forbid:   []string{"search_postings"},
+			maxRefs:  map[string]int{"activity_events": 1},
 		},
 		{
 			name: "dashboard-completed-sessions-filtered",
@@ -77,7 +77,7 @@ func TestExplainWorkloadGuardsMatchProductionQueries(t *testing.T) {
 			},
 			match:    []string{"session_projection final", "parent_session_id", "limit ? offset ?"},
 			required: []string{"parent_session_id", "ended_at >=", "limit ? offset ?"},
-			forbid:   []string{"search_postings"},
+			maxRefs:  map[string]int{"activity_events": 1},
 		},
 		{
 			name: "dashboard-model-analytics",
@@ -114,11 +114,7 @@ func TestExplainWorkloadGuardsMatchProductionQueries(t *testing.T) {
 			resetPlanCaptureQueries()
 			tc.run()
 			query := capturedPlanQueryContaining(t, tc.match...)
-			forbidden := workload.forbiddenTables
-			if tc.forbid != nil {
-				forbidden = tc.forbid
-			}
-			assertSQLGuards(t, tc.name, query, workload.expectedTables, forbidden, tc.required)
+			assertSQLGuards(t, tc.name, query, workload.expectedTables, workload.forbiddenTables, tc.required, tc.maxRefs)
 		})
 	}
 }
@@ -128,10 +124,10 @@ func assertPlanGuards(t *testing.T, workload explainWorkload, plan string) {
 	if strings.TrimSpace(plan) == "" {
 		t.Fatalf("%s plan is empty", workload.name)
 	}
-	assertSQLGuards(t, workload.name, workload.query+"\n"+plan, workload.expectedTables, workload.forbiddenTables, workload.requiredSQL)
+	assertSQLGuards(t, workload.name, workload.query+"\n"+plan, workload.expectedTables, workload.forbiddenTables, workload.requiredSQL, nil)
 }
 
-func assertSQLGuards(t *testing.T, name, sql string, expectedTables, forbiddenTables, requiredSQL []string) {
+func assertSQLGuards(t *testing.T, name, sql string, expectedTables, forbiddenTables, requiredSQL []string, maxRefs map[string]int) {
 	t.Helper()
 	combined := strings.ToLower(sql)
 	for _, table := range expectedTables {
@@ -140,7 +136,14 @@ func assertSQLGuards(t *testing.T, name, sql string, expectedTables, forbiddenTa
 		}
 	}
 	for _, table := range forbiddenTables {
-		if strings.Contains(combined, strings.ToLower(table)) {
+		tableLower := strings.ToLower(table)
+		if max, ok := maxRefs[tableLower]; ok {
+			if refs := strings.Count(combined, tableLower); refs > max {
+				t.Fatalf("%s query references table %q %d times, want <= %d:\n%s", name, table, refs, max, sql)
+			}
+			continue
+		}
+		if strings.Contains(combined, tableLower) {
 			t.Fatalf("%s query unexpectedly references table %q:\n%s", name, table, sql)
 		}
 	}

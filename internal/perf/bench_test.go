@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -230,6 +231,8 @@ func TestConcurrentIngestReadSmoke(t *testing.T) {
 
 	done := make(chan struct{})
 	errs := make(chan error, 16)
+	var ingesting atomic.Bool
+	var readSuccesses [4]atomic.Int64
 	var readers sync.WaitGroup
 	for i := 0; i < 4; i++ {
 		readers.Add(1)
@@ -248,25 +251,37 @@ func TestConcurrentIngestReadSmoke(t *testing.T) {
 					}
 					return
 				}
+				if ingesting.Load() {
+					readSuccesses[reader%4].Add(1)
+				}
 				time.Sleep(5 * time.Millisecond)
 			}
 		}(i)
 	}
 
 	const batches = 12
+	ingesting.Store(true)
 	for seq := uint64(1); seq <= batches; seq++ {
 		meta, rows := concurrentIngestRows(seq)
 		if _, err := ch.CommitIngestBatch(ctx, meta, rows); err != nil {
+			ingesting.Store(false)
 			close(done)
 			readers.Wait()
 			t.Fatalf("CommitIngestBatch sequence %d: %v", seq, err)
 		}
+		time.Sleep(5 * time.Millisecond)
 	}
+	ingesting.Store(false)
 	close(done)
 	readers.Wait()
 	close(errs)
 	for err := range errs {
 		t.Fatalf("concurrent read failed: %v", err)
+	}
+	for reader := range readSuccesses {
+		if got := readSuccesses[reader].Load(); got == 0 {
+			t.Fatalf("concurrent reader %d did not complete a successful read during ingest", reader)
+		}
 	}
 }
 

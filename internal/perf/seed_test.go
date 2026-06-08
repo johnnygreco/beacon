@@ -92,3 +92,21 @@ func TestFleetToolPayloadsAreDownsampled(t *testing.T) {
 		t.Fatalf("fleet kept %d/900 payload slots, want approximately 100", kept)
 	}
 }
+
+func TestSeedRuntimeProfilesUseSupportedFormatPairs(t *testing.T) {
+	want := map[string]string{
+		"claude-code":     "jsonl",
+		"codex":           "jsonl",
+		"hermes-agent":    "sqlite",
+		"opencode":        "sqlite",
+		"pi-coding-agent": "jsonl",
+	}
+	for _, profile := range seedRuntimeProfiles {
+		if got := profile.Format; got != want[profile.Runtime] {
+			t.Fatalf("runtime %s format = %s, want %s", profile.Runtime, got, want[profile.Runtime])
+		}
+		if got := profile.Extension; got != want[profile.Runtime] {
+			t.Fatalf("runtime %s extension = %s, want %s", profile.Runtime, got, want[profile.Runtime])
+		}
+	}
+}

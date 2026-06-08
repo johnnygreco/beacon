@@ -97,6 +97,7 @@ type seedConfig struct {
 	collectorCount int
 	projectCount   int
 	targetPayloads int
+	targetPostings int
 	payloadEvery   int
 	heavy          bool
 }
@@ -123,7 +124,7 @@ func configFor(size SeedSize) seedConfig {
 			largeCount: 500, largeMin: 1000, largeMax: 2000,
 			veryLargeCount: 100, veryLargeMin: 5000, veryLargeMax: 7000,
 			subagentFrac: 0.1, nodeCount: 25, collectorCount: 25, projectCount: 250,
-			targetPayloads: 1000000, payloadEvery: 9, heavy: true,
+			targetPayloads: 1000000, targetPostings: 100000000, payloadEvery: 9, heavy: true,
 		}
 	default: // SizeSmall
 		return seedConfig{
@@ -180,7 +181,10 @@ func estimateTargetPayloads(cfg seedConfig) int {
 }
 
 func estimateTargetSearchPostings(cfg seedConfig) int {
-	return estimateTargetEvents(cfg) * 7
+	if cfg.targetPostings > 0 {
+		return cfg.targetPostings
+	}
+	return estimateTargetEvents(cfg) * 18
 }
 
 // seedBatchSize is the number of sessions per ClickHouse flush.
@@ -509,6 +513,19 @@ func validateSeedStats(stats Stats, profile Profile) error {
 			return fmt.Errorf("seeded payloads = %d, want within %d..%d for %s profile", stats.Payloads, low, high, profile.Size)
 		}
 	}
+	if profile.TargetSearchPostings > 0 {
+		if profile.Heavy {
+			if stats.SearchPostings < profile.TargetSearchPostings {
+				return fmt.Errorf("seeded search postings = %d, want at least %d for %s profile", stats.SearchPostings, profile.TargetSearchPostings, profile.Size)
+			}
+		} else {
+			low := profile.TargetSearchPostings * 3 / 4
+			high := profile.TargetSearchPostings * 5 / 4
+			if stats.SearchPostings < low || stats.SearchPostings > high {
+				return fmt.Errorf("seeded search postings = %d, want within %d..%d for %s profile", stats.SearchPostings, low, high, profile.Size)
+			}
+		}
+	}
 	return nil
 }
 
@@ -542,8 +559,8 @@ var seedRuntimeProfiles = []seedRuntimeProfile{
 	{SourceName: "claude", Runtime: models.RuntimeClaudeCode, Provider: models.ProviderAnthropic, Format: models.FormatJSONL, Extension: "jsonl"},
 	{SourceName: "codex", Runtime: models.RuntimeCodex, Provider: models.ProviderOpenAI, Format: models.FormatJSONL, Extension: "jsonl"},
 	{SourceName: "hermes", Runtime: models.RuntimeHermesAgent, Provider: models.ProviderMulti, Format: models.FormatSQLite, Extension: "sqlite"},
-	{SourceName: "opencode", Runtime: models.RuntimeOpenCode, Provider: models.ProviderMulti, Format: models.FormatJSONL, Extension: "jsonl"},
-	{SourceName: "pi", Runtime: models.RuntimePiCodingAgent, Provider: models.ProviderMulti, Format: models.FormatSQLite, Extension: "sqlite"},
+	{SourceName: "opencode", Runtime: models.RuntimeOpenCode, Provider: models.ProviderMulti, Format: models.FormatSQLite, Extension: "sqlite"},
+	{SourceName: "pi", Runtime: models.RuntimePiCodingAgent, Provider: models.ProviderMulti, Format: models.FormatJSONL, Extension: "jsonl"},
 }
 
 func appendSeedEvent(batch *store.RowBatch, stats *Stats, eventCtx seedEventContext, uid, kind, payloadType, role string, ts time.Time, text, toolName, toolUseID, model string, inputTokens, outputTokens, cacheRead, cacheCreate, durationMs int64, errorCode, errorMessage string, eventIndex int) {

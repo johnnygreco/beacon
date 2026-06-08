@@ -80,12 +80,15 @@ source data, not product requirements.
 | `small` | CI/local smoke | 250 | 25 | 50 | ~25k | Default for `make perf-lab-smoke`. |
 | `medium` | PR query review | 2,500 | 250 | 500 | ~250k | Use for ClickHouse query-shape changes. |
 | `large` | Manual preflight | 10,000 | 750 | 1,500 | ~900k | Use before manual production testing when query paths changed materially. |
-| `fleet` | Heavy opt-in lab | 100,000 | 2,500 | 2,500 | ~15M | Approximates the target personal-production fleet profile, including ~1M payloads and ~100M search postings. Do not run by default in CI. |
+| `fleet` | Heavy opt-in lab | 100,000 | 2,500 | 2,500 | ~15M | Approximates the target personal-production fleet profile, including ~1M payloads and at least 100M search postings. Do not run by default in CI. |
 
 Perf reports record the machine/runtime metadata, git revision, seeded counts,
 target profile dimensions, common search token, and scoped collector/source/
-project IDs used by the common-token search benchmark. These are local
-validation gates, not public benchmark claims or SLA evidence.
+project IDs used by the common-token search benchmark. Actual seeded counts are
+the source of truth for a run; fleet search postings are validated as a minimum
+floor because tokenizer and payload-shape changes can legitimately push the
+actual count above the 100M target. These are local validation gates, not public
+benchmark claims or SLA evidence.
 
 To compare branches, run the same command with different output directories:
 
