@@ -211,6 +211,17 @@ func TestFleetHeartbeatRuntimeScopeUsesEnrollmentMetadata(t *testing.T) {
 	sourcesByCollector := fleetEnrollmentSourcesByCollector(snapshot)
 	rowA := fleetHeartbeatAggregate{NodeID: "node-a", CollectorID: "collector-a", SourceID: "source-a", SourceName: "source-a"}
 	rowB := fleetHeartbeatAggregate{NodeID: "node-a", CollectorID: "collector-a", SourceID: "source-b", SourceName: "source-b"}
+	removedSource := fleetHeartbeatAggregate{NodeID: "node-a", CollectorID: "collector-a", SourceID: "source-removed", SourceName: "source-removed"}
+	unknownCollector := fleetHeartbeatAggregate{NodeID: "node-a", CollectorID: "collector-removed", SourceID: "source-a", SourceName: "source-a"}
+	if !fleetHeartbeatMatchesEnrollmentScope(rowA, APIScopeFilters{}, snapshot, sourcesByCollector) {
+		t.Fatalf("currently enrolled heartbeat row should match default enrollment scope")
+	}
+	if fleetHeartbeatMatchesEnrollmentScope(removedSource, APIScopeFilters{}, snapshot, sourcesByCollector) {
+		t.Fatalf("removed source heartbeat row should not match default enrollment scope")
+	}
+	if fleetHeartbeatMatchesEnrollmentScope(unknownCollector, APIScopeFilters{}, snapshot, sourcesByCollector) {
+		t.Fatalf("unknown collector heartbeat row should not match default enrollment scope")
+	}
 	if !fleetHeartbeatMatchesEnrollmentScope(rowA, scope, snapshot, sourcesByCollector) {
 		t.Fatalf("runtime-a heartbeat row should match enrollment metadata")
 	}

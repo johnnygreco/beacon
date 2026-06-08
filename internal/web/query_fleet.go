@@ -312,25 +312,29 @@ func fleetHeartbeatMatchesEnrollmentScope(row fleetHeartbeatAggregate, scope API
 	if !scopeMatchesValue(row.CollectorID, scope.CollectorIDs) {
 		return false
 	}
+	source, ok := fleetHeartbeatEnrollmentSource(row, sourcesByCollector[strings.TrimSpace(row.CollectorID)])
+	if !ok {
+		return false
+	}
 	if !fleetScopeHasSourceMetadataFilters(scope) {
 		return true
 	}
-	for _, source := range sourcesByCollector[strings.TrimSpace(row.CollectorID)] {
-		if !fleetEnrollmentSourceMatchesHeartbeat(row, source) {
-			continue
-		}
-		if !scopeMatchesValue(source.ID, scope.SourceIDs) {
-			continue
-		}
-		if !scopeMatchesValue(source.Name, scope.SourceNames) {
-			continue
-		}
-		if !scopeMatchesValue(source.Runtime, scope.Runtimes) {
-			continue
-		}
-		return true
+	if !scopeMatchesValue(source.ID, scope.SourceIDs) {
+		return false
 	}
-	return false
+	if !scopeMatchesValue(source.Name, scope.SourceNames) {
+		return false
+	}
+	return scopeMatchesValue(source.Runtime, scope.Runtimes)
+}
+
+func fleetHeartbeatEnrollmentSource(row fleetHeartbeatAggregate, sources []controlplane.Source) (controlplane.Source, bool) {
+	for _, source := range sources {
+		if fleetEnrollmentSourceMatchesHeartbeat(row, source) {
+			return source, true
+		}
+	}
+	return controlplane.Source{}, false
 }
 
 func fleetEnrollmentSourceMatchesHeartbeat(row fleetHeartbeatAggregate, source controlplane.Source) bool {
