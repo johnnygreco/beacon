@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 func latestActivityEventsSubquery(where string) string {
@@ -106,8 +107,6 @@ func sqlPlaceholders(n int) string {
 	return strings.TrimRight(strings.Repeat("?,", n), ",")
 }
 
-var sessionProjectionSQL = sessionProjectionSubquery("")
-
 func sessionProjectionSubquery(where string) string {
 	return `(SELECT
 		session_id,
@@ -148,14 +147,26 @@ func sessionProjectionSubquery(where string) string {
 }
 
 func sessionProjectionSubqueryForScope(where string, scope APIScopeFilters) (string, []any) {
+	return sessionProjectionSubqueryForScopeWithPrefilter(where, "", nil, scope)
+}
+
+func sessionProjectionSubqueryForScopeWithPrefilter(where, eventSessionWhere string, eventSessionArgs []any, scope APIScopeFilters) (string, []any) {
 	if len(compactScopeValues(scope.ProjectKeys)) == 0 {
 		return sessionProjectionSubquery(where), nil
 	}
 	scopeClause, scopeArgs := scope.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
+	latestWhere := "ae.session_id != ''"
+	if strings.TrimSpace(eventSessionWhere) != "" {
+		latestWhere += " AND " + eventSessionWhere
+	}
 	scopedProjectKeyExpr := projectKeyExpr("sa.scoped_working_dir")
-	return `(WITH scoped_activity AS (
+	return `(SELECT *
+	FROM (WITH scoped_activity AS (
 		SELECT e.session_id AS session_id,
 		       argMaxIf(e.cwd, e.timestamp, e.cwd != '') AS scoped_working_dir,
+		       minIf(e.timestamp, e.timestamp > toDateTime64(0, 3, 'UTC')) AS started_at,
+		       maxIf(e.timestamp, e.timestamp > toDateTime64(0, 3, 'UTC')) AS ended_at,
+		       argMax(e.event_kind, e.timestamp) AS latest_event_kind,
 		       count() AS event_count,
 		       uniqExactIf(e.event_uid, e.event_kind = 'message' AND e.actor_role = 'user') AS turn_count,
 		       sum(e.input_tokens) AS total_input_tokens,
@@ -171,7 +182,7 @@ func sessionProjectionSubqueryForScope(where string, scope APIScopeFilters) (str
 		       argMaxIf(e.model, e.timestamp, e.model != '') AS last_model,
 		       sum(e.cost_usd) AS total_cost_usd,
 		       countIf(e.cost_usd != 0) AS cost_event_count
-		FROM ` + latestActivityEventsSubquery("ae.session_id != ''") + ` AS e
+		FROM ` + latestActivityEventsSubquery(latestWhere) + ` AS e
 		LEFT JOIN (
 			SELECT session_id, project_key
 			FROM session_projection FINAL
@@ -190,8 +201,8 @@ func sessionProjectionSubqueryForScope(where string, scope APIScopeFilters) (str
 		sp.format AS format,
 		COALESCE(NULLIF(` + scopedProjectKeyExpr + `, ''), sp.project_key) AS project_key,
 		COALESCE(NULLIF(sa.scoped_working_dir, ''), sp.project_path) AS project_path,
-		sp.started_at AS started_at,
-		sp.ended_at AS ended_at,
+		sa.started_at AS started_at,
+		sa.ended_at AS ended_at,
 		sa.event_count AS event_count,
 		sa.turn_count AS turn_count,
 		sa.total_input_tokens AS total_input_tokens,
@@ -205,8 +216,8 @@ func sessionProjectionSubqueryForScope(where string, scope APIScopeFilters) (str
 		COALESCE(NULLIF(sa.last_model, ''), sp.last_model) AS last_model,
 		COALESCE(NULLIF(sa.scoped_working_dir, ''), sp.working_dir) AS working_dir,
 		sp.parent_session_id AS parent_session_id,
-		sp.has_session_end AS has_session_end,
-		sp.completion_state AS completion_state,
+		if(sa.latest_event_kind = 'session_end', 1, 0) AS has_session_end,
+		if(sa.latest_event_kind = 'session_end', 'completed', 'active') AS completion_state,
 		sa.total_cost_usd AS total_cost_usd,
 		sa.cost_event_count AS cost_event_count,
 		if(sa.cost_event_count > 0, 'event_cost_usd', 'none') AS cost_provenance,
@@ -216,10 +227,11 @@ func sessionProjectionSubqueryForScope(where string, scope APIScopeFilters) (str
 			if(sa.tool_error_count > 0, 'tool_errors', ''),
 			if(sa.mcp_error_count > 0, 'mcp_errors', '')
 		]) AS attention_reasons,
-		sp.archive_reason AS archive_reason,
-		sp.archived_at AS archived_at
+		'' AS archive_reason,
+		toDateTime64(0, 3, 'UTC') AS archived_at
 	FROM ` + sessionProjectionSubquery("") + ` AS sp
-	INNER JOIN scoped_activity AS sa ON sa.session_id = sp.session_id ` + sqlWhereClause(where) + `)`, scopeArgs
+	INNER JOIN scoped_activity AS sa ON sa.session_id = sp.session_id
+	) AS scoped_sessions ` + sqlWhereClause(where) + `)`, append(append([]any{}, eventSessionArgs...), scopeArgs...)
 }
 
 func reopenedSessionIDsSubquery() string {
@@ -247,21 +259,76 @@ func activeSessionPredicate() string {
 	return `(ended_at >= ? AND (COALESCE(has_session_end, 0) = 0 OR ` + reopenedSessionPredicate() + `))`
 }
 
+func activeSessionPredicateScoped(scope APIScopeFilters) string {
+	if len(compactScopeValues(scope.ProjectKeys)) > 0 {
+		return `(ended_at >= ? AND COALESCE(has_session_end, 0) = 0)`
+	}
+	return activeSessionPredicate()
+}
+
+func activeSessionPredicateArgs(scope APIScopeFilters, cutoff time.Time) []any {
+	if len(compactScopeValues(scope.ProjectKeys)) > 0 {
+		return []any{cutoff}
+	}
+	return []any{cutoff, cutoff}
+}
+
 func completedSessionPredicate() string {
 	return completedSessionPredicateFor("ended_at", "has_session_end", "session_id")
+}
+
+func completedSessionPredicateScoped(scope APIScopeFilters) string {
+	return completedSessionPredicateForScope("ended_at", "has_session_end", "session_id", scope)
 }
 
 func completedSessionPredicateFor(endedAtExpr, hasSessionEndExpr, sessionIDExpr string) string {
 	return `(` + endedAtExpr + ` < ? OR (COALESCE(` + hasSessionEndExpr + `, 0) = 1 AND NOT (` + sessionIDExpr + ` IN ` + reopenedSessionIDsSubquery() + `)))`
 }
 
+func completedSessionPredicateForScope(endedAtExpr, hasSessionEndExpr, sessionIDExpr string, scope APIScopeFilters) string {
+	if len(compactScopeValues(scope.ProjectKeys)) > 0 {
+		return `(` + endedAtExpr + ` < ? OR COALESCE(` + hasSessionEndExpr + `, 0) = 1)`
+	}
+	return completedSessionPredicateFor(endedAtExpr, hasSessionEndExpr, sessionIDExpr)
+}
+
+func completedSessionPredicateArgs(scope APIScopeFilters, cutoff time.Time) []any {
+	if len(compactScopeValues(scope.ProjectKeys)) > 0 {
+		return []any{cutoff}
+	}
+	return []any{cutoff, cutoff}
+}
+
 func sessionSummaryColumnsWithReopenedFlag() string {
 	return sessionSummaryColumns + `, if(` + reopenedSessionPredicate() + `, 1, 0)`
+}
+
+func sessionSummaryColumnsWithReopenedFlagScoped(scope APIScopeFilters) string {
+	if len(compactScopeValues(scope.ProjectKeys)) > 0 {
+		return sessionSummaryColumns + `, 0`
+	}
+	return sessionSummaryColumnsWithReopenedFlag()
+}
+
+func reopenedFlagArgs(scope APIScopeFilters, cutoff time.Time) []any {
+	if len(compactScopeValues(scope.ProjectKeys)) > 0 {
+		return nil
+	}
+	return []any{cutoff}
 }
 
 var analyticsProjectionSQL = analyticsProjectionSubquery("")
 
 func analyticsProjectionSubquery(where string) string {
+	return analyticsProjectionSubqueryWithLatestWhere(where, "")
+}
+
+func analyticsProjectionSubqueryWithLatestWhere(where, latestWhere string) string {
+	apWhere := sqlWhereClause(latestWhere)
+	latestRefreshWhere := "session_id != ''"
+	if strings.TrimSpace(latestWhere) != "" {
+		latestRefreshWhere += " AND " + latestWhere
+	}
 	return `(SELECT
 		session_id,
 		node_id,
@@ -316,12 +383,12 @@ func analyticsProjectionSubquery(where string) string {
 		       ap.cost_usd_sum
 		FROM (
 			SELECT *
-			FROM analytics_projection FINAL
+			FROM analytics_projection FINAL ` + apWhere + `
 		) AS ap
 		INNER JOIN (
 			SELECT session_id, argMax(refresh_id, updated_at) AS refresh_id
 			FROM analytics_projection FINAL
-			WHERE session_id != ''
+			WHERE ` + latestRefreshWhere + `
 			GROUP BY session_id
 		) AS latest ON latest.session_id = ap.session_id AND latest.refresh_id = ap.refresh_id
 	) ` + sqlWhereClause(where) + `)`

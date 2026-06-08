@@ -484,13 +484,13 @@ func QueryDashboardMetricsScoped(ctx context.Context, db *sql.DB, scope APIScope
 	activeCutoff := time.Now().Add(-idleThreshold)
 	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", scope)
 	scopeClause, scopeArgs := scope.withoutProjectKeys().sqlAndClause("")
-	args := []any{activeCutoff, activeCutoff}
+	args := activeSessionPredicateArgs(scope, activeCutoff)
 	args = append(args, sourceArgs...)
 	args = append(args, scopeArgs...)
 
 	if err := db.QueryRowContext(ctx,
 		`SELECT count(),
-		        countIf(`+activeSessionPredicate()+`),
+		        countIf(`+activeSessionPredicateScoped(scope)+`),
 		        COALESCE(SUM(total_input_tokens), 0),
 		        COALESCE(SUM(total_output_tokens), 0),
 		        COALESCE(SUM(total_cache_read_tokens), 0),

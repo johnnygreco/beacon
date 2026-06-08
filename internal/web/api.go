@@ -101,13 +101,13 @@ func (a *APIHandlers) GetMetrics(w http.ResponseWriter, r *http.Request) {
 	scope := parseAPIScopeFilters(r.URL.Query())
 	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", scope)
 	scopeClause, scopeArgs := scope.withoutProjectKeys().sqlAndClause("")
-	args := []any{activeCutoff, activeCutoff}
+	args := activeSessionPredicateArgs(scope, activeCutoff)
 	args = append(args, sourceArgs...)
 	args = append(args, scopeArgs...)
 
 	if err := a.db.QueryRowContext(r.Context(),
 		`SELECT count(),
-		        countIf(`+activeSessionPredicate()+`),
+		        countIf(`+activeSessionPredicateScoped(scope)+`),
 		        COALESCE(SUM(total_input_tokens), 0),
 		        COALESCE(SUM(total_output_tokens), 0),
 		        COALESCE(SUM(tool_call_count), 0),
@@ -143,12 +143,12 @@ func (a *APIHandlers) GetSessions(w http.ResponseWriter, r *http.Request) {
 	activeCutoff := now.Add(-idleThreshold)
 	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", req.Scope)
 	scopeClause, scopeArgs := req.Scope.withoutProjectKeys().sqlAndClause("")
-	query := `SELECT ` + sessionSummaryColumnsWithReopenedFlag() + `
+	query := `SELECT ` + sessionSummaryColumnsWithReopenedFlagScoped(req.Scope) + `
 		 FROM ` + sessionSource + `
 		 WHERE 1 = 1` + scopeClause + `
 		 ORDER BY started_at DESC
 		 LIMIT ?`
-	args := []any{activeCutoff}
+	args := reopenedFlagArgs(req.Scope, activeCutoff)
 	args = append(args, sourceArgs...)
 	args = append(args, scopeArgs...)
 	args = append(args, req.Limit)

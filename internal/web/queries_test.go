@@ -191,6 +191,10 @@ func TestAnalyticsProjectionSubqueryAppliesWhereAfterLatestRefresh(t *testing.T)
 	if !strings.Contains(analytics, "FROM analytics_projection FINAL") || !strings.Contains(analytics, ") AS ap") || !strings.Contains(analytics, "WHERE session_id = ?") {
 		t.Fatalf("analytics projection subquery did not apply where clause")
 	}
+	filtered := analyticsProjectionSubqueryWithLatestWhere("session_id = ?", "session_id = ?")
+	if strings.Count(filtered, "session_id = ?") != 3 {
+		t.Fatalf("filtered analytics projection should constrain ap, latest, and outer scopes: %s", filtered)
+	}
 }
 
 func TestReopenedSessionPredicatesUseActivityAfterLatestEnd(t *testing.T) {
@@ -232,6 +236,17 @@ func TestReopenedSessionPredicatesUseActivityAfterLatestEnd(t *testing.T) {
 	}
 	if got := strings.Count(completed, "?"); got != 2 {
 		t.Fatalf("completed predicate placeholders = %d, want idle cutoff plus reopened cutoff: %s", got, completed)
+	}
+
+	projectScope := APIScopeFilters{ProjectKeys: []string{"beacon"}}
+	if got := strings.Count(activeSessionPredicateScoped(projectScope), "?"); got != 1 {
+		t.Fatalf("project-scoped active predicate placeholders = %d, want one cutoff", got)
+	}
+	if got := strings.Count(completedSessionPredicateScoped(projectScope), "?"); got != 1 {
+		t.Fatalf("project-scoped completed predicate placeholders = %d, want one cutoff", got)
+	}
+	if !strings.Contains(sessionSummaryColumnsWithReopenedFlagScoped(projectScope), ", 0") {
+		t.Fatalf("project-scoped summaries should not use global reopened predicate")
 	}
 }
 

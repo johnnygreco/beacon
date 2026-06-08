@@ -28,12 +28,12 @@ func QuerySessionDetailScoped(ctx context.Context, db *sql.DB, id string, scope 
 		sessionWhere += clause
 		sessionArgs = append(sessionArgs, scopeArgs...)
 	}
-	sessionSource, sourceArgs := sessionProjectionSubqueryForScope(sessionWhere, scope)
-	queryArgs := []any{activeCutoff}
+	sessionSource, sourceArgs := sessionProjectionSubqueryForScopeWithPrefilter(sessionWhere, "ae.session_id = ?", []any{id}, scope)
+	queryArgs := reopenedFlagArgs(scope, activeCutoff)
 	queryArgs = append(queryArgs, sourceArgs...)
 	queryArgs = append(queryArgs, sessionArgs...)
 	row := db.QueryRowContext(ctx,
-		`SELECT `+sessionSummaryColumnsWithReopenedFlag()+`
+		`SELECT `+sessionSummaryColumnsWithReopenedFlagScoped(scope)+`
 		 FROM `+sessionSource, queryArgs...)
 	session, err := scanSessionSummaryIncludingReopened(row, now)
 	if err != nil {
@@ -55,10 +55,13 @@ func QuerySessionDetailScoped(ctx context.Context, db *sql.DB, id string, scope 
 		analyticsWhere += clause
 		analyticsArgs = append(analyticsArgs, scopeArgs...)
 	}
+	analyticsSourceArgs := []any{id, id}
+	analyticsSourceArgs = append(analyticsSourceArgs, analyticsArgs...)
+	analyticsArgs = analyticsSourceArgs
 	analyticsArgs = append(analyticsArgs, session.Provider)
 	rows, err := db.QueryContext(ctx,
 		`WITH session_analytics AS (
-			SELECT * FROM `+analyticsProjectionSubquery(analyticsWhere)+`
+			SELECT * FROM `+analyticsProjectionSubqueryWithLatestWhere(analyticsWhere, "session_id = ?")+`
 		),
 		token_series AS (
 			SELECT minute AS timestamp, sum(total_tokens) AS tokens_total

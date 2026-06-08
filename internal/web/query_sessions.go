@@ -43,10 +43,10 @@ func queryActiveSessions(ctx context.Context, db *sql.DB, limit int, scope APISc
 	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", scope)
 	query := `SELECT ` + sessionSummaryColumns + `
 		 FROM ` + sessionSource + `
-		 WHERE ` + activeSessionPredicate() + `
+		 WHERE ` + activeSessionPredicateScoped(scope) + `
 		`
 	args := append([]any{}, sourceArgs...)
-	args = append(args, cutoff, cutoff)
+	args = append(args, activeSessionPredicateArgs(scope, cutoff)...)
 	sessionScope := scope.withoutProjectKeys()
 	if clause, scopeArgs := sessionScope.sqlAndClause(""); clause != "" {
 		query += clause
@@ -108,10 +108,10 @@ func queryCompletedSessionsFiltered(ctx context.Context, db *sql.DB, since *time
 	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", scope)
 	query := `SELECT ` + sessionSummaryColumns + `
 		 FROM ` + sessionSource + `
-		 WHERE ` + completedSessionPredicate() + `
+		 WHERE ` + completedSessionPredicateScoped(scope) + `
 		   AND (parent_session_id = '' OR parent_session_id IS NULL)`
 	args := append([]any{}, sourceArgs...)
-	args = append(args, cutoff, cutoff)
+	args = append(args, completedSessionPredicateArgs(scope, cutoff)...)
 	if since != nil {
 		query += " AND ended_at >= ?"
 		args = append(args, *since)
@@ -185,22 +185,23 @@ func queryCompletedSessionContentMatchIDs(ctx context.Context, db *sql.DB, since
 	if limit <= 0 {
 		limit = completedSessionEventSearchLimit
 	}
+	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", scope)
 	query := `SELECT e.session_id
 		 FROM (
 			SELECT *
 			FROM activity_events FINAL
 		 ) AS e
-		 INNER JOIN ` + sessionProjectionSQL + ` AS s ON s.session_id = e.session_id
+		 INNER JOIN ` + sessionSource + ` AS s ON s.session_id = e.session_id
 		 LEFT JOIN (
 			SELECT *
 			FROM tool_payloads FINAL
 		 ) AS tp ON tp.event_uid = e.event_uid
 		 WHERE (s.parent_session_id = '' OR s.parent_session_id IS NULL)
 		   AND e.session_id != ''`
-	var args []any
+	args := append([]any{}, sourceArgs...)
 	cutoff := time.Now().Add(-idleThreshold)
-	query += ` AND ` + completedSessionPredicateFor("s.ended_at", "s.has_session_end", "s.session_id")
-	args = append(args, cutoff, cutoff)
+	query += ` AND ` + completedSessionPredicateForScope("s.ended_at", "s.has_session_end", "s.session_id", scope)
+	args = append(args, completedSessionPredicateArgs(scope, cutoff)...)
 	if since != nil {
 		query += " AND s.ended_at >= ?"
 		args = append(args, *since)
@@ -402,10 +403,10 @@ func QueryChildSessionsScoped(ctx context.Context, db *sql.DB, parentID string, 
 	now := time.Now()
 	activeCutoff := now.Add(-idleThreshold)
 	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", scope)
-	query := `SELECT ` + sessionSummaryColumnsWithReopenedFlag() + `
+	query := `SELECT ` + sessionSummaryColumnsWithReopenedFlagScoped(scope) + `
 		 FROM ` + sessionSource + `
 		 WHERE parent_session_id = ?`
-	args := []any{activeCutoff}
+	args := reopenedFlagArgs(scope, activeCutoff)
 	args = append(args, sourceArgs...)
 	args = append(args, parentID)
 	sessionScope := scope.withoutProjectKeys()

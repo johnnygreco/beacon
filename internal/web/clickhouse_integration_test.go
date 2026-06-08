@@ -313,6 +313,9 @@ func TestProjectScopedSessionSummariesUseMatchingEventRows(t *testing.T) {
 	if detail.Session.TotalTokens != 24 || detail.Session.ProjectKey != "other" || detail.Session.WorkingDir != "/Users/example/projects/other" {
 		t.Fatalf("other-scoped detail summary = %#v, want 24 tokens in other project", detail.Session)
 	}
+	if !detail.Session.EndedAt.Equal(otherEvent.Timestamp) || detail.Session.HasSessionEnd || detail.Session.CompletionState != "active" {
+		t.Fatalf("other-scoped lifecycle = ended %s hasEnd %v state %q, want latest other event only", detail.Session.EndedAt, detail.Session.HasSessionEnd, detail.Session.CompletionState)
+	}
 	recordAPIResponse(t, api.GetSessionDetail, "/api/sessions/"+sessionID+"?project_key=other", "id", sessionID)
 
 	beaconDetail, err := QuerySessionDetailScoped(context.Background(), ch.DB, sessionID, APIScopeFilters{ProjectKeys: []string{"beacon"}})
@@ -322,6 +325,9 @@ func TestProjectScopedSessionSummariesUseMatchingEventRows(t *testing.T) {
 	if beaconDetail.Session.TotalTokens != 5 || beaconDetail.Session.ProjectKey != "beacon" {
 		t.Fatalf("beacon-scoped detail summary = %#v, want only beacon tokens", beaconDetail.Session)
 	}
+	if !beaconDetail.Session.EndedAt.Equal(endEvent.Timestamp) || !beaconDetail.Session.HasSessionEnd || beaconDetail.Session.CompletionState != "completed" {
+		t.Fatalf("beacon-scoped lifecycle = ended %s hasEnd %v state %q, want scoped session_end", beaconDetail.Session.EndedAt, beaconDetail.Session.HasSessionEnd, beaconDetail.Session.CompletionState)
+	}
 
 	eventSessionIDs, err := queryCompletedSessionContentMatchIDs(context.Background(), ch.DB, nil, "other-scoped needle", "", 10, otherScope)
 	if err != nil {
@@ -329,6 +335,13 @@ func TestProjectScopedSessionSummariesUseMatchingEventRows(t *testing.T) {
 	}
 	if len(eventSessionIDs) != 1 || eventSessionIDs[0] != sessionID {
 		t.Fatalf("other-scoped content search ids = %#v, want %s", eventSessionIDs, sessionID)
+	}
+	leakedIDs, err := queryCompletedSessionContentMatchIDs(context.Background(), ch.DB, nil, "gpt-beacon", "", 10, otherScope)
+	if err != nil {
+		t.Fatalf("other-scoped metadata leak search ids: %v", err)
+	}
+	if len(leakedIDs) != 0 {
+		t.Fatalf("other-scoped content search matched out-of-scope session metadata: %#v", leakedIDs)
 	}
 	completed, _ := queryCompletedSessionsFiltered(context.Background(), ch.DB, nil, 0, 10, "other-scoped needle", eventSessionIDs, "ended", false, "", otherScope)
 	if len(completed) != 1 || completed[0].ID != sessionID || completed[0].TotalTokens != 24 {
