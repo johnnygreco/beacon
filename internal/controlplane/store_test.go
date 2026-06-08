@@ -11,12 +11,12 @@ import (
 func TestEnsureLocalPersistsMetadataAcrossRestart(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "control-plane.db")
 	boot := Bootstrap{
-		NodeID:      "node-mac-mini",
-		NodeName:    "Mac Mini",
-		CollectorID: "collector-mac-mini",
+		NodeID:      "node-a",
+		NodeName:    "Node A",
+		CollectorID: "collector-a",
 		Sources: []SourceRegistration{
-			{Name: "codex", Runtime: "codex", Provider: "openai", Format: "jsonl", WatchRoot: "~/.codex/sessions"},
-			{Name: "hermes", Runtime: "hermes-agent", Provider: "multi", Format: "sqlite", WatchRoot: "~/.hermes"},
+			{Name: "source-a", Runtime: "runtime-a", Provider: "provider-a", Format: "jsonl", WatchRoot: "~/agent-a/sessions"},
+			{Name: "source-b", Runtime: "runtime-b", Provider: "provider-b", Format: "sqlite", WatchRoot: "~/agent-b"},
 		},
 	}
 
@@ -48,13 +48,13 @@ func TestEnsureLocalPersistsMetadataAcrossRestart(t *testing.T) {
 	if second.SchemaEpoch != InitialSchemaEpoch {
 		t.Fatalf("schema epoch = %q, want %q", second.SchemaEpoch, InitialSchemaEpoch)
 	}
-	if second.LocalNodeID != "node-mac-mini" || second.LocalCollectorID != "collector-mac-mini" {
+	if second.LocalNodeID != "node-a" || second.LocalCollectorID != "collector-a" {
 		t.Fatalf("local identity = node %q collector %q, want configured IDs", second.LocalNodeID, second.LocalCollectorID)
 	}
-	if len(second.Nodes) != 1 || second.Nodes[0].ID != "node-mac-mini" {
+	if len(second.Nodes) != 1 || second.Nodes[0].ID != "node-a" {
 		t.Fatalf("nodes = %#v, want persisted node", second.Nodes)
 	}
-	if len(second.Collectors) != 1 || second.Collectors[0].ID != "collector-mac-mini" || second.Collectors[0].NodeID != "node-mac-mini" {
+	if len(second.Collectors) != 1 || second.Collectors[0].ID != "collector-a" || second.Collectors[0].NodeID != "node-a" {
 		t.Fatalf("collectors = %#v, want persisted collector binding", second.Collectors)
 	}
 	if len(second.Sources) != 2 {

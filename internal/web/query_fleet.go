@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/johnnygreco/beacon/internal/controlplane"
 	"github.com/johnnygreco/beacon/internal/views"
 )
 
@@ -56,9 +57,10 @@ type fleetNodeBuilder struct {
 	offlineCollectors map[string]struct{}
 }
 
-func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters) APIDashboardFleetResponse {
+func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters, snapshot *controlplane.Snapshot) APIDashboardFleetResponse {
 	now := time.Now()
 	builders := map[string]*fleetNodeBuilder{}
+	seedFleetEnrollment(builders, scope, snapshot)
 	for _, row := range queryFleetSessionAggregates(ctx, db, scope, now) {
 		builder := fleetBuilderFor(builders, row.NodeID)
 		builder.node.ActiveSessions += row.ActiveSessions
@@ -75,7 +77,12 @@ func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters)
 		addMany(builder.projects, row.Projects)
 	}
 	collectorMetrics := map[string]fleetHeartbeatAggregate{}
-	for _, row := range queryFleetHeartbeatAggregates(ctx, db, scope) {
+	heartbeatScope := fleetHeartbeatQueryScope(scope, snapshot)
+	enrollmentSourcesByCollector := fleetEnrollmentSourcesByCollector(snapshot)
+	for _, row := range queryFleetHeartbeatAggregates(ctx, db, heartbeatScope) {
+		if !fleetHeartbeatMatchesEnrollmentScope(row, scope, snapshot, enrollmentSourcesByCollector) {
+			continue
+		}
 		builder := fleetBuilderFor(builders, row.NodeID)
 		addNonEmpty(builder.collectors, row.CollectorID)
 		addNonEmpty(builder.sources, firstNonEmpty(row.SourceName, row.SourceID))
@@ -200,6 +207,159 @@ func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters)
 	totals.CollectorCount = len(allCollectors)
 	totals.MissingHeartbeats = len(allCollectors) - len(healthCollectors)
 	return APIDashboardFleetResponse{Scope: scope.metadata(), Totals: totals, Nodes: nodes}
+}
+
+func seedFleetEnrollment(builders map[string]*fleetNodeBuilder, scope APIScopeFilters, snapshot *controlplane.Snapshot) {
+	if snapshot == nil || len(compactScopeValues(scope.ProjectKeys)) > 0 {
+		return
+	}
+	nodesByID := fleetEnrollmentNodesByID(snapshot)
+	sourcesByCollector := fleetEnrollmentSourcesByCollector(snapshot)
+	for _, collector := range snapshot.Collectors {
+		collectorID := strings.TrimSpace(collector.ID)
+		if collectorID == "" {
+			continue
+		}
+		nodeID := normalizeFleetNodeID(collector.NodeID)
+		if !scopeMatchesValue(nodeID, scope.NodeIDs) || !scopeMatchesValue(collectorID, scope.CollectorIDs) {
+			continue
+		}
+		sources, ok := fleetEnrollmentMatchingSources(sourcesByCollector[collectorID], scope)
+		if !ok {
+			continue
+		}
+		builder := fleetBuilderFor(builders, nodeID)
+		if node, ok := nodesByID[nodeID]; ok {
+			applyFleetNodeMetadata(builder, node)
+		}
+		addNonEmpty(builder.collectors, collectorID)
+		for _, source := range sources {
+			addNonEmpty(builder.sources, firstNonEmpty(source.Name, source.ID))
+			addNonEmpty(builder.runtimes, source.Runtime)
+		}
+	}
+}
+
+func fleetEnrollmentNodesByID(snapshot *controlplane.Snapshot) map[string]controlplane.Node {
+	nodes := map[string]controlplane.Node{}
+	if snapshot == nil {
+		return nodes
+	}
+	for _, node := range snapshot.Nodes {
+		nodeID := normalizeFleetNodeID(node.ID)
+		if nodeID == "" {
+			continue
+		}
+		nodes[nodeID] = node
+	}
+	return nodes
+}
+
+func fleetEnrollmentSourcesByCollector(snapshot *controlplane.Snapshot) map[string][]controlplane.Source {
+	sources := map[string][]controlplane.Source{}
+	if snapshot == nil {
+		return sources
+	}
+	for _, source := range snapshot.Sources {
+		collectorID := strings.TrimSpace(source.CollectorID)
+		if collectorID == "" {
+			continue
+		}
+		sources[collectorID] = append(sources[collectorID], source)
+	}
+	return sources
+}
+
+func fleetEnrollmentMatchingSources(sources []controlplane.Source, scope APIScopeFilters) ([]controlplane.Source, bool) {
+	if len(sources) == 0 {
+		return nil, !fleetScopeHasSourceMetadataFilters(scope)
+	}
+	if !fleetScopeHasSourceMetadataFilters(scope) {
+		return sources, true
+	}
+	var matched []controlplane.Source
+	for _, source := range sources {
+		if !scopeMatchesValue(source.ID, scope.SourceIDs) {
+			continue
+		}
+		if !scopeMatchesValue(source.Name, scope.SourceNames) {
+			continue
+		}
+		if !scopeMatchesValue(source.Runtime, scope.Runtimes) {
+			continue
+		}
+		matched = append(matched, source)
+	}
+	return matched, len(matched) > 0
+}
+
+func fleetHeartbeatQueryScope(scope APIScopeFilters, snapshot *controlplane.Snapshot) APIScopeFilters {
+	if snapshot == nil || len(compactScopeValues(scope.ProjectKeys)) > 0 || len(compactScopeValues(scope.Runtimes)) == 0 {
+		return scope
+	}
+	scoped := scope
+	scoped.Runtimes = nil
+	return scoped
+}
+
+func fleetHeartbeatMatchesEnrollmentScope(row fleetHeartbeatAggregate, scope APIScopeFilters, snapshot *controlplane.Snapshot, sourcesByCollector map[string][]controlplane.Source) bool {
+	if snapshot == nil || len(compactScopeValues(scope.ProjectKeys)) > 0 {
+		return true
+	}
+	if !scopeMatchesValue(normalizeFleetNodeID(row.NodeID), scope.NodeIDs) {
+		return false
+	}
+	if !scopeMatchesValue(row.CollectorID, scope.CollectorIDs) {
+		return false
+	}
+	if !fleetScopeHasSourceMetadataFilters(scope) {
+		return true
+	}
+	for _, source := range sourcesByCollector[strings.TrimSpace(row.CollectorID)] {
+		if !fleetEnrollmentSourceMatchesHeartbeat(row, source) {
+			continue
+		}
+		if !scopeMatchesValue(source.ID, scope.SourceIDs) {
+			continue
+		}
+		if !scopeMatchesValue(source.Name, scope.SourceNames) {
+			continue
+		}
+		if !scopeMatchesValue(source.Runtime, scope.Runtimes) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func fleetEnrollmentSourceMatchesHeartbeat(row fleetHeartbeatAggregate, source controlplane.Source) bool {
+	rowSourceID := strings.TrimSpace(row.SourceID)
+	rowSourceName := strings.TrimSpace(row.SourceName)
+	sourceID := strings.TrimSpace(source.ID)
+	sourceName := strings.TrimSpace(source.Name)
+	if rowSourceID != "" && sourceID != "" {
+		return rowSourceID == sourceID
+	}
+	if rowSourceName != "" && sourceName != "" {
+		return rowSourceName == sourceName
+	}
+	return rowSourceID == "" && rowSourceName == ""
+}
+
+func fleetScopeHasSourceMetadataFilters(scope APIScopeFilters) bool {
+	return len(compactScopeValues(scope.SourceIDs)) > 0 ||
+		len(compactScopeValues(scope.SourceNames)) > 0 ||
+		len(compactScopeValues(scope.Runtimes)) > 0
+}
+
+func applyFleetNodeMetadata(builder *fleetNodeBuilder, node controlplane.Node) {
+	if builder == nil {
+		return
+	}
+	if label := firstNonEmpty(node.DisplayName, node.Hostname, node.ID); label != "" {
+		builder.node.Label = label
+	}
 }
 
 func queryFleetSessionAggregates(ctx context.Context, db *sql.DB, scope APIScopeFilters, now time.Time) []fleetSessionAggregate {
@@ -332,18 +492,11 @@ func fleetCollectorKey(nodeID, collectorID string) string {
 	if collectorID == "" {
 		return ""
 	}
-	nodeID = strings.TrimSpace(nodeID)
-	if nodeID == "" {
-		nodeID = "local"
-	}
-	return nodeID + "\x00" + collectorID
+	return normalizeFleetNodeID(nodeID) + "\x00" + collectorID
 }
 
 func fleetBuilderFor(builders map[string]*fleetNodeBuilder, nodeID string) *fleetNodeBuilder {
-	nodeID = strings.TrimSpace(nodeID)
-	if nodeID == "" {
-		nodeID = "local"
-	}
+	nodeID = normalizeFleetNodeID(nodeID)
 	if builder := builders[nodeID]; builder != nil {
 		return builder
 	}
@@ -363,6 +516,14 @@ func fleetBuilderFor(builders map[string]*fleetNodeBuilder, nodeID string) *flee
 	}
 	builders[nodeID] = builder
 	return builder
+}
+
+func normalizeFleetNodeID(nodeID string) string {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		return "local"
+	}
+	return nodeID
 }
 
 func fleetNodeLabel(nodeID string) string {
@@ -481,6 +642,20 @@ func addNonEmpty(target map[string]struct{}, value string) {
 		return
 	}
 	target[value] = struct{}{}
+}
+
+func scopeMatchesValue(value string, selected []string) bool {
+	selected = compactScopeValues(selected)
+	if len(selected) == 0 {
+		return true
+	}
+	value = strings.TrimSpace(value)
+	for _, candidate := range selected {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func sortedMapValues(values map[string]struct{}) []string {

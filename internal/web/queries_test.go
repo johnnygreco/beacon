@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/johnnygreco/beacon/internal/controlplane"
 	"github.com/johnnygreco/beacon/internal/search"
 	"github.com/johnnygreco/beacon/internal/views"
 )
@@ -103,8 +104,8 @@ func TestAPIScopeNodeIDNormalizesBlankLocalRows(t *testing.T) {
 func TestFleetHeartbeatScopeAvoidsHeartbeatOnlyMissingColumns(t *testing.T) {
 	clause, args := fleetHeartbeatScopeClause(APIScopeFilters{
 		NodeIDs:     []string{"local"},
-		Runtimes:    []string{"codex"},
-		ProjectKeys: []string{"beacon"},
+		Runtimes:    []string{"runtime-a"},
+		ProjectKeys: []string{"project-a"},
 	})
 	for _, unexpected := range []string{"h.runtime", "h.project_key"} {
 		if strings.Contains(clause, unexpected) {
@@ -126,10 +127,103 @@ func TestFleetHeartbeatScopeAvoidsHeartbeatOnlyMissingColumns(t *testing.T) {
 		t.Fatalf("placeholder count = %d, arg count = %d: %s", got, len(args), clause)
 	}
 	argText := fmt.Sprint(args)
-	for _, want := range []string{"local", "codex", "beacon"} {
+	for _, want := range []string{"local", "runtime-a", "project-a"} {
 		if !strings.Contains(argText, want) {
 			t.Fatalf("heartbeat scope args missing %q: %#v", want, args)
 		}
+	}
+}
+
+func TestDashboardFleetSeedsEnrolledCollectorsFromSnapshot(t *testing.T) {
+	snapshot := &controlplane.Snapshot{
+		Nodes: []controlplane.Node{
+			{ID: "node-a", DisplayName: "Node A"},
+			{ID: "node-b", DisplayName: "Node B"},
+		},
+		Collectors: []controlplane.Collector{
+			{ID: "collector-a", NodeID: "node-a"},
+			{ID: "collector-b", NodeID: "node-b"},
+		},
+		Sources: []controlplane.Source{
+			{ID: "source-a", CollectorID: "collector-a", Name: "source-a", Runtime: "runtime-a"},
+			{ID: "source-b", CollectorID: "collector-b", Name: "source-b", Runtime: "runtime-b"},
+		},
+	}
+
+	fleet := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{}, snapshot)
+	if fleet.Totals.NodeCount != 2 || fleet.Totals.CollectorCount != 2 || fleet.Totals.MissingHeartbeats != 2 {
+		t.Fatalf("fleet totals = %#v, want two enrolled collectors with missing heartbeats", fleet.Totals)
+	}
+	node, ok := fleetNodeByID(fleet.Nodes, "node-a")
+	if !ok {
+		t.Fatalf("node-a missing from fleet nodes: %#v", fleet.Nodes)
+	}
+	if node.Label != "Node A" || node.Status != "offline" || node.HeartbeatStatus != "missing" {
+		t.Fatalf("node-a metadata/status = %#v, want enrolled offline node with missing heartbeat", node)
+	}
+	if fmt.Sprint(node.Collectors) != "[collector-a]" || fmt.Sprint(node.Sources) != "[source-a]" || fmt.Sprint(node.Runtimes) != "[runtime-a]" {
+		t.Fatalf("node-a scope metadata = collectors=%#v sources=%#v runtimes=%#v", node.Collectors, node.Sources, node.Runtimes)
+	}
+
+	runtimeScoped := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{Runtimes: []string{"runtime-a"}}, snapshot)
+	if runtimeScoped.Totals.NodeCount != 1 || runtimeScoped.Totals.CollectorCount != 1 {
+		t.Fatalf("runtime-scoped totals = %#v, want one metadata-matched collector", runtimeScoped.Totals)
+	}
+	if node, ok := fleetNodeByID(runtimeScoped.Nodes, "node-a"); !ok || fmt.Sprint(node.Collectors) != "[collector-a]" {
+		t.Fatalf("runtime-scoped nodes = %#v, want node-a collector-a", runtimeScoped.Nodes)
+	}
+
+	collectorScoped := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{CollectorIDs: []string{"collector-b"}}, snapshot)
+	if collectorScoped.Totals.NodeCount != 1 || collectorScoped.Totals.CollectorCount != 1 {
+		t.Fatalf("collector-scoped totals = %#v, want one metadata-matched collector", collectorScoped.Totals)
+	}
+	if node, ok := fleetNodeByID(collectorScoped.Nodes, "node-b"); !ok || fmt.Sprint(node.Collectors) != "[collector-b]" {
+		t.Fatalf("collector-scoped nodes = %#v, want node-b collector-b", collectorScoped.Nodes)
+	}
+
+	sourceScoped := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{SourceNames: []string{"source-b"}}, snapshot)
+	if sourceScoped.Totals.NodeCount != 1 || sourceScoped.Totals.CollectorCount != 1 {
+		t.Fatalf("source-scoped totals = %#v, want one metadata-matched source", sourceScoped.Totals)
+	}
+	if node, ok := fleetNodeByID(sourceScoped.Nodes, "node-b"); !ok || fmt.Sprint(node.Sources) != "[source-b]" {
+		t.Fatalf("source-scoped nodes = %#v, want node-b source-b", sourceScoped.Nodes)
+	}
+
+	projectScoped := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{ProjectKeys: []string{"project-a"}}, snapshot)
+	if projectScoped.Totals.NodeCount != 0 || projectScoped.Totals.CollectorCount != 0 {
+		t.Fatalf("project-scoped metadata-only fleet = %#v, want no project membership without observed data", projectScoped)
+	}
+}
+
+func TestFleetHeartbeatRuntimeScopeUsesEnrollmentMetadata(t *testing.T) {
+	snapshot := &controlplane.Snapshot{
+		Sources: []controlplane.Source{
+			{ID: "source-a", CollectorID: "collector-a", Name: "source-a", Runtime: "runtime-a"},
+			{ID: "source-b", CollectorID: "collector-a", Name: "source-b", Runtime: "runtime-b"},
+		},
+	}
+	scope := APIScopeFilters{Runtimes: []string{"runtime-a"}}
+	heartbeatScope := fleetHeartbeatQueryScope(scope, snapshot)
+	if len(heartbeatScope.Runtimes) != 0 {
+		t.Fatalf("heartbeat SQL scope runtimes = %#v, want metadata-side runtime filtering", heartbeatScope.Runtimes)
+	}
+
+	sourcesByCollector := fleetEnrollmentSourcesByCollector(snapshot)
+	rowA := fleetHeartbeatAggregate{NodeID: "node-a", CollectorID: "collector-a", SourceID: "source-a", SourceName: "source-a"}
+	rowB := fleetHeartbeatAggregate{NodeID: "node-a", CollectorID: "collector-a", SourceID: "source-b", SourceName: "source-b"}
+	if !fleetHeartbeatMatchesEnrollmentScope(rowA, scope, snapshot, sourcesByCollector) {
+		t.Fatalf("runtime-a heartbeat row should match enrollment metadata")
+	}
+	if fleetHeartbeatMatchesEnrollmentScope(rowB, scope, snapshot, sourcesByCollector) {
+		t.Fatalf("runtime-b heartbeat row should not match runtime-a enrollment scope")
+	}
+
+	projectScope := APIScopeFilters{Runtimes: []string{"runtime-a"}, ProjectKeys: []string{"project-a"}}
+	if got := fleetHeartbeatQueryScope(projectScope, snapshot); fmt.Sprint(got.Runtimes) != "[runtime-a]" {
+		t.Fatalf("project-scoped heartbeat SQL runtimes = %#v, want data-backed runtime filtering", got.Runtimes)
+	}
+	if !fleetHeartbeatMatchesEnrollmentScope(rowB, projectScope, snapshot, sourcesByCollector) {
+		t.Fatalf("project-scoped heartbeat rows should defer runtime/project filtering to session data")
 	}
 }
 
@@ -144,6 +238,15 @@ func TestFleetNodeStatusMarksActiveSessionOnlyNodes(t *testing.T) {
 	if collectorStatus := fleetCollectorStatus(builder, "collector-local"); collectorStatus != "missing" {
 		t.Fatalf("session-only collector health = %q, want missing", collectorStatus)
 	}
+}
+
+func fleetNodeByID(nodes []APIDashboardFleetNode, nodeID string) (APIDashboardFleetNode, bool) {
+	for _, node := range nodes {
+		if node.NodeID == nodeID {
+			return node, true
+		}
+	}
+	return APIDashboardFleetNode{}, false
 }
 
 func TestFleetCollectorStatusSurfacesMixedSourceHealth(t *testing.T) {
@@ -969,11 +1072,11 @@ func TestScanSessionSummaryIncludesErrorCount(t *testing.T) {
 		"node-1",
 		"collector-1",
 		"source-1",
-		"codex",
-		"codex",
-		"openai",
+		"source-a",
+		"runtime-a",
+		"provider-a",
 		"sqlite",
-		"beacon",
+		"project-a",
 		"/repo",
 		start,
 		end,
@@ -1007,10 +1110,10 @@ func TestScanSessionSummaryIncludesErrorCount(t *testing.T) {
 	if s.ErrorCount != 2 {
 		t.Fatalf("ErrorCount = %d, want 2", s.ErrorCount)
 	}
-	if s.ActiveModel != "gpt-5.4" || s.Provider != "openai" || !s.HasSessionEnd {
+	if s.ActiveModel != "gpt-5.4" || s.Provider != "provider-a" || !s.HasSessionEnd {
 		t.Fatalf("summary fields shifted during scan: %#v", s)
 	}
-	if s.NodeID != "node-1" || s.CollectorID != "collector-1" || s.ProjectKey != "beacon" {
+	if s.NodeID != "node-1" || s.CollectorID != "collector-1" || s.ProjectKey != "project-a" {
 		t.Fatalf("fleet fields shifted during scan: %#v", s)
 	}
 	if s.TotalCostUSD != 0.42 || s.CostProvenance != "event_cost_usd" || s.AttentionScore != 150 {
@@ -1027,11 +1130,11 @@ func TestScanSessionSummaryIncludingReopenedClearsTerminalEnd(t *testing.T) {
 		"node-1",
 		"collector-1",
 		"source-1",
-		"codex",
-		"codex",
-		"openai",
+		"source-a",
+		"runtime-a",
+		"provider-a",
 		"sqlite",
-		"beacon",
+		"project-a",
 		"/repo",
 		start,
 		end,

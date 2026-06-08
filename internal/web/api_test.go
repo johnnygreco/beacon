@@ -726,7 +726,7 @@ func TestCompletedSessionEventSearchSessionIDs_SkipsBlankQueryAndMissingSearcher
 }
 
 func TestNewAPIHandlersWithNilSearcherSkipsEventSearch(t *testing.T) {
-	handlers := NewAPIHandlers(nil, nil, testLogger())
+	handlers := NewAPIHandlers(nil, nil, testLogger(), nil)
 	ids, err := handlers.completedSessionEventSearchSessionIDs(t.Context(), "dashboard payload")
 	if err != nil {
 		t.Fatalf("nil constructor searcher error: %v", err)

@@ -590,7 +590,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator('#dashboard-header-fleet-metrics')).toContainText('active');
     await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(8);
 
-    const nodeScope = (url: URL) => url.searchParams.get('node_id') === 'mac-mini-codex';
+    const nodeScope = (url: URL) => url.searchParams.get('node_id') === 'node-b';
     const scopedResponses = [
       waitForDashboardEndpoint(page, '/api/dashboard/fleet', nodeScope),
       waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => nodeScope(url) && url.searchParams.get('state') === 'active'),
@@ -598,33 +598,33 @@ test.describe('dashboard battle-tested workflows', () => {
       waitForDashboardEndpoint(page, '/api/dashboard/activity', nodeScope),
       waitForDashboardEndpoint(page, '/api/dashboard/charts', nodeScope),
     ];
-    await page.locator('.dashboard-fleet-node-main[data-dashboard-scope-value="mac-mini-codex"]').click();
+    await page.locator('.dashboard-fleet-node-main[data-dashboard-scope-value="node-b"]').click();
     await Promise.all(scopedResponses);
 
-    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('node_id') === 'mac-mini-codex');
-    await expect(page.locator('#dashboard-scope-chips')).toContainText('mac-mini-codex');
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('node_id') === 'node-b');
+    await expect(page.locator('#dashboard-scope-chips')).toContainText('node-b');
     await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(1);
-    await expect(page.locator('#dashboard-fleet')).toContainText('Mac mini Codex');
+    await expect(page.locator('#dashboard-fleet')).toContainText('Node B');
     await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(3);
     await waitForCompletedRows(page, 15);
     await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(2);
-    await expect(page.locator('#active-sessions')).toContainText('mac-mini-codex');
+    await expect(page.locator('#active-sessions')).toContainText('node-b');
     await expectNoHorizontalOverflow(page);
 
     const runtimeResponses = [
-      waitForDashboardEndpoint(page, '/api/dashboard/fleet', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'codex'),
-      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'codex' && url.searchParams.get('state') === 'active'),
-      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'codex' && url.searchParams.get('state') === 'completed'),
-      waitForDashboardEndpoint(page, '/api/dashboard/activity', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'codex'),
-      waitForDashboardEndpoint(page, '/api/dashboard/charts', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'codex'),
+      waitForDashboardEndpoint(page, '/api/dashboard/fleet', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'runtime-b'),
+      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'runtime-b' && url.searchParams.get('state') === 'active'),
+      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'runtime-b' && url.searchParams.get('state') === 'completed'),
+      waitForDashboardEndpoint(page, '/api/dashboard/activity', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'runtime-b'),
+      waitForDashboardEndpoint(page, '/api/dashboard/charts', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'runtime-b'),
     ];
-    await page.locator('.dashboard-fleet-runtime[data-dashboard-scope-value="codex"]').click();
+    await page.locator('.dashboard-fleet-runtime[data-dashboard-scope-value="runtime-b"]').click();
     await Promise.all(runtimeResponses);
     await page.waitForFunction(() => {
       const url = new URL(window.location.href);
-      return url.searchParams.get('node_id') === 'mac-mini-codex' && url.searchParams.get('runtime') === 'codex';
+      return url.searchParams.get('node_id') === 'node-b' && url.searchParams.get('runtime') === 'runtime-b';
     });
-    await expect(page.locator('#dashboard-scope-chips')).toContainText('codex');
+    await expect(page.locator('#dashboard-scope-chips')).toContainText('runtime-b');
     await waitForCompletedRows(page, 15);
     await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(2);
 
@@ -646,7 +646,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await waitForCompletedRows(page, 30);
     await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(4);
 
-    const projectScope = (url: URL) => url.searchParams.get('project_key') === 'hermes';
+    const projectScope = (url: URL) => url.searchParams.get('project_key') === 'project-c';
     const projectResponses = [
       waitForDashboardEndpoint(page, '/api/dashboard/fleet', projectScope),
       waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => projectScope(url) && url.searchParams.get('state') === 'active'),
@@ -654,11 +654,11 @@ test.describe('dashboard battle-tested workflows', () => {
       waitForDashboardEndpoint(page, '/api/dashboard/activity', projectScope),
       waitForDashboardEndpoint(page, '/api/dashboard/charts', projectScope),
     ];
-    await gotoDashboard(page, '/?project_key=hermes');
+    await gotoDashboard(page, '/?project_key=project-c');
     await Promise.all(projectResponses);
-    await expect(page.locator('#dashboard-scope-chips')).toContainText('hermes');
+    await expect(page.locator('#dashboard-scope-chips')).toContainText('project-c');
     await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(1);
-    await expect(page.locator('#dashboard-fleet')).toContainText('Hermes Cloud');
+    await expect(page.locator('#dashboard-fleet')).toContainText('Node C');
     await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(3);
     await waitForCompletedRows(page, 0);
     await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(0);
