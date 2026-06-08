@@ -29,6 +29,7 @@ type Config struct {
 	Dashboard DashboardConfig
 	Fleet     FleetConfig
 	Auth      AuthConfig
+	Redaction RedactionConfig
 }
 
 type ServerConfig struct {
@@ -99,6 +100,12 @@ type AuthConfig struct {
 	Mode                   string
 	CookieName             string `mapstructure:"cookie_name"`
 	AllowInsecureOwnerHTTP bool   `mapstructure:"allow_insecure_owner_http"`
+}
+
+type RedactionConfig struct {
+	PathMasks    []string `mapstructure:"path_masks"`
+	EnvMasks     []string `mapstructure:"env_masks"`
+	LiteralMasks []string `mapstructure:"literal_masks"`
 }
 
 const (
@@ -195,6 +202,22 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.mode", AuthModeLoopback)
 	v.SetDefault("auth.cookie_name", "beacon_owner_token")
 	v.SetDefault("auth.allow_insecure_owner_http", false)
+	v.SetDefault("redaction.path_masks", []string{})
+	v.SetDefault("redaction.env_masks", []string{
+		"BEACON_OWNER_TOKEN",
+		"BEACON_ENROLL_TOKEN",
+		"BEACON_INGEST_TOKEN",
+		"BEACON_READ_TOKEN",
+		"BEACON_ADMIN_TOKEN",
+		"OPENAI_API_KEY",
+		"ANTHROPIC_API_KEY",
+		"GITHUB_TOKEN",
+		"GH_TOKEN",
+		"AWS_ACCESS_KEY_ID",
+		"AWS_SECRET_ACCESS_KEY",
+		"AWS_SESSION_TOKEN",
+	})
+	v.SetDefault("redaction.literal_masks", []string{})
 	v.SetDefault("fleet.role", FleetRoleBoth)
 	v.SetDefault("fleet.metadata_path", DefaultControlPlaneMetadataPath())
 	v.SetDefault("fleet.control_plane_url", "")
@@ -354,10 +377,30 @@ func Validate(cfg *Config) error {
 	if err := validateAuth(&cfg.Auth); err != nil {
 		return err
 	}
+	validateRedaction(&cfg.Redaction)
 	if err := validateFleet(&cfg.Fleet); err != nil {
 		return err
 	}
 	return nil
+}
+
+func validateRedaction(redaction *RedactionConfig) {
+	for i := range redaction.PathMasks {
+		redaction.PathMasks[i] = strings.TrimSpace(redaction.PathMasks[i])
+		if redaction.PathMasks[i] == "" {
+			continue
+		}
+		redaction.PathMasks[i] = expandHomePath(redaction.PathMasks[i])
+		if filepath.IsAbs(redaction.PathMasks[i]) {
+			redaction.PathMasks[i] = filepath.Clean(redaction.PathMasks[i])
+		}
+	}
+	for i := range redaction.EnvMasks {
+		redaction.EnvMasks[i] = strings.TrimSpace(redaction.EnvMasks[i])
+	}
+	for i := range redaction.LiteralMasks {
+		redaction.LiteralMasks[i] = strings.TrimSpace(redaction.LiteralMasks[i])
+	}
 }
 
 func DefaultControlPlaneMetadataPath() string {

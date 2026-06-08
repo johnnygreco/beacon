@@ -34,13 +34,14 @@ func TestSessionDetailRendersThemedTranscriptShell(t *testing.T) {
 	html := buf.String()
 
 	for _, expected := range []string{
-		"localStorage.getItem('beacon-dashboard-resolved-theme')",
-		"document.documentElement.setAttribute('data-dashboard-theme', theme)",
-		"document.body.setAttribute('data-page', 'transcript')",
+		`/static/js/prelude.js?v=`,
+		`data-page="transcript"`,
 		`id="transcript-wrap"`,
 		`class="transcript-header border`,
 		`class="transcript-conversation"`,
 		`class="transcript-metric-grid text-sm"`,
+		`data-transcript-action="expand-all"`,
+		`data-transcript-view="chat"`,
 		`aria-pressed="true"`,
 		`/sessions/session-render-test/conversation`,
 		`hx-trigger="load, sse:conversation-update"`,
@@ -53,6 +54,9 @@ func TestSessionDetailRendersThemedTranscriptShell(t *testing.T) {
 		}
 	}
 	for _, removed := range []string{
+		`document.body.setAttribute('data-page', 'transcript')`,
+		`onclick=`,
+		`onchange=`,
 		`id="sidebar"`,
 		`ml-14`,
 		`func Nav`,

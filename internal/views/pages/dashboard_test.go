@@ -99,6 +99,8 @@ func TestDashboardDefaultNameUsesGenericTitleAndHeader(t *testing.T) {
 		`<button type="button" id="dashboard-title"`,
 		">Beacon Realtime Dashboard</button>",
 		`id="dashboard-connection-indicator"`,
+		`/static/js/prelude.js?v=`,
+		`data-page="dashboard"`,
 	} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("dashboard default naming missing %q", expected)
@@ -108,6 +110,8 @@ func TestDashboardDefaultNameUsesGenericTitleAndHeader(t *testing.T) {
 		`id="dashboard-name-edit"`,
 		`id="dashboard-last-updated"`,
 		`id="dashboard-refresh-btn"`,
+		`onclick=`,
+		`onchange=`,
 	} {
 		if strings.Contains(html, unexpected) {
 			t.Fatalf("dashboard header still renders removed chrome %q", unexpected)
@@ -167,6 +171,11 @@ func TestDashboardLiveAnalyticsUsesSingleTokenChart(t *testing.T) {
 		"refreshCompletedTable",
 		"requestURL('/api/dashboard/fleet'",
 		"loadDashboardFleet",
+		`data-dashboard-retry="fleet"`,
+		`data-dashboard-retry="active"`,
+		`data-dashboard-retry="search"`,
+		`data-dashboard-retry="completed"`,
+		`data-dashboard-retry="activity"`,
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("dashboard live analytics missing %q", expected)
@@ -188,6 +197,8 @@ func TestDashboardLiveAnalyticsUsesSingleTokenChart(t *testing.T) {
 		"setDashboardMetric",
 		"currentDashboardMetric",
 		"updateDashboardModelActivityChart",
+		"onclick",
+		"onchange",
 	} {
 		if strings.Contains(script, unexpected) {
 			t.Fatalf("dashboard client script still references redundant analytics UI %q", unexpected)

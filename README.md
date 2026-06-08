@@ -222,10 +222,13 @@ current ingest token. Beacon never requires enrollment tokens in command
 arguments.
 
 Remote-safe collection runs with `beacon collect`. It reads configured capture
-sources, redacts obvious tokens/secrets before writing to
-`[fleet].spool_dir`, writes owner-only checksummed spool files, sends gzip JSON
-batches to `/api/ingest/v1/batches`, and advances local checkpoints only after a
-committed acknowledgement from the control plane. Remote collectors need
+sources, applies Beacon's best-effort destructive redaction policy before
+writing to `[fleet].spool_dir`, writes owner-only checksummed spool files, sends
+gzip JSON batches to `/api/ingest/v1/batches`, and advances local checkpoints
+only after a committed acknowledgement from the control plane. The policy covers
+Beacon tokens, common credential formats, configured path/env/literal masks, and
+explicit fixtures; it is not a guarantee that every arbitrary secret pasted into
+agent text can be detected. Remote collectors need
 `[fleet].control_plane_url` and either `[fleet].ingest_token_file` or the
 environment variable named by `[fleet].ingest_token_env`.
 

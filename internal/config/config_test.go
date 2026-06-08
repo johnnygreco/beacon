@@ -63,6 +63,12 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Auth.Mode != AuthModeLoopback || cfg.Auth.CookieName != "beacon_owner_token" || cfg.Auth.AllowInsecureOwnerHTTP {
 		t.Errorf("Auth defaults = %#v, want loopback mode and default cookie", cfg.Auth)
 	}
+	if len(cfg.Redaction.PathMasks) != 0 || len(cfg.Redaction.LiteralMasks) != 0 {
+		t.Errorf("Redaction path/literal defaults = %#v, want empty path and literal masks", cfg.Redaction)
+	}
+	if !containsString(cfg.Redaction.EnvMasks, "BEACON_INGEST_TOKEN") || !containsString(cfg.Redaction.EnvMasks, "OPENAI_API_KEY") {
+		t.Errorf("Redaction.EnvMasks = %#v, want Beacon and common credential env defaults", cfg.Redaction.EnvMasks)
+	}
 	if cfg.Fleet.Role != FleetRoleBoth {
 		t.Errorf("Fleet.Role = %q, want %q", cfg.Fleet.Role, FleetRoleBoth)
 	}
@@ -128,6 +134,11 @@ mode = "owner-token"
 cookie_name = "beacon_test_owner"
 allow_insecure_owner_http = true
 
+[redaction]
+path_masks = [" ~/private/beacon "]
+env_masks = [" BEACON_CUSTOM_SECRET "]
+literal_masks = [" literal-fixture-secret "]
+
 [fleet]
 role = "both"
 metadata_path = "~/custom-control-plane.db"
@@ -192,6 +203,15 @@ format = "jsonl"
 	}
 	if cfg.Auth.Mode != AuthModeOwnerToken || cfg.Auth.CookieName != "beacon_test_owner" || !cfg.Auth.AllowInsecureOwnerHTTP {
 		t.Errorf("Auth = %#v, want custom owner-token auth", cfg.Auth)
+	}
+	if len(cfg.Redaction.PathMasks) != 1 || cfg.Redaction.PathMasks[0] != filepath.Join(os.Getenv("HOME"), "private", "beacon") {
+		t.Errorf("Redaction.PathMasks = %#v, want expanded clean path", cfg.Redaction.PathMasks)
+	}
+	if len(cfg.Redaction.EnvMasks) != 1 || cfg.Redaction.EnvMasks[0] != "BEACON_CUSTOM_SECRET" {
+		t.Errorf("Redaction.EnvMasks = %#v, want trimmed custom env mask", cfg.Redaction.EnvMasks)
+	}
+	if len(cfg.Redaction.LiteralMasks) != 1 || cfg.Redaction.LiteralMasks[0] != "literal-fixture-secret" {
+		t.Errorf("Redaction.LiteralMasks = %#v, want trimmed custom literal mask", cfg.Redaction.LiteralMasks)
 	}
 	if cfg.Fleet.Role != FleetRoleBoth {
 		t.Errorf("Fleet.Role = %q, want %q", cfg.Fleet.Role, FleetRoleBoth)
@@ -607,6 +627,15 @@ func TestValidate_NormalizesTrimmedFields(t *testing.T) {
 		cfg.Fleet.SpoolDir != "/tmp/spool" {
 		t.Fatalf("fleet fields not normalized: %#v", cfg.Fleet)
 	}
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if value == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func validTestConfig() Config {

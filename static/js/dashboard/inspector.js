@@ -12,7 +12,7 @@
 	var summary = document.getElementById('inspector-summary');
 	var events = document.getElementById('inspector-events');
 	var fullLink = document.getElementById('inspector-full-link');
-	var closeButton = inspector && inspector.querySelector('[aria-label="Close"]');
+	var closeButton = inspector && inspector.querySelector('[data-inspector-close]');
 	var inspectorLauncher = null;
 	var inspectorLauncherSession = '';
 	var utils = window.BeaconDashboard.utils;
@@ -242,10 +242,30 @@
 		if (inspector && !inspector.classList.contains('hidden') && !inspector.contains(evt.target)) {
 			window.closeSessionInspector({restoreFocus: false});
 		}
+		var close = evt.target.closest && evt.target.closest('[data-inspector-close]');
+		if (close) {
+			evt.preventDefault();
+			window.closeSessionInspector();
+			return;
+		}
 		var link = evt.target.closest && evt.target.closest('a[href^="/sessions/"]');
 		if (link && link.id !== 'inspector-full-link' && !link.closest('#activity-feed') && !link.closest('[data-transcript-link]')) {
 			evt.preventDefault();
 			window.goToSession(link.getAttribute('href'), link);
+			return;
+		}
+		var truncationToggle = evt.target.closest && evt.target.closest('[data-truncate-toggle]');
+		if (truncationToggle) {
+			evt.preventDefault();
+			ensureTranscriptHelpers();
+			window.toggleTruncation(truncationToggle.closest('.truncatable'));
+			return;
+		}
+		var copyButton = evt.target.closest && evt.target.closest('[data-copy-to-clipboard]');
+		if (copyButton) {
+			evt.preventDefault();
+			ensureTranscriptHelpers();
+			window.copyToClipboard(copyButton);
 			return;
 		}
 		var btn = evt.target.closest && evt.target.closest('.payload-btn');

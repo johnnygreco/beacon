@@ -17,6 +17,7 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 	"github.com/fsnotify/fsnotify"
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/redaction"
 	"github.com/johnnygreco/beacon/internal/store"
 )
 
@@ -75,11 +76,22 @@ type Watcher struct {
 	backfillOnStart    bool
 	backfillWorkers    int
 	checkpoints        map[string]*CheckpointManager
+	redactor           *redaction.Policy
 	backpressuredSends atomic.Uint64
 }
 
+type WatcherOption func(*Watcher)
+
+func WithWatcherRedactionPolicy(policy *redaction.Policy) WatcherOption {
+	return func(w *Watcher) {
+		if policy != nil {
+			w.redactor = policy
+		}
+	}
+}
+
 // NewWatcher creates a new JSONL file watcher.
-func NewWatcher(sources []WatchSource, eventCh chan<- BatchEvent, ch *store.Store, logger *slog.Logger, debounce, reconcile time.Duration, backfillOnStart bool, backfillWorkers int) *Watcher {
+func NewWatcher(sources []WatchSource, eventCh chan<- BatchEvent, ch *store.Store, logger *slog.Logger, debounce, reconcile time.Duration, backfillOnStart bool, backfillWorkers int, options ...WatcherOption) *Watcher {
 	cps := make(map[string]*CheckpointManager)
 	for _, src := range sources {
 		cps[src.Name] = NewCheckpointManager(ch, src.Name)
@@ -87,7 +99,7 @@ func NewWatcher(sources []WatchSource, eventCh chan<- BatchEvent, ch *store.Stor
 	if backfillWorkers <= 0 {
 		backfillWorkers = 4
 	}
-	return &Watcher{
+	w := &Watcher{
 		sources:           sources,
 		eventCh:           eventCh,
 		store:             ch,
@@ -97,7 +109,12 @@ func NewWatcher(sources []WatchSource, eventCh chan<- BatchEvent, ch *store.Stor
 		backfillOnStart:   backfillOnStart,
 		backfillWorkers:   backfillWorkers,
 		checkpoints:       cps,
+		redactor:          redaction.DefaultPolicy(),
 	}
+	for _, option := range options {
+		option(w)
+	}
+	return w
 }
 
 // Run starts the watcher. It blocks until ctx is cancelled.
@@ -220,7 +237,7 @@ func (w *Watcher) watchDir(fsw *fsnotify.Watcher, watchedDirs map[string]bool, d
 		return
 	}
 	if err := fsw.Add(dir); err != nil {
-		w.logger.Warn("failed to watch dir", "dir", dir, "error", err)
+		w.logger.Warn("failed to watch dir", "dir", w.redactionPolicy().RedactPath(dir), "error", err)
 		return
 	}
 	watchedDirs[dir] = true
@@ -294,7 +311,7 @@ func (w *Watcher) resolveGlobs(globs []string) []string {
 		expanded := expandHome(glob)
 		matches, err := doublestar.FilepathGlob(expanded)
 		if err != nil {
-			w.logger.Warn("glob failed", "pattern", glob, "error", err)
+			w.logger.Warn("glob failed", "pattern", w.redactionPolicy().RedactPath(glob), "error", err)
 			continue
 		}
 		for _, m := range matches {
@@ -317,7 +334,7 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 
 	// Check for rotation
 	if cm.CheckRotation(file, fi) {
-		w.logger.Info("file rotation detected, resetting checkpoint", "file", file)
+		w.logger.Info("file rotation detected, resetting checkpoint", "file", w.redactionPolicy().RedactPath(file))
 		cp := &models.Checkpoint{
 			SourceName:       src.Name,
 			SourceFile:       file,
@@ -329,18 +346,19 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 		if existing := cm.Get(file); existing != nil {
 			cp.SourceGeneration = existing.SourceGeneration + 1
 		}
-		if err := cm.Save(ctx, cp); err != nil {
-			w.logger.Error("save rotation checkpoint failed", "file", file, "error", err)
+		if err := w.saveCheckpoint(ctx, cm, cp); err != nil {
+			w.logger.Error("save rotation checkpoint failed", "file", w.redactionPolicy().RedactPath(file), "error", err)
 		}
 	}
 
 	cp := cm.Get(file)
-	result, err := ReadSourceFile(ctx, src, file, cp, w.logger)
+	policy := w.redactionPolicy()
+	result, err := ReadSourceFile(ctx, src, file, cp, w.logger, policy)
 	if err != nil {
-		w.logger.Error("read source file failed", "file", file, "error", err)
+		w.logger.Error("read source file failed", "file", policy.RedactPath(file), "error", policy.Redact(err.Error()))
 		return
 	}
-	for _, errRow := range result.CaptureErrors {
+	for _, errRow := range RedactCaptureErrors(result.CaptureErrors, w.redactionPolicy()) {
 		if err := w.store.InsertCaptureError(ctx, errRow); err != nil {
 			w.logger.Error("record capture error failed", "error", err)
 		}
@@ -353,23 +371,38 @@ func (w *Watcher) processFile(ctx context.Context, src WatchSource, file string)
 	if result.Checkpoint == nil {
 		return
 	}
-	if err := cm.Save(ctx, result.Checkpoint); err != nil {
-		w.logger.Error("save checkpoint failed", "file", file, "error", err)
+	if err := w.saveCheckpoint(ctx, cm, result.Checkpoint); err != nil {
+		w.logger.Error("save checkpoint failed", "file", w.redactionPolicy().RedactPath(file), "error", err)
 	}
 }
 
-func replayStartFromPrefix(file string, limitOffset int64, limitLineNo int, overlapLines int, logger *slog.Logger) (int64, int) {
+func (w *Watcher) redactionPolicy() *redaction.Policy {
+	if w != nil && w.redactor != nil {
+		return w.redactor
+	}
+	return redaction.DefaultPolicy()
+}
+
+func (w *Watcher) saveCheckpoint(ctx context.Context, cm *CheckpointManager, cp *models.Checkpoint) error {
+	if cp == nil {
+		return nil
+	}
+	protected := RedactCheckpoint(*cp, w.redactionPolicy())
+	return cm.SaveProtected(ctx, cp, protected)
+}
+
+func replayStartFromPrefix(file string, limitOffset int64, limitLineNo int, overlapLines int, logger *slog.Logger, policies ...*redaction.Policy) (int64, int) {
 	if limitOffset <= 0 || overlapLines <= 0 {
 		return limitOffset, limitLineNo
 	}
-	lines := tailLinesBeforeOffset(file, limitOffset, limitLineNo, overlapLines, incrementalReplayBytes, logger)
+	lines := tailLinesBeforeOffset(file, limitOffset, limitLineNo, overlapLines, incrementalReplayBytes, logger, policies...)
 	if len(lines) == 0 {
 		return limitOffset, limitLineNo
 	}
 	return lines[0].offset, lines[0].lineNo - 1
 }
 
-func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, overlapLines int, maxReadBytes int64, logger *slog.Logger) []replayLine {
+func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, overlapLines int, maxReadBytes int64, logger *slog.Logger, policies ...*redaction.Policy) []replayLine {
 	if limitOffset <= 0 || overlapLines <= 0 || maxReadBytes <= 0 {
 		return nil
 	}
@@ -378,6 +411,7 @@ func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, over
 		return nil
 	}
 	defer f.Close()
+	logFile := redactionPolicyFromArgs(policies...).RedactPath(file)
 
 	readStart := limitOffset - maxReadBytes
 	if readStart < 0 {
@@ -386,20 +420,20 @@ func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, over
 	if readStart > 0 {
 		if _, err := f.Seek(readStart-1, io.SeekStart); err != nil {
 			if logger != nil {
-				logger.Warn("seek replay prefix failed", "file", file, "offset", readStart-1, "error", err)
+				logger.Warn("seek replay prefix failed", "file", logFile, "offset", readStart-1, "error", err)
 			}
 			return nil
 		}
 		var prev [1]byte
 		if _, err := io.ReadFull(f, prev[:]); err != nil {
 			if logger != nil {
-				logger.Warn("read replay prefix failed", "file", file, "offset", readStart-1, "error", err)
+				logger.Warn("read replay prefix failed", "file", logFile, "offset", readStart-1, "error", err)
 			}
 			return nil
 		}
 		if _, err := f.Seek(readStart, io.SeekStart); err != nil {
 			if logger != nil {
-				logger.Warn("seek replay prefix failed", "file", file, "offset", readStart, "error", err)
+				logger.Warn("seek replay prefix failed", "file", logFile, "offset", readStart, "error", err)
 			}
 			return nil
 		}
@@ -409,20 +443,20 @@ func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, over
 			readStart += int64(len(skipped))
 			if err != nil {
 				if err != io.EOF && logger != nil {
-					logger.Warn("read replay prefix failed", "file", file, "error", err)
+					logger.Warn("read replay prefix failed", "file", logFile, "error", err)
 				}
 				return nil
 			}
 			if _, err := f.Seek(readStart, io.SeekStart); err != nil {
 				if logger != nil {
-					logger.Warn("seek replay prefix failed", "file", file, "offset", readStart, "error", err)
+					logger.Warn("seek replay prefix failed", "file", logFile, "offset", readStart, "error", err)
 				}
 				return nil
 			}
 		}
 	} else if _, err := f.Seek(0, io.SeekStart); err != nil {
 		if logger != nil {
-			logger.Warn("seek replay prefix failed", "file", file, "error", err)
+			logger.Warn("seek replay prefix failed", "file", logFile, "error", err)
 		}
 		return nil
 	}
@@ -453,7 +487,7 @@ func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, over
 		}
 		if err != nil {
 			if err != io.EOF && logger != nil {
-				logger.Warn("scan prefix failed", "file", file, "error", err)
+				logger.Warn("scan prefix failed", "file", logFile, "error", err)
 			}
 			break
 		}
@@ -462,6 +496,13 @@ func tailLinesBeforeOffset(file string, limitOffset int64, limitLineNo int, over
 		lines[i].lineNo = limitLineNo - completeLineCount + lines[i].seq
 	}
 	return lines
+}
+
+func redactionPolicyFromArgs(policies ...*redaction.Policy) *redaction.Policy {
+	if len(policies) > 0 && policies[0] != nil {
+		return policies[0]
+	}
+	return redaction.DefaultPolicy()
 }
 
 func appendReplayLine(lines []replayLine, line replayLine, limit int) []replayLine {

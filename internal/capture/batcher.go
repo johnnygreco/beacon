@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/redaction"
 	"github.com/johnnygreco/beacon/internal/store"
 )
 
@@ -34,6 +35,7 @@ type Batcher struct {
 	defaultInput  float64
 	defaultOutput float64
 	identity      FleetIdentity
+	redactor      *redaction.Policy
 	rawEventCache map[string]string
 	rawCacheOrder []string
 }
@@ -63,6 +65,14 @@ func WithFleetIdentity(identity FleetIdentity) BatcherOption {
 	}
 }
 
+func WithRedactionPolicy(policy *redaction.Policy) BatcherOption {
+	return func(b *Batcher) {
+		if policy != nil {
+			b.redactor = policy
+		}
+	}
+}
+
 // NewBatcher creates a new batcher.
 func NewBatcher(ch *store.Store, batchSize int, flushInterval time.Duration, defaultInput, defaultOutput float64, notify func([]string), logger *slog.Logger, options ...BatcherOption) *Batcher {
 	b := &Batcher{
@@ -74,6 +84,7 @@ func NewBatcher(ch *store.Store, batchSize int, flushInterval time.Duration, def
 		flushInterval: flushInterval,
 		defaultInput:  defaultInput,
 		defaultOutput: defaultOutput,
+		redactor:      redaction.DefaultPolicy(),
 		rawEventCache: make(map[string]string),
 	}
 	b.identity = normalizeFleetIdentity(FleetIdentity{})
@@ -161,7 +172,11 @@ func sessionIDsFromEvents(events []models.Event) []string {
 func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) []string {
 	start := time.Now()
 
-	batch, rawEvents := buildInsertRowBatchWithKnown(events, b.defaultInput, b.defaultOutput, b.identity, b.rawEventCache)
+	redactedEvents := RedactNormalizedEvents(events, b.redactor)
+	batch, rawEvents := buildInsertRowBatchWithMetadata(redactedEvents, b.defaultInput, b.defaultOutput, b.identity, b.rawEventCache, RowBatchMetadata{
+		RedactionStatus:  "redacted",
+		RedactionVersion: redaction.Version,
+	})
 
 	if err := b.store.Flush(ctx, batch); err != nil {
 		b.logger.Error("clickhouse flush failed", "error", err, "rows", len(events))

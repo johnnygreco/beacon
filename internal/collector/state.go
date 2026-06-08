@@ -6,28 +6,31 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 
 	"github.com/johnnygreco/beacon/internal/models"
 )
 
 type StateStore struct {
-	path               string
-	mu                 sync.Mutex
-	loaded             bool
-	ControlPlaneEpoch  string                       `json:"control_plane_epoch,omitempty"`
-	NextSequence       uint64                       `json:"next_sequence"`
-	AckedNextSequence  uint64                       `json:"acked_next_sequence"`
-	Checkpoints        map[string]models.Checkpoint `json:"checkpoints"`
-	SpooledCheckpoints map[string]models.Checkpoint `json:"spooled_checkpoints"`
+	path                    string
+	mu                      sync.Mutex
+	loaded                  bool
+	ControlPlaneEpoch       string                         `json:"control_plane_epoch,omitempty"`
+	NextSequence            uint64                         `json:"next_sequence"`
+	AckedNextSequence       uint64                         `json:"acked_next_sequence"`
+	Checkpoints             map[string]models.Checkpoint   `json:"checkpoints"`
+	SpooledCheckpoints      map[string]models.Checkpoint   `json:"spooled_checkpoints"`
+	SpooledBatchCheckpoints map[string][]models.Checkpoint `json:"spooled_batch_checkpoints,omitempty"`
 }
 
 type stateStoreData struct {
-	ControlPlaneEpoch  string                       `json:"control_plane_epoch,omitempty"`
-	NextSequence       uint64                       `json:"next_sequence"`
-	AckedNextSequence  uint64                       `json:"acked_next_sequence"`
-	Checkpoints        map[string]models.Checkpoint `json:"checkpoints"`
-	SpooledCheckpoints map[string]models.Checkpoint `json:"spooled_checkpoints"`
+	ControlPlaneEpoch       string                         `json:"control_plane_epoch,omitempty"`
+	NextSequence            uint64                         `json:"next_sequence"`
+	AckedNextSequence       uint64                         `json:"acked_next_sequence"`
+	Checkpoints             map[string]models.Checkpoint   `json:"checkpoints"`
+	SpooledCheckpoints      map[string]models.Checkpoint   `json:"spooled_checkpoints"`
+	SpooledBatchCheckpoints map[string][]models.Checkpoint `json:"spooled_batch_checkpoints,omitempty"`
 }
 
 func OpenStateStore(path string) (*StateStore, error) {
@@ -41,11 +44,12 @@ func OpenStateStore(path string) (*StateStore, error) {
 		return nil, fmt.Errorf("secure collector state directory: %w", err)
 	}
 	store := &StateStore{
-		path:               path,
-		NextSequence:       1,
-		AckedNextSequence:  1,
-		Checkpoints:        make(map[string]models.Checkpoint),
-		SpooledCheckpoints: make(map[string]models.Checkpoint),
+		path:                    path,
+		NextSequence:            1,
+		AckedNextSequence:       1,
+		Checkpoints:             make(map[string]models.Checkpoint),
+		SpooledCheckpoints:      make(map[string]models.Checkpoint),
+		SpooledBatchCheckpoints: make(map[string][]models.Checkpoint),
 	}
 	if err := store.loadLocked(); err != nil {
 		return nil, err
@@ -87,13 +91,13 @@ func (s *StateStore) EnsureEpoch(epoch string) (bool, error) {
 		return false, nil
 	}
 	if !s.needsEpochResetLocked(epoch) {
-		if err := s.saveDataLocked(epoch, normalizedSequence(s.NextSequence), normalizedSequence(s.AckedNextSequence), s.Checkpoints, s.SpooledCheckpoints); err != nil {
+		if err := s.saveDataLocked(epoch, normalizedSequence(s.NextSequence), normalizedSequence(s.AckedNextSequence), s.Checkpoints, s.SpooledCheckpoints, s.SpooledBatchCheckpoints); err != nil {
 			return false, err
 		}
 		s.ControlPlaneEpoch = epoch
 		return false, nil
 	}
-	if err := s.saveDataLocked(epoch, 1, 1, nil, nil); err != nil {
+	if err := s.saveDataLocked(epoch, 1, 1, nil, nil, nil); err != nil {
 		return false, err
 	}
 	s.ControlPlaneEpoch = epoch
@@ -101,6 +105,7 @@ func (s *StateStore) EnsureEpoch(epoch string) (bool, error) {
 	s.AckedNextSequence = 1
 	s.Checkpoints = make(map[string]models.Checkpoint)
 	s.SpooledCheckpoints = make(map[string]models.Checkpoint)
+	s.SpooledBatchCheckpoints = make(map[string][]models.Checkpoint)
 	return true, nil
 }
 
@@ -115,8 +120,17 @@ func (s *StateStore) needsEpochResetLocked(epoch string) bool {
 }
 
 func (s *StateStore) MarkSpooled(nextSequence uint64, checkpoints []models.Checkpoint) error {
+	sequence := normalizedSequence(nextSequence)
+	if sequence > 1 {
+		sequence--
+	}
+	return s.MarkSpooledBatch(sequence, nextSequence, checkpoints)
+}
+
+func (s *StateStore) MarkSpooledBatch(sequence, nextSequence uint64, checkpoints []models.Checkpoint) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	sequence = normalizedSequence(sequence)
 	next := s.NextSequence
 	if nextSequence > next {
 		next = nextSequence
@@ -125,20 +139,57 @@ func (s *StateStore) MarkSpooled(nextSequence uint64, checkpoints []models.Check
 	next = max(next, ackedNext)
 	acked := cloneCheckpointMap(s.Checkpoints)
 	spooled := cloneCheckpointMap(s.SpooledCheckpoints)
+	spooledBatches := cloneCheckpointBatchMap(s.SpooledBatchCheckpoints)
 	for _, checkpoint := range checkpoints {
 		if checkpoint.SourceFile == "" {
 			continue
 		}
 		spooled[checkpointKey(checkpoint.SourceName, checkpoint.SourceFile)] = checkpoint
 	}
-	if err := s.saveDataLocked(s.ControlPlaneEpoch, next, ackedNext, acked, spooled); err != nil {
+	spooledBatches[sequenceKey(sequence)] = cloneCheckpointSlice(checkpoints)
+	if err := s.saveDataLocked(s.ControlPlaneEpoch, next, ackedNext, acked, spooled, spooledBatches); err != nil {
 		return err
 	}
 	s.NextSequence = next
 	s.AckedNextSequence = ackedNext
 	s.Checkpoints = acked
 	s.SpooledCheckpoints = spooled
+	s.SpooledBatchCheckpoints = spooledBatches
 	return nil
+}
+
+func (s *StateStore) UnmarkSpooledBatch(sequence uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sequence = normalizedSequence(sequence)
+	ackedNext := normalizedSequence(s.AckedNextSequence)
+	next := ackedNext
+	acked := cloneCheckpointMap(s.Checkpoints)
+	spooledBatches := cloneCheckpointBatchMap(s.SpooledBatchCheckpoints)
+	delete(spooledBatches, sequenceKey(sequence))
+	spooled := checkpointsFromBatches(spooledBatches)
+	for key := range spooledBatches {
+		batchSequence, err := strconv.ParseUint(key, 10, 64)
+		if err == nil && batchSequence >= next {
+			next = batchSequence + 1
+		}
+	}
+	if err := s.saveDataLocked(s.ControlPlaneEpoch, next, ackedNext, acked, spooled, spooledBatches); err != nil {
+		return err
+	}
+	s.NextSequence = next
+	s.AckedNextSequence = ackedNext
+	s.Checkpoints = acked
+	s.SpooledCheckpoints = spooled
+	s.SpooledBatchCheckpoints = spooledBatches
+	return nil
+}
+
+func (s *StateStore) HasSpooledBatch(sequence uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.SpooledBatchCheckpoints[sequenceKey(sequence)]
+	return ok
 }
 
 func (s *StateStore) MarkAcked(nextSequence uint64, checkpoints []models.Checkpoint) error {
@@ -155,26 +206,53 @@ func (s *StateStore) MarkAcked(nextSequence uint64, checkpoints []models.Checkpo
 	next = max(next, ackedNext)
 	acked := cloneCheckpointMap(s.Checkpoints)
 	spooled := cloneCheckpointMap(s.SpooledCheckpoints)
-	for _, checkpoint := range checkpoints {
-		if checkpoint.SourceFile == "" {
-			continue
-		}
-		key := checkpointKey(checkpoint.SourceName, checkpoint.SourceFile)
-		acked[key] = checkpoint
-		if spooledCheckpoint, ok := spooled[key]; ok && checkpointCovers(checkpoint, spooledCheckpoint) {
-			delete(spooled, key)
-		}
-	}
-	if len(spooled) == 0 {
+	spooledBatches := cloneCheckpointBatchMap(s.SpooledBatchCheckpoints)
+	applyAckedCheckpoints(acked, spooled, checkpoints)
+	deleteAckedBatchCheckpoints(spooledBatches, nextSequence)
+	if len(spooled) == 0 && len(spooledBatches) == 0 {
 		next = ackedNext
 	}
-	if err := s.saveDataLocked(s.ControlPlaneEpoch, next, ackedNext, acked, spooled); err != nil {
+	if err := s.saveDataLocked(s.ControlPlaneEpoch, next, ackedNext, acked, spooled, spooledBatches); err != nil {
 		return err
 	}
 	s.NextSequence = next
 	s.AckedNextSequence = ackedNext
 	s.Checkpoints = acked
 	s.SpooledCheckpoints = spooled
+	s.SpooledBatchCheckpoints = spooledBatches
+	return nil
+}
+
+func (s *StateStore) MarkBatchAcked(nextSequence, sequence uint64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.NextSequence
+	if nextSequence > next {
+		next = nextSequence
+	}
+	ackedNext := normalizedSequence(s.AckedNextSequence)
+	if nextSequence > ackedNext {
+		ackedNext = nextSequence
+	}
+	next = max(next, ackedNext)
+	acked := cloneCheckpointMap(s.Checkpoints)
+	spooled := cloneCheckpointMap(s.SpooledCheckpoints)
+	spooledBatches := cloneCheckpointBatchMap(s.SpooledBatchCheckpoints)
+	checkpoints := spooledBatches[sequenceKey(sequence)]
+	applyAckedCheckpoints(acked, spooled, checkpoints)
+	delete(spooledBatches, sequenceKey(sequence))
+	deleteAckedBatchCheckpoints(spooledBatches, nextSequence)
+	if len(spooled) == 0 && len(spooledBatches) == 0 {
+		next = ackedNext
+	}
+	if err := s.saveDataLocked(s.ControlPlaneEpoch, next, ackedNext, acked, spooled, spooledBatches); err != nil {
+		return err
+	}
+	s.NextSequence = next
+	s.AckedNextSequence = ackedNext
+	s.Checkpoints = acked
+	s.SpooledCheckpoints = spooled
+	s.SpooledBatchCheckpoints = spooledBatches
 	return nil
 }
 
@@ -194,14 +272,62 @@ func (s *StateStore) ReplaceSpooled(nextSequence uint64, checkpoints []models.Ch
 		}
 		spooled[checkpointKey(checkpoint.SourceName, checkpoint.SourceFile)] = checkpoint
 	}
-	if err := s.saveDataLocked(s.ControlPlaneEpoch, next, ackedNext, acked, spooled); err != nil {
+	if err := s.saveDataLocked(s.ControlPlaneEpoch, next, ackedNext, acked, spooled, nil); err != nil {
 		return err
 	}
 	s.NextSequence = next
 	s.AckedNextSequence = ackedNext
 	s.Checkpoints = acked
 	s.SpooledCheckpoints = spooled
+	s.SpooledBatchCheckpoints = make(map[string][]models.Checkpoint)
 	return nil
+}
+
+func (s *StateStore) ReplaceSpooledBatches(nextSequence uint64, active []SpoolBatch) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ackedNext := normalizedSequence(s.AckedNextSequence)
+	next := ackedNext
+	if nextSequence > next {
+		next = nextSequence
+	}
+	acked := cloneCheckpointMap(s.Checkpoints)
+	existingBatches := cloneCheckpointBatchMap(s.SpooledBatchCheckpoints)
+	spooled := make(map[string]models.Checkpoint)
+	spooledBatches := make(map[string][]models.Checkpoint)
+	for _, batch := range active {
+		key := sequenceKey(batch.Request.Sequence)
+		checkpoints := existingBatches[key]
+		spooledBatches[key] = cloneCheckpointSlice(checkpoints)
+		for _, checkpoint := range checkpoints {
+			if checkpoint.SourceFile == "" {
+				continue
+			}
+			spooled[checkpointKey(checkpoint.SourceName, checkpoint.SourceFile)] = checkpoint
+		}
+	}
+	if err := s.saveDataLocked(s.ControlPlaneEpoch, next, ackedNext, acked, spooled, spooledBatches); err != nil {
+		return err
+	}
+	s.NextSequence = next
+	s.AckedNextSequence = ackedNext
+	s.Checkpoints = acked
+	s.SpooledCheckpoints = spooled
+	s.SpooledBatchCheckpoints = spooledBatches
+	return nil
+}
+
+func checkpointsFromBatches(batches map[string][]models.Checkpoint) map[string]models.Checkpoint {
+	spooled := make(map[string]models.Checkpoint)
+	for _, checkpoints := range batches {
+		for _, checkpoint := range checkpoints {
+			if checkpoint.SourceFile == "" {
+				continue
+			}
+			spooled[checkpointKey(checkpoint.SourceName, checkpoint.SourceFile)] = checkpoint
+		}
+	}
+	return spooled
 }
 
 func (s *StateStore) Checkpoint(sourceName, sourceFile string) *models.Checkpoint {
@@ -263,6 +389,9 @@ func (s *StateStore) loadLocked() error {
 	if s.SpooledCheckpoints == nil {
 		s.SpooledCheckpoints = make(map[string]models.Checkpoint)
 	}
+	if s.SpooledBatchCheckpoints == nil {
+		s.SpooledBatchCheckpoints = make(map[string][]models.Checkpoint)
+	}
 	return nil
 }
 
@@ -282,10 +411,13 @@ func (s *StateStore) saveLocked() error {
 	if s.SpooledCheckpoints == nil {
 		s.SpooledCheckpoints = make(map[string]models.Checkpoint)
 	}
-	return s.saveDataLocked(s.ControlPlaneEpoch, s.NextSequence, s.AckedNextSequence, s.Checkpoints, s.SpooledCheckpoints)
+	if s.SpooledBatchCheckpoints == nil {
+		s.SpooledBatchCheckpoints = make(map[string][]models.Checkpoint)
+	}
+	return s.saveDataLocked(s.ControlPlaneEpoch, s.NextSequence, s.AckedNextSequence, s.Checkpoints, s.SpooledCheckpoints, s.SpooledBatchCheckpoints)
 }
 
-func (s *StateStore) saveDataLocked(controlPlaneEpoch string, nextSequence, ackedNextSequence uint64, checkpoints, spooledCheckpoints map[string]models.Checkpoint) error {
+func (s *StateStore) saveDataLocked(controlPlaneEpoch string, nextSequence, ackedNextSequence uint64, checkpoints, spooledCheckpoints map[string]models.Checkpoint, spooledBatchCheckpoints map[string][]models.Checkpoint) error {
 	if nextSequence == 0 {
 		nextSequence = 1
 	}
@@ -301,12 +433,16 @@ func (s *StateStore) saveDataLocked(controlPlaneEpoch string, nextSequence, acke
 	if spooledCheckpoints == nil {
 		spooledCheckpoints = make(map[string]models.Checkpoint)
 	}
+	if spooledBatchCheckpoints == nil {
+		spooledBatchCheckpoints = make(map[string][]models.Checkpoint)
+	}
 	data, err := json.MarshalIndent(stateStoreData{
-		ControlPlaneEpoch:  controlPlaneEpoch,
-		NextSequence:       nextSequence,
-		AckedNextSequence:  ackedNextSequence,
-		Checkpoints:        checkpoints,
-		SpooledCheckpoints: spooledCheckpoints,
+		ControlPlaneEpoch:       controlPlaneEpoch,
+		NextSequence:            nextSequence,
+		AckedNextSequence:       ackedNextSequence,
+		Checkpoints:             checkpoints,
+		SpooledCheckpoints:      spooledCheckpoints,
+		SpooledBatchCheckpoints: spooledBatchCheckpoints,
 	}, "", "  ")
 	if err != nil {
 		return err
@@ -355,11 +491,55 @@ func cloneCheckpointMap(in map[string]models.Checkpoint) map[string]models.Check
 	return out
 }
 
+func cloneCheckpointBatchMap(in map[string][]models.Checkpoint) map[string][]models.Checkpoint {
+	out := make(map[string][]models.Checkpoint, len(in))
+	for key, value := range in {
+		out[key] = cloneCheckpointSlice(value)
+	}
+	return out
+}
+
+func cloneCheckpointSlice(in []models.Checkpoint) []models.Checkpoint {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]models.Checkpoint, len(in))
+	copy(out, in)
+	return out
+}
+
+func applyAckedCheckpoints(acked, spooled map[string]models.Checkpoint, checkpoints []models.Checkpoint) {
+	for _, checkpoint := range checkpoints {
+		if checkpoint.SourceFile == "" {
+			continue
+		}
+		key := checkpointKey(checkpoint.SourceName, checkpoint.SourceFile)
+		acked[key] = checkpoint
+		if spooledCheckpoint, ok := spooled[key]; ok && checkpointCovers(checkpoint, spooledCheckpoint) {
+			delete(spooled, key)
+		}
+	}
+}
+
+func deleteAckedBatchCheckpoints(spooledBatches map[string][]models.Checkpoint, nextSequence uint64) {
+	nextSequence = normalizedSequence(nextSequence)
+	for key := range spooledBatches {
+		sequence, err := strconv.ParseUint(key, 10, 64)
+		if err != nil || sequence < nextSequence {
+			delete(spooledBatches, key)
+		}
+	}
+}
+
 func normalizedSequence(sequence uint64) uint64 {
 	if sequence == 0 {
 		return 1
 	}
 	return sequence
+}
+
+func sequenceKey(sequence uint64) string {
+	return strconv.FormatUint(normalizedSequence(sequence), 10)
 }
 
 func legacyAckedNextSequence(nextSequence uint64, spooled map[string]models.Checkpoint) uint64 {

@@ -59,14 +59,15 @@
   // --- Truncation toggle (initial state set server-side via class) ---
   window.toggleTruncation = function(el) {
     if (!el) return;
+    var toggle = el.querySelector('.truncate-toggle');
     if (el.classList.contains('truncated')) {
       el.classList.remove('truncated');
       el.classList.add('expanded');
-      el.querySelector('.truncate-toggle').textContent = 'Show less';
+      if (toggle) toggle.textContent = 'Show less';
     } else {
       el.classList.remove('expanded');
       el.classList.add('truncated');
-      el.querySelector('.truncate-toggle').textContent = 'Show more';
+      if (toggle) toggle.textContent = 'Show more';
     }
   };
 
@@ -109,7 +110,7 @@
   window.copyToClipboard = function(btn) {
     var container = btn.closest('.code-container');
     var code = container ? container.querySelector('code, pre') : null;
-    if (!code) return;
+    if (!code || !navigator.clipboard) return;
 
     navigator.clipboard.writeText(code.textContent).then(function() {
       var copyIcon = btn.querySelector('.copy-icon');
@@ -135,7 +136,7 @@
     currentTranscriptView = view === 'timeline' ? 'timeline' : 'chat';
 
     if (btn && btn.parentElement) {
-      var buttons = btn.parentElement.querySelectorAll('button[onclick^="switchView"]');
+      var buttons = btn.parentElement.querySelectorAll('button[data-transcript-view]');
       buttons.forEach(function(b) {
         b.classList.remove('bg-blue-500/20', 'text-blue-400', 'border-blue-500/40');
         b.classList.add('bg-gray-800', 'text-gray-500', 'border-gray-700');
@@ -168,16 +169,46 @@
   // --- HTMX integration ---
   function transcriptViewFromButton(btn) {
     if (!btn) return currentTranscriptView;
-    var action = btn.getAttribute('onclick') || '';
-    return action.indexOf('timeline') !== -1 ? 'timeline' : 'chat';
+    return btn.getAttribute('data-transcript-view') === 'timeline' ? 'timeline' : 'chat';
   }
 
   function restoreTranscriptViewAfterSwap(target) {
     var container = document.getElementById('conversation-container');
     if (!container) return;
     if (target && target !== container && !container.contains(target) && !(target.contains && target.contains(container))) return;
-    var activeButton = document.querySelector('.transcript-controls button[aria-pressed="true"][onclick^="switchView"]');
+    var activeButton = document.querySelector('.transcript-controls button[aria-pressed="true"][data-transcript-view]');
     setTranscriptView(transcriptViewFromButton(activeButton), activeButton);
+  }
+
+  function scrollHashIntoViewAfterSwap(target) {
+    if (!window.location.hash) return;
+    if (!target || target.id !== 'conversation-container') return;
+    var id = window.location.hash.substring(1);
+    var el = document.getElementById(id);
+    if (!el) {
+      el = document.getElementById('conversation-container');
+    }
+    if (!el) return;
+    setTimeout(function() {
+      var parent = el.closest ? el.closest('details') : null;
+      while (parent) {
+        parent.open = true;
+        parent = parent.parentElement ? parent.parentElement.closest('details') : null;
+      }
+      if (el.tagName === 'DETAILS') el.open = true;
+      requestAnimationFrame(function() {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (el.id !== 'conversation-container') {
+          el.style.outline = '2px solid rgba(59, 130, 246, 0.6)';
+          el.style.outlineOffset = '4px';
+          el.style.borderRadius = '8px';
+          setTimeout(function() {
+            el.style.outline = '';
+            el.style.outlineOffset = '';
+          }, 2500);
+        }
+      });
+    }, 150);
   }
 
   function snapshotDetails() {
@@ -228,6 +259,35 @@
   document.addEventListener('htmx:afterSettle', function(e) {
     initConversationObserver();
     restoreTranscriptViewAfterSwap(e.detail.target);
+    scrollHashIntoViewAfterSwap(e.detail.target);
+  });
+
+  document.addEventListener('click', function(evt) {
+    var actionButton = evt.target.closest && evt.target.closest('[data-transcript-action]');
+    if (actionButton) {
+      evt.preventDefault();
+      var action = actionButton.getAttribute('data-transcript-action') || '';
+      if (action === 'expand-all') window.expandAll();
+      else if (action === 'collapse-all') window.collapseAll();
+      return;
+    }
+    var viewButton = evt.target.closest && evt.target.closest('[data-transcript-view]');
+    if (viewButton) {
+      evt.preventDefault();
+      setTranscriptView(transcriptViewFromButton(viewButton), viewButton);
+      return;
+    }
+    var copyButton = evt.target.closest && evt.target.closest('[data-copy-to-clipboard]');
+    if (copyButton) {
+      evt.preventDefault();
+      window.copyToClipboard(copyButton);
+      return;
+    }
+    var truncateButton = evt.target.closest && evt.target.closest('[data-truncate-toggle]');
+    if (truncateButton) {
+      evt.preventDefault();
+      window.toggleTruncation(truncateButton.closest('.truncatable'));
+    }
   });
 
   // --- Init highlighting ---

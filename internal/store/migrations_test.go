@@ -72,7 +72,8 @@ func TestSchemaIncludesSourceMetadataColumns(t *testing.T) {
 		"state_version UInt64",
 		"status LowCardinality(String)",
 		"committed_at Nullable(DateTime64(3, 'UTC'))",
-		"ORDER BY (collector_id, source_id, source_name, source_file)",
+		"source_file_key String",
+		"ORDER BY (collector_id, source_id, source_name, source_file_key)",
 		"ORDER BY (collector_id, batch_id, id)",
 	} {
 		if !strings.Contains(schema, expected) {

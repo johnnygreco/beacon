@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/redaction"
 )
 
 type SourceReadResult struct {
@@ -41,11 +42,11 @@ type wholeFileSidecarState struct {
 	ModTimeUnixNS int64  `json:"mod_time_unix_ns,omitempty"`
 }
 
-func ReadSourceFile(ctx context.Context, src WatchSource, file string, cp *models.Checkpoint, logger *slog.Logger) (SourceReadResult, error) {
-	return ReadSourceFileWindow(ctx, src, file, cp, logger, 0)
+func ReadSourceFile(ctx context.Context, src WatchSource, file string, cp *models.Checkpoint, logger *slog.Logger, policies ...*redaction.Policy) (SourceReadResult, error) {
+	return ReadSourceFileWindow(ctx, src, file, cp, logger, 0, policies...)
 }
 
-func ReadSourceFileWindow(ctx context.Context, src WatchSource, file string, cp *models.Checkpoint, logger *slog.Logger, maxRecords int) (SourceReadResult, error) {
+func ReadSourceFileWindow(ctx context.Context, src WatchSource, file string, cp *models.Checkpoint, logger *slog.Logger, maxRecords int, policies ...*redaction.Policy) (SourceReadResult, error) {
 	var result SourceReadResult
 	if err := ctx.Err(); err != nil {
 		return result, err
@@ -58,10 +59,10 @@ func ReadSourceFileWindow(ctx context.Context, src WatchSource, file string, cp 
 	if src.FileParser != nil {
 		return readWholeSourceFile(ctx, src, file, fi, cp, maxRecords)
 	}
-	return readLineSourceFile(ctx, src, file, fi, cp, logger, maxRecords)
+	return readLineSourceFile(ctx, src, file, fi, cp, logger, maxRecords, redactionPolicyFromArgs(policies...))
 }
 
-func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os.FileInfo, cp *models.Checkpoint, logger *slog.Logger, maxRecords int) (SourceReadResult, error) {
+func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os.FileInfo, cp *models.Checkpoint, logger *slog.Logger, maxRecords int, policy *redaction.Policy) (SourceReadResult, error) {
 	var result SourceReadResult
 	var offset int64
 	var lineNo int
@@ -89,7 +90,7 @@ func readLineSourceFile(ctx context.Context, src WatchSource, file string, fi os
 			lineNo = checkpointState.ReplayStartLineNo - 1
 			initialState = checkpointState.ReplayState.clone()
 		} else {
-			offset, lineNo = replayStartFromPrefix(file, offset, lineNo, incrementalReplayLines, logger)
+			offset, lineNo = replayStartFromPrefix(file, offset, lineNo, incrementalReplayLines, logger, policy)
 		}
 	}
 

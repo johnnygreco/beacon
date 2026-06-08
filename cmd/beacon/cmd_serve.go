@@ -108,6 +108,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	broker := sse.NewBroker(cfg.SSE.SubscriberBuffer, logger)
 	updater := web.NewUpdater(broker, logger)
+	redactionPolicy := redactionPolicyFromConfig(cfg)
 	batcher := capture.NewBatcher(
 		ch,
 		500,
@@ -117,6 +118,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		updater.MarkDirty,
 		logger,
 		capture.WithFleetIdentity(captureFleetIdentity(controlSnapshot)),
+		capture.WithRedactionPolicy(redactionPolicy),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -126,7 +128,13 @@ func runServe(cmd *cobra.Command, args []string) error {
 	var watcher *capture.Watcher
 	if cfg.Capture.Enabled {
 		for _, s := range sources {
-			logger.Info("capture source configured", "name", s.Name, "runtime", s.Runtime, "provider", s.Provider, "globs", s.Globs)
+			logger.Info("capture source configured",
+				"name", s.Name,
+				"runtime", s.Runtime,
+				"provider", s.Provider,
+				"globs", redactStrings(redactionPolicy, s.Globs),
+				"watch_roots", redactStrings(redactionPolicy, s.WatchRoots),
+			)
 		}
 		watcher = capture.NewWatcher(
 			sources,
@@ -137,6 +145,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			cfg.Capture.ReconcileInterval,
 			cfg.Capture.BackfillOnStart,
 			cfg.Capture.BackfillWorkers,
+			capture.WithWatcherRedactionPolicy(redactionPolicy),
 		)
 	}
 
@@ -154,6 +163,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 		cfg.Pricing.DefaultOutputCost,
 		updater.MarkDirty,
 		logger,
+		web.WithIngestRedactionPolicy(redactionPolicy),
 	)
 	staticFS, err := fs.Sub(beacon.StaticFS, "static")
 	if err != nil {

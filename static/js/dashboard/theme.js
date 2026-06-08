@@ -161,4 +161,10 @@
 			window.setDashboardTheme(select.value);
 		});
 	}
+	var toggle = document.getElementById('dashboard-appearance-toggle');
+	if (toggle) {
+		toggle.addEventListener('click', function() {
+			window.toggleDashboardAppearance();
+		});
+	}
 })();

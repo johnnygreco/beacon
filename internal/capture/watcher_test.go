@@ -1,6 +1,7 @@
 package capture
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/redaction"
 )
 
 var watcherTestLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -132,6 +134,67 @@ func TestWatchDirRegistersExistingDirectoryOnce(t *testing.T) {
 
 	if len(watched) != 1 || !watched[dir] {
 		t.Fatalf("watched dirs = %#v, want only %q", watched, dir)
+	}
+}
+
+func TestWatcherSetupLogsRedactConfiguredPaths(t *testing.T) {
+	privateDir := filepath.Join(t.TempDir(), "private")
+	if err := os.MkdirAll(privateDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	w := &Watcher{
+		logger:   slog.New(slog.NewTextHandler(&logs, nil)),
+		redactor: redaction.NewPolicy(redaction.Config{PathMasks: []string{privateDir}}),
+	}
+
+	w.resolveGlobs([]string{filepath.Join(privateDir, "[")})
+	fsw, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := fsw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	w.watchDir(fsw, map[string]bool{}, privateDir)
+
+	got := logs.String()
+	if strings.Contains(got, privateDir) {
+		t.Fatalf("watcher setup logs leaked private path: %s", got)
+	}
+	if !strings.Contains(got, redaction.PathMarker) {
+		t.Fatalf("watcher setup logs missing path marker: %s", got)
+	}
+}
+
+func TestProcessFileReadErrorLogRedactsPathError(t *testing.T) {
+	privateDir := filepath.Join(t.TempDir(), "private")
+	file := filepath.Join(privateDir, "session.jsonl")
+	if err := os.MkdirAll(privateDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("first\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(file, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(file, 0600) })
+	var logs bytes.Buffer
+	fake := newFakeWatcherStore()
+	src := WatchSource{Name: "codex", Parser: lineTextParser(t)}
+	w := newFakeWatcher(src, fake, make(chan BatchEvent, 1))
+	w.logger = slog.New(slog.NewTextHandler(&logs, nil))
+	w.redactor = redaction.NewPolicy(redaction.Config{PathMasks: []string{privateDir}})
+
+	w.processFile(context.Background(), src, file)
+
+	got := logs.String()
+	if strings.Contains(got, privateDir) || strings.Contains(got, file) {
+		t.Fatalf("read error log leaked private path: %s", got)
+	}
+	if !strings.Contains(got, redaction.PathMarker) {
+		t.Fatalf("read error log missing path marker: %s", got)
 	}
 }
 
@@ -381,6 +444,98 @@ func TestProcessFileRecordsParseErrorsAndContinues(t *testing.T) {
 	}
 	if saved := fake.lastCheckpoint(t, file); saved.LastLineNo != 2 {
 		t.Fatalf("checkpoint after parse error = %#v, want line 2", saved)
+	}
+}
+
+func TestProcessFileRedactsCaptureErrorsBeforeInsert(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "private", "errors.jsonl")
+	if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("api_key=local-error-secret literal-fixture-secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeWatcherStore()
+	events := make(chan BatchEvent, 1)
+	src := WatchSource{
+		Name: "codex",
+		Parser: func([]byte, string, int, int64) ([]NormalizedEvent, error) {
+			return nil, errors.New("parse failed with password=parser-secret")
+		},
+	}
+	w := newFakeWatcher(src, fake, events)
+	w.redactor = redaction.NewPolicy(redaction.Config{
+		PathMasks:    []string{filepath.Dir(file)},
+		LiteralMasks: []string{"literal-fixture-secret"},
+	})
+
+	w.processFile(ctx, src, file)
+
+	if len(fake.captureErrors) != 1 {
+		t.Fatalf("capture errors = %#v, want one parse error", fake.captureErrors)
+	}
+	errRow := fake.captureErrors[0]
+	got := strings.Join([]string{errRow.SourceFile, errRow.ErrorMessage, errRow.ContextFragment}, "\n")
+	for _, leaked := range []string{filepath.Dir(file), "local-error-secret", "literal-fixture-secret", "parser-secret"} {
+		if strings.Contains(got, leaked) {
+			t.Fatalf("capture error leaked %q: %s", leaked, got)
+		}
+	}
+	for _, marker := range []string{redaction.PathMarker, redaction.SecretMarker, redaction.LiteralMarker} {
+		if !strings.Contains(got, marker) {
+			t.Fatalf("capture error missing marker %q: %s", marker, got)
+		}
+	}
+}
+
+func TestProcessFileStoresRedactedCheckpointRowsAndResumesBySourceFileKey(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	privateDir := filepath.Join(dir, "private")
+	file := filepath.Join(privateDir, "session.jsonl")
+	if err := os.MkdirAll(privateDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("first\nsecond\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fake := newFakeWatcherStore()
+	events := make(chan BatchEvent, 4)
+	src := WatchSource{Name: "codex", Runtime: "codex", Provider: "openai", Format: "jsonl", Parser: lineTextParser(t)}
+	w := newFakeWatcher(src, fake, events)
+	w.redactor = redaction.NewPolicy(redaction.Config{PathMasks: []string{privateDir}})
+
+	w.processFile(ctx, src, file)
+
+	if got := drainBatchEvents(events); len(got) != 2 {
+		t.Fatalf("events = %#v, want both source lines", got)
+	}
+	fake.mu.Lock()
+	if len(fake.saved) == 0 {
+		fake.mu.Unlock()
+		t.Fatal("no saved checkpoint")
+	}
+	saved := fake.saved[len(fake.saved)-1]
+	fake.mu.Unlock()
+	if strings.Contains(saved.SourceFile, privateDir) || strings.Contains(saved.SourceFile, file) {
+		t.Fatalf("saved checkpoint leaked source file: %#v", saved)
+	}
+	if !strings.Contains(saved.SourceFile, redaction.PathMarker) {
+		t.Fatalf("saved checkpoint source file = %q, want path marker", saved.SourceFile)
+	}
+	wantKey := models.CheckpointSourceFileKey("codex", file)
+	if saved.SourceFileKey != wantKey {
+		t.Fatalf("saved source file key = %q, want %q", saved.SourceFileKey, wantKey)
+	}
+
+	restartEvents := make(chan BatchEvent, 4)
+	restarted := newFakeWatcher(src, fake, restartEvents)
+	restarted.redactor = w.redactor
+	restarted.processFile(ctx, src, file)
+	if got := drainBatchEvents(restartEvents); len(got) != 0 {
+		t.Fatalf("restart events = %#v, want unchanged file skipped", got)
 	}
 }
 
@@ -721,7 +876,8 @@ func (f *fakeWatcherStore) seed(source string, cp models.Checkpoint) {
 		f.checkpoints[source] = make(map[string]*models.Checkpoint)
 	}
 	cpCopy := cp
-	f.checkpoints[source][cp.SourceFile] = &cpCopy
+	key := cp.EffectiveSourceFileKey()
+	f.checkpoints[source][key] = &cpCopy
 }
 
 func (f *fakeWatcherStore) LoadCheckpoints(_ context.Context, sourceName string) (map[string]*models.Checkpoint, error) {
@@ -741,8 +897,9 @@ func (f *fakeWatcherStore) UpsertCheckpoint(_ context.Context, cp models.Checkpo
 	if f.checkpoints[cp.SourceName] == nil {
 		f.checkpoints[cp.SourceName] = make(map[string]*models.Checkpoint)
 	}
+	key := cp.EffectiveSourceFileKey()
 	cpCopy := cp
-	f.checkpoints[cp.SourceName][cp.SourceFile] = &cpCopy
+	f.checkpoints[cp.SourceName][key] = &cpCopy
 	f.saved = append(f.saved, cp)
 	return nil
 }

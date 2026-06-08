@@ -13,6 +13,7 @@ import (
 
 	"github.com/johnnygreco/beacon/internal/collector"
 	"github.com/johnnygreco/beacon/internal/config"
+	"github.com/johnnygreco/beacon/internal/redaction"
 	"github.com/spf13/cobra"
 )
 
@@ -44,6 +45,7 @@ func runCollect(cmd *cobra.Command, once bool, controlPlaneURL string) error {
 	if cfg.Fleet.Role != config.FleetRoleCollector {
 		return fmt.Errorf("beacon collect requires fleet.role %q; use beacon up or beacon watch for local capture", config.FleetRoleCollector)
 	}
+	redactionPolicy := redactionPolicyFromConfig(cfg)
 	service, cleanup, err := buildCollectorService(commandContext(cmd), cfg, logger)
 	if err != nil {
 		return err
@@ -77,12 +79,27 @@ func runCollect(cmd *cobra.Command, once bool, controlPlaneURL string) error {
 		}
 	}()
 
-	logger.Info("starting beacon collector", "control_plane_url", cfg.Fleet.ControlPlaneURL, "spool_dir", cfg.Fleet.SpoolDir)
+	logger.Info("starting beacon collector",
+		collectorStartupLogAttrs(redactionPolicy, cfg)...,
+	)
 	err = service.Run(ctx)
 	if errors.Is(err, context.Canceled) {
 		return nil
 	}
 	return err
+}
+
+func collectorStartupLogAttrs(policy *redaction.Policy, cfg *config.Config) []any {
+	if policy == nil {
+		policy = redaction.DefaultPolicy()
+	}
+	if cfg == nil {
+		return nil
+	}
+	return []any{
+		"control_plane_url", policy.Redact(cfg.Fleet.ControlPlaneURL),
+		"spool_dir", policy.RedactPath(cfg.Fleet.SpoolDir),
+	}
 }
 
 func buildCollectorService(ctx context.Context, cfg *config.Config, logger *slog.Logger) (*collector.Service, func(), error) {
@@ -140,6 +157,7 @@ func buildCollectorService(ctx context.Context, cfg *config.Config, logger *slog
 		RetryMin:          cfg.Fleet.RetryMin,
 		RetryMax:          cfg.Fleet.RetryMax,
 		HeartbeatInterval: cfg.Fleet.HeartbeatInterval,
+		RedactionPolicy:   redactionPolicyFromConfig(cfg),
 		Logger:            logger,
 	})
 	if err != nil {

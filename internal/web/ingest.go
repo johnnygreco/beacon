@@ -17,6 +17,7 @@ import (
 	"github.com/johnnygreco/beacon/internal/controlplane"
 	"github.com/johnnygreco/beacon/internal/ingest"
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/redaction"
 	"github.com/johnnygreco/beacon/internal/store"
 )
 
@@ -36,16 +37,31 @@ type IngestHandlers struct {
 	defaultOutput     float64
 	notify            func([]string)
 	logger            *slog.Logger
+	redactionPolicy   *redaction.Policy
 }
 
-func NewIngestHandlers(control *controlplane.Store, committer IngestBatchCommitter, defaultInput, defaultOutput float64, notify func([]string), logger *slog.Logger) *IngestHandlers {
+type IngestOption func(*IngestHandlers)
+
+func WithIngestRedactionPolicy(policy *redaction.Policy) IngestOption {
+	return func(h *IngestHandlers) {
+		if policy != nil {
+			h.redactionPolicy = policy
+		}
+	}
+}
+
+func NewIngestHandlers(control *controlplane.Store, committer IngestBatchCommitter, defaultInput, defaultOutput float64, notify func([]string), logger *slog.Logger, options ...IngestOption) *IngestHandlers {
 	handlers := &IngestHandlers{
-		control:       control,
-		committer:     committer,
-		defaultInput:  defaultInput,
-		defaultOutput: defaultOutput,
-		notify:        notify,
-		logger:        logger,
+		control:         control,
+		committer:       committer,
+		defaultInput:    defaultInput,
+		defaultOutput:   defaultOutput,
+		notify:          notify,
+		logger:          logger,
+		redactionPolicy: redaction.DefaultPolicy(),
+	}
+	for _, option := range options {
+		option(handlers)
 	}
 	if recorder, ok := committer.(IngestHeartbeatRecorder); ok {
 		handlers.heartbeatRecorder = recorder
@@ -147,6 +163,9 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 	for name, source := range sourceByName {
 		identity.Sources[name] = capture.FleetSourceIdentity{SourceID: source.ID}
 	}
+	req.Events = capture.RedactNormalizedEvents(req.Events, h.redactionPolicy)
+	req.CaptureErrors = capture.RedactCaptureErrors(req.CaptureErrors, h.redactionPolicy)
+	req.Checkpoints = capture.RedactCheckpoints(req.Checkpoints, h.redactionPolicy)
 	if err := validateBatchEvents(req.Events, sourceByName); err != nil {
 		h.jsonError(w, err.Error(), http.StatusForbidden)
 		return
@@ -154,7 +173,7 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 	rows := capture.BuildRowBatch(req.Events, h.defaultInput, h.defaultOutput, identity, capture.RowBatchMetadata{
 		BatchID:          req.BatchID,
 		RedactionStatus:  "redacted",
-		RedactionVersion: req.RedactionVersion,
+		RedactionVersion: redaction.Version,
 	})
 	enrichedErrors, err := enrichCaptureErrors(req.CaptureErrors, req, sourceByName)
 	if err != nil {
@@ -176,7 +195,7 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 		Sequence:          req.Sequence,
 		ControlPlaneEpoch: req.ControlPlaneEpoch,
 		PayloadDigest:     req.PayloadDigest,
-		RedactionVersion:  req.RedactionVersion,
+		RedactionVersion:  redaction.Version,
 		CreatedAt:         req.CreatedAt,
 	}, rows)
 	if err != nil {

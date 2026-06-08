@@ -15,8 +15,7 @@ func scopedSessionPath(path, query string) string {
 }
 
 templ SessionDetail(data views.SessionDetailData) {
-	@views.Layout("Session " + data.Session.ID) {
-		<script>document.body.setAttribute('data-page', 'transcript');</script>
+	@views.Layout("Session " + data.Session.ID, "transcript") {
 		<div id="transcript-wrap" hx-ext="sse" sse-connect={ fmt.Sprintf("/sse/session/%s", data.Session.ID) } class="transcript-page space-y-6">
 			<!-- Session Header -->
 			<section class={ "transcript-header border", templ.KV("border-blue-500/30", data.Session.IsSubagent()), templ.KV("border-gray-700", !data.Session.IsSubagent()) }>
@@ -163,18 +162,18 @@ templ SessionDetail(data views.SessionDetailData) {
 						<h2 class="text-lg font-semibold text-gray-200">Conversation</h2>
 					</div>
 					<div class="transcript-controls flex items-center gap-2">
-						<button type="button" id="btn-expand-all" onclick="expandAll()"
+						<button type="button" id="btn-expand-all" data-transcript-action="expand-all"
 								class="px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors">
 							Expand All
 						</button>
-						<button type="button" id="btn-collapse-all" onclick="collapseAll()"
+						<button type="button" id="btn-collapse-all" data-transcript-action="collapse-all"
 								class="px-2 py-1 text-xs rounded border border-gray-700 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors">
 							Collapse All
 						</button>
 						<div class="w-px h-5 bg-gray-700"></div>
-						<button type="button" onclick="switchView('chat', this)" aria-pressed="true"
+						<button type="button" data-transcript-view="chat" aria-pressed="true"
 								class="px-3 py-1.5 text-sm rounded-md font-medium border bg-blue-500/20 text-blue-400 border-blue-500/40">Chat</button>
-						<button type="button" onclick="switchView('timeline', this)" aria-pressed="false"
+						<button type="button" data-transcript-view="timeline" aria-pressed="false"
 								class="px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700">Timeline</button>
 					</div>
 				</div>
@@ -191,44 +190,6 @@ templ SessionDetail(data views.SessionDetailData) {
 					</div>
 				</div>
 			</section>
-
-			<!-- Scroll to hash fragment after lazy-loaded conversation arrives -->
-			<script>
-			document.body.addEventListener('htmx:afterSettle', function(e) {
-				if (e.detail.target && e.detail.target.id === 'conversation-container' && window.location.hash) {
-					var id = window.location.hash.substring(1);
-					var el = document.getElementById(id);
-					if (!el) {
-						// Exact event not found (may have been deduplicated).
-						// Fall back to scrolling to the conversation section.
-						el = document.getElementById('conversation-container');
-					}
-					if (el) {
-						setTimeout(function() {
-							// Open any collapsed <details> ancestors so the element is visible
-							var parent = el.closest ? el.closest('details') : null;
-							while (parent) {
-								parent.open = true;
-								parent = parent.parentElement ? parent.parentElement.closest('details') : null;
-							}
-							// If the element itself is a <details>, open it too
-							if (el.tagName === 'DETAILS') { el.open = true; }
-							// Scroll after layout reflow
-							requestAnimationFrame(function() {
-								el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-								// Flash highlight if it's the exact element (not fallback)
-								if (el.id !== 'conversation-container') {
-									el.style.outline = '2px solid rgba(59, 130, 246, 0.6)';
-									el.style.outlineOffset = '4px';
-									el.style.borderRadius = '8px';
-									setTimeout(function() { el.style.outline = ''; el.style.outlineOffset = ''; }, 2500);
-								}
-							});
-						}, 150);
-					}
-				}
-			});
-			</script>
 
 			<!-- Initial chart data embedded as JSON -->
 			@templ.JSONScript("session-tokens-data", multiSeriesChartData(data.TokensChart))

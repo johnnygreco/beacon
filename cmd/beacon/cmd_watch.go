@@ -69,12 +69,14 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	}
 	defer ch.Close()
 
+	redactionPolicy := redactionPolicyFromConfig(cfg)
 	batcher := capture.NewBatcher(
 		ch, 500, 2*time.Second,
 		cfg.Pricing.DefaultInputCost, cfg.Pricing.DefaultOutputCost,
 		nil, // no SSE notify
 		logger,
 		capture.WithFleetIdentity(captureFleetIdentity(controlSnapshot)),
+		capture.WithRedactionPolicy(redactionPolicy),
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -86,6 +88,7 @@ func runWatch(cmd *cobra.Command, args []string) error {
 		cfg.Capture.ReconcileInterval,
 		cfg.Capture.BackfillOnStart,
 		cfg.Capture.BackfillWorkers,
+		capture.WithWatcherRedactionPolicy(redactionPolicy),
 	)
 
 	sigCh := make(chan os.Signal, 1)

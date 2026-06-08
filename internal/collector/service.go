@@ -21,6 +21,7 @@ import (
 	"github.com/johnnygreco/beacon/internal/capture"
 	"github.com/johnnygreco/beacon/internal/ingest"
 	"github.com/johnnygreco/beacon/internal/models"
+	"github.com/johnnygreco/beacon/internal/redaction"
 )
 
 type ServiceConfig struct {
@@ -35,6 +36,7 @@ type ServiceConfig struct {
 	RetryMin          time.Duration
 	RetryMax          time.Duration
 	HeartbeatInterval time.Duration
+	RedactionPolicy   *redaction.Policy
 	Logger            *slog.Logger
 }
 
@@ -91,6 +93,9 @@ func NewService(cfg ServiceConfig) (*Service, error) {
 	}
 	if cfg.HeartbeatInterval <= 0 {
 		cfg.HeartbeatInterval = 30 * time.Second
+	}
+	if cfg.RedactionPolicy == nil {
+		cfg.RedactionPolicy = redaction.DefaultPolicy()
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
@@ -185,9 +190,10 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 					return err
 				}
 				cp := s.cfg.State.SpooledCheckpoint(src.Name, file)
-				result, err := capture.ReadSourceFileWindow(ctx, src, file, cp, s.cfg.Logger, windowSize)
+				policy := s.redactionPolicy()
+				result, err := capture.ReadSourceFileWindow(ctx, src, file, cp, s.cfg.Logger, windowSize, policy)
 				if err != nil {
-					s.cfg.Logger.Warn("collector read source file failed", "source", src.Name, "file", file, "error", err)
+					s.cfg.Logger.Warn("collector read source file failed", "source", src.Name, "file", policy.RedactPath(file), "error", policy.Redact(err.Error()))
 					break
 				}
 				if len(result.Events) == 0 && len(result.CaptureErrors) == 0 && result.Checkpoint == nil {
@@ -299,7 +305,7 @@ func (s *Service) SendPending(ctx context.Context) error {
 			s.setTerminalBlocked(err)
 			return err
 		}
-		if err := s.cfg.State.MarkAcked(ack.NextSequence, inflight.Request.Checkpoints); err != nil {
+		if err := s.cfg.State.MarkBatchAcked(ack.NextSequence, inflight.Request.Sequence); err != nil {
 			if _, moveErr := s.cfg.Spool.MarkPending(inflight); moveErr != nil {
 				return fmt.Errorf("%w; additionally failed to return batch to pending: %v", err, moveErr)
 			}
@@ -383,26 +389,29 @@ func (s *Service) spoolReadResult(ctx context.Context, src capture.WatchSource, 
 	if sourceID == "" {
 		return fmt.Errorf("source %q has no source_id assignment", src.Name)
 	}
-	events := RedactEvents(result.Events)
-	captureErrors := RedactCaptureErrors(result.CaptureErrors)
+	policy := s.redactionPolicy()
+	events := capture.RedactNormalizedEvents(result.Events, policy)
+	captureErrors := capture.RedactCaptureErrors(result.CaptureErrors, policy)
 	checkpoints := enrichCollectorCheckpoints(result.Checkpoint, s.cfg.Identity, src.Name, sourceID)
+	redactedCheckpoints := capture.RedactCheckpoints(checkpoints, policy)
 	if len(events) == 0 && len(captureErrors) == 0 && len(checkpoints) == 0 {
 		return nil
 	}
 	sequence := s.cfg.State.Next()
-	req, err := s.buildBatchRequest(sequence, sourceID, events, captureErrors, checkpoints)
+	req, err := s.buildBatchRequest(sequence, sourceID, events, captureErrors, redactedCheckpoints)
 	if err != nil {
 		return err
 	}
 	if err := s.validateBatchBodySize(req); err != nil {
 		return err
 	}
-	written, err := s.cfg.Spool.WritePending(ctx, req)
-	if err != nil {
+	if err := s.cfg.State.MarkSpooledBatch(sequence, sequence+1, checkpoints); err != nil {
 		return err
 	}
-	if err := s.cfg.State.MarkSpooled(sequence+1, req.Checkpoints); err != nil {
-		_ = s.cfg.Spool.Discard(*written)
+	if _, err := s.cfg.Spool.WritePending(ctx, req); err != nil {
+		if rollbackErr := s.cfg.State.UnmarkSpooledBatch(sequence); rollbackErr != nil {
+			return fmt.Errorf("%w; additionally failed to rollback collector state: %v", err, rollbackErr)
+		}
 		return err
 	}
 	return nil
@@ -412,7 +421,7 @@ func (s *Service) spoolOversizeReadResult(ctx context.Context, src capture.Watch
 	if result.Checkpoint == nil {
 		return fmt.Errorf("%w: oversized source result has no checkpoint", ErrBatchTooLarge)
 	}
-	errRow, ok := oversizedCaptureError(src, result)
+	errRow, ok := oversizedCaptureError(src, result, s.redactionPolicy())
 	if !ok {
 		return fmt.Errorf("%w: oversized source result has no record to skip", ErrBatchTooLarge)
 	}
@@ -422,10 +431,14 @@ func (s *Service) spoolOversizeReadResult(ctx context.Context, src capture.Watch
 	})
 }
 
-func oversizedCaptureError(src capture.WatchSource, result capture.SourceReadResult) (models.CaptureError, bool) {
+func oversizedCaptureError(src capture.WatchSource, result capture.SourceReadResult, policy *redaction.Policy) (models.CaptureError, bool) {
+	if policy == nil {
+		policy = redaction.DefaultPolicy()
+	}
 	if len(result.Events) > 0 {
 		event := result.Events[0]
 		fragment := firstNonEmptyCollector(event.RawPayload, event.TextContent, event.ToolInput, event.ToolOutput, event.ErrorMessage)
+		fragment = policy.Redact(fragment)
 		return models.CaptureError{
 			ID:              oversizedCaptureErrorID(src.Name, event.SourceFile, event.SourceLineNo, event.SourceOffset, event.SourceGeneration),
 			SourceName:      src.Name,
@@ -443,10 +456,17 @@ func oversizedCaptureError(src capture.WatchSource, result capture.SourceReadRes
 		errRow.SourceName = src.Name
 		errRow.ErrorClass = "oversize_record"
 		errRow.ErrorMessage = "capture error exceeds ingest batch size limit and was skipped"
-		errRow.ContextFragment = truncateCollectorFragment(errRow.ContextFragment, 500)
+		errRow.ContextFragment = truncateCollectorFragment(policy.Redact(errRow.ContextFragment), 500)
 		return errRow, true
 	}
 	return models.CaptureError{}, false
+}
+
+func (s *Service) redactionPolicy() *redaction.Policy {
+	if s != nil && s.cfg.RedactionPolicy != nil {
+		return s.cfg.RedactionPolicy
+	}
+	return redaction.DefaultPolicy()
 }
 
 func oversizedCaptureErrorID(sourceName, file string, lineNo int, offset int64, sourceGeneration int) string {
@@ -540,7 +560,7 @@ func (s *Service) recoverSpooledStateFromSpool() error {
 	}
 	expected := s.cfg.State.AckedNext()
 	next := expected
-	var checkpoints []models.Checkpoint
+	var activeBatches []SpoolBatch
 	for _, batch := range active {
 		sequence := batch.Request.Sequence
 		if sequence != expected {
@@ -549,11 +569,17 @@ func (s *Service) recoverSpooledStateFromSpool() error {
 			}
 			continue
 		}
+		if !s.cfg.State.HasSpooledBatch(sequence) {
+			if err := s.cfg.Spool.Discard(batch); err != nil {
+				return fmt.Errorf("discard spool batch without private checkpoint state sequence %d: %w", sequence, err)
+			}
+			continue
+		}
 		expected++
 		next = expected
-		checkpoints = append(checkpoints, batch.Request.Checkpoints...)
+		activeBatches = append(activeBatches, batch)
 	}
-	return s.cfg.State.ReplaceSpooled(next, checkpoints)
+	return s.cfg.State.ReplaceSpooledBatches(next, activeBatches)
 }
 
 func enrichCollectorCheckpoints(cp *models.Checkpoint, identity capture.FleetIdentity, sourceName, sourceID string) []models.Checkpoint {
