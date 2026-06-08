@@ -14,6 +14,7 @@ import (
 
 const defaultOpenContextWindow = 3
 const maxOpenContextWindow = 25
+const maxSearchSessionsLimit = 100
 const defaultListSessionsLimit = 20
 const maxListSessionsLimit = 100
 
@@ -27,7 +28,7 @@ func toolDefinitions() []map[string]any {
 				"type": "object",
 				"properties": map[string]any{
 					"query":         map[string]any{"type": "string", "description": "Search query text"},
-					"limit":         nullableType("integer", "Max results (default 25)"),
+					"limit":         nullableType("integer", "Max results (default 25, max 100)"),
 					"session_id":    nullableType("string", "Filter to a Beacon session ID"),
 					"event_kinds":   map[string]any{"type": []string{"array", "null"}, "items": map[string]any{"type": "string"}, "description": "Filter by event kinds"},
 					"node_id":       nullableType("string", "Filter by collector node ID"),
@@ -53,15 +54,15 @@ func toolDefinitions() []map[string]any {
 			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{
 				"type": "object",
-				"properties": map[string]any{
+				"properties": mergeSchemaProperties(map[string]any{
 					"event_id":   map[string]any{"type": []string{"string", "null"}, "description": "Beacon event ID returned by search_sessions, e.g. event:<uid>"},
 					"session_id": nullableType("string", "Beacon session ID for session/latest anchors"),
 					"anchor":     nullableType("string", "Open anchor when event_id is omitted, such as latest"),
 					"open_ref":   map[string]any{"type": []string{"object", "null"}, "description": "open_ref object returned by Beacon MCP tools"},
 					"before":     nullableType("integer", "Number of events before target (default server context window, max 25)"),
 					"after":      nullableType("integer", "Number of events after target (default server context window, max 25)"),
-				},
-				"required":             []string{"event_id", "session_id", "anchor", "open_ref", "before", "after"},
+				}, scopeSchemaProperties()),
+				"required":             append([]string{"event_id", "session_id", "anchor", "open_ref", "before", "after"}, scopeRequiredProperties()...),
 				"additionalProperties": false,
 			},
 		},
@@ -206,6 +207,9 @@ func (s *Server) toolSearch(ctx context.Context, args json.RawMessage) (string, 
 	if params.Limit <= 0 {
 		params.Limit = 25
 	}
+	if params.Limit > maxSearchSessionsLimit {
+		params.Limit = maxSearchSessionsLimit
+	}
 
 	backend, err := s.toolBackend(ctx)
 	if err != nil {
@@ -240,11 +244,12 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 		OpenRef   *openRef `json:"open_ref"`
 		Before    int      `json:"before"`
 		After     int      `json:"after"`
+		scopeArgs
 	}
 	if err := json.Unmarshal(args, &params); err != nil {
 		return "", userToolError("invalid arguments")
 	}
-	eventUID, sessionID, anchor, err := resolveOpenTarget(params.EventID, params.SessionID, params.Anchor, params.OpenRef)
+	eventUID, sessionID, anchor, refScope, err := resolveOpenTarget(params.EventID, params.SessionID, params.Anchor, params.OpenRef)
 	if err != nil {
 		return "", err
 	}
@@ -261,7 +266,8 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 		return "", internalToolError("database unavailable", fmt.Errorf("database backend is not configured"))
 	}
 
-	scope, metadata := s.effectiveScope(ctx, ScopeFilters{})
+	requestedScope := intersectScopes(params.scopeArgs.filters(), refScope)
+	scope, metadata := s.effectiveScope(ctx, requestedScope)
 	targetWhere := "ae.event_uid = ?"
 	targetArgs := []any{eventUID}
 	if eventUID == "" {
@@ -424,6 +430,7 @@ func (s *Server) toolListAgents(ctx context.Context, args json.RawMessage) (stri
 	}
 
 	scope, metadata := s.effectiveScope(ctx, params.scopeArgs.filters())
+	sessionSource, sourceArgs := mcpSessionProjectionSource(scope)
 	scopeClause, scopeArgs := scope.sqlAndClause("")
 	groupSource := `(
 		SELECT COALESCE(NULLIF(node_id, ''), 'local') AS node_id,
@@ -439,15 +446,16 @@ func (s *Server) toolListAgents(ctx context.Context, args json.RawMessage) (stri
 		       max(started_at) AS last_started_at,
 		       max(ended_at) AS last_ended_at,
 		       argMax(session_id, greatest(started_at, ended_at)) AS latest_session_id
-		FROM ` + mcpSessionProjectionSQL + `
+		FROM ` + sessionSource + `
 		WHERE 1 = 1` + scopeClause + `
 		GROUP BY node_id, collector_id, source_id, source_name, runtime, project_key, project_path
 	)`
+	groupArgs := append(append([]any{}, sourceArgs...), scopeArgs...)
 	var totalMatching int64
-	if err := backend.DB.QueryRowContext(ctx, `SELECT count() FROM `+groupSource, scopeArgs...).Scan(&totalMatching); err != nil {
+	if err := backend.DB.QueryRowContext(ctx, `SELECT count() FROM `+groupSource, groupArgs...).Scan(&totalMatching); err != nil {
 		return "", internalToolError("failed to list agents", fmt.Errorf("count agents: %w", err))
 	}
-	queryArgs := append(append([]any{}, scopeArgs...), params.Limit)
+	queryArgs := append(append([]any{}, groupArgs...), params.Limit)
 	rows, err := backend.DB.QueryContext(ctx,
 		`SELECT node_id, collector_id, source_id, source_name, runtime, project_key, project_path,
 		        session_count, event_count, total_tokens, last_started_at, last_ended_at, latest_session_id
@@ -480,7 +488,8 @@ func (s *Server) toolListAgents(ctx context.Context, args json.RawMessage) (stri
 	}, metadata), nil
 }
 
-func resolveOpenTarget(eventID, sessionID, anchor string, ref *openRef) (string, string, string, error) {
+func resolveOpenTarget(eventID, sessionID, anchor string, ref *openRef) (string, string, string, ScopeFilters, error) {
+	var refScope ScopeFilters
 	if ref != nil {
 		if ref.EventID != "" {
 			eventID = ref.EventID
@@ -491,23 +500,26 @@ func resolveOpenTarget(eventID, sessionID, anchor string, ref *openRef) (string,
 		if ref.Anchor != "" {
 			anchor = ref.Anchor
 		}
+		if ref.Scope != nil {
+			refScope = normalizeScopeFilters(*ref.Scope)
+		}
 	}
 	eventUID := stripBeaconPrefix(eventID, "event:")
 	sessionID = stripBeaconPrefix(sessionID, "session:")
 	anchor = strings.TrimSpace(anchor)
 	if eventUID != "" {
-		return eventUID, "", "", nil
+		return eventUID, "", "", refScope, nil
 	}
 	if sessionID == "" {
-		return "", "", "", userToolError("event_id or open_ref is required")
+		return "", "", "", ScopeFilters{}, userToolError("event_id or open_ref is required")
 	}
 	if anchor == "" {
 		anchor = "latest"
 	}
 	if anchor != "latest" {
-		return "", "", "", userToolError("unsupported open anchor: %s", anchor)
+		return "", "", "", ScopeFilters{}, userToolError("unsupported open anchor: %s", anchor)
 	}
-	return "", sessionID, anchor, nil
+	return "", sessionID, anchor, refScope, nil
 }
 
 func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (string, error) {
@@ -543,6 +555,7 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 		return "", internalToolError("database unavailable", fmt.Errorf("database backend is not configured"))
 	}
 	scope, metadata := s.effectiveScope(ctx, params.scopeArgs.filters())
+	sessionSource, sourceArgs := mcpSessionProjectionSource(scope)
 
 	where, filterArgs, offset, err := listSessionsFilterSQL(listSessionsParams{
 		Since:             params.Since,
@@ -560,18 +573,19 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 	}
 
 	var totalMatching int64
-	if err := backend.DB.QueryRowContext(ctx, `SELECT count() FROM `+mcpSessionProjectionSQL+` WHERE `+where, filterArgs...).Scan(&totalMatching); err != nil {
+	queryFilterArgs := append(append([]any{}, sourceArgs...), filterArgs...)
+	if err := backend.DB.QueryRowContext(ctx, `SELECT count() FROM `+sessionSource+` WHERE `+where, queryFilterArgs...).Scan(&totalMatching); err != nil {
 		return "", internalToolError("failed to list sessions", fmt.Errorf("count sessions: %w", err))
 	}
 
-	queryArgs := append(append([]any{}, filterArgs...), params.Limit, offset)
+	queryArgs := append(append([]any{}, queryFilterArgs...), params.Limit, offset)
 	rows, err := backend.DB.QueryContext(ctx,
 		`SELECT session_id, COALESCE(node_id, ''), COALESCE(collector_id, ''), COALESCE(source_id, ''),
 		        COALESCE(source_name, ''), COALESCE(runtime, ''), COALESCE(project_key, ''), COALESCE(project_path, ''),
 		        COALESCE(provider, ''), started_at, ended_at,
 		        event_count, turn_count, total_tokens, tool_call_count, mcp_call_count, error_count,
 		        COALESCE(last_model, ''), COALESCE(working_dir, '')
-		 FROM `+mcpSessionProjectionSQL+`
+		 FROM `+sessionSource+`
 		 WHERE `+where+`
 		 ORDER BY started_at DESC, session_id DESC LIMIT ? OFFSET ?`, queryArgs...)
 	if err != nil {
@@ -693,7 +707,95 @@ func mcpSessionProjectionSubquery(where string) string {
 		argMax(sp.last_model, sp.updated_at) AS last_model,
 		argMax(sp.working_dir, sp.updated_at) AS working_dir
 	FROM session_projection AS sp ` + where + `
-	GROUP BY sp.session_id)`
+		GROUP BY sp.session_id)`
+}
+
+func mcpSQLWhereClause(where string) string {
+	if strings.TrimSpace(where) == "" {
+		return ""
+	}
+	return " WHERE " + where
+}
+
+func mcpLatestActivityEventsSubquery(where string) string {
+	return `(SELECT event_uid,
+	               argMax(session_id, captured_at) AS session_id,
+	               argMax(node_id, captured_at) AS node_id,
+	               argMax(collector_id, captured_at) AS collector_id,
+	               argMax(source_id, captured_at) AS source_id,
+	               argMax(source_name, captured_at) AS source_name,
+	               argMax(runtime, captured_at) AS runtime,
+	               argMax(provider, captured_at) AS provider,
+	               argMax(timestamp, captured_at) AS timestamp,
+	               argMax(event_kind, captured_at) AS event_kind,
+	               argMax(actor_role, captured_at) AS actor_role,
+	               argMax(tool_name, captured_at) AS tool_name,
+	               argMax(model, captured_at) AS model,
+	               argMax(input_tokens, captured_at) AS input_tokens,
+	               argMax(output_tokens, captured_at) AS output_tokens,
+	               argMax(cwd, captured_at) AS cwd
+	        FROM activity_events AS ae` + mcpSQLWhereClause(where) + `
+	        GROUP BY event_uid)`
+}
+
+func mcpSessionProjectFallbackSubquery(where string) string {
+	if strings.TrimSpace(where) == "" {
+		where = "ae.session_id != ''"
+	}
+	return `(SELECT session_id,
+		       if(project_count = 1, any_project_key, '') AS project_key,
+		       project_count
+		FROM (
+			SELECT session_id,
+			       uniqExactIf(project_key, project_key != '') AS project_count,
+			       anyIf(project_key, project_key != '') AS any_project_key
+			FROM (
+				SELECT session_id,
+				       ` + projectKeyExpr("cwd") + ` AS project_key
+				FROM (
+					SELECT event_uid,
+					       argMax(session_id, captured_at) AS session_id,
+					       argMax(cwd, captured_at) AS cwd
+					FROM activity_events AS ae` + mcpSQLWhereClause(where) + `
+					GROUP BY event_uid
+				)
+				WHERE session_id != ''
+			)
+			GROUP BY session_id
+		))`
+}
+
+func mcpSessionProjectionSource(scope ScopeFilters) (string, []any) {
+	if len(compactScopeValues(scope.ProjectKeys)) == 0 {
+		return mcpSessionProjectionSQL, nil
+	}
+	scopeClause, scopeArgs := scope.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
+	eventProjectExpr := projectKeyExpr("e.cwd")
+	scopedProjectExpr := "COALESCE(NULLIF(" + eventProjectExpr + ", ''), if(COALESCE(s.project_count, 0) <= 1, NULLIF(s.project_key, ''), ''))"
+	return `(SELECT
+		e.session_id AS session_id,
+		argMaxIf(e.node_id, e.timestamp, e.node_id != '') AS node_id,
+		argMaxIf(e.collector_id, e.timestamp, e.collector_id != '') AS collector_id,
+		argMaxIf(e.source_id, e.timestamp, e.source_id != '') AS source_id,
+		argMaxIf(e.source_name, e.timestamp, e.source_name != '') AS source_name,
+		argMaxIf(e.runtime, e.timestamp, e.runtime != '') AS runtime,
+		argMaxIf(` + scopedProjectExpr + `, e.timestamp, ` + scopedProjectExpr + ` != '') AS project_key,
+		argMaxIf(e.cwd, e.timestamp, e.cwd != '') AS project_path,
+		argMaxIf(e.provider, e.timestamp, e.provider != '') AS provider,
+		minIf(e.timestamp, e.timestamp > toDateTime64(0, 3, 'UTC')) AS started_at,
+		maxIf(e.timestamp, e.timestamp > toDateTime64(0, 3, 'UTC')) AS ended_at,
+		count() AS event_count,
+		uniqExactIf(e.event_uid, e.event_kind = 'message' AND e.actor_role = 'user') AS turn_count,
+		sum(e.input_tokens + e.output_tokens) AS total_tokens,
+		countIf(e.event_kind = 'tool_call') AS tool_call_count,
+		countIf(e.event_kind = 'tool_call' AND startsWith(e.tool_name, 'mcp__')) AS mcp_call_count,
+		countIf(e.event_kind IN ('error', 'tool_error')) AS error_count,
+		argMaxIf(e.model, e.timestamp, e.model != '') AS last_model,
+		argMaxIf(e.cwd, e.timestamp, e.cwd != '') AS working_dir
+	FROM ` + mcpLatestActivityEventsSubquery("ae.session_id != ''") + ` AS e
+	LEFT JOIN ` + mcpSessionProjectFallbackSubquery("") + ` AS s ON s.session_id = e.session_id
+	WHERE 1 = 1` + scopeClause + `
+	GROUP BY e.session_id)`, scopeArgs
 }
 
 type listSessionsParams struct {

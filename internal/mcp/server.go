@@ -260,12 +260,16 @@ func (s *Server) handleToolsCall(ctx context.Context, req *jsonRPCRequest) *json
 		if shouldLogToolError(err) {
 			s.log().Warn("mcp tool call failed", "tool", params.Name, "public_error", publicMessage, "error", err)
 		}
+		errorText := publicMessage
+		if publicMessage != "forbidden" {
+			errorText = fmt.Sprintf("Error: %s", publicMessage)
+		}
 		return &jsonRPCResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
 			Result: map[string]any{
 				"content": []map[string]any{
-					{"type": "text", "text": fmt.Sprintf("Error: %s", publicMessage)},
+					{"type": "text", "text": errorText},
 				},
 				"isError": true,
 			},

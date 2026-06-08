@@ -88,7 +88,11 @@ func NewRouter(
 			r.Get("/tool-stats", apiHandlers.GetToolStats)
 			r.Get("/tokens-by-model", apiHandlers.GetTokensByModel)
 			if opts.mcpHandler != nil {
-				r.Post("/mcp", opts.mcpHandler.ServeHTTP)
+				mcpHandler := opts.mcpHandler
+				if opts.mcpAuthMiddleware != nil {
+					mcpHandler = opts.mcpAuthMiddleware(mcpHandler)
+				}
+				r.Post("/mcp", mcpHandler.ServeHTTP)
 			}
 		})
 	})
@@ -100,6 +104,7 @@ type routerOptions struct {
 	globalMiddlewares []func(http.Handler) http.Handler
 	authMiddleware    func(http.Handler) http.Handler
 	apiAuthMiddleware func(http.Handler) http.Handler
+	mcpAuthMiddleware func(http.Handler) http.Handler
 	ingestHandlers    *IngestHandlers
 	mcpHandler        http.Handler
 }
@@ -123,6 +128,12 @@ func WithAuthMiddleware(middleware func(http.Handler) http.Handler) RouterOption
 func WithAPIAuthMiddleware(middleware func(http.Handler) http.Handler) RouterOption {
 	return func(opts *routerOptions) {
 		opts.apiAuthMiddleware = middleware
+	}
+}
+
+func WithMCPAuthMiddleware(middleware func(http.Handler) http.Handler) RouterOption {
+	return func(opts *routerOptions) {
+		opts.mcpAuthMiddleware = middleware
 	}
 }
 

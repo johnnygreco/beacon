@@ -34,8 +34,8 @@ func TestDashboardAuthOptionsNonLoopbackRequiresProtection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dashboardAuthOptions reverse-proxy: %v", err)
 	}
-	if len(options) != 0 {
-		t.Fatalf("reverse-proxy options = %d, want none", len(options))
+	if len(options) != 1 {
+		t.Fatalf("reverse-proxy options = %d, want MCP middleware option", len(options))
 	}
 
 	cfg.Auth.Mode = config.AuthModeOwnerToken

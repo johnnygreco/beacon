@@ -24,7 +24,8 @@ func dashboardAuthOptions(ctx context.Context, cfg *config.Config, store *contro
 	if !isLoopbackHost(cfg.Server.Host) {
 		switch cfg.Auth.Mode {
 		case config.AuthModeReverseProxy:
-			return nil, nil
+			options = append(options, web.WithMCPAuthMiddleware(readTokenAPIMiddleware(store, cfg.Auth.CookieName)))
+			return options, nil
 		case config.AuthModeOwnerToken:
 			if !cfg.Auth.AllowInsecureOwnerHTTP {
 				return nil, fmt.Errorf("auth.mode %q on non-loopback HTTP requires auth.allow_insecure_owner_http = true or a trusted TLS reverse proxy with auth.mode %q",

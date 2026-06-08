@@ -37,11 +37,6 @@ func runMCP(cmd *cobra.Command, args []string) error {
 	// All logging to stderr (stdout is the transport)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
-	cfg, err := config.Load(cfgFile)
-	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
-	}
-
 	remoteURL := firstNonEmptyString(mcpRemoteURL, os.Getenv("BEACON_MCP_URL"))
 	if remoteURL != "" {
 		endpoint, err := normalizeRemoteMCPEndpoint(remoteURL)
@@ -56,6 +51,11 @@ func runMCP(cmd *cobra.Command, args []string) error {
 		return runMCPServerLifecycle(ctxWithSignals(logger, "shutting down remote mcp..."), func(ctx context.Context) error {
 			return proxy.Serve(ctx, os.Stdin, os.Stdout)
 		})
+	}
+
+	cfg, err := config.Load(cfgFile)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
 	}
 
 	opts := storeOptionsFromConfig(cfg)

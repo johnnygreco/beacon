@@ -64,9 +64,12 @@ beacon mcp \
   --read-token-file ~/.beacon/read-token
 ```
 
-If the URL has no path, Beacon appends `/api/mcp`. Use a token that carries read
-scope. Owner/admin tokens can see the whole personal dataset; bound read tokens
-silently scope results to their node, collector, and source bindings. Returned
+The token file can contain the same owner, admin, or read-scoped token you would
+otherwise put in `BEACON_READ_TOKEN`. If the URL has no path, Beacon appends
+`/api/mcp`. Use any Beacon token that carries read scope. The owner token shown
+by `beacon init` works for a full personal dataset; admin tokens do too. Bound
+read tokens, when minted by token tooling, silently scope results to their
+configured node, collector, source, runtime, or project bindings. Returned
 payloads include `scope.auth_scope_applied` and the effective filters.
 
 Remote MCP URLs must use HTTPS for non-loopback hosts; plain HTTP is accepted
@@ -251,9 +254,10 @@ beacon up
 For remote control-plane mode, verify the URL and token:
 
 ```bash
-BEACON_MCP_URL=https://beacon.example.com/api/mcp \
-BEACON_READ_TOKEN="$BEACON_READ_TOKEN" \
-printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"ping"}' | beacon mcp
+printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"ping"}' | \
+  env BEACON_MCP_URL=https://beacon.example.com/api/mcp \
+      BEACON_READ_TOKEN="$BEACON_READ_TOKEN" \
+      beacon mcp
 ```
 
 ## Tool arguments
@@ -288,6 +292,8 @@ defaulted arguments nullable; send `null` when you want Beacon's default.
 }
 ```
 
+`limit` defaults to `25` and is capped at `100`.
+
 `open`:
 
 ```json
@@ -297,7 +303,19 @@ defaulted arguments nullable; send `null` when you want Beacon's default.
   "anchor": null,
   "open_ref": null,
   "before": null,
-  "after": null
+  "after": null,
+  "node_id": null,
+  "node_ids": null,
+  "collector_id": null,
+  "collector_ids": null,
+  "source_id": null,
+  "source_ids": null,
+  "source_name": null,
+  "source_names": null,
+  "runtime": null,
+  "runtimes": null,
+  "project_key": null,
+  "project_keys": null
 }
 ```
 
@@ -410,7 +428,11 @@ agents can state token semantics precisely. Use `beacon usage` for the same
 summary from a shell; see [usage summaries](usage.md).
 
 `open` accepts `event_id`, returned `open_ref` objects, or `session_id` with
-`anchor: "latest"`. Do not pass legacy `id` or `event_uid` arguments.
+`anchor: "latest"`. Returned `open_ref` values carry the effective scope from
+the tool result that produced them; `open` intersects that scope with any
+explicit scope filters and the token's auth scope. Direct `open` calls can also
+pass node, collector, source, runtime, and project filters. Do not pass legacy
+`id` or `event_uid` arguments.
 
 ## Safe ClickHouse Escape Hatches
 

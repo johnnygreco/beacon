@@ -9,10 +9,11 @@ import (
 )
 
 type openRef struct {
-	Type      string `json:"type"`
-	EventID   string `json:"event_id,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
-	Anchor    string `json:"anchor,omitempty"`
+	Type      string        `json:"type"`
+	EventID   string        `json:"event_id,omitempty"`
+	SessionID string        `json:"session_id,omitempty"`
+	Anchor    string        `json:"anchor,omitempty"`
+	Scope     *ScopeFilters `json:"scope,omitempty"`
 }
 
 func eventOpenRef(eventUID, sessionID string) openRef {
@@ -21,6 +22,26 @@ func eventOpenRef(eventUID, sessionID string) openRef {
 
 func sessionLatestOpenRef(sessionID string) openRef {
 	return openRef{Type: "session_latest", SessionID: beaconSessionID(sessionID), Anchor: "latest"}
+}
+
+func scopedEventOpenRef(eventUID, sessionID string, scope ScopeMetadata) openRef {
+	ref := eventOpenRef(eventUID, sessionID)
+	ref.Scope = openRefScope(scope.Filters)
+	return ref
+}
+
+func scopedSessionLatestOpenRef(sessionID string, scope ScopeMetadata) openRef {
+	ref := sessionLatestOpenRef(sessionID)
+	ref.Scope = openRefScope(scope.Filters)
+	return ref
+}
+
+func openRefScope(scope ScopeFilters) *ScopeFilters {
+	scope = normalizeScopeFilters(scope)
+	if !hasScopeFilters(scope) {
+		return nil
+	}
+	return &scope
 }
 
 func beaconEventID(eventUID string) string {
@@ -96,7 +117,7 @@ func FormatSearchResults(results []search.SearchResult, metadataOpt ...ScopeMeta
 			ToolName:    r.ToolName,
 			Model:       r.Model,
 			Provider:    r.Provider,
-			OpenRef:     eventOpenRef(r.EventUID, r.SessionID),
+			OpenRef:     scopedEventOpenRef(r.EventUID, r.SessionID, scope),
 		})
 	}
 	return mustJSON(payload)
@@ -178,7 +199,7 @@ func FormatOpenContext(events []contextEvent, targetIdx int, metadataOpt ...Scop
 			Tokens:      e.Tokens,
 			Timestamp:   e.Timestamp,
 			Target:      i == targetIdx,
-			OpenRef:     eventOpenRef(e.EventUID, e.SessionID),
+			OpenRef:     scopedEventOpenRef(e.EventUID, e.SessionID, scope),
 		})
 	}
 	return mustJSON(payload)
@@ -277,7 +298,7 @@ func FormatAgentList(agents []agentInfo, metadata sessionListMetadata, scope Sco
 			LastStartedAt:   a.LastStartedAt,
 			LastEndedAt:     a.LastEndedAt,
 			LatestSessionID: beaconSessionID(a.LatestSessionID),
-			OpenRef:         sessionLatestOpenRef(a.LatestSessionID),
+			OpenRef:         scopedSessionLatestOpenRef(a.LatestSessionID, scope),
 		})
 	}
 	return mustJSON(payload)
@@ -374,7 +395,7 @@ func FormatSessionList(sessions []sessionInfo, options ...any) string {
 			ErrorCount:    s.ErrorCount,
 			LastModel:     s.LastModel,
 			WorkingDir:    s.WorkingDir,
-			OpenRef:       sessionLatestOpenRef(s.SessionID),
+			OpenRef:       scopedSessionLatestOpenRef(s.SessionID, scope),
 		})
 	}
 	return mustJSON(payload)
@@ -390,7 +411,7 @@ func FormatUsageSummary(result usage.Result, scope ScopeMetadata) string {
 	for _, group := range result.Groups {
 		item := usageGroup{Keys: group.Keys, Totals: group.Totals}
 		if sessionID := group.Keys["session_id"]; sessionID != "" {
-			ref := sessionLatestOpenRef(sessionID)
+			ref := scopedSessionLatestOpenRef(sessionID, scope)
 			item.OpenRef = &ref
 		}
 		groups = append(groups, item)

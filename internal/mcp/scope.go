@@ -164,6 +164,24 @@ func (s ScopeFilters) eventSQLAndClause(alias, cwdExpr string) (string, []any) {
 	return " AND " + strings.Join(predicates, " AND "), args
 }
 
+func (s ScopeFilters) eventAndSessionProjectSQLAndClause(eventAlias, cwdExpr, sessionAlias string) (string, []any) {
+	rawScope := s
+	rawScope.ProjectKeys = nil
+	predicates, args := rawScope.eventSQLPredicates(eventAlias, cwdExpr)
+	projectKeys := compactScopeValues(s.ProjectKeys)
+	if len(projectKeys) > 0 {
+		projectExpr := projectKeyExpr(cwdExpr)
+		if strings.TrimSpace(sessionAlias) != "" {
+			projectExpr = "COALESCE(NULLIF(" + projectExpr + ", ''), if(COALESCE(" + sessionAlias + ".project_count, 0) <= 1, NULLIF(" + sessionAlias + ".project_key, ''), ''))"
+		}
+		appendScopePredicate(&predicates, &args, projectExpr, projectKeys)
+	}
+	if len(predicates) == 0 {
+		return "", nil
+	}
+	return " AND " + strings.Join(predicates, " AND "), args
+}
+
 func (s ScopeFilters) sqlPredicates(alias string) ([]string, []any) {
 	if s.denyAll {
 		return []string{"0 = 1"}, nil

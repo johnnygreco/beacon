@@ -141,6 +141,49 @@ func TestRouterMCPRouteUsesAPIAuthMiddleware(t *testing.T) {
 	}
 }
 
+func TestRouterMCPRouteUsesDedicatedMCPAuthMiddleware(t *testing.T) {
+	router := NewRouter(
+		fstest.MapFS{"app.js": &fstest.MapFile{Data: []byte("ok")}},
+		nil,
+		nil,
+		nil,
+		WithMCPAuthMiddleware(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer mcp-token" {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				next.ServeHTTP(w, r)
+			})
+		}),
+		WithMCPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})),
+	)
+
+	apiReq := httptest.NewRequest(http.MethodGet, "/api/status", nil)
+	apiRec := httptest.NewRecorder()
+	router.ServeHTTP(apiRec, apiReq)
+	if apiRec.Code == http.StatusUnauthorized {
+		t.Fatalf("dedicated MCP auth unexpectedly protected /api/status")
+	}
+
+	mcpReq := httptest.NewRequest(http.MethodPost, "/api/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"initialized"}`))
+	mcpRec := httptest.NewRecorder()
+	router.ServeHTTP(mcpRec, mcpReq)
+	if mcpRec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized MCP status = %d, want %d", mcpRec.Code, http.StatusUnauthorized)
+	}
+
+	mcpReq = httptest.NewRequest(http.MethodPost, "/api/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"initialized"}`))
+	mcpReq.Header.Set("Authorization", "Bearer mcp-token")
+	mcpRec = httptest.NewRecorder()
+	router.ServeHTTP(mcpRec, mcpReq)
+	if mcpRec.Code != http.StatusNoContent {
+		t.Fatalf("authorized MCP status = %d, want %d", mcpRec.Code, http.StatusNoContent)
+	}
+}
+
 func TestLoopbackHostMiddlewareRejectsDNSRebindingHosts(t *testing.T) {
 	middleware := LoopbackHostMiddleware("127.0.0.1")
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
