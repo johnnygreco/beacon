@@ -280,6 +280,35 @@ func (s *Store) CompleteReset(ctx context.Context) (*Snapshot, error) {
 	return s.Snapshot(ctx)
 }
 
+func (s *Store) SetSchemaEpoch(ctx context.Context, epoch string) (*Snapshot, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("control-plane metadata store is nil")
+	}
+	epoch = strings.TrimSpace(epoch)
+	if epoch == "" {
+		return nil, fmt.Errorf("schema_epoch is required")
+	}
+	if _, err := parseSchemaEpoch(epoch); err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin schema epoch metadata transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := ensureMetadataValue(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
+		return nil, err
+	}
+	if err := setMetadataValue(ctx, tx, "schema_epoch", epoch, now); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit schema epoch metadata: %w", err)
+	}
+	return s.Snapshot(ctx)
+}
+
 func ensureLocalTx(ctx context.Context, tx *sql.Tx, boot Bootstrap, now time.Time) (Bootstrap, error) {
 	if _, err := ensureMetadataValue(ctx, tx, "owner_instance_id", generatedID("owner"), now); err != nil {
 		return Bootstrap{}, err
@@ -639,11 +668,19 @@ func incrementSchemaEpoch(epoch string) (string, error) {
 	if epoch == "" {
 		epoch = InitialSchemaEpoch
 	}
-	value, err := strconv.ParseUint(epoch, 10, 64)
+	value, err := parseSchemaEpoch(epoch)
 	if err != nil {
-		return "", fmt.Errorf("schema_epoch %q is not a positive integer", epoch)
+		return "", err
 	}
 	return strconv.FormatUint(value+1, 10), nil
+}
+
+func parseSchemaEpoch(epoch string) (uint64, error) {
+	value, err := strconv.ParseUint(epoch, 10, 64)
+	if err != nil || value == 0 {
+		return 0, fmt.Errorf("schema_epoch %q is not a positive integer", epoch)
+	}
+	return value, nil
 }
 
 func upsertNode(ctx context.Context, tx *sql.Tx, boot Bootstrap, now time.Time) error {

@@ -218,6 +218,39 @@ func TestIngestEnrollCompletesRemoteEnrollment(t *testing.T) {
 	}
 }
 
+func TestIngestEnrollRejectsResetPendingWithoutUsingToken(t *testing.T) {
+	control, enrollToken := testEnrollControlPlane(t)
+	if _, err := control.BeginReset(context.Background()); err != nil {
+		t.Fatalf("BeginReset: %v", err)
+	}
+	handler := NewIngestHandlers(control, &fakeIngestCommitter{}, 0, 0, nil, nil)
+	req := ingest.EnrollRequest{
+		Schema: ingest.SchemaV1,
+		Bootstrap: ingest.EnrollBootstrap{
+			NodeName: "Remote",
+			Sources: []ingest.EnrollSourceRegistration{{
+				Name:      "codex",
+				Runtime:   models.RuntimeCodex,
+				Provider:  models.ProviderOpenAI,
+				Format:    models.FormatJSONL,
+				WatchRoot: "~/.codex",
+			}},
+		},
+	}
+
+	rec := postIngestJSON(t, handler.Enroll, req, enrollToken)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d body=%s, want 503", rec.Code, rec.Body.String())
+	}
+	if _, err := control.AuthenticateToken(context.Background(), controlplane.AuthenticateTokenRequest{
+		Plaintext:      enrollToken,
+		AllowedTypes:   []string{controlplane.TokenTypeEnroll},
+		RequiredScopes: []string{controlplane.ScopeEnroll},
+	}); err != nil {
+		t.Fatalf("enrollment token after reset-pending rejection = %v, want still active", err)
+	}
+}
+
 func TestReplacementIngestUseRevokesOlderCollectorToken(t *testing.T) {
 	control, enrollToken := testEnrollControlPlane(t)
 	handler := NewIngestHandlers(control, &fakeIngestCommitter{}, 0, 0, nil, nil)
@@ -288,6 +321,74 @@ func TestReplacementIngestUseRevokesOlderCollectorToken(t *testing.T) {
 	})
 	if !errors.Is(err, controlplane.ErrTokenRevoked) {
 		t.Fatalf("old ingest token after replacement batch = %v, want revoked", err)
+	}
+}
+
+func TestReplacementBatchWithInvalidCheckpointDoesNotRevokeOlderToken(t *testing.T) {
+	control, enrollToken := testEnrollControlPlane(t)
+	handler := NewIngestHandlers(control, &fakeIngestCommitter{}, 0, 0, nil, nil)
+	boot := ingest.EnrollBootstrap{
+		NodeName: "Remote",
+		Sources: []ingest.EnrollSourceRegistration{{
+			Name:      "codex",
+			Runtime:   models.RuntimeCodex,
+			Provider:  models.ProviderOpenAI,
+			Format:    models.FormatJSONL,
+			WatchRoot: "~/.codex",
+		}},
+	}
+	first := postIngestJSON(t, handler.Enroll, ingest.EnrollRequest{Schema: ingest.SchemaV1, Bootstrap: boot}, enrollToken)
+	if first.Code != http.StatusOK {
+		t.Fatalf("first enroll status = %d body=%s, want 200", first.Code, first.Body.String())
+	}
+	var firstResp ingest.EnrollResponse
+	if err := json.Unmarshal(first.Body.Bytes(), &firstResp); err != nil {
+		t.Fatalf("decode first enrollment: %v", err)
+	}
+	secondEnroll, err := control.CreateToken(context.Background(), controlplane.CreateTokenRequest{Type: controlplane.TokenTypeEnroll})
+	if err != nil {
+		t.Fatalf("CreateToken second enroll: %v", err)
+	}
+	boot.NodeID = firstResp.Assignment.NodeID
+	boot.CollectorID = firstResp.Assignment.CollectorID
+	second := postIngestJSON(t, handler.Enroll, ingest.EnrollRequest{
+		Schema:              ingest.SchemaV1,
+		Bootstrap:           boot,
+		ExistingIngestToken: firstResp.IngestToken,
+	}, secondEnroll.Plaintext)
+	if second.Code != http.StatusOK {
+		t.Fatalf("second enroll status = %d body=%s, want 200", second.Code, second.Body.String())
+	}
+	var secondResp ingest.EnrollResponse
+	if err := json.Unmarshal(second.Body.Bytes(), &secondResp); err != nil {
+		t.Fatalf("decode second enrollment: %v", err)
+	}
+
+	batch := testIngestBatchRequest(t, secondResp.Assignment.SourceIDs[0])
+	batch.BatchID = "batch-invalid-checkpoint"
+	batch.NodeID = secondResp.Assignment.NodeID
+	batch.CollectorID = secondResp.Assignment.CollectorID
+	batch.SourceIDs = secondResp.Assignment.SourceIDs
+	batch.Checkpoints = []models.Checkpoint{{
+		SourceName: "unknown",
+		SourceFile: "session.jsonl",
+		LastOffset: 32,
+		LastLineNo: 1,
+	}}
+	batch.PayloadDigest = computeTestBatchDigest(t, batch)
+	rec := postIngestJSON(t, handler.Batch, batch, secondResp.IngestToken)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("batch status = %d body=%s, want 403", rec.Code, rec.Body.String())
+	}
+	if _, err := control.AuthenticateToken(context.Background(), controlplane.AuthenticateTokenRequest{
+		Plaintext:      firstResp.IngestToken,
+		AllowedTypes:   []string{controlplane.TokenTypeIngest},
+		RequiredScopes: []string{controlplane.ScopeIngest},
+		NodeID:         firstResp.Assignment.NodeID,
+		CollectorID:    firstResp.Assignment.CollectorID,
+		SourceID:       firstResp.Assignment.SourceIDs[0],
+	}); err != nil {
+		t.Fatalf("old ingest token after rejected replacement batch = %v, want still active", err)
 	}
 }
 

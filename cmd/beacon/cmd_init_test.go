@@ -323,9 +323,10 @@ func TestRunRemoteEnrollPersistsTokenBeforeAssignmentVerification(t *testing.T) 
 		_ = json.NewEncoder(w).Encode(ingest.EnrollResponse{
 			Schema: ingest.SchemaV1,
 			Assignment: ingest.EnrollAssignment{
-				NodeID:      "node-remote",
-				CollectorID: "collector-remote",
-				SourceIDs:   []string{"source-remote"},
+				NodeID:            "node-remote",
+				CollectorID:       "collector-remote",
+				ControlPlaneEpoch: "1",
+				SourceIDs:         []string{"source-remote"},
 				Sources: []ingest.EnrollSourceAssignment{{
 					Name:     "unknown-source",
 					SourceID: "source-remote",
@@ -441,7 +442,20 @@ func TestRunRemoteEnrollPrintsConfigAndCollectorUsesAssignedMetadata(t *testing.
 	if err != nil {
 		t.Fatalf("read first ingest token: %v", err)
 	}
+	if snapshot.SchemaEpoch != controlplane.InitialSchemaEpoch {
+		t.Fatalf("first local schema epoch = %q, want %q", snapshot.SchemaEpoch, controlplane.InitialSchemaEpoch)
+	}
 
+	if _, err := control.BeginReset(context.Background()); err != nil {
+		t.Fatalf("BeginReset server: %v", err)
+	}
+	resetSnapshot, err := control.CompleteReset(context.Background())
+	if err != nil {
+		t.Fatalf("CompleteReset server: %v", err)
+	}
+	if resetSnapshot.SchemaEpoch != "2" {
+		t.Fatalf("server schema epoch after reset = %q, want 2", resetSnapshot.SchemaEpoch)
+	}
 	secondEnroll, err := control.CreateToken(context.Background(), controlplane.CreateTokenRequest{Type: controlplane.TokenTypeEnroll})
 	if err != nil {
 		t.Fatalf("CreateToken second enroll: %v", err)
@@ -461,6 +475,9 @@ func TestRunRemoteEnrollPrintsConfigAndCollectorUsesAssignedMetadata(t *testing.
 	}
 	if snapshot.LocalNodeID != firstNodeID || snapshot.LocalCollectorID != firstCollectorID {
 		t.Fatalf("second enroll assignment = %s/%s, want existing %s/%s", snapshot.LocalNodeID, snapshot.LocalCollectorID, firstNodeID, firstCollectorID)
+	}
+	if snapshot.SchemaEpoch != "2" {
+		t.Fatalf("second local schema epoch = %q, want server epoch 2 after reset", snapshot.SchemaEpoch)
 	}
 	secondToken, err := os.ReadFile(cfg.Fleet.IngestTokenFile)
 	if err != nil {

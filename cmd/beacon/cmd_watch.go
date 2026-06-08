@@ -82,6 +82,13 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 
+	pidPath, err := writePIDFile()
+	if err != nil {
+		logger.Warn("failed to write pidfile", "path", pidPath, "error", err)
+	} else {
+		defer removePIDFile(pidPath)
+	}
+
 	bg := newBackgroundGroup(ctx, cancel, logger)
 	bg.Go("signal handler", signalCancelWorker(sigCh, cancel, logger, "shutting down capture..."))
 

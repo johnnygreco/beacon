@@ -459,6 +459,14 @@ func TestServiceResetPendingPausesScanAndResumesAfterAck(t *testing.T) {
 			http.Error(w, `{"error":"control-plane reset pending"}`, http.StatusServiceUnavailable)
 			return
 		}
+		if r.URL.Path == "/api/ingest/v1/heartbeats" {
+			_ = json.NewEncoder(w).Encode(ingest.HeartbeatResponse{
+				Schema:            ingest.SchemaV1,
+				Status:            "ok",
+				ControlPlaneEpoch: "1",
+			})
+			return
+		}
 		req := decodeGzipBatch(t, r)
 		_ = json.NewEncoder(w).Encode(ingest.BatchAck{
 			Status:            ingest.StatusCommitted,
@@ -496,6 +504,9 @@ func TestServiceResetPendingPausesScanAndResumesAfterAck(t *testing.T) {
 	}
 
 	resetPending.Store(false)
+	if err := service.SendHeartbeat(context.Background()); err != nil {
+		t.Fatalf("SendHeartbeat after reset cleared: %v", err)
+	}
 	if err := service.SendPending(context.Background()); err != nil {
 		t.Fatalf("SendPending after reset cleared: %v", err)
 	}
@@ -518,7 +529,9 @@ func TestServiceResetPendingPausesScanAndResumesAfterAck(t *testing.T) {
 }
 
 func TestServiceEpochMismatchBlocksScanUntilReenrollment(t *testing.T) {
+	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts.Add(1)
 		http.Error(w, `{"error":"control_plane_epoch mismatch"}`, http.StatusConflict)
 	}))
 	defer server.Close()
@@ -544,6 +557,12 @@ func TestServiceEpochMismatchBlocksScanUntilReenrollment(t *testing.T) {
 	}
 	if len(pending) != 1 || pending[0].Request.Sequence != 1 {
 		t.Fatalf("pending while epoch blocked = %#v, want original stale batch only", pending)
+	}
+	if err := service.SendPending(context.Background()); !errors.Is(err, ErrEpochMismatch) {
+		t.Fatalf("second SendPending epoch mismatch = %v, want ErrEpochMismatch", err)
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Fatalf("epoch mismatch send attempts = %d, want no retry after local block", got)
 	}
 }
 

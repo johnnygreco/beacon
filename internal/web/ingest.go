@@ -147,11 +147,6 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
-		h.internalError(w, "retire older ingest tokens", err)
-		return
-	}
-
 	rows := capture.BuildRowBatch(req.Events, h.defaultInput, h.defaultOutput, identity, capture.RowBatchMetadata{
 		BatchID:          req.BatchID,
 		RedactionStatus:  "redacted",
@@ -182,6 +177,10 @@ func (h *IngestHandlers) Batch(w http.ResponseWriter, r *http.Request) {
 	}, rows)
 	if err != nil {
 		h.commitError(w, err)
+		return
+	}
+	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
+		h.internalError(w, "retire older ingest tokens", err)
 		return
 	}
 	if h.notify != nil && len(rows.ActivityEvents) > 0 {
@@ -238,16 +237,16 @@ func (h *IngestHandlers) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		h.jsonError(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
-		h.internalError(w, "retire older ingest tokens", err)
-		return
-	}
 	if h.heartbeatRecorder == nil {
 		h.internalError(w, "heartbeat storage is not configured", errors.New("missing heartbeat recorder"))
 		return
 	}
 	if err := h.heartbeatRecorder.InsertCaptureHeartbeats(r.Context(), heartbeatRows(req, sourceByID)); err != nil {
 		h.internalError(w, "write collector heartbeat", err)
+		return
+	}
+	if err := h.control.RevokeOlderActiveIngestTokensForCollector(r.Context(), *tokenRecord); err != nil {
+		h.internalError(w, "retire older ingest tokens", err)
 		return
 	}
 	h.jsonResponse(w, ingest.HeartbeatResponse{
@@ -412,6 +411,8 @@ func (h *IngestHandlers) authError(w http.ResponseWriter, err error) {
 
 func (h *IngestHandlers) enrollmentError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, controlplane.ErrResetPending):
+		h.jsonError(w, "control-plane reset pending", http.StatusServiceUnavailable)
 	case isTokenAuthError(err):
 		h.authError(w, err)
 	case errors.Is(err, controlplane.ErrEnrollmentInvalid):

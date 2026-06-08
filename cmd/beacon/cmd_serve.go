@@ -171,12 +171,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 		Handler: router,
 	}
 
-	// Write pidfile
-	pidPath := pidfilePath()
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+	pidPath, err := writePIDFile()
+	if err != nil {
 		logger.Warn("failed to write pidfile", "path", pidPath, "error", err)
 	} else {
-		defer os.Remove(pidPath)
+		defer removePIDFile(pidPath)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -210,6 +209,24 @@ func pidfilePath() string {
 		return "/tmp/beacon.pid"
 	}
 	return filepath.Join(home, ".beacon", "beacon.pid")
+}
+
+func writePIDFile() (string, error) {
+	path := pidfilePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return path, err
+	}
+	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		return path, err
+	}
+	return path, nil
+}
+
+func removePIDFile(path string) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	_ = os.Remove(path)
 }
 
 type captureParserKey struct {

@@ -224,6 +224,12 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 
 func (s *Service) SendPending(ctx context.Context) error {
 	for {
+		if s.epochBlocked() {
+			return ErrEpochMismatch
+		}
+		if s.resetPendingBlocked() {
+			return ErrResetPending
+		}
 		if err := s.requeueInflight(); err != nil {
 			return err
 		}
@@ -743,4 +749,16 @@ func (s *Service) resetOrEpochBlocked() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.status.BlockedResetPending || s.status.BlockedEpochMismatch
+}
+
+func (s *Service) resetPendingBlocked() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.status.BlockedResetPending
+}
+
+func (s *Service) epochBlocked() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.status.BlockedEpochMismatch
 }

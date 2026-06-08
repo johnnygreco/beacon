@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -340,6 +341,55 @@ func TestRunDBResetRejectsCollectorRole(t *testing.T) {
 	err := runDBReset(cmd, nil)
 	if err == nil || !strings.Contains(err.Error(), "cannot reset control-plane ClickHouse data") {
 		t.Fatalf("runDBReset error = %v, want collector-role rejection", err)
+	}
+}
+
+func TestRunDBResetRejectsRunningLocalBeaconProcess(t *testing.T) {
+	resetConfigState(t)
+	setStdin(t, "")
+	path := pidfilePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("create pidfile dir: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		t.Fatalf("write pidfile: %v", err)
+	}
+	stubDBResetStore(t,
+		func(context.Context, store.Options) (*store.Store, error) {
+			t.Fatal("db reset opened store while local Beacon was running")
+			return nil, nil
+		},
+		func(context.Context, *sql.DB, string) error {
+			t.Fatal("db reset ran reset while local Beacon was running")
+			return nil
+		},
+	)
+
+	cmd := dbSubcommand(t, newDBCmd(), "reset")
+	if err := cmd.Flags().Set("force", "true"); err != nil {
+		t.Fatalf("set force flag: %v", err)
+	}
+	err := runDBReset(cmd, nil)
+	if err == nil || !strings.Contains(err.Error(), "stop the running local Beacon capture process") {
+		t.Fatalf("runDBReset error = %v, want running-process rejection", err)
+	}
+}
+
+func TestAcquireResetLockRejectsConcurrentReset(t *testing.T) {
+	metadataPath := filepath.Join(t.TempDir(), "control-plane.db")
+	first, err := acquireResetLock(metadataPath)
+	if err != nil {
+		t.Fatalf("acquire first reset lock: %v", err)
+	}
+	defer first.Close()
+
+	second, err := acquireResetLock(metadataPath)
+	if err == nil {
+		_ = second.Close()
+		t.Fatal("second acquireResetLock returned nil error")
+	}
+	if !strings.Contains(err.Error(), "another beacon db reset is already running") {
+		t.Fatalf("second acquireResetLock error = %v, want active reset rejection", err)
 	}
 }
 
