@@ -62,6 +62,12 @@ const baseCompletedSessions = Array.from({ length: 31 }, (_, i) => {
       id: TEST_SESSION_ID,
       title: 'Legacy migration replay',
       source: 'claude-code',
+      node_id: 'macbook-local',
+      collector_id: 'collector-macbook',
+      source_id: 'source-claude-local',
+      runtime: 'claude-code',
+      project_key: 'beacon',
+      project_path: '/Users/example/projects/beacon/very/long/dashboard/migration/worktree',
       provider: 'anthropic',
       status: 'completed',
       started_at: iso(26, -1),
@@ -76,7 +82,13 @@ const baseCompletedSessions = Array.from({ length: 31 }, (_, i) => {
       tool_call_count: 14,
       mcp_call_count: 2,
       error_count: 1,
+      attention_state: 'error',
+      attention_score: 100,
+      attention_reasons: ['errors'],
       last_model: 'claude-sonnet-4-super-long-model-name',
+      total_cost_usd: 0.42,
+      cost_event_count: 1,
+      cost_provenance: 'event_cost_usd',
       working_dir: '/Users/example/projects/beacon/very/long/dashboard/migration/worktree',
       has_session_end: true,
       subagent_count: 2,
@@ -86,6 +98,12 @@ const baseCompletedSessions = Array.from({ length: 31 }, (_, i) => {
     id: `session-completed-${String(i).padStart(3, '0')}`,
     title: i % 3 === 0 ? 'Dashboard fixture validation' : `Completed agent run ${i}`,
     source: i % 2 === 0 ? 'codex' : 'claude-code',
+    node_id: i % 2 === 0 ? 'mac-mini-codex' : 'macbook-local',
+    collector_id: i % 2 === 0 ? 'collector-mac-mini' : 'collector-macbook',
+    source_id: i % 2 === 0 ? 'source-codex-mini' : 'source-claude-local',
+    runtime: i % 2 === 0 ? 'codex' : 'claude-code',
+    project_key: i % 2 === 0 ? 'beacon' : 'dashboard',
+    project_path: i % 2 === 0 ? '/Users/example/projects/beacon' : '/Users/example/projects/beacon/subsystems/dashboard',
     provider: i % 2 === 0 ? 'openai' : 'anthropic',
     status: 'completed',
     started_at: iso(0, -i - 1),
@@ -100,7 +118,13 @@ const baseCompletedSessions = Array.from({ length: 31 }, (_, i) => {
     tool_call_count: 2 + (i % 7),
     mcp_call_count: i % 4 === 0 ? 1 : 0,
     error_count: i % 11 === 0 ? 1 : 0,
+    attention_state: i % 11 === 0 ? 'error' : 'completed',
+    attention_score: i % 11 === 0 ? 100 : 0,
+    attention_reasons: i % 11 === 0 ? ['errors'] : [],
     last_model: i % 2 === 0 ? 'gpt-5.4-codex' : 'claude-sonnet-4',
+    total_cost_usd: i % 2 === 0 ? 0.18 + i / 100 : 0,
+    cost_event_count: i % 2 === 0 ? 1 : 0,
+    cost_provenance: i % 2 === 0 ? 'event_cost_usd' : 'none',
     working_dir: i % 2 === 0 ? '/Users/example/projects/beacon' : '/Users/example/projects/beacon/subsystems/dashboard',
     has_session_end: true,
     subagent_count: 0,
@@ -133,6 +157,12 @@ const activeSessions = [
     id: ACTIVE_SESSION_ID,
     title: 'Realtime dashboard smoke run',
     source: 'claude-code',
+    node_id: 'macbook-local',
+    collector_id: 'collector-macbook',
+    source_id: 'source-claude-local',
+    runtime: 'claude-code',
+    project_key: 'beacon',
+    project_path: '/Users/example/projects/beacon',
     provider: 'anthropic',
     status: 'active',
     started_at: iso(0, -1),
@@ -147,7 +177,13 @@ const activeSessions = [
     tool_call_count: 6,
     mcp_call_count: 0,
     error_count: 0,
+    attention_state: 'running',
+    attention_score: 0,
+    attention_reasons: [],
     last_model: 'claude-sonnet-4',
+    total_cost_usd: 0.12,
+    cost_event_count: 1,
+    cost_provenance: 'event_cost_usd',
     working_dir: '/Users/example/projects/beacon',
     has_session_end: false,
     subagent_count: 1,
@@ -156,6 +192,12 @@ const activeSessions = [
         id: 'active-child-001',
         title: 'Live child worker',
         source: 'claude-code',
+        node_id: 'macbook-local',
+        collector_id: 'collector-macbook',
+        source_id: 'source-claude-local',
+        runtime: 'claude-code',
+        project_key: 'beacon',
+        project_path: '/Users/example/projects/beacon',
         provider: 'anthropic',
         status: 'active',
         started_at: iso(0, -1),
@@ -170,6 +212,9 @@ const activeSessions = [
         tool_call_count: 2,
         mcp_call_count: 0,
         error_count: 0,
+        attention_state: 'running',
+        attention_score: 0,
+        attention_reasons: [],
         last_model: 'claude-haiku-4',
         working_dir: '/Users/example/projects/beacon',
         parent_session_id: ACTIVE_SESSION_ID,
@@ -220,8 +265,19 @@ function manyActiveSessions() {
       ...modelCase,
       id: `active-parent-${String(i + 1).padStart(3, '0')}`,
       title: `Live queue item ${i + 1}`,
+      source: i % 3 === 0 ? 'hermes' : (modelCase.provider === 'openai' ? 'codex' : 'claude-code'),
+      node_id: i % 3 === 0 ? 'hermes-cloud' : (modelCase.provider === 'openai' ? 'mac-mini-codex' : 'macbook-local'),
+      collector_id: i % 3 === 0 ? 'collector-hermes-cloud' : (modelCase.provider === 'openai' ? 'collector-mac-mini' : 'collector-macbook'),
+      source_id: i % 3 === 0 ? 'source-hermes-cloud' : (modelCase.provider === 'openai' ? 'source-codex-mini' : 'source-claude-local'),
+      runtime: i % 3 === 0 ? 'hermes-agent' : (modelCase.provider === 'openai' ? 'codex' : 'claude-code'),
+      project_key: i % 3 === 0 ? 'hermes' : 'beacon',
+      project_path: i % 3 === 0 ? '/srv/hermes/work/beacon' : '/Users/example/projects/beacon',
       total_tokens: 15000 + i * 4300,
       tool_call_count: 3 + i,
+      error_count: i === 2 ? 3 : 0,
+      attention_state: i === 2 ? 'error' : 'running',
+      attention_score: i === 2 ? 300 : 0,
+      attention_reasons: i === 2 ? ['errors'] : [],
       child_sessions: [],
     };
   });
@@ -297,6 +353,27 @@ function scopeMetadata(url?: URL) {
 		if (values.length > 0) filters[field] = values;
 	}
 	return { auth_scope_applied: false, filters };
+}
+
+function matchesScopeValue(value: unknown, values: string[]) {
+  if (values.length === 0) return true;
+  return values.includes(String(value || '').trim());
+}
+
+function sessionMatchesScope(session: Record<string, unknown>, url?: URL) {
+  const sourceName = Object.prototype.hasOwnProperty.call(session, 'source')
+    ? session.source
+    : session.source_name;
+  return matchesScopeValue(session.node_id, scopeValues(url, 'node_id', 'node_ids')) &&
+    matchesScopeValue(session.collector_id, scopeValues(url, 'collector_id', 'collector_ids')) &&
+    matchesScopeValue(session.source_id, scopeValues(url, 'source_id', 'source_ids')) &&
+    matchesScopeValue(sourceName, scopeValues(url, 'source_name', 'source_names')) &&
+    matchesScopeValue(session.runtime, scopeValues(url, 'runtime', 'runtimes')) &&
+    matchesScopeValue(session.project_key, scopeValues(url, 'project_key', 'project_keys'));
+}
+
+function filterSessionsByScope<T extends Record<string, unknown>>(items: T[], url?: URL) {
+  return items.filter((item) => sessionMatchesScope(item, url));
 }
 
 function chartPayload(scenario: Scenario, range = '24h', url?: URL) {
@@ -429,6 +506,11 @@ function activityItems(scenario: Scenario, range = '24h') {
       type: 'tool_call',
       summary: rangeLabel ? `${rangeLabel}: Read dashboard fixture payload` : 'Read dashboard fixture payload',
       session_id: TEST_SESSION_ID,
+      node_id: 'macbook-local',
+      collector_id: 'collector-macbook',
+      source_id: 'source-claude-local',
+      source_name: 'claude',
+      runtime: 'claude-code',
       provider: 'anthropic',
       timestamp: iso(0, -1),
       relative_time: '26d ago',
@@ -438,6 +520,11 @@ function activityItems(scenario: Scenario, range = '24h') {
       type: 'message',
       summary: 'Agent summarized the dashboard state',
       session_id: 'session-completed-001',
+      node_id: 'mac-mini-codex',
+      collector_id: 'collector-mac-mini',
+      source_id: 'source-codex-mini',
+      source_name: 'codex',
+      runtime: 'codex',
       provider: 'openai',
       timestamp: iso(0, -2),
       relative_time: '2h ago',
@@ -447,6 +534,11 @@ function activityItems(scenario: Scenario, range = '24h') {
       type: 'error',
       summary: 'Model request returned a recoverable error',
       session_id: 'session-completed-011',
+      node_id: 'macbook-local',
+      collector_id: 'collector-macbook',
+      source_id: 'source-claude-local',
+      source_name: 'claude',
+      runtime: 'claude-code',
       provider: 'anthropic',
       timestamp: iso(0, -3),
       relative_time: '3h ago',
@@ -456,6 +548,11 @@ function activityItems(scenario: Scenario, range = '24h') {
       type: 'tool_error',
       summary: 'Shell command exited non-zero',
       session_id: 'session-completed-022',
+      node_id: 'mac-mini-codex',
+      collector_id: 'collector-mac-mini',
+      source_id: 'source-codex-mini',
+      source_name: 'codex',
+      runtime: 'codex',
       provider: 'openai',
       timestamp: iso(0, -4),
       relative_time: '4h ago',
@@ -467,11 +564,157 @@ function activityItems(scenario: Scenario, range = '24h') {
       type: i % 2 === 0 ? 'error' : 'tool_error',
       summary: `Repeated error burst ${i + 1}`,
       session_id: `session-completed-${String(i + 1).padStart(3, '0')}`,
+      node_id: i % 2 === 0 ? 'macbook-local' : 'mac-mini-codex',
+      collector_id: i % 2 === 0 ? 'collector-macbook' : 'collector-mac-mini',
+      source_id: i % 2 === 0 ? 'source-claude-local' : 'source-codex-mini',
+      source_name: i % 2 === 0 ? 'claude' : 'codex',
+      runtime: i % 2 === 0 ? 'claude-code' : 'codex',
       provider: i % 2 === 0 ? 'anthropic' : 'openai',
       timestamp: iso(0, -5 - i),
       relative_time: `${5 + i}h ago`,
     }))]
     : base;
+}
+
+function fleetPayload(scenario: Scenario, url?: URL) {
+  const empty = scenario === 'empty';
+  const nodes = empty ? [] : [
+    {
+      node_id: 'macbook-local',
+      label: 'MacBook Local',
+      status: 'online',
+      collector_count: 1,
+      collectors: ['collector-macbook'],
+      sources: ['claude'],
+      runtimes: ['claude-code'],
+      projects: ['beacon', 'dashboard'],
+      active_sessions: scenario === 'many-active' ? 3 : 1,
+      attention_sessions: scenario === 'error-heavy' ? 2 : 1,
+      total_sessions: 18,
+      total_tokens: 240000,
+      error_count: scenario === 'error-heavy' ? 7 : 1,
+      queue_depth: 0,
+      spool_bytes: 0,
+      active_files: 2,
+      heartbeat_error_count: 0,
+      last_seen_label: 'just now',
+      heartbeat_status: 'online',
+      sources_detail: [
+        {
+          collector_id: 'collector-macbook',
+          source_id: 'source-claude-local',
+          source_name: 'claude',
+          status: 'online',
+          queue_depth: 0,
+          spool_bytes: 0,
+          active_files: 2,
+          error_count: 0,
+        },
+      ],
+    },
+    {
+      node_id: 'mac-mini-codex',
+      label: 'Mac mini Codex',
+      status: scenario === 'error-heavy' ? 'stale' : 'online',
+      collector_count: 1,
+      collectors: ['collector-mac-mini'],
+      sources: ['codex'],
+      runtimes: ['codex'],
+      projects: ['beacon'],
+      active_sessions: scenario === 'many-active' ? 3 : 0,
+      attention_sessions: scenario === 'error-heavy' ? 4 : 0,
+      total_sessions: 22,
+      total_tokens: 310000,
+      error_count: scenario === 'error-heavy' ? 9 : 1,
+      queue_depth: scenario === 'error-heavy' ? 9 : 1,
+      spool_bytes: scenario === 'error-heavy' ? 65536 : 2048,
+      active_files: 5,
+      heartbeat_error_count: scenario === 'error-heavy' ? 2 : 0,
+      last_seen_label: scenario === 'error-heavy' ? '4m ago' : '35s ago',
+      heartbeat_status: scenario === 'error-heavy' ? 'stale' : 'online',
+      sources_detail: [
+        {
+          collector_id: 'collector-mac-mini',
+          source_id: 'source-codex-mini',
+          source_name: 'codex',
+          status: scenario === 'error-heavy' ? 'stale' : 'online',
+          queue_depth: scenario === 'error-heavy' ? 9 : 1,
+          spool_bytes: scenario === 'error-heavy' ? 65536 : 2048,
+          active_files: 5,
+          error_count: scenario === 'error-heavy' ? 2 : 0,
+        },
+      ],
+    },
+    {
+      node_id: 'hermes-cloud',
+      label: 'Hermes Cloud',
+      status: 'offline',
+      collector_count: 1,
+      collectors: ['collector-hermes-cloud'],
+      sources: ['hermes'],
+      runtimes: ['hermes-agent'],
+      projects: ['hermes'],
+      active_sessions: scenario === 'many-active' ? 2 : 0,
+      attention_sessions: scenario === 'many-active' ? 1 : 0,
+      total_sessions: 6,
+      total_tokens: 92000,
+      error_count: 0,
+      queue_depth: 0,
+      spool_bytes: 0,
+      active_files: 0,
+      heartbeat_error_count: 0,
+      last_seen_label: '18m ago',
+      heartbeat_status: 'offline',
+      sources_detail: [
+        {
+          collector_id: 'collector-hermes-cloud',
+          source_id: 'source-hermes-cloud',
+          source_name: 'hermes',
+          status: 'offline',
+          queue_depth: 0,
+          spool_bytes: 0,
+          active_files: 0,
+          error_count: 0,
+        },
+      ],
+    },
+  ];
+  const nodeScope = new Set(scopeValues(url, 'node_id', 'node_ids'));
+  const runtimeScope = new Set(scopeValues(url, 'runtime', 'runtimes'));
+  const filtered = nodes.filter((node) => {
+    if (nodeScope.size > 0 && !nodeScope.has(node.node_id)) return false;
+    if (runtimeScope.size > 0 && !node.runtimes.some((runtime) => runtimeScope.has(runtime))) return false;
+    return true;
+  });
+  const totals = filtered.reduce((acc, node) => {
+    acc.node_count += 1;
+    acc.collector_count += node.collector_count;
+    if (node.status === 'online') acc.online_collectors += node.collector_count;
+    else if (node.status === 'stale') acc.stale_collectors += node.collector_count;
+    else acc.offline_collectors += node.collector_count;
+    acc.active_sessions += node.active_sessions;
+    acc.attention_sessions += node.attention_sessions;
+    acc.total_sessions += node.total_sessions;
+    acc.total_tokens += node.total_tokens;
+    acc.queue_depth += node.queue_depth;
+    acc.spool_bytes += node.spool_bytes;
+    acc.heartbeat_error_count += node.heartbeat_error_count;
+    return acc;
+  }, {
+    node_count: 0,
+    collector_count: 0,
+    online_collectors: 0,
+    stale_collectors: 0,
+    offline_collectors: 0,
+    active_sessions: 0,
+    attention_sessions: 0,
+    total_sessions: 0,
+    total_tokens: 0,
+    queue_depth: 0,
+    spool_bytes: 0,
+    heartbeat_error_count: 0,
+  });
+  return { scope: scopeMetadata(url), totals, nodes: filtered };
 }
 
 function dashboardSearchBaseResults() {
@@ -645,14 +888,14 @@ function completedForRequest(url: URL, scenario: Scenario) {
   const range = panelRange(url, ['completed_range', 'range', 'search_range']);
   const offset = Number(url.searchParams.get('offset') || 0);
   const limit = Number(url.searchParams.get('limit') || 30);
-  let source = query
+  let source = filterSessionsByScope(query
     ? baseCompletedSessions.filter((s) => {
       const metadata = [s.id, s.title, s.last_model, s.working_dir, s.provider].join(' ').toLowerCase();
       const indexedEventText = s.id === TEST_SESSION_ID ? 'read dashboard fixture payload' : '';
       const queryTokens = query.split(/\s+/).filter(Boolean);
       return metadata.includes(query) || (queryTokens.length > 0 && queryTokens.every((token) => indexedEventText.includes(token)));
     })
-    : baseCompletedSessions;
+    : baseCompletedSessions, url);
   const rangeLabel = rangeFixtureLabel(range);
   if (rangeLabel && !query && offset === 0) {
     source = [
@@ -672,11 +915,13 @@ function completedForRequest(url: URL, scenario: Scenario) {
     const value = (s: typeof baseCompletedSessions[number]) => {
       switch (sort) {
         case 'name': return s.title;
-        case 'provider': return s.provider;
+        case 'node': return s.node_id;
+        case 'runtime': return s.runtime;
         case 'model': return s.last_model;
         case 'tokens': return s.total_tokens;
         case 'turns': return s.turn_count;
         case 'tools': return s.tool_call_count;
+        case 'errors': return s.error_count;
         case 'duration': return durationToSeconds(s.duration);
         case 'project': return s.working_dir;
         case 'id': return s.id;
@@ -732,11 +977,11 @@ function eventsForSession() {
   ];
 }
 
-function activeForScenario(scenario: Scenario) {
+function activeForScenario(scenario: Scenario, url?: URL) {
   if (scenario === 'empty') return [];
-  if (scenario === 'many-active') return manyActiveSessions();
-  if (scenario === 'long-active') return longActiveSessions();
-  return activeSessions;
+  if (scenario === 'many-active') return filterSessionsByScope(manyActiveSessions(), url);
+  if (scenario === 'long-active') return filterSessionsByScope(longActiveSessions(), url);
+  return filterSessionsByScope(activeSessions, url);
 }
 
 function initialStorageForScenario(scenario: Scenario): Record<string, string> {
@@ -939,7 +1184,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
 				limit: 30,
 				scope: scopeMetadata(url),
 				has_more: false,
-				items: activeForScenario(activeScenario),
+				items: activeForScenario(activeScenario, url),
 			}, 200, 'APIDashboardSessionsResponse');
 		}
 		const completed = completedForRequest(url, scenario);
@@ -990,12 +1235,18 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
 		return fulfillJSON(route, chartPayload(scenario, range, url), 200, 'APIDashboardCharts');
 	});
 
+  await page.route('**/api/dashboard/fleet**', async (route) => {
+    const url = new URL(route.request().url());
+    return fulfillJSON(route, fleetPayload(scenario, url), 200, 'APIDashboardFleetResponse');
+  });
+
   await page.route('**/api/dashboard/activity**', async (route) => {
     if (failures.delete('activity')) return fulfillJSON(route, { error: 'fixture failure' }, 500);
     const url = new URL(route.request().url());
     const kinds = (url.searchParams.get('event_kind') || '').split(',').filter(Boolean);
     const range = panelRange(url, ['activity_range', 'range']);
-    const items = activityItems(scenario, range).filter((item) => kinds.length === 0 || kinds.includes(item.type));
+    const items = filterSessionsByScope(activityItems(scenario, range), url)
+      .filter((item) => kinds.length === 0 || kinds.includes(item.type));
     return fulfillJSON(route, items, 200, 'APIActivityItem[]');
   });
 

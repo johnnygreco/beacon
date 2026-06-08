@@ -486,6 +486,12 @@ func TestDashboardDataEndpointsUnavailableDBReturnsError(t *testing.T) {
 			target:  "/api/dashboard/charts",
 			want:    "failed to query dashboard charts",
 		},
+		{
+			name:    "fleet",
+			handler: handlers.GetDashboardFleet,
+			target:  "/api/dashboard/fleet",
+			want:    "failed to query dashboard fleet",
+		},
 	}
 
 	for _, tt := range tests {

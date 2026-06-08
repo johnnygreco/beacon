@@ -147,6 +147,25 @@ async function toggleJSONSubagents(button) {
 }
 
 document.addEventListener('click', function(evt) {
+	var scopeButton = evt.target.closest && evt.target.closest('[data-dashboard-scope-field]');
+	if (scopeButton) {
+		evt.preventDefault();
+		evt.stopPropagation();
+		if (typeof setDashboardScope === 'function') {
+			setDashboardScope(scopeButton.getAttribute('data-dashboard-scope-field') || '', scopeButton.getAttribute('data-dashboard-scope-value') || '');
+		}
+		return;
+	}
+	var scopeClear = evt.target.closest && evt.target.closest('[data-dashboard-scope-clear]');
+	if (scopeClear) {
+		evt.preventDefault();
+		evt.stopPropagation();
+		if (typeof clearDashboardScope === 'function') {
+			var field = scopeClear.getAttribute('data-dashboard-scope-clear') || '';
+			clearDashboardScope(field === 'all' ? '' : field);
+		}
+		return;
+	}
 	var moreBtn = evt.target.closest && evt.target.closest('.dashboard-search-show-more');
 	if (moreBtn) {
 		evt.preventDefault();
@@ -362,12 +381,15 @@ document.addEventListener('click', function(evt) {
 		};
 		dashboardEvents.addEventListener('active-sessions-update', function() {
 			loadActiveSessions();
+			loadDashboardFleet();
 		});
 		dashboardEvents.addEventListener('completed-sessions-update', function() {
 			loadCompletedSessions(currentCompletedOffset, {silent: true});
+			loadDashboardFleet();
 		});
 		dashboardEvents.addEventListener('activity-update', function() {
 			loadActivity();
+			loadDashboardFleet();
 		});
 		dashboardEvents.addEventListener('dashboard-charts-update', function() {
 			loadDashboardCharts();
@@ -382,11 +404,13 @@ document.addEventListener('click', function(evt) {
 	syncDashboardChartRangeControls();
 	syncDashboardChartMetricControl();
 	syncActivityControls();
+	syncDashboardScopeControls();
 	syncSearchControls();
 	updateRangeCaption();
 	updateChartRangeCaption();
 	window.__beaconDashboardInitialLoadSettled = false;
 	var initialLoads = [
+		loadDashboardFleet(),
 		loadActiveSessions(),
 		loadCompletedSessions(currentCompletedOffset),
 		loadActivity(),

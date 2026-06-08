@@ -28,6 +28,66 @@ function providerBadge(provider) {
 	return '<span class="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide rounded ' + providerBadgeClasses(provider) + '" title="' + escapeAttr(providerShort(provider)) + '">' + escapeHTML(providerShort(provider)) + '</span>';
 }
 
+function runtimeLabel(value, fallback) {
+	value = String(value || '').trim();
+	if (!value) value = String(fallback || '').trim();
+	if (!value) return 'unknown';
+	if (value === 'claude-code') return 'Claude Code';
+	if (value === 'codex') return 'Codex';
+	if (value === 'hermes-agent') return 'Hermes';
+	return value.replace(/[-_]+/g, ' ');
+}
+
+function nodeLabel(value) {
+	value = String(value || '').trim();
+	if (!value || value === 'local') return 'Local';
+	return value;
+}
+
+function nodeBadge(value) {
+	var raw = String(value || '').trim();
+	var label = nodeLabel(raw);
+	if (!raw) return '<span class="dashboard-scope-inline-chip dashboard-scope-inline-chip-static">' + escapeHTML(label) + '</span>';
+	return '<button type="button" class="dashboard-scope-inline-chip" data-dashboard-scope-field="node_id" data-dashboard-scope-value="' + escapeAttr(raw) + '" title="Filter dashboard to node ' + escapeAttr(label) + '">' + escapeHTML(label) + '</button>';
+}
+
+function runtimeBadge(value, fallback) {
+	var raw = String(value || '').trim();
+	var label = runtimeLabel(raw, fallback);
+	if (!raw) return '<span class="dashboard-scope-inline-chip dashboard-scope-inline-chip-static dashboard-scope-inline-chip-runtime">' + escapeHTML(label) + '</span>';
+	return '<button type="button" class="dashboard-scope-inline-chip dashboard-scope-inline-chip-runtime" data-dashboard-scope-field="runtime" data-dashboard-scope-value="' + escapeAttr(raw) + '" title="Filter dashboard to runtime ' + escapeAttr(label) + '">' + escapeHTML(label) + '</button>';
+}
+
+function attentionStateLabel(state) {
+	if (state === 'error') return 'Needs attention';
+	if (state === 'stale') return 'Stale';
+	if (state === 'expensive') return 'Expensive';
+	if (state === 'blocked') return 'Blocked';
+	if (state === 'running') return 'Running';
+	if (state === 'idle') return 'Idle';
+	if (state === 'completed') return 'Completed';
+	if (state === 'archived') return 'Archived';
+	return 'Unknown';
+}
+
+function attentionBadge(session) {
+	var state = String(session.attention_state || '').trim();
+	var reasons = Array.isArray(session.attention_reasons) ? session.attention_reasons : [];
+	if (!state || state === 'running' || state === 'completed' || state === 'unknown') return '';
+	var tone = state === 'error' || state === 'blocked' ? 'danger' : (state === 'stale' || state === 'expensive' ? 'warn' : 'neutral');
+	var title = reasons.length ? reasons.join(', ') : attentionStateLabel(state);
+	return '<span class="dashboard-attention-badge dashboard-attention-badge-' + escapeAttr(tone) + '" title="' + escapeAttr(title) + '">' + escapeHTML(attentionStateLabel(state)) + '</span>';
+}
+
+function costLabel(session) {
+	var cost = numericValue(session.total_cost_usd, 0);
+	var provenance = String(session.cost_provenance || '').trim();
+	if (cost <= 0 && (!provenance || provenance === 'none')) return '';
+	var label = cost > 0 ? ('$' + cost.toFixed(cost >= 10 ? 2 : 4)) : 'cost n/a';
+	var detail = provenance && provenance !== 'none' ? provenance.replace(/_/g, ' ') : 'no cost events';
+	return '<span class="dashboard-cost-chip" title="' + escapeAttr(detail) + '">' + escapeHTML(label) + '</span>';
+}
+
 function rememberSessions(items) {
 	(items || []).filter(validSession).forEach(function(session) {
 		window.dashboardSessionIndex[session.id] = session;
@@ -240,12 +300,15 @@ function completedRow(session, isSubagent, parentID) {
 	var totalTokens = numericValue(session.total_tokens, 0);
 	var turnCount = nonNegativeInt(session.turn_count);
 	var toolCount = nonNegativeInt(session.tool_call_count);
+	var errorCount = nonNegativeInt(session.error_count);
 	var endedTime = new Date(session.ended_at || 0).getTime();
 	var endedSort = Number.isFinite(endedTime) ? Math.floor(endedTime / 1000) : 0;
+	var node = nodeLabel(session.node_id);
+	var runtime = runtimeLabel(session.runtime, session.source || session.provider);
 	var rowClass = isSubagent ? 'border-b border-gray-800/50 cursor-pointer transition-colors bg-gray-800/20' : 'border-b border-gray-800/50 cursor-pointer transition-colors';
 	var nameCellClass = isSubagent ? 'py-1.5 px-3 text-sm text-gray-400 whitespace-nowrap pl-10' : 'py-2 px-3 text-sm text-gray-300 whitespace-nowrap';
 	var endedLabel = absoluteTime(session.ended_at);
-	var mobileMeta = formatTokens(totalTokens) + ' tok · ' + turnCount + ' turns · ' + toolCount + ' tools · ' + (session.duration || endedLabel);
+	var mobileMeta = node + ' · ' + runtime + ' · ' + formatTokens(totalTokens) + ' tok · ' + toolCount + ' tools · ' + errorCount + ' err · ' + (session.duration || endedLabel);
 	var toggle = '';
 	if (!isSubagent && subagentCount > 0) {
 		toggle = '<button type="button" class="json-subagent-toggle text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0" data-session-id="' + escapeAttr(session.id) + '" title="' + subagentCount + ' subagents" aria-label="Toggle ' + subagentCount + ' subagents for ' + escapeAttr(sessionTitle(session)) + '" aria-expanded="false"><svg class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg></button>';
@@ -258,22 +321,26 @@ function completedRow(session, isSubagent, parentID) {
 	var rowActionAttrs = ' data-session-link="' + escapedSessionURL + '"';
 	var attrs = isSubagent ? ' data-parent="' + escapeAttr(parentID) + '"' : ' id="session-row-' + escapeAttr(session.id) + '"' +
 		' data-sort-name="' + escapeAttr(sessionTitle(session)) + '"' +
-		' data-sort-provider="' + escapeAttr(providerShort(session.provider)) + '"' +
+		' data-sort-node="' + escapeAttr(node) + '"' +
+		' data-sort-runtime="' + escapeAttr(runtime) + '"' +
 		' data-sort-model="' + escapeAttr(session.last_model || '') + '"' +
 		' data-sort-tokens="' + totalTokens + '"' +
 		' data-sort-turns="' + turnCount + '"' +
 		' data-sort-tools="' + toolCount + '"' +
+		' data-sort-errors="' + errorCount + '"' +
 		' data-sort-duration="' + durationSeconds(session) + '"' +
 		' data-sort-project="' + escapeAttr(session.working_dir || '') + '"' +
 		' data-sort-ended="' + endedSort + '"' +
 		' data-sort-id="' + escapeAttr(session.id) + '"';
 	return '<tr' + attrs + rowActionAttrs + ' class="' + rowClass + '">' +
 		'<td class="' + nameCellClass + '"><span class="inline-flex items-center gap-1.5">' + toggle + subPrefix + titleButton + subCount + '</span><span class="mobile-session-meta hidden">' + escapeHTML(mobileMeta) + '</span></td>' +
-		'<td class="py-2 px-3 text-xs whitespace-nowrap">' + (isSubagent ? '' : providerBadge(session.provider)) + '</td>' +
+		'<td class="py-2 px-3 text-xs whitespace-nowrap">' + (isSubagent ? '' : nodeBadge(session.node_id)) + '</td>' +
+		'<td class="py-2 px-3 text-xs whitespace-nowrap">' + (isSubagent ? '' : runtimeBadge(session.runtime, session.source || session.provider)) + '</td>' +
 		'<td class="py-2 px-3 text-xs text-gray-400 max-w-[160px] truncate" title="' + escapeAttr(session.last_model || '') + '">' + escapeHTML(shortModel(session.last_model || '')) + '</td>' +
 		'<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums">' + formatTokens(totalTokens) + '</td>' +
 		'<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums">' + turnCount + '</td>' +
 		'<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums">' + toolCount + '</td>' +
+		'<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums">' + errorCount + '</td>' +
 		'<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums whitespace-nowrap">' + escapeHTML(session.duration || '') + '</td>' +
 		'<td class="py-2 px-3 text-xs text-gray-500 max-w-[180px] truncate" title="' + escapeAttr(session.working_dir || '') + '">' + escapeHTML(session.working_dir || '') + '</td>' +
 		'<td class="py-2 px-3 text-right text-xs text-gray-500 tabular-nums whitespace-nowrap">' + escapeHTML(endedLabel) + '</td>' +
@@ -301,11 +368,11 @@ function renderCompleted(response) {
 			var prev = offset > 0 ? '<button type="button" class="json-page-btn px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors" data-offset="' + Math.max(0, offset - limit) + '">Previous</button>' : '';
 			var next = hasMore ? '<button type="button" class="json-page-btn px-3 py-1 text-xs rounded border border-gray-600 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors" data-offset="' + (offset + limit) + '">Next</button>' : '';
 			if (prev || next) {
-				rows.push('<tr class="border-none" data-pagination-row><td colspan="10" class="py-3"><div class="flex items-center justify-center gap-4">' + prev + next + '<\/div><\/td><\/tr>');
+				rows.push('<tr class="border-none" data-pagination-row><td colspan="11" class="py-3"><div class="flex items-center justify-center gap-4">' + prev + next + '<\/div><\/td><\/tr>');
 			}
 		}
 		if (rows.length === 0) {
-			rows.push('<tr><td colspan="10" class="text-center py-4"><span class="text-sm text-gray-500">' + (currentSearchQuery ? 'No sessions match your search' : 'No completed sessions') + '<\/span><\/td><\/tr>');
+			rows.push('<tr><td colspan="11" class="text-center py-4"><span class="text-sm text-gray-500">' + (currentSearchQuery ? 'No sessions match your search' : 'No completed sessions') + '<\/span><\/td><\/tr>');
 		}
 		setTextIfChanged(status, rangeLabel(completedRangeValue()));
 		var changed = setHTMLIfChanged(tbody, rows.join(''));
@@ -615,7 +682,8 @@ function activeSessionLinkContent(session, statusDot, live, sub, turnCount, tool
 		? '<span>Subagent</span><span class="font-mono">' + escapeHTML(shortID(session.id)) + '</span><span>parent ' + escapeHTML(shortID(session.parent_session_id)) + '</span>'
 		: '<span class="font-mono">' + escapeHTML(shortID(session.id)) + '</span><span>' + escapeHTML(session.status || '') + '</span>';
 	var path = session.working_dir ? '<span class="active-session-path" title="' + escapeAttr(session.working_dir) + '">' + escapeHTML(session.working_dir) + '</span>' : '';
-	var meta = modelChip(session.last_model || '') + providerBadge(session.provider) + '<span class="active-session-status ' + statusClass + '">' + statusLabel + '</span><span class="active-session-kicker">' + kicker + '</span>' + path;
+	var project = session.project_key ? '<span class="active-session-project" title="' + escapeAttr(session.project_path || session.working_dir || session.project_key) + '">' + escapeHTML(session.project_key) + '</span>' : '';
+	var meta = nodeBadge(session.node_id) + runtimeBadge(session.runtime, session.source || session.provider) + modelChip(session.last_model || '') + providerBadge(session.provider) + attentionBadge(session) + costLabel(session) + '<span class="active-session-status ' + statusClass + '">' + statusLabel + '</span><span class="active-session-kicker">' + kicker + '</span>' + project + path;
 	return '<div class="active-session-card-header">' +
 			'<div class="active-session-title-row">' + statusDot + '<div class="active-session-title">' + escapeHTML(sessionTitle(session)) + '</div></div>' +
 			activeSessionTracker(session, turnCount, toolCount, errorCount) +
@@ -626,7 +694,10 @@ function activeSessionLinkContent(session, statusDot, live, sub, turnCount, tool
 function activeCard(session, context) {
 	var live = session.status === 'active';
 	var sub = !!session.parent_session_id;
-	var border = sub ? (live ? 'active-session-card-sub' : 'active-session-card-idle') : (live ? 'active-session-card-live' : 'active-session-card-idle');
+	var attentionState = String(session.attention_state || '').trim();
+	var border = attentionState === 'error' || attentionState === 'blocked'
+		? 'active-session-card-attention'
+		: (sub ? (live ? 'active-session-card-sub' : 'active-session-card-idle') : (live ? 'active-session-card-live' : 'active-session-card-idle'));
 	var statusDot = activeStatusDot(live, sub);
 	var turnCount = nonNegativeInt(session.turn_count);
 	var toolCount = nonNegativeInt(session.tool_call_count);
@@ -686,13 +757,138 @@ function renderActivity(items) {
 	setHTMLIfChanged(feed, '<div class="activity-bar-list"><div class="activity-bar-rail" aria-hidden="true"></div>' + items.map(function(item) {
 		var url = requestURL('/sessions/' + encodeURIComponent(item.session_id || '') + '#' + encodeURIComponent(item.id || ''), {});
 		var provider = item.provider ? '<span class="px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 ' + providerBadgeClasses(item.provider) + '">' + escapeHTML(providerShort(item.provider)) + '</span>' : '';
+		var node = item.node_id ? '<span class="px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 bg-gray-700/70 text-gray-300">' + escapeHTML(nodeLabel(item.node_id)) + '</span>' : '';
+		var runtime = item.runtime ? '<span class="px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 bg-blue-500/10 text-blue-300">' + escapeHTML(runtimeLabel(item.runtime)) + '</span>' : '';
 		var sid = item.session_id ? '<span class="text-xs text-gray-600 font-mono flex-shrink-0">' + escapeHTML(shortID(item.session_id)) + '</span>' : '';
 		return '<a href="' + escapeAttr(url) + '" data-type="' + escapeAttr(item.type) + '" data-transcript-link="true" class="activity-bar-item group">' +
 			'<div class="activity-bar-dot ' + activityDotColor(item.type) + '"></div>' +
 			'<p class="activity-bar-summary">' + escapeHTML(item.summary) + '</p>' +
-			'<div class="activity-bar-meta"><span class="px-1.5 py-0.5 rounded text-xs flex-shrink-0 ' + activityBadgeStyle(item.type) + '">' + escapeHTML(activityLabel(item.type)) + '</span>' + provider + sid + '</div>' +
+			'<div class="activity-bar-meta"><span class="px-1.5 py-0.5 rounded text-xs flex-shrink-0 ' + activityBadgeStyle(item.type) + '">' + escapeHTML(activityLabel(item.type)) + '</span>' + node + runtime + provider + sid + '</div>' +
 			'</a>';
 	}).join('') + '</div>');
+}
+
+function formatBytes(value) {
+	value = numericValue(value, 0);
+	if (value >= 1024 * 1024 * 1024) return (value / (1024 * 1024 * 1024)).toFixed(1) + ' GiB';
+	if (value >= 1024 * 1024) return (value / (1024 * 1024)).toFixed(1) + ' MiB';
+	if (value >= 1024) return (value / 1024).toFixed(1) + ' KiB';
+	return String(Math.round(value)) + ' B';
+}
+
+function fleetStatusLabel(status) {
+	if (status === 'online') return 'Online';
+	if (status === 'stale') return 'Stale';
+	return 'Offline';
+}
+
+function fleetStatusClass(status) {
+	if (status === 'online') return 'dashboard-fleet-status-online';
+	if (status === 'stale') return 'dashboard-fleet-status-stale';
+	return 'dashboard-fleet-status-offline';
+}
+
+function headerMetric(label, value, tone) {
+	return '<span class="dashboard-header-fleet-pill' + (tone ? ' dashboard-header-fleet-pill-' + escapeAttr(tone) : '') + '"><strong>' + escapeHTML(value) + '</strong><span>' + escapeHTML(label) + '</span></span>';
+}
+
+function renderFleetHeader(totals) {
+	var wrap = document.getElementById('dashboard-header-fleet-metrics');
+	if (!wrap) return;
+	totals = totals || {};
+	var offline = nonNegativeInt(totals.offline_collectors) + nonNegativeInt(totals.stale_collectors);
+	setHTMLIfChanged(wrap, [
+		headerMetric('active', String(nonNegativeInt(totals.active_sessions)), ''),
+		headerMetric('online', String(nonNegativeInt(totals.online_collectors)), 'ok'),
+		headerMetric('stale/offline', String(offline), offline > 0 ? 'warn' : ''),
+		headerMetric('tokens', formatTokens(totals.total_tokens), ''),
+		headerMetric('attention', String(nonNegativeInt(totals.attention_sessions)), nonNegativeInt(totals.attention_sessions) > 0 ? 'danger' : '')
+	].join(''));
+}
+
+function activeScopeChip(field, value, label) {
+	return '<button type="button" class="dashboard-scope-chip" data-dashboard-scope-clear="' + escapeAttr(field) + '" title="Clear ' + escapeAttr(label) + ' filter"><span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(value) + '</strong></button>';
+}
+
+function syncDashboardScopeControls() {
+	var wrap = document.getElementById('dashboard-scope-chips');
+	if (!wrap) return;
+	var chips = [];
+	[
+		['node_id', 'Node'],
+		['collector_id', 'Collector'],
+		['source_id', 'Source'],
+		['source_name', 'Source'],
+		['runtime', 'Runtime'],
+		['project_key', 'Project']
+	].forEach(function(entry) {
+		var field = entry[0];
+		var label = entry[1];
+		var values = typeof dashboardScopeValues === 'function' ? dashboardScopeValues(field) : [];
+		values.forEach(function(value) {
+			chips.push(activeScopeChip(field, value, label));
+		});
+	});
+	if (chips.length > 0) {
+		chips.push('<button type="button" class="dashboard-scope-clear-all" data-dashboard-scope-clear="all">Clear all</button>');
+		setHTMLIfChanged(wrap, chips.join(''));
+	} else {
+		setHTMLIfChanged(wrap, '<span class="dashboard-scope-empty">All fleet</span>');
+	}
+}
+
+function fleetNodeCard(node) {
+	node = node || {};
+	var nodeID = node.node_id || 'local';
+	var status = node.status || 'offline';
+	var runtimes = (node.runtimes || []).slice(0, 5);
+	var sources = (node.sources || []).slice(0, 4);
+	var projects = (node.projects || []).slice(0, 3);
+	var runtimeChips = runtimes.map(function(runtime) {
+		return '<button type="button" class="dashboard-fleet-runtime" data-dashboard-scope-field="runtime" data-dashboard-scope-value="' + escapeAttr(runtime) + '">' + escapeHTML(runtimeLabel(runtime)) + '</button>';
+	}).join('');
+	var sourceText = sources.length ? sources.join(', ') : 'No source heartbeat yet';
+	var projectText = projects.length ? projects.join(', ') : 'All projects';
+	return '<article class="dashboard-fleet-node ' + fleetStatusClass(status) + '">' +
+		'<button type="button" class="dashboard-fleet-node-main" data-dashboard-scope-field="node_id" data-dashboard-scope-value="' + escapeAttr(nodeID) + '">' +
+			'<span class="dashboard-fleet-node-top"><strong>' + escapeHTML(node.label || nodeLabel(nodeID)) + '</strong><span>' + escapeHTML(fleetStatusLabel(status)) + '</span></span>' +
+			'<span class="dashboard-fleet-node-stats">' +
+				'<span><strong>' + nonNegativeInt(node.active_sessions) + '</strong> active</span>' +
+				'<span><strong>' + nonNegativeInt(node.attention_sessions) + '</strong> attention</span>' +
+				'<span><strong>' + formatTokens(node.total_tokens) + '</strong> tokens</span>' +
+			'</span>' +
+			'<span class="dashboard-fleet-node-health">' +
+				'<span>' + nonNegativeInt(node.collector_count) + ' collectors</span>' +
+				'<span>' + formatBytes(node.spool_bytes) + ' spool</span>' +
+				'<span>' + nonNegativeInt(node.queue_depth) + ' queued</span>' +
+				'<span>' + escapeHTML(node.last_seen_label || 'not seen') + '</span>' +
+			'</span>' +
+		'</button>' +
+		'<div class="dashboard-fleet-node-meta">' +
+			'<div class="dashboard-fleet-runtimes">' + (runtimeChips || '<span class="dashboard-fleet-muted">No runtimes yet</span>') + '</div>' +
+			'<p title="' + escapeAttr(sourceText) + '">' + escapeHTML(sourceText) + '</p>' +
+			'<p title="' + escapeAttr(projectText) + '">' + escapeHTML(projectText) + '</p>' +
+		'</div>' +
+	'</article>';
+}
+
+function renderFleet(response) {
+	response = response || {};
+	var nodes = Array.isArray(response.nodes) ? response.nodes : [];
+	var strip = document.getElementById('dashboard-fleet-strip');
+	var subtitle = document.getElementById('dashboard-fleet-subtitle');
+	renderFleetHeader(response.totals || {});
+	syncDashboardScopeControls();
+	if (subtitle) {
+		var totals = response.totals || {};
+		subtitle.textContent = nonNegativeInt(totals.node_count) + ' nodes · ' + nonNegativeInt(totals.collector_count) + ' collectors · ' + nonNegativeInt(totals.active_sessions) + ' active sessions';
+	}
+	if (!strip) return;
+	if (nodes.length === 0) {
+		setHTMLIfChanged(strip, '<div class="dashboard-fleet-empty">No fleet activity yet</div>');
+		return;
+	}
+	setHTMLIfChanged(strip, nodes.map(fleetNodeCard).join(''));
 }
 
 function rangeLabel(value) {
@@ -958,6 +1154,18 @@ async function loadDashboardCharts() {
 	updateDashboardCharts(result.data);
 }
 
+async function loadDashboardFleet() {
+	var result = await fetchDashboardJSON('fleet', requestURL('/api/dashboard/fleet', {}));
+	if (!result || result.stale) return;
+	if (result.error) {
+		renderFleet({totals: {}, nodes: []});
+		var strip = document.getElementById('dashboard-fleet-strip');
+		if (strip) setHTMLIfChanged(strip, '<div class="dashboard-fleet-empty dashboard-fleet-error">Unable to load fleet status. <button type="button" onclick="loadDashboardFleet()">Retry</button></div>');
+		return;
+	}
+	renderFleet(result.data);
+}
+
 async function loadActiveSessions() {
 	var result = await fetchDashboardJSON('active', requestURL('/api/dashboard/sessions', {state: 'active'}));
 	if (!result || result.stale) return;
@@ -1031,7 +1239,7 @@ async function loadCompletedSessions(offset, options) {
 		if (options.silent) return;
 		withDashboardScrollStability(function() {
 			var tbody = document.getElementById('completed-sessions');
-			setHTMLIfChanged(tbody, '<tr><td colspan="10" class="text-center py-4"><span class="text-sm text-red-400">Unable to load completed sessions. <button type="button" class="underline" onclick="loadCompletedSessions(currentCompletedOffset)">Retry</button></span></td></tr>');
+			setHTMLIfChanged(tbody, '<tr><td colspan="11" class="text-center py-4"><span class="text-sm text-red-400">Unable to load completed sessions. <button type="button" class="underline" onclick="loadCompletedSessions(currentCompletedOffset)">Retry</button></span></td></tr>');
 			setTextIfChanged(status, 'Unable to load completed sessions');
 		}, {completedRegion: true});
 		return;

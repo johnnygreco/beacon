@@ -1,0 +1,432 @@
+package web
+
+import (
+	"context"
+	"database/sql"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/johnnygreco/beacon/internal/views"
+)
+
+const (
+	fleetCollectorStaleAfter   = 2 * time.Minute
+	fleetCollectorOfflineAfter = 10 * time.Minute
+)
+
+type fleetSessionAggregate struct {
+	NodeID            string
+	Collectors        []string
+	Sources           []string
+	Runtimes          []string
+	Projects          []string
+	ActiveSessions    int64
+	AttentionSessions int64
+	TotalSessions     int64
+	TotalTokens       int64
+	ErrorCount        int64
+	LastEventAt       time.Time
+}
+
+type fleetHeartbeatAggregate struct {
+	NodeID          string
+	CollectorID     string
+	SourceID        string
+	SourceName      string
+	Status          string
+	QueueDepth      int64
+	SpoolBytes      int64
+	ActiveFiles     int64
+	ErrorCount      int64
+	LastEventAt     *time.Time
+	LastHeartbeatAt time.Time
+}
+
+type fleetNodeBuilder struct {
+	node APIDashboardFleetNode
+
+	collectors map[string]struct{}
+	sources    map[string]struct{}
+	runtimes   map[string]struct{}
+	projects   map[string]struct{}
+
+	onlineCollectors  map[string]struct{}
+	staleCollectors   map[string]struct{}
+	offlineCollectors map[string]struct{}
+}
+
+func QueryDashboardFleet(ctx context.Context, db *sql.DB, scope APIScopeFilters) APIDashboardFleetResponse {
+	now := time.Now()
+	builders := map[string]*fleetNodeBuilder{}
+	for _, row := range queryFleetSessionAggregates(ctx, db, scope, now) {
+		builder := fleetBuilderFor(builders, row.NodeID)
+		builder.node.ActiveSessions += row.ActiveSessions
+		builder.node.AttentionSessions += row.AttentionSessions
+		builder.node.TotalSessions += row.TotalSessions
+		builder.node.TotalTokens += row.TotalTokens
+		builder.node.ErrorCount += row.ErrorCount
+		if row.LastEventAt.After(time.Time{}) {
+			setMaxTimePtr(&builder.node.LastEventAt, row.LastEventAt)
+		}
+		addMany(builder.collectors, row.Collectors)
+		addMany(builder.sources, row.Sources)
+		addMany(builder.runtimes, row.Runtimes)
+		addMany(builder.projects, row.Projects)
+	}
+	for _, row := range queryFleetHeartbeatAggregates(ctx, db, scope) {
+		builder := fleetBuilderFor(builders, row.NodeID)
+		addNonEmpty(builder.collectors, row.CollectorID)
+		addNonEmpty(builder.sources, firstNonEmpty(row.SourceName, row.SourceID))
+		builder.node.QueueDepth += row.QueueDepth
+		builder.node.SpoolBytes += row.SpoolBytes
+		builder.node.ActiveFiles += row.ActiveFiles
+		builder.node.HeartbeatErrorCount += row.ErrorCount
+		if row.LastEventAt != nil {
+			setMaxTimePtr(&builder.node.LastEventAt, *row.LastEventAt)
+		}
+		if !row.LastHeartbeatAt.IsZero() {
+			setMaxTimePtr(&builder.node.LastHeartbeatAt, row.LastHeartbeatAt)
+		}
+		status := fleetHeartbeatStatus(row, now)
+		builder.node.SourcesDetail = append(builder.node.SourcesDetail, APIDashboardFleetSource{
+			CollectorID:     row.CollectorID,
+			SourceID:        row.SourceID,
+			SourceName:      row.SourceName,
+			Status:          status,
+			QueueDepth:      row.QueueDepth,
+			SpoolBytes:      row.SpoolBytes,
+			ActiveFiles:     row.ActiveFiles,
+			ErrorCount:      row.ErrorCount,
+			LastEventAt:     row.LastEventAt,
+			LastHeartbeatAt: nonZeroTimePtr(row.LastHeartbeatAt),
+		})
+		switch status {
+		case "online":
+			addNonEmpty(builder.onlineCollectors, row.CollectorID)
+		case "stale":
+			addNonEmpty(builder.staleCollectors, row.CollectorID)
+		default:
+			addNonEmpty(builder.offlineCollectors, row.CollectorID)
+		}
+	}
+
+	nodes := make([]APIDashboardFleetNode, 0, len(builders))
+	totals := APIDashboardFleetTotals{}
+	allCollectors := map[string]string{}
+	for _, builder := range builders {
+		node := builder.node
+		node.Collectors = sortedMapValues(builder.collectors)
+		node.Sources = sortedMapValues(builder.sources)
+		node.Runtimes = sortedMapValues(builder.runtimes)
+		node.Projects = sortedMapValues(builder.projects)
+		node.CollectorCount = len(node.Collectors)
+		if node.CollectorCount == 0 && node.NodeID != "" {
+			node.CollectorCount = 1
+		}
+		node.Status = fleetNodeStatus(builder)
+		node.HeartbeatStatus = node.Status
+		if node.LastHeartbeatAt != nil {
+			node.LastSeenLabel = views.RelativeTime(*node.LastHeartbeatAt)
+		} else if node.LastEventAt != nil {
+			node.LastSeenLabel = views.RelativeTime(*node.LastEventAt)
+		}
+		sort.Slice(node.SourcesDetail, func(i, j int) bool {
+			a, b := node.SourcesDetail[i], node.SourcesDetail[j]
+			if a.CollectorID != b.CollectorID {
+				return a.CollectorID < b.CollectorID
+			}
+			return firstNonEmpty(a.SourceName, a.SourceID) < firstNonEmpty(b.SourceName, b.SourceID)
+		})
+		nodes = append(nodes, node)
+
+		totals.ActiveSessions += node.ActiveSessions
+		totals.AttentionSessions += node.AttentionSessions
+		totals.TotalSessions += node.TotalSessions
+		totals.TotalTokens += node.TotalTokens
+		totals.QueueDepth += node.QueueDepth
+		totals.SpoolBytes += node.SpoolBytes
+		totals.HeartbeatErrorCount += node.HeartbeatErrorCount
+		for _, collector := range node.Collectors {
+			if collector != "" {
+				allCollectors[collector] = mergeFleetCollectorStatus(allCollectors[collector], fleetCollectorStatus(builder, collector))
+			}
+		}
+	}
+	sort.Slice(nodes, func(i, j int) bool {
+		a, b := nodes[i], nodes[j]
+		if a.ActiveSessions != b.ActiveSessions {
+			return a.ActiveSessions > b.ActiveSessions
+		}
+		if a.AttentionSessions != b.AttentionSessions {
+			return a.AttentionSessions > b.AttentionSessions
+		}
+		if a.LastHeartbeatAt != nil && b.LastHeartbeatAt != nil && !a.LastHeartbeatAt.Equal(*b.LastHeartbeatAt) {
+			return a.LastHeartbeatAt.After(*b.LastHeartbeatAt)
+		}
+		return a.Label < b.Label
+	})
+	for _, status := range allCollectors {
+		switch status {
+		case "online":
+			totals.OnlineCollectors++
+		case "stale":
+			totals.StaleCollectors++
+		default:
+			totals.OfflineCollectors++
+		}
+	}
+	totals.NodeCount = len(nodes)
+	totals.CollectorCount = len(allCollectors)
+	return APIDashboardFleetResponse{Scope: scope.metadata(), Totals: totals, Nodes: nodes}
+}
+
+func queryFleetSessionAggregates(ctx context.Context, db *sql.DB, scope APIScopeFilters, now time.Time) []fleetSessionAggregate {
+	if db == nil {
+		return nil
+	}
+	activeCutoff := now.Add(-idleThreshold)
+	sessionSource, sourceArgs := sessionProjectionSubqueryForScope("", scope)
+	scopeClause, scopeArgs := scope.withoutProjectKeys().sqlAndClause("")
+	args := activeSessionPredicateArgs(scope, activeCutoff)
+	args = append(args, sourceArgs...)
+	args = append(args, scopeArgs...)
+	query := `SELECT COALESCE(NULLIF(node_id, ''), 'local') AS node_key,
+		        groupUniqArrayIf(COALESCE(collector_id, ''), collector_id != ''),
+		        groupUniqArrayIf(COALESCE(source_name, ''), source_name != ''),
+		        groupUniqArrayIf(COALESCE(runtime, ''), runtime != ''),
+		        groupUniqArrayIf(COALESCE(project_key, ''), project_key != ''),
+		        countIf(` + activeSessionPredicateScoped(scope) + `),
+		        countIf(COALESCE(attention_score, 0) > 0 OR COALESCE(error_count, 0) > 0),
+		        count(),
+		        COALESCE(SUM(total_tokens), 0),
+		        COALESCE(SUM(error_count), 0),
+		        max(ended_at)
+		 FROM ` + sessionSource + `
+		 WHERE 1 = 1` + scopeClause + `
+		 GROUP BY node_key`
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		logQueryError("dashboard fleet sessions", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var out []fleetSessionAggregate
+	for rows.Next() {
+		var row fleetSessionAggregate
+		if err := rows.Scan(&row.NodeID, &row.Collectors, &row.Sources, &row.Runtimes, &row.Projects,
+			&row.ActiveSessions, &row.AttentionSessions, &row.TotalSessions, &row.TotalTokens,
+			&row.ErrorCount, &row.LastEventAt); err != nil {
+			logQueryScanError("dashboard fleet sessions", err)
+			continue
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		logQueryError("dashboard fleet sessions rows", err)
+		return nil
+	}
+	return out
+}
+
+func queryFleetHeartbeatAggregates(ctx context.Context, db *sql.DB, scope APIScopeFilters) []fleetHeartbeatAggregate {
+	if db == nil {
+		return nil
+	}
+	rawScope := scope.withoutProjectKeys()
+	scopeClause, scopeArgs := rawScope.sqlAndClause("h")
+	rows, err := db.QueryContext(ctx,
+		`SELECT COALESCE(NULLIF(h.node_id, ''), 'local') AS node_key,
+		        COALESCE(h.collector_id, ''),
+		        COALESCE(h.source_id, ''),
+		        COALESCE(h.source_name, ''),
+		        COALESCE(h.status, ''),
+		        COALESCE(h.queue_depth, 0),
+		        COALESCE(h.spool_bytes, 0),
+		        COALESCE(h.active_files, 0),
+		        COALESCE(h.error_count, 0),
+		        h.last_event_at,
+		        h.created_at
+		 FROM capture_heartbeats AS h
+		 INNER JOIN (
+			SELECT collector_id,
+			       source_id,
+			       max(created_at) AS created_at
+			FROM capture_heartbeats
+			GROUP BY collector_id, source_id
+		 ) AS latest ON latest.collector_id = h.collector_id
+		           AND latest.source_id = h.source_id
+		           AND latest.created_at = h.created_at
+		 WHERE 1 = 1`+scopeClause+`
+		 ORDER BY h.node_id, h.collector_id, h.source_name`, scopeArgs...)
+	if err != nil {
+		logQueryError("dashboard fleet heartbeats", err)
+		return nil
+	}
+	defer rows.Close()
+
+	var out []fleetHeartbeatAggregate
+	for rows.Next() {
+		var row fleetHeartbeatAggregate
+		var lastEvent sql.NullTime
+		if err := rows.Scan(&row.NodeID, &row.CollectorID, &row.SourceID, &row.SourceName, &row.Status,
+			&row.QueueDepth, &row.SpoolBytes, &row.ActiveFiles, &row.ErrorCount, &lastEvent,
+			&row.LastHeartbeatAt); err != nil {
+			logQueryScanError("dashboard fleet heartbeats", err)
+			continue
+		}
+		if lastEvent.Valid {
+			row.LastEventAt = &lastEvent.Time
+		}
+		out = append(out, row)
+	}
+	if err := rows.Err(); err != nil {
+		logQueryError("dashboard fleet heartbeats rows", err)
+		return nil
+	}
+	return out
+}
+
+func fleetBuilderFor(builders map[string]*fleetNodeBuilder, nodeID string) *fleetNodeBuilder {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" {
+		nodeID = "local"
+	}
+	if builder := builders[nodeID]; builder != nil {
+		return builder
+	}
+	builder := &fleetNodeBuilder{
+		node: APIDashboardFleetNode{
+			NodeID: nodeID,
+			Label:  fleetNodeLabel(nodeID),
+			Status: "offline",
+		},
+		collectors:        map[string]struct{}{},
+		sources:           map[string]struct{}{},
+		runtimes:          map[string]struct{}{},
+		projects:          map[string]struct{}{},
+		onlineCollectors:  map[string]struct{}{},
+		staleCollectors:   map[string]struct{}{},
+		offlineCollectors: map[string]struct{}{},
+	}
+	builders[nodeID] = builder
+	return builder
+}
+
+func fleetNodeLabel(nodeID string) string {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID == "" || nodeID == "local" {
+		return "Local"
+	}
+	return nodeID
+}
+
+func fleetHeartbeatStatus(row fleetHeartbeatAggregate, now time.Time) string {
+	if row.LastHeartbeatAt.IsZero() {
+		return "offline"
+	}
+	age := now.Sub(row.LastHeartbeatAt)
+	if age > fleetCollectorOfflineAfter {
+		return "offline"
+	}
+	status := strings.ToLower(strings.TrimSpace(row.Status))
+	if status != "" && status != "healthy" && status != "ok" && status != "online" {
+		return "stale"
+	}
+	if row.ErrorCount > 0 || age > fleetCollectorStaleAfter {
+		return "stale"
+	}
+	return "online"
+}
+
+func fleetNodeStatus(builder *fleetNodeBuilder) string {
+	if builder == nil {
+		return "offline"
+	}
+	if len(builder.onlineCollectors) > 0 {
+		return "online"
+	}
+	if len(builder.staleCollectors) > 0 {
+		return "stale"
+	}
+	if builder.node.LastHeartbeatAt != nil {
+		return "offline"
+	}
+	if builder.node.ActiveSessions > 0 {
+		return "stale"
+	}
+	return "offline"
+}
+
+func fleetCollectorStatus(builder *fleetNodeBuilder, collector string) string {
+	if builder == nil {
+		return "offline"
+	}
+	if _, ok := builder.onlineCollectors[collector]; ok {
+		return "online"
+	}
+	if _, ok := builder.staleCollectors[collector]; ok {
+		return "stale"
+	}
+	if _, ok := builder.offlineCollectors[collector]; ok {
+		return "offline"
+	}
+	if builder.node.ActiveSessions > 0 {
+		return "stale"
+	}
+	return "offline"
+}
+
+func mergeFleetCollectorStatus(current, next string) string {
+	if current == "online" || next == "online" {
+		return "online"
+	}
+	if current == "stale" || next == "stale" {
+		return "stale"
+	}
+	return "offline"
+}
+
+func addMany(target map[string]struct{}, values []string) {
+	for _, value := range values {
+		addNonEmpty(target, value)
+	}
+}
+
+func addNonEmpty(target map[string]struct{}, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	target[value] = struct{}{}
+}
+
+func sortedMapValues(values map[string]struct{}) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for value := range values {
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func setMaxTimePtr(target **time.Time, candidate time.Time) {
+	if candidate.IsZero() {
+		return
+	}
+	if *target == nil || candidate.After(**target) {
+		value := candidate
+		*target = &value
+	}
+}
+
+func nonZeroTimePtr(value time.Time) *time.Time {
+	if value.IsZero() {
+		return nil
+	}
+	return &value
+}

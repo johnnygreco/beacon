@@ -74,6 +74,7 @@ type APISessionSummary struct {
 	TotalCostUSD      float64             `json:"total_cost_usd,omitempty"`
 	CostEventCount    int64               `json:"cost_event_count,omitempty"`
 	CostProvenance    string              `json:"cost_provenance,omitempty"`
+	AttentionState    string              `json:"attention_state,omitempty"`
 	AttentionScore    int                 `json:"attention_score,omitempty"`
 	AttentionReasons  []string            `json:"attention_reasons,omitempty"`
 	ArchiveReason     string              `json:"archive_reason,omitempty"`
@@ -149,6 +150,65 @@ type APIDashboardCharts struct {
 	Scope           APIScopeMetadata       `json:"scope"`
 	TokenCumulative views.ModelSeriesChart `json:"token_cumulative"`
 	ModelActivity   views.ModelMetricChart `json:"model_activity"`
+}
+
+type APIDashboardFleetResponse struct {
+	Scope  APIScopeMetadata        `json:"scope"`
+	Totals APIDashboardFleetTotals `json:"totals"`
+	Nodes  []APIDashboardFleetNode `json:"nodes"`
+}
+
+type APIDashboardFleetTotals struct {
+	NodeCount           int   `json:"node_count"`
+	CollectorCount      int   `json:"collector_count"`
+	OnlineCollectors    int   `json:"online_collectors"`
+	StaleCollectors     int   `json:"stale_collectors"`
+	OfflineCollectors   int   `json:"offline_collectors"`
+	ActiveSessions      int64 `json:"active_sessions"`
+	AttentionSessions   int64 `json:"attention_sessions"`
+	TotalSessions       int64 `json:"total_sessions"`
+	TotalTokens         int64 `json:"total_tokens"`
+	QueueDepth          int64 `json:"queue_depth"`
+	SpoolBytes          int64 `json:"spool_bytes"`
+	HeartbeatErrorCount int64 `json:"heartbeat_error_count"`
+}
+
+type APIDashboardFleetNode struct {
+	NodeID              string                    `json:"node_id"`
+	Label               string                    `json:"label"`
+	Status              string                    `json:"status"`
+	CollectorCount      int                       `json:"collector_count"`
+	Collectors          []string                  `json:"collectors,omitempty"`
+	Sources             []string                  `json:"sources,omitempty"`
+	Runtimes            []string                  `json:"runtimes,omitempty"`
+	Projects            []string                  `json:"projects,omitempty"`
+	ActiveSessions      int64                     `json:"active_sessions"`
+	AttentionSessions   int64                     `json:"attention_sessions"`
+	TotalSessions       int64                     `json:"total_sessions"`
+	TotalTokens         int64                     `json:"total_tokens"`
+	ErrorCount          int64                     `json:"error_count"`
+	QueueDepth          int64                     `json:"queue_depth"`
+	SpoolBytes          int64                     `json:"spool_bytes"`
+	ActiveFiles         int64                     `json:"active_files"`
+	HeartbeatErrorCount int64                     `json:"heartbeat_error_count"`
+	LastEventAt         *time.Time                `json:"last_event_at,omitempty"`
+	LastHeartbeatAt     *time.Time                `json:"last_heartbeat_at,omitempty"`
+	LastSeenLabel       string                    `json:"last_seen_label,omitempty"`
+	HeartbeatStatus     string                    `json:"heartbeat_status,omitempty"`
+	SourcesDetail       []APIDashboardFleetSource `json:"sources_detail,omitempty"`
+}
+
+type APIDashboardFleetSource struct {
+	CollectorID     string     `json:"collector_id"`
+	SourceID        string     `json:"source_id,omitempty"`
+	SourceName      string     `json:"source_name,omitempty"`
+	Status          string     `json:"status"`
+	QueueDepth      int64      `json:"queue_depth"`
+	SpoolBytes      int64      `json:"spool_bytes"`
+	ActiveFiles     int64      `json:"active_files"`
+	ErrorCount      int64      `json:"error_count"`
+	LastEventAt     *time.Time `json:"last_event_at,omitempty"`
+	LastHeartbeatAt *time.Time `json:"last_heartbeat_at,omitempty"`
 }
 
 type APISessionDetail struct {

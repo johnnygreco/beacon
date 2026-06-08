@@ -46,6 +46,9 @@ templ Dashboard(data views.DashboardData) {
 							</p>
 						</div>
 					</div>
+					<div id="dashboard-header-fleet-metrics" class="dashboard-header-fleet-metrics" aria-label="Fleet status summary">
+						<span class="dashboard-header-fleet-loading">Loading fleet...</span>
+					</div>
 					<div class="dashboard-header-actions" role="group" aria-label="Dashboard controls">
 						<div id="dashboard-theme-control" class="dashboard-theme-control" role="group" aria-label="Theme controls">
 							<span id="dashboard-theme-swatch" class="dashboard-theme-swatch" aria-hidden="true"></span>
@@ -107,6 +110,19 @@ templ Dashboard(data views.DashboardData) {
 				@templ.JSONScript("dashboard-token-cumulative-data", data.TokenCumulative)
 
 				<div class="dashboard-workspace">
+					<section id="dashboard-fleet" class="dashboard-panel dashboard-fleet-panel" aria-labelledby="dashboard-fleet-title">
+						<div class="dashboard-fleet-heading">
+							<div class="min-w-0">
+								<h2 id="dashboard-fleet-title" class="dashboard-fleet-title">Fleet</h2>
+								<p id="dashboard-fleet-subtitle" class="dashboard-fleet-subtitle">All collectors and runtimes</p>
+							</div>
+							<div id="dashboard-scope-chips" class="dashboard-scope-chips" aria-label="Active dashboard scope"></div>
+						</div>
+						<div id="dashboard-fleet-strip" class="dashboard-fleet-strip" aria-live="polite">
+							<div class="dashboard-fleet-empty">Loading fleet...</div>
+						</div>
+					</section>
+
 					<section class="dashboard-overview-row" aria-label="Dashboard overview">
 						<section id="active-sessions" class="dashboard-panel dashboard-active-panel" aria-labelledby="active-sessions-title">
 							<div class="active-session-heading">
@@ -256,9 +272,14 @@ templ Dashboard(data views.DashboardData) {
 												Name <span class="sort-arrow" aria-hidden="true">▼</span>
 											</button>
 										</th>
-										<th scope="col" aria-sort="none" class="text-left py-2 px-3 font-medium select-none" data-sort-key="provider">
-											<button type="button" class="dashboard-sort-button" onclick="sortCompletedTable(this, 'provider')">
-												Provider <span class="sort-arrow" aria-hidden="true">▼</span>
+										<th scope="col" aria-sort="none" class="text-left py-2 px-3 font-medium select-none" data-sort-key="node">
+											<button type="button" class="dashboard-sort-button" onclick="sortCompletedTable(this, 'node')">
+												Node <span class="sort-arrow" aria-hidden="true">▼</span>
+											</button>
+										</th>
+										<th scope="col" aria-sort="none" class="text-left py-2 px-3 font-medium select-none" data-sort-key="runtime">
+											<button type="button" class="dashboard-sort-button" onclick="sortCompletedTable(this, 'runtime')">
+												Runtime <span class="sort-arrow" aria-hidden="true">▼</span>
 											</button>
 										</th>
 										<th scope="col" aria-sort="none" class="text-left py-2 px-3 font-medium select-none" data-sort-key="model">
@@ -279,6 +300,11 @@ templ Dashboard(data views.DashboardData) {
 										<th scope="col" aria-sort="none" class="text-right py-2 px-3 font-medium select-none" data-sort-key="tools">
 											<button type="button" class="dashboard-sort-button dashboard-sort-button-right" onclick="sortCompletedTable(this, 'tools')">
 												Tools <span class="sort-arrow" aria-hidden="true">▼</span>
+											</button>
+										</th>
+										<th scope="col" aria-sort="none" class="text-right py-2 px-3 font-medium select-none" data-sort-key="errors">
+											<button type="button" class="dashboard-sort-button dashboard-sort-button-right" onclick="sortCompletedTable(this, 'errors')">
+												Errors <span class="sort-arrow" aria-hidden="true">▼</span>
 											</button>
 										</th>
 										<th scope="col" aria-sort="none" class="text-right py-2 px-3 font-medium select-none" data-sort-key="duration">
@@ -305,7 +331,7 @@ templ Dashboard(data views.DashboardData) {
 								</thead>
 								<tbody id="completed-sessions">
 									<tr>
-										<td colspan="10" class="text-center py-4">
+										<td colspan="11" class="text-center py-4">
 											<span class="text-sm text-gray-500">No completed sessions</span>
 										</td>
 									</tr>

@@ -139,6 +139,13 @@ async function fillDashboardEventSearchAndWait(page: Page, value: string) {
   );
 }
 
+function waitForDashboardEndpoint(page: Page, path: string, predicate?: (url: URL) => boolean) {
+  return page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.status() === 200 && url.pathname === path && (!predicate || predicate(url));
+  });
+}
+
 async function readActiveSessionGeometry(page: Page) {
   return page.evaluate(() => {
     const panel = document.getElementById('active-sessions');
@@ -525,8 +532,8 @@ test.describe('dashboard battle-tested workflows', () => {
       expect(shellLayout.tableScrollerRight).toBeLessThanOrEqual(shellLayout.completedRight + 1);
       if (viewport.width > 640) {
         expect(shellLayout.controlScrollerScrollWidth).toBeGreaterThanOrEqual(900);
-        expect(shellLayout.tableScrollerScrollWidth).toBeGreaterThanOrEqual(900);
-        expect(shellLayout.tableMinWidth).toBe('928px');
+        expect(shellLayout.tableScrollerScrollWidth).toBeGreaterThanOrEqual(1000);
+        expect(shellLayout.tableMinWidth).toBe('1056px');
       } else {
         expect(shellLayout.controlScrollerScrollWidth).toBeLessThanOrEqual(shellLayout.controlScrollerClientWidth + 1);
       }
@@ -569,6 +576,65 @@ test.describe('dashboard battle-tested workflows', () => {
       await expect(page.locator('.dashboard-analytics-panel #dashboard-chart-range-control')).toHaveCount(1);
       await expect(page.locator('[data-search-range]')).toHaveCount(0);
     }
+
+    await guards.expectClean();
+  });
+
+  test('uses fleet chips as global dashboard scope controls', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page, { scenario: 'many-active' });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(3);
+    await expect(page.locator('#dashboard-header-fleet-metrics')).toContainText('active');
+    await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(8);
+
+    const nodeScope = (url: URL) => url.searchParams.get('node_id') === 'mac-mini-codex';
+    const scopedResponses = [
+      waitForDashboardEndpoint(page, '/api/dashboard/fleet', nodeScope),
+      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => nodeScope(url) && url.searchParams.get('state') === 'active'),
+      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => nodeScope(url) && url.searchParams.get('state') === 'completed'),
+      waitForDashboardEndpoint(page, '/api/dashboard/activity', nodeScope),
+      waitForDashboardEndpoint(page, '/api/dashboard/charts', nodeScope),
+    ];
+    await page.locator('.dashboard-fleet-node-main[data-dashboard-scope-value="mac-mini-codex"]').click();
+    await Promise.all(scopedResponses);
+
+    await page.waitForFunction(() => new URL(window.location.href).searchParams.get('node_id') === 'mac-mini-codex');
+    await expect(page.locator('#dashboard-scope-chips')).toContainText('mac-mini-codex');
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(1);
+    await expect(page.locator('#dashboard-fleet')).toContainText('Mac mini Codex');
+    await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(3);
+    await waitForCompletedRows(page, 15);
+    await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(2);
+    await expect(page.locator('#active-sessions')).toContainText('mac-mini-codex');
+    await expectNoHorizontalOverflow(page);
+
+    const runtimeResponses = [
+      waitForDashboardEndpoint(page, '/api/dashboard/fleet', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'codex'),
+      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => nodeScope(url) && url.searchParams.get('runtime') === 'codex' && url.searchParams.get('state') === 'active'),
+    ];
+    await page.locator('.dashboard-fleet-runtime[data-dashboard-scope-value="codex"]').click();
+    await Promise.all(runtimeResponses);
+    await page.waitForFunction(() => {
+      const url = new URL(window.location.href);
+      return url.searchParams.get('node_id') === 'mac-mini-codex' && url.searchParams.get('runtime') === 'codex';
+    });
+    await expect(page.locator('#dashboard-scope-chips')).toContainText('codex');
+
+    const clearResponses = [
+      waitForDashboardEndpoint(page, '/api/dashboard/fleet', (url) => !url.searchParams.has('node_id') && !url.searchParams.has('runtime')),
+      waitForDashboardEndpoint(page, '/api/dashboard/sessions', (url) => !url.searchParams.has('node_id') && !url.searchParams.has('runtime') && url.searchParams.get('state') === 'active'),
+    ];
+    await page.locator('[data-dashboard-scope-clear="all"]').click();
+    await Promise.all(clearResponses);
+    await page.waitForFunction(() => {
+      const url = new URL(window.location.href);
+      return !url.searchParams.has('node_id') && !url.searchParams.has('runtime');
+    });
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(3);
+    await expect(page.locator('#active-sessions .active-session-card')).toHaveCount(8);
 
     await guards.expectClean();
   });

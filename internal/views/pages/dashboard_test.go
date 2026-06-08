@@ -151,6 +151,8 @@ func TestDashboardLiveAnalyticsUsesSingleTokenChart(t *testing.T) {
 		"dashboard-chart-range-control",
 		"dashboard-chart-refresh-btn",
 		"dashboard-table-refresh-btn",
+		"dashboard-header-fleet-metrics",
+		"dashboard-fleet-strip",
 	} {
 		if !strings.Contains(html, expected) {
 			t.Fatalf("dashboard live analytics missing %q", expected)
@@ -163,6 +165,8 @@ func TestDashboardLiveAnalyticsUsesSingleTokenChart(t *testing.T) {
 		"setDashboardChartRange",
 		"setDashboardChartMetric",
 		"refreshCompletedTable",
+		"requestURL('/api/dashboard/fleet'",
+		"loadDashboardFleet",
 	} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("dashboard live analytics missing %q", expected)
