@@ -199,11 +199,10 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	localBoot := controlPlaneBootstrap(cfg)
 	localBoot.NodeID = resp.Assignment.NodeID
 	localBoot.CollectorID = resp.Assignment.CollectorID
-	snapshot, err := store.EnsureLocal(commandContext(cmd), localBoot)
-	if err != nil {
+	if _, err := store.EnsureLocal(commandContext(cmd), localBoot); err != nil {
 		return fmt.Errorf("write local collector metadata: %w", err)
 	}
-	snapshot, err = store.SetSchemaEpoch(commandContext(cmd), resp.Assignment.ControlPlaneEpoch)
+	snapshot, err := store.SetSchemaEpoch(commandContext(cmd), resp.Assignment.ControlPlaneEpoch)
 	if err != nil {
 		return fmt.Errorf("write local collector schema epoch: %w", err)
 	}
