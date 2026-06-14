@@ -36,6 +36,31 @@ func TestStaticFilesDisableBrowserCaching(t *testing.T) {
 	}
 }
 
+func TestStaticFilesDoNotServeDirectoriesOrHiddenFiles(t *testing.T) {
+	router := NewRouter(
+		fstest.MapFS{
+			".gitkeep":  &fstest.MapFile{Data: []byte{}},
+			"js/app.js": &fstest.MapFile{Data: []byte("window.app = true;")},
+		},
+		nil,
+		nil,
+		nil,
+	)
+
+	for _, path := range []string{"/static/", "/static/js/", "/static/.gitkeep"} {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			rec := httptest.NewRecorder()
+
+			router.ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+			}
+		})
+	}
+}
+
 func TestRouterSetsSecurityHeaders(t *testing.T) {
 	router := NewRouter(
 		fstest.MapFS{

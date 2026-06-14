@@ -45,7 +45,7 @@ jobs:
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
       - name: Run govulncheck
-        run: govulncheck ./...
+        run: make vulncheck
 
   npm-audit:
     runs-on: ubuntu-latest
@@ -93,17 +93,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Generate templates
-        run: go tool templ generate
-
       - name: Run tests
-        run: go test -race -coverprofile=coverage.txt -covermode=atomic ./...
-
-      - name: Check coverage thresholds
-        run: ./scripts/check-coverage.sh coverage.txt
-
-      - name: Print coverage summary
-        run: go tool cover -func=coverage.txt | tail -1
+        run: make test-cover
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -119,9 +110,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - uses: golangci/golangci-lint-action@v6
-        with:
-          version: ${{ env.GOLANGCI_LINT_VERSION }}
+      - name: Install golangci-lint
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@${{ env.GOLANGCI_LINT_VERSION }}
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Run lint
+        run: make lint
 
   build:
     runs-on: ubuntu-latest
