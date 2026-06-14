@@ -3,6 +3,8 @@ package web
 import (
 	"io/fs"
 	"net/http"
+	"path"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -156,6 +158,15 @@ func staticFileHandler(staticFS fs.FS) http.Handler {
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		w.Header().Set("Pragma", "no-cache")
 		w.Header().Set("Expires", "0")
+		name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+		if name == "" || name == "." || strings.HasPrefix(name, ".") || strings.Contains(name, "/.") {
+			http.NotFound(w, r)
+			return
+		}
+		if info, err := fs.Stat(staticFS, name); err == nil && info.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
 		fileServer.ServeHTTP(w, r)
 	})
 }

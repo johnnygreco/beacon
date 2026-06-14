@@ -1,8 +1,8 @@
 .DEFAULT_GOAL := help
-.PHONY: help build install-local run generate generate-check clean clean-local clean-deps simulator publish test test-race test-cover perf-fast perf-bench perf-explain perf-browser perf-lab-smoke perf-lab perf-budget perf-compare fmt fmt-check lint
+.PHONY: help build install-local run generate generate-check clean clean-local clean-deps simulator publish test test-race test-cover perf-fast perf-bench perf-explain perf-browser perf-lab-smoke perf-lab perf-budget perf-compare fmt fmt-check lint vulncheck
 
-GO_PACKAGE_DIRS = $(shell go list -f '{{.Dir}}' ./... | grep -v '/node_modules/')
-GO_PACKAGES = $(patsubst $(CURDIR)%,.%,$(GO_PACKAGE_DIRS))
+GO_PACKAGE_DIRS = $(shell if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git ls-files '*.go' | xargs -n1 dirname | sort -u; else find . \( -path ./node_modules -o -path ./.scratch -o -path ./.venv -o -path ./dist -o -path ./bin \) -prune -o -name '*.go' -print | xargs -n1 dirname | sort -u; fi)
+GO_PACKAGES = $(shell printf '%s\n' $(GO_PACKAGE_DIRS) | while read -r dir; do if [ "$$dir" = "." ] || [ "$$dir" = "./." ]; then pkg="."; elif printf '%s\n' "$$dir" | grep -q '^\./'; then pkg="$$dir"; else pkg="./$$dir"; fi; go list "$$pkg" >/dev/null 2>&1 && printf '%s\n' "$$pkg"; done)
 INSTALL_DIR ?= $(HOME)/.local/bin
 
 help: ## Show this help message
@@ -53,7 +53,7 @@ test-race: generate ## Run tests with race detector
 	go test -race $(GO_PACKAGES)
 
 test-cover: generate ## Run tests with coverage report and threshold checks
-	go test -race -coverprofile=coverage.txt $(GO_PACKAGES)
+	go test -race -coverprofile=coverage.txt -covermode=atomic $(GO_PACKAGES)
 	go tool cover -func=coverage.txt | tail -1
 	./scripts/check-coverage.sh coverage.txt
 
@@ -114,6 +114,9 @@ fmt-check: ## Check tracked Go files are gofmt formatted
 
 lint: ## Run linter
 	golangci-lint run $(GO_PACKAGES)
+
+vulncheck: ## Run Go vulnerability scan
+	govulncheck $(GO_PACKAGES)
 
 publish: ## Publish a release (usage: make publish VERSION=x.y.z)
 	./scripts/publish.sh $(VERSION)

@@ -397,6 +397,8 @@ make fmt-check      # verify tracked Go files are gofmt formatted
 make test           # generate templates and run Go tests
 make test-race      # run Go tests with the race detector
 make test-cover     # run Go tests with race, coverage, and coverage floors
+make lint           # run Go lint checks
+make vulncheck      # run Go vulnerability checks
 make perf-fast      # run fast non-ClickHouse backend benchmarks
 make perf-bench     # run perf benchmarks; set PERF_SIZE=small|medium|large|fleet (fleet is heavy/manual)
 make perf-browser   # run browser perf measurements; set BEACON_BROWSER_PERF_* as needed
@@ -406,7 +408,7 @@ make perf-compare   # compare PERF_REPORT against PERF_BASELINE
 make clean          # remove build/test outputs such as bin, dist, coverage, and reports
 make clean-local    # also remove ignored repo-local scratch/agent dirs and local DB files
 make clean-deps     # remove node_modules
-npm install         # install Playwright and asset-vendoring dependencies
+npm ci              # install locked Playwright and asset-vendoring dependencies
 npm run vendor       # refresh vendored frontend assets
 npm run vendor:check # verify vendored frontend assets and notices are current
 npm run test:frontend # JS lint and unit tests
@@ -420,6 +422,11 @@ npm run test:visual # visual regression tests
 `package.json` is private development metadata for vendored browser assets,
 linting, and Playwright tests. Beacon release versions come from Git tags and
 are injected into the Go binary by GoReleaser.
+
+The Makefile builds its Go package list from tracked `.go` files when run from a
+Git checkout. That keeps local dependency installs such as `node_modules` out of
+Go test, lint, and vulnerability scans while still including test-only packages
+such as `./scripts`.
 
 Cleanup targets only remove files inside the repository checkout. They do not
 delete Beacon user data under `~/.beacon`; use `beacon db reset --force` or the
@@ -474,7 +481,7 @@ After a lab run, use `make perf-budget` to check the latest report against smoke
 budgets. Compare branch reports with `PERF_BASELINE=... PERF_REPORT=... make
 perf-compare`.
 
-Playwright tests require Node dependencies from `npm install` and a Chromium
+Playwright tests require Node dependencies from `npm ci` and a Chromium
 browser installed by Playwright. They start their own e2e server by default. To
 test against an already running Beacon-compatible server, set
 `BEACON_E2E_BASE_URL`.

@@ -65,8 +65,8 @@ git diff --check
 make fmt-check
 make generate-check
 make test-cover
-golangci-lint run ./...
-govulncheck ./...
+make lint
+GOTOOLCHAIN=go1.26.4 make vulncheck
 npm ci
 npm audit --audit-level=moderate
 npm run vendor:check
@@ -84,7 +84,9 @@ in the README.
 
 Run `govulncheck` with a patched Go toolchain. CI currently pins the
 govulncheck job to Go 1.26.4; the release host should use the same or a newer
-patched Go on `PATH` because GoReleaser builds with the local `go` command.
+patched Go on `PATH` because GoReleaser builds with the local `go` command. If
+the release host already has a suitable patched Go first on `PATH`, plain
+`make vulncheck` is equivalent.
 
 Before publishing, verify:
 

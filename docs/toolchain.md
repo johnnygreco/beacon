@@ -42,9 +42,9 @@ checks fail for the same reasons.
    - vendored browser assets: `npm run vendor`.
 3. Run the relevant local checks:
    - `make fmt-check`;
-   - `go test ./...`;
-   - `govulncheck ./...`;
-   - `golangci-lint run ./...`;
+   - `make test-cover`;
+   - `GOTOOLCHAIN=go1.26.4 make vulncheck`;
+   - `make lint`;
    - `npm run vendor:check`;
    - `npm audit --audit-level=moderate`;
    - Playwright suites when npm or frontend assets changed.
@@ -62,13 +62,15 @@ CI runs these hygiene gates on pull requests:
 - `format`: `make fmt-check` fails on tracked Go files with gofmt drift.
 - `generated`: `make generate-check` fails if generated templ files are stale
   or missing from the commit.
-- `test`: `go test -race -coverprofile=coverage.txt -covermode=atomic ./...`
-  runs Go tests and `scripts/check-coverage.sh` enforces package coverage
-  floors.
-- `lint`: `golangci-lint run ./...` fails on configured Go lint issues.
+- `test`: `make test-cover` runs Go tests with the race detector and atomic
+  coverage, then `scripts/check-coverage.sh` enforces package coverage floors.
+- `lint`: `make lint` fails on configured Go lint issues.
 - `build`: `go build ./cmd/beacon` verifies the CLI binary builds after
   template generation.
-- `govulncheck`: `govulncheck ./...` fails on reachable Go vulnerabilities.
+- `govulncheck`: `make vulncheck` fails on reachable Go vulnerabilities.
+  Run it under the patched Go version pinned by `GOVULNCHECK_GO_VERSION` when
+  your local default `go` is older, for example
+  `GOTOOLCHAIN=go1.26.4 make vulncheck`.
 - `npm-audit`: `npm audit --audit-level=moderate` fails on moderate or higher
   npm advisories.
 - `frontend`: `npm run vendor:check` fails if vendored browser assets,
@@ -85,6 +87,12 @@ CI runs these hygiene gates on pull requests:
 
 Run the matching local commands before opening dependency, generated-code, or
 toolchain PRs.
+
+The Makefile package list is based on tracked `.go` files in Git checkouts so
+ignored dependency trees such as `node_modules` are not swept into local Go
+test, lint, or vulnerability commands. Source archive builds discover Go files
+from the extracted tree while pruning ignored dependency and build directories
+before validating package candidates with `go list`.
 
 For template changes, commit both the `.templ` source and the matching
 `_templ.go` output. Keep component tests focused on rendered HTML behavior,
