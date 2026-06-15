@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -237,6 +238,31 @@ func TestRunInviteMintsLoopbackLocalTunnelToken(t *testing.T) {
 	}
 	if !strings.Contains(output, "beacon join http://127.0.0.1:4600 --token-stdin") {
 		t.Fatalf("invite output = %q, want beacon join command", output)
+	}
+}
+
+func TestInviteRecommendedCommandShellQuotesURL(t *testing.T) {
+	collectorURL := "https://beacon.example;touch"
+	wantJoin := "beacon join 'https://beacon.example;touch' --token-stdin"
+
+	var textOut bytes.Buffer
+	writeInviteText(&textOut, collectorURL, "bcn_enroll_secret", time.Unix(0, 0).UTC(), false)
+	if !strings.Contains(textOut.String(), wantJoin) {
+		t.Fatalf("invite text = %q, want quoted join command %q", textOut.String(), wantJoin)
+	}
+
+	var jsonOut bytes.Buffer
+	if err := writeInviteJSON(&jsonOut, collectorURL, "bcn_enroll_secret", time.Unix(0, 0).UTC(), false); err != nil {
+		t.Fatalf("writeInviteJSON: %v", err)
+	}
+	var payload struct {
+		RecommendedCommand string `json:"recommended_command"`
+	}
+	if err := json.Unmarshal(jsonOut.Bytes(), &payload); err != nil {
+		t.Fatalf("decode invite JSON: %v", err)
+	}
+	if !strings.Contains(payload.RecommendedCommand, wantJoin) {
+		t.Fatalf("recommended command = %q, want quoted join command %q", payload.RecommendedCommand, wantJoin)
 	}
 }
 

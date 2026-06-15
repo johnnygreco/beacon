@@ -391,7 +391,7 @@ func writeInviteText(out interface{ Write([]byte) (int, error) }, collectorURL, 
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "On the collector machine:")
-	fmt.Fprintf(out, "  printf '%%s\\n' \"$BEACON_ENROLL_TOKEN\" | beacon join %s --token-stdin\n", collectorURL)
+	fmt.Fprintf(out, "  printf '%%s\\n' \"$BEACON_ENROLL_TOKEN\" | beacon join %s --token-stdin\n", shellQuote(collectorURL))
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "Set BEACON_ENROLL_TOKEN to this one-use token:")
 	fmt.Fprintf(out, "%s\n", token)
@@ -410,7 +410,7 @@ func writeInviteJSON(out interface{ Write([]byte) (int, error) }, collectorURL, 
 		ControlPlaneURL:     collectorURL,
 		EnrollmentToken:     token,
 		ExpiresAt:           expiresAt.Format(time.RFC3339),
-		RecommendedCommand:  fmt.Sprintf("printf '%%s\\n' \"$BEACON_ENROLL_TOKEN\" | beacon join %s --token-stdin", collectorURL),
+		RecommendedCommand:  fmt.Sprintf("printf '%%s\\n' \"$BEACON_ENROLL_TOKEN\" | beacon join %s --token-stdin", shellQuote(collectorURL)),
 		LocalTunnelRequired: localTunnel,
 	}
 	return json.NewEncoder(out).Encode(payload)

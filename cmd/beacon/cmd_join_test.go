@@ -336,6 +336,182 @@ node_name = "Local Dashboard"
 	}
 }
 
+func TestRunJoinRequiresForceForExistingLocalIdentityConversionWithDefaultConfig(t *testing.T) {
+	resetConfigState(t)
+	path := filepath.Join(t.TempDir(), "beacon.toml")
+	metadataPath := filepath.Join(t.TempDir(), "metadata.db")
+	body := `
+[fleet]
+metadata_path = "` + metadataPath + `"
+node_name = "Local Dashboard"
+`
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	withConfigFile(t, path)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	local, localSnapshot, err := initializeControlPlane(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("initializeControlPlane: %v", err)
+	}
+	if err := local.Close(); err != nil {
+		t.Fatalf("close local control plane: %v", err)
+	}
+
+	var enrollRequests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/api/ingest/v1/enroll":
+			enrollRequests++
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd, _ := joinTestCommand("bcn_enroll_real_0123456789abcdef\n")
+	err = runJoin(cmd, []string{server.URL}, joinOptions{TokenStdin: true, Sources: "codex"})
+	if err == nil || !strings.Contains(err.Error(), "rerun with --force") {
+		t.Fatalf("runJoin error = %v, want --force requirement", err)
+	}
+	if enrollRequests != 0 {
+		t.Fatalf("enrollment route requests = %d, want 0 before force confirmation", enrollRequests)
+	}
+	cfg, err = config.Load(path)
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if cfg.Fleet.Role != config.FleetRoleBoth || cfg.Fleet.ControlPlaneURL != "" {
+		t.Fatalf("config role/url = %q/%q, want original default both/empty", cfg.Fleet.Role, cfg.Fleet.ControlPlaneURL)
+	}
+	localAfter, err := controlplane.Open(cfg.Fleet.MetadataPath)
+	if err != nil {
+		t.Fatalf("open metadata after rejected join: %v", err)
+	}
+	defer localAfter.Close()
+	snapshotAfter, err := localAfter.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot metadata after rejected join: %v", err)
+	}
+	if snapshotAfter.LocalNodeID != localSnapshot.LocalNodeID || snapshotAfter.LocalCollectorID != localSnapshot.LocalCollectorID {
+		t.Fatalf("metadata IDs changed after rejected join: old=%s/%s new=%s/%s", localSnapshot.LocalNodeID, localSnapshot.LocalCollectorID, snapshotAfter.LocalNodeID, snapshotAfter.LocalCollectorID)
+	}
+}
+
+func TestRunJoinRequiresForceForExistingLocalIdentityConversionWithoutConfigFile(t *testing.T) {
+	resetConfigState(t)
+	cfg, err := config.Load("")
+	if err != nil {
+		t.Fatalf("load default config: %v", err)
+	}
+	local, localSnapshot, err := initializeControlPlane(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("initializeControlPlane: %v", err)
+	}
+	if err := local.Close(); err != nil {
+		t.Fatalf("close local control plane: %v", err)
+	}
+	if _, err := os.Stat(config.DefaultConfigPath()); !os.IsNotExist(err) {
+		t.Fatalf("default config stat error = %v, want no config file", err)
+	}
+
+	var routeRequests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routeRequests++
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/api/ingest/v1/enroll":
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd, _ := joinTestCommand("bcn_enroll_real_0123456789abcdef\n")
+	err = runJoin(cmd, []string{server.URL}, joinOptions{TokenStdin: true, Sources: "codex"})
+	if err == nil || !strings.Contains(err.Error(), "rerun with --force") {
+		t.Fatalf("runJoin error = %v, want --force requirement", err)
+	}
+	if routeRequests != 0 {
+		t.Fatalf("route requests = %d, want 0 before force confirmation", routeRequests)
+	}
+	localAfter, err := controlplane.Open(cfg.Fleet.MetadataPath)
+	if err != nil {
+		t.Fatalf("open metadata after rejected join: %v", err)
+	}
+	defer localAfter.Close()
+	snapshotAfter, err := localAfter.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot metadata after rejected join: %v", err)
+	}
+	if snapshotAfter.LocalNodeID != localSnapshot.LocalNodeID || snapshotAfter.LocalCollectorID != localSnapshot.LocalCollectorID {
+		t.Fatalf("metadata IDs changed after rejected join: old=%s/%s new=%s/%s", localSnapshot.LocalNodeID, localSnapshot.LocalCollectorID, snapshotAfter.LocalNodeID, snapshotAfter.LocalCollectorID)
+	}
+}
+
+func TestRunJoinRequiresForceForExistingLocalIdentityConversionWithMissingExplicitConfig(t *testing.T) {
+	resetConfigState(t)
+	cfg, err := config.Load("")
+	if err != nil {
+		t.Fatalf("load default config: %v", err)
+	}
+	local, localSnapshot, err := initializeControlPlane(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("initializeControlPlane: %v", err)
+	}
+	if err := local.Close(); err != nil {
+		t.Fatalf("close local control plane: %v", err)
+	}
+	missingConfig := filepath.Join(t.TempDir(), "custom.toml")
+	withConfigFile(t, missingConfig)
+
+	var routeRequests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routeRequests++
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/api/ingest/v1/enroll":
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd, _ := joinTestCommand("bcn_enroll_real_0123456789abcdef\n")
+	err = runJoin(cmd, []string{server.URL}, joinOptions{TokenStdin: true, Sources: "codex"})
+	if err == nil || !strings.Contains(err.Error(), "rerun with --force") {
+		t.Fatalf("runJoin error = %v, want --force requirement", err)
+	}
+	if routeRequests != 0 {
+		t.Fatalf("route requests = %d, want 0 before force confirmation", routeRequests)
+	}
+	if _, err := os.Stat(missingConfig); !os.IsNotExist(err) {
+		t.Fatalf("missing explicit config stat error = %v, want no config write", err)
+	}
+	localAfter, err := controlplane.Open(cfg.Fleet.MetadataPath)
+	if err != nil {
+		t.Fatalf("open metadata after rejected join: %v", err)
+	}
+	defer localAfter.Close()
+	snapshotAfter, err := localAfter.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot metadata after rejected join: %v", err)
+	}
+	if snapshotAfter.LocalNodeID != localSnapshot.LocalNodeID || snapshotAfter.LocalCollectorID != localSnapshot.LocalCollectorID {
+		t.Fatalf("metadata IDs changed after rejected join: old=%s/%s new=%s/%s", localSnapshot.LocalNodeID, localSnapshot.LocalCollectorID, snapshotAfter.LocalNodeID, snapshotAfter.LocalCollectorID)
+	}
+}
+
 func TestRunJoinForceRestoresConfigWhenLocalIdentityConversionEnrollmentFails(t *testing.T) {
 	resetConfigState(t)
 	path := filepath.Join(t.TempDir(), "beacon.toml")
@@ -390,6 +566,232 @@ node_name = "Local Dashboard"
 	}
 	if cfg.Fleet.Role != config.FleetRoleBoth || cfg.Fleet.ControlPlaneURL != "" {
 		t.Fatalf("restored config role/url = %q/%q, want original both/empty", cfg.Fleet.Role, cfg.Fleet.ControlPlaneURL)
+	}
+}
+
+func TestRunJoinForceRestoresConfigWhenIngestTokenWriteFailsAfterRemoteEnrollment(t *testing.T) {
+	resetConfigState(t)
+	path := filepath.Join(t.TempDir(), "beacon.toml")
+	metadataPath := filepath.Join(t.TempDir(), "metadata.db")
+	tokenPath := filepath.Join(t.TempDir(), "ingest-token")
+	body := `
+[fleet]
+role = "both"
+metadata_path = "` + metadataPath + `"
+ingest_token_file = "` + tokenPath + `"
+node_name = "Local Dashboard"
+`
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	withConfigFile(t, path)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	local, _, err := initializeControlPlane(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("initializeControlPlane: %v", err)
+	}
+	if err := local.Close(); err != nil {
+		t.Fatalf("close local control plane: %v", err)
+	}
+
+	control, err := controlplane.Open(filepath.Join(t.TempDir(), "server-control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open control-plane: %v", err)
+	}
+	defer control.Close()
+	enroll, err := control.CreateToken(context.Background(), controlplane.CreateTokenRequest{Type: controlplane.TokenTypeEnroll})
+	if err != nil {
+		t.Fatalf("CreateToken enroll: %v", err)
+	}
+	handlers := web.NewIngestHandlers(control, &joinTestCommitter{}, 0, 0, nil, nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/api/ingest/v1/enroll":
+			if strings.Contains(r.Header.Get("Authorization"), enroll.Plaintext) {
+				if err := os.Mkdir(tokenPath, 0700); err != nil && !os.IsExist(err) {
+					t.Errorf("make token path directory: %v", err)
+				}
+			}
+			handlers.Enroll(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd, _ := joinTestCommand(enroll.Plaintext + "\n")
+	err = runJoin(cmd, []string{server.URL}, joinOptions{TokenStdin: true, Force: true, Sources: "codex"})
+	if err == nil || !strings.Contains(err.Error(), "remote enrollment succeeded but write ingest token file failed") {
+		t.Fatalf("runJoin error = %v, want token write failure after remote enrollment", err)
+	}
+	cfg, err = config.Load(path)
+	if err != nil {
+		t.Fatalf("reload config after token write failure: %v", err)
+	}
+	if cfg.Fleet.Role != config.FleetRoleBoth || cfg.Fleet.ControlPlaneURL != "" {
+		t.Fatalf("restored config role/url = %q/%q, want original both/empty", cfg.Fleet.Role, cfg.Fleet.ControlPlaneURL)
+	}
+}
+
+func TestRunJoinForceRemovesNewConfigWhenIngestTokenWriteFailsAfterRemoteEnrollment(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		configPath     func(t *testing.T) string
+		installCfgFile bool
+	}{
+		{
+			name: "default config",
+			configPath: func(t *testing.T) string {
+				t.Helper()
+				return config.DefaultConfigPath()
+			},
+		},
+		{
+			name: "missing explicit config",
+			configPath: func(t *testing.T) string {
+				t.Helper()
+				return filepath.Join(t.TempDir(), "custom.toml")
+			},
+			installCfgFile: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resetConfigState(t)
+			cfg, err := config.Load("")
+			if err != nil {
+				t.Fatalf("load default config: %v", err)
+			}
+			local, _, err := initializeControlPlane(context.Background(), cfg, nil)
+			if err != nil {
+				t.Fatalf("initializeControlPlane: %v", err)
+			}
+			if err := local.Close(); err != nil {
+				t.Fatalf("close local control plane: %v", err)
+			}
+			configPath := tc.configPath(t)
+			if tc.installCfgFile {
+				withConfigFile(t, configPath)
+			}
+
+			control, err := controlplane.Open(filepath.Join(t.TempDir(), "server-control-plane.db"))
+			if err != nil {
+				t.Fatalf("Open control-plane: %v", err)
+			}
+			defer control.Close()
+			enroll, err := control.CreateToken(context.Background(), controlplane.CreateTokenRequest{Type: controlplane.TokenTypeEnroll})
+			if err != nil {
+				t.Fatalf("CreateToken enroll: %v", err)
+			}
+			handlers := web.NewIngestHandlers(control, &joinTestCommitter{}, 0, 0, nil, nil)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/health":
+					w.WriteHeader(http.StatusOK)
+				case "/api/ingest/v1/enroll":
+					if strings.Contains(r.Header.Get("Authorization"), enroll.Plaintext) {
+						if err := os.Mkdir(cfg.Fleet.IngestTokenFile, 0700); err != nil && !os.IsExist(err) {
+							t.Errorf("make token path directory: %v", err)
+						}
+					}
+					handlers.Enroll(w, r)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			cmd, _ := joinTestCommand(enroll.Plaintext + "\n")
+			err = runJoin(cmd, []string{server.URL}, joinOptions{TokenStdin: true, Force: true, Sources: "codex"})
+			if err == nil || !strings.Contains(err.Error(), "remote enrollment succeeded but write ingest token file failed") {
+				t.Fatalf("runJoin error = %v, want token write failure after remote enrollment", err)
+			}
+			if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+				t.Fatalf("config path stat error = %v, want newly-created config removed", err)
+			}
+		})
+	}
+}
+
+func TestRunJoinForceKeepsCollectorConfigWhenMetadataResetFailsAfterTokenWrite(t *testing.T) {
+	resetConfigState(t)
+	path := filepath.Join(t.TempDir(), "beacon.toml")
+	metadataPath := filepath.Join(t.TempDir(), "metadata.db")
+	tokenPath := filepath.Join(t.TempDir(), "ingest-token")
+	body := `
+[fleet]
+role = "both"
+metadata_path = "` + metadataPath + `"
+ingest_token_file = "` + tokenPath + `"
+node_name = "Local Dashboard"
+`
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	withConfigFile(t, path)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	local, _, err := initializeControlPlane(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("initializeControlPlane: %v", err)
+	}
+	if err := local.Close(); err != nil {
+		t.Fatalf("close local control plane: %v", err)
+	}
+
+	control, err := controlplane.Open(filepath.Join(t.TempDir(), "server-control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open control-plane: %v", err)
+	}
+	defer control.Close()
+	enroll, err := control.CreateToken(context.Background(), controlplane.CreateTokenRequest{Type: controlplane.TokenTypeEnroll})
+	if err != nil {
+		t.Fatalf("CreateToken enroll: %v", err)
+	}
+	handlers := web.NewIngestHandlers(control, &joinTestCommitter{}, 0, 0, nil, nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/api/ingest/v1/enroll":
+			if strings.Contains(r.Header.Get("Authorization"), enroll.Plaintext) {
+				if err := os.Remove(metadataPath); err != nil {
+					t.Errorf("remove metadata file: %v", err)
+				}
+				if err := os.Mkdir(metadataPath, 0700); err != nil {
+					t.Errorf("make metadata path directory: %v", err)
+				}
+				if err := os.WriteFile(filepath.Join(metadataPath, "block"), []byte("not empty"), 0600); err != nil {
+					t.Errorf("write metadata path blocker: %v", err)
+				}
+			}
+			handlers.Enroll(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd, _ := joinTestCommand(enroll.Plaintext + "\n")
+	err = runJoin(cmd, []string{server.URL}, joinOptions{TokenStdin: true, Force: true, Sources: "codex"})
+	if err == nil || !strings.Contains(err.Error(), "remote enrollment succeeded but local setup failed") || !strings.Contains(err.Error(), "reset local collector metadata") {
+		t.Fatalf("runJoin error = %v, want metadata reset failure after token write", err)
+	}
+	if _, err := os.Stat(tokenPath); err != nil {
+		t.Fatalf("ingest token file after local commit failure: %v", err)
+	}
+	cfg, err = config.Load(path)
+	if err != nil {
+		t.Fatalf("reload config after local commit failure: %v", err)
+	}
+	if cfg.Fleet.Role != config.FleetRoleCollector || cfg.Fleet.ControlPlaneURL != server.URL {
+		t.Fatalf("config role/url = %q/%q, want collector/%s after token write", cfg.Fleet.Role, cfg.Fleet.ControlPlaneURL, server.URL)
 	}
 }
 

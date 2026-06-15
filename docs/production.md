@@ -757,9 +757,10 @@ write into the new epoch.
 
 Before marking the multi-machine dashboard goal ready for manual testing:
 
-1. Complete all implementation issues through #248.
-2. Run the final holistic review issue (#249).
-3. Run the broad validation listed in tracker #237.
+1. Complete the implementation issues linked from the current guided setup
+   tracker.
+2. Run a final holistic review against the merged guided setup solution.
+3. Run the broad validation listed in the active release checklist.
 4. Rebuild and install the local dev binary:
 
    ```bash

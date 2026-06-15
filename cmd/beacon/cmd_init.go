@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -165,6 +166,27 @@ type remoteEnrollOptions struct {
 	FreshEnrollment bool
 }
 
+type remoteEnrollmentLocalCommitError struct {
+	err error
+}
+
+func (e *remoteEnrollmentLocalCommitError) Error() string {
+	return fmt.Sprintf("remote enrollment succeeded but local setup failed: %v", e.err)
+}
+
+func (e *remoteEnrollmentLocalCommitError) Unwrap() error {
+	return e.err
+}
+
+func remoteEnrollmentLocalCommitFailed(err error) bool {
+	var commitErr *remoteEnrollmentLocalCommitError
+	return errors.As(err, &commitErr)
+}
+
+func remoteEnrollmentLocalCommitFailure(format string, args ...any) error {
+	return &remoteEnrollmentLocalCommitError{err: fmt.Errorf(format, args...)}
+}
+
 func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, token string) error {
 	return runRemoteEnrollWithOptions(cmd, cfg, controlPlaneURL, token, remoteEnrollOptions{})
 }
@@ -204,16 +226,16 @@ func runRemoteEnrollWithOptions(cmd *cobra.Command, cfg *config.Config, controlP
 		return err
 	}
 	if err := writeIngestTokenFile(cfg.Fleet.IngestTokenFile, resp.IngestToken); err != nil {
-		return fmt.Errorf("write ingest token file: %w", err)
+		return fmt.Errorf("remote enrollment succeeded but write ingest token file failed: %w", err)
 	}
 	if opts.FreshEnrollment {
 		if err := resetLocalMetadataForFreshEnrollment(cfg.Fleet.MetadataPath); err != nil {
-			return err
+			return remoteEnrollmentLocalCommitFailure("%w", err)
 		}
 	}
 	store, err := controlplane.Open(cfg.Fleet.MetadataPath)
 	if err != nil {
-		return fmt.Errorf("open local collector metadata: %w", err)
+		return remoteEnrollmentLocalCommitFailure("open local collector metadata: %w", err)
 	}
 	defer store.Close()
 
@@ -221,14 +243,14 @@ func runRemoteEnrollWithOptions(cmd *cobra.Command, cfg *config.Config, controlP
 	localBoot.NodeID = resp.Assignment.NodeID
 	localBoot.CollectorID = resp.Assignment.CollectorID
 	if _, err := store.EnsureLocal(commandContext(cmd), localBoot); err != nil {
-		return fmt.Errorf("write local collector metadata: %w", err)
+		return remoteEnrollmentLocalCommitFailure("write local collector metadata: %w", err)
 	}
 	snapshot, err := store.SetSchemaEpoch(commandContext(cmd), resp.Assignment.ControlPlaneEpoch)
 	if err != nil {
-		return fmt.Errorf("write local collector schema epoch: %w", err)
+		return remoteEnrollmentLocalCommitFailure("write local collector schema epoch: %w", err)
 	}
 	if err := verifyRemoteSourceAssignments(snapshot, resp.Assignment); err != nil {
-		return err
+		return remoteEnrollmentLocalCommitFailure("%w", err)
 	}
 
 	out := cmd.OutOrStdout()
