@@ -212,6 +212,9 @@ func runCollectorSetupDoctor(ctx context.Context, report *doctorReport, cfg *con
 	if stats, err := doctorSpoolStats(cfg); err != nil {
 		report.line("FAIL", "collector spool", err.Error())
 		report.remediation("Check `fleet.spool_dir` permissions or rerun `beacon join --force` after reviewing config changes.")
+	} else if stats.CorruptCount > 0 {
+		report.line("FAIL", "collector spool", fmt.Sprintf("pending=%d inflight=%d corrupt=%d active_bytes=%d max_bytes=%d", stats.PendingCount, stats.InflightCount, stats.CorruptCount, stats.ActiveBytes, stats.MaxBytes))
+		report.remediation("Inspect or clear quarantined corrupt spool batches before collector validation can make progress.")
 	} else {
 		report.line("PASS", "collector spool", fmt.Sprintf("pending=%d inflight=%d corrupt=%d active_bytes=%d max_bytes=%d", stats.PendingCount, stats.InflightCount, stats.CorruptCount, stats.ActiveBytes, stats.MaxBytes))
 	}

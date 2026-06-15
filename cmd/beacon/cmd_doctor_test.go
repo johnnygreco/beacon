@@ -74,8 +74,7 @@ func TestRunDoctorSetupDashboardPublicChecks(t *testing.T) {
 		case "/health":
 			w.WriteHeader(http.StatusOK)
 		case "/api/ingest/v1/enroll":
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
 		case "/", "/api/status", "/api/mcp":
 			w.WriteHeader(http.StatusUnauthorized)
 		default:
@@ -336,6 +335,32 @@ func TestRunDoctorSetupCollectorJoinedState(t *testing.T) {
 	}
 	if strings.Contains(output, enroll.Plaintext) || strings.Contains(output, "bcn_ingest_") {
 		t.Fatalf("doctor output leaked token material: %q", output)
+	}
+}
+
+func TestRunDoctorSetupFailsCorruptCollectorSpool(t *testing.T) {
+	resetConfigState(t)
+	control, enroll, server, _ := newJoinTestControlPlane(t)
+	defer control.Close()
+	defer server.Close()
+
+	cmd, _ := joinTestCommand(enroll.Plaintext + "\n")
+	if err := runJoin(cmd, []string{server.URL}, joinOptions{TokenStdin: true, Sources: "codex"}); err != nil {
+		t.Fatalf("runJoin returned error: %v", err)
+	}
+	cfg, err := config.Load("")
+	if err != nil {
+		t.Fatalf("load joined config: %v", err)
+	}
+	writeCorruptSpoolQuarantine(t, cfg.Fleet.SpoolDir)
+
+	cmd, out := doctorTestCommand()
+	if err := runDoctorSetup(cmd, nil); !errors.Is(err, errDoctorSetupFailed) {
+		t.Fatalf("runDoctorSetup error = %v, want doctor failure", err)
+	}
+	output := out.String()
+	if !strings.Contains(output, "[FAIL] collector spool") || !strings.Contains(output, "corrupt=1") {
+		t.Fatalf("doctor output = %q, want corrupt spool failure", output)
 	}
 }
 

@@ -28,6 +28,8 @@ func OwnerTokenMiddleware(auth TokenAuthenticator, cookieName string) func(http.
 }
 
 const HostGuardRejectedHeader = "X-Beacon-Host-Guard"
+const IngestRouteHeader = "X-Beacon-Ingest-Route"
+const IngestRouteEnroll = "enroll"
 
 func LoopbackHostMiddleware(configuredHost string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

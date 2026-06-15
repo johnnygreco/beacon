@@ -276,6 +276,9 @@ func TestIngestEnrollCompletesRemoteEnrollment(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body=%s, want 200", rec.Code, rec.Body.String())
 	}
+	if got := rec.Header().Get(IngestRouteHeader); got != IngestRouteEnroll {
+		t.Fatalf("enroll route marker = %q, want %q", got, IngestRouteEnroll)
+	}
 	var resp ingest.EnrollResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode enrollment: %v", err)

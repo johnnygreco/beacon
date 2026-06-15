@@ -108,8 +108,7 @@ func TestRunJoinDryRunDoesNotRequireOrSendToken(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		case "/api/ingest/v1/enroll":
 			requests++
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -211,8 +210,7 @@ func TestRunJoinLoopbackURLPrintsTunnelWarning(t *testing.T) {
 		case "/health":
 			w.WriteHeader(http.StatusOK)
 		case "/api/ingest/v1/enroll":
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -246,8 +244,7 @@ func TestRunJoinForceRefusesDifferentControlPlaneWithExistingIdentity(t *testing
 			w.WriteHeader(http.StatusOK)
 		case "/api/ingest/v1/enroll":
 			enrollRequests++
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -268,6 +265,54 @@ func TestRunJoinForceRefusesDifferentControlPlaneWithExistingIdentity(t *testing
 	}
 	if cfg.Fleet.ControlPlaneURL != serverA.URL {
 		t.Fatalf("control_plane_url = %q, want original %q", cfg.Fleet.ControlPlaneURL, serverA.URL)
+	}
+}
+
+func TestRunJoinForceAllowsExistingLocalIdentityConversion(t *testing.T) {
+	resetConfigState(t)
+	path := filepath.Join(t.TempDir(), "beacon.toml")
+	metadataPath := filepath.Join(t.TempDir(), "metadata.db")
+	body := `
+[fleet]
+role = "both"
+metadata_path = "` + metadataPath + `"
+node_name = "Local Dashboard"
+`
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	withConfigFile(t, path)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	local, _, err := initializeControlPlane(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("initializeControlPlane: %v", err)
+	}
+	if err := local.Close(); err != nil {
+		t.Fatalf("close local control plane: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/api/ingest/v1/enroll":
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	cmd, out := joinTestCommand("")
+	err = runJoin(cmd, []string{server.URL}, joinOptions{DryRun: true, Force: true, Sources: "codex"})
+	if err != nil {
+		t.Fatalf("runJoin dry-run force returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), "Dry run: config was not written") {
+		t.Fatalf("join output = %q, want dry-run completion", out.String())
 	}
 }
 

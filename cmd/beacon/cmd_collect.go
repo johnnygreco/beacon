@@ -69,7 +69,10 @@ func runCollect(cmd *cobra.Command, once bool, controlPlaneURL string) error {
 		if err := service.ScanOnce(ctx); err != nil {
 			return err
 		}
-		return service.SendPending(ctx)
+		if err := service.SendPending(ctx); err != nil {
+			return err
+		}
+		return failIfCollectorSpoolCorrupt(cfg)
 	}
 
 	sigCh := make(chan os.Signal, 1)
@@ -91,6 +94,17 @@ func runCollect(cmd *cobra.Command, once bool, controlPlaneURL string) error {
 		return nil
 	}
 	return err
+}
+
+func failIfCollectorSpoolCorrupt(cfg *config.Config) error {
+	stats, err := collector.ReadSpoolStats(cfg.Fleet.SpoolDir, cfg.Fleet.SpoolMaxBytes)
+	if err != nil {
+		return err
+	}
+	if stats.CorruptCount > 0 {
+		return fmt.Errorf("collector spool has %d quarantined corrupt batch(es); inspect %s before retrying", stats.CorruptCount, filepath.Join(cfg.Fleet.SpoolDir, "quarantine"))
+	}
+	return nil
 }
 
 func collectorStartupLogAttrs(policy *redaction.Policy, cfg *config.Config) []any {

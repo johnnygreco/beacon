@@ -70,6 +70,7 @@ func NewIngestHandlers(control *controlplane.Store, committer IngestBatchCommitt
 }
 
 func (h *IngestHandlers) Enroll(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set(IngestRouteHeader, IngestRouteEnroll)
 	if h.control == nil {
 		h.internalError(w, "ingest is not configured", errors.New("missing ingest dependencies"))
 		return

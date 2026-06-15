@@ -228,9 +228,6 @@ func runInvite(cmd *cobra.Command, opts inviteOptions) error {
 	var saveURLPlan *config.GuidedConfigPlan
 	if opts.SaveURL {
 		patch := config.GuidedConfigPatch{Path: cfgFile, PublicURL: collectorURL}
-		if !config.IsLoopbackURL(collectorURL) {
-			patch.AuthMode = config.AuthModeOwnerToken
-		}
 		plan, err := config.PlanGuidedConfigPatch(patch)
 		if err != nil {
 			return err

@@ -260,6 +260,9 @@ func ensureJoinTargetMatchesExistingCollector(ctx context.Context, targetURL str
 	if !hasLocalIdentity {
 		return nil
 	}
+	if existingCfg.Fleet.Role != config.FleetRoleCollector {
+		return nil
+	}
 	return requireReEnrollmentControlPlaneMatch(existingCfg.Fleet.ControlPlaneURL, targetURL)
 }
 
