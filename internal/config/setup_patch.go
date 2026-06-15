@@ -152,6 +152,9 @@ func PlanGuidedConfigPatch(patch GuidedConfigPatch) (*GuidedConfigPlan, error) {
 	content := existing
 	if changed {
 		content = doc.bytes()
+		if _, err := decodeTOMLMap(content); err != nil {
+			return nil, fmt.Errorf("generated config is invalid: %w", err)
+		}
 	}
 	if !changed {
 		changes = nil
@@ -313,18 +316,8 @@ func hasCaptureSources(root map[string]any) bool {
 	if !ok {
 		return false
 	}
-	value, ok := capture["sources"]
-	if !ok {
-		return false
-	}
-	switch sources := value.(type) {
-	case []any:
-		return len(sources) > 0
-	case []map[string]any:
-		return len(sources) > 0
-	default:
-		return true
-	}
+	_, ok = capture["sources"]
+	return ok
 }
 
 func nextBackupPath(path string, now time.Time) (string, error) {
@@ -364,6 +357,9 @@ func (d *tomlPatchDocument) bytes() []byte {
 }
 
 func (d *tomlPatchDocument) setKey(section, key, encodedValue string) {
+	if d.setRootDottedKey(section, key, encodedValue) {
+		return
+	}
 	start, end, ok := d.sectionRange(section)
 	line := key + " = " + encodedValue
 	if !ok {
@@ -382,6 +378,30 @@ func (d *tomlPatchDocument) setKey(section, key, encodedValue string) {
 	d.lines = append(d.lines, "")
 	copy(d.lines[insertAt+1:], d.lines[insertAt:])
 	d.lines[insertAt] = line
+}
+
+func (d *tomlPatchDocument) setRootDottedKey(section, key, encodedValue string) bool {
+	line := section + "." + key + " = " + encodedValue
+	for i := range d.lines {
+		if _, _, ok := tableLineName(d.lines[i]); ok {
+			return false
+		}
+		trimmed := strings.TrimSpace(d.lines[i])
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		eq := tomlKeyValueDelimiterIndex(trimmed)
+		if eq < 0 {
+			continue
+		}
+		if !tomlKeyPathMatches(strings.TrimSpace(trimmed[:eq]), section, key) {
+			continue
+		}
+		indent := leadingWhitespace(d.lines[i])
+		d.lines[i] = indent + line
+		return true
+	}
+	return false
 }
 
 func (d *tomlPatchDocument) appendSources(sources []SourceConfig) {
@@ -442,14 +462,16 @@ func tableLineName(line string) (string, bool, bool) {
 		if end < 0 {
 			return "", false, false
 		}
-		return strings.TrimSpace(trimmed[2:end]), true, true
+		name, ok := normalizeTOMLKeyPath(strings.TrimSpace(trimmed[2:end]))
+		return name, true, ok
 	}
 	if strings.HasPrefix(trimmed, "[") {
 		end := strings.Index(trimmed, "]")
 		if end < 0 {
 			return "", false, false
 		}
-		return strings.TrimSpace(trimmed[1:end]), false, true
+		name, ok := normalizeTOMLKeyPath(strings.TrimSpace(trimmed[1:end]))
+		return name, false, ok
 	}
 	return "", false, false
 }
@@ -459,11 +481,120 @@ func keyLineMatches(line, key string) bool {
 	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 		return false
 	}
-	if !strings.HasPrefix(trimmed, key) {
+	eq := tomlKeyValueDelimiterIndex(trimmed)
+	if eq < 0 {
 		return false
 	}
-	rest := strings.TrimLeft(trimmed[len(key):], " \t")
-	return strings.HasPrefix(rest, "=")
+	return tomlKeyPathMatches(strings.TrimSpace(trimmed[:eq]), key)
+}
+
+func tomlKeyValueDelimiterIndex(line string) int {
+	var quote rune
+	escaped := false
+	for i, r := range line {
+		if quote != 0 {
+			if quote == '"' && r == '\\' && !escaped {
+				escaped = true
+				continue
+			}
+			if r == quote && !escaped {
+				quote = 0
+			}
+			escaped = false
+			continue
+		}
+		switch r {
+		case '"', '\'':
+			quote = r
+		case '=':
+			return i
+		}
+	}
+	return -1
+}
+
+func tomlKeyPathMatches(raw string, keys ...string) bool {
+	parts, ok := splitTOMLKeyPath(raw)
+	if !ok || len(parts) != len(keys) {
+		return false
+	}
+	for i := range keys {
+		if parts[i] != keys[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeTOMLKeyPath(raw string) (string, bool) {
+	parts, ok := splitTOMLKeyPath(raw)
+	if !ok {
+		return "", false
+	}
+	return strings.Join(parts, "."), true
+}
+
+func splitTOMLKeyPath(raw string) ([]string, bool) {
+	segments := splitTOMLKeySegments(raw)
+	if len(segments) == 0 {
+		return nil, false
+	}
+	parts := make([]string, 0, len(segments))
+	for _, segment := range segments {
+		part, ok := parseTOMLKeySegment(strings.TrimSpace(segment))
+		if !ok {
+			return nil, false
+		}
+		parts = append(parts, part)
+	}
+	return parts, true
+}
+
+func splitTOMLKeySegments(raw string) []string {
+	var segments []string
+	start := 0
+	var quote rune
+	escaped := false
+	for i, r := range raw {
+		if quote != 0 {
+			if quote == '"' && r == '\\' && !escaped {
+				escaped = true
+				continue
+			}
+			if r == quote && !escaped {
+				quote = 0
+			}
+			escaped = false
+			continue
+		}
+		switch r {
+		case '"', '\'':
+			quote = r
+		case '.':
+			segments = append(segments, raw[start:i])
+			start = i + 1
+		}
+	}
+	segments = append(segments, raw[start:])
+	return segments
+}
+
+func parseTOMLKeySegment(raw string) (string, bool) {
+	if raw == "" {
+		return "", false
+	}
+	switch raw[0] {
+	case '"':
+		unquoted, err := strconv.Unquote(raw)
+		return unquoted, err == nil
+	case '\'':
+		if len(raw) < 2 || raw[len(raw)-1] != '\'' {
+			return "", false
+		}
+		return raw[1 : len(raw)-1], true
+	default:
+		return raw, true
+	}
 }
 
 func leadingWhitespace(line string) string {
