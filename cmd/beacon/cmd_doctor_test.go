@@ -179,6 +179,62 @@ node_name = "Loopback Dashboard"
 	}
 }
 
+func TestRunDoctorSetupUsesReadOnlyClickHouseCheck(t *testing.T) {
+	resetConfigState(t)
+	withNoDockerOnPath(t)
+	path := filepath.Join(t.TempDir(), "beacon.toml")
+	metadataPath := filepath.Join(t.TempDir(), "metadata.db")
+	body := `
+[server]
+host = "127.0.0.1"
+port = 4600
+public_url = "http://127.0.0.1:4600"
+
+[fleet]
+role = "both"
+metadata_path = "` + metadataPath + `"
+node_name = "Read Only Dashboard"
+`
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	withConfigFile(t, path)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	controlStore, _, err := initializeControlPlane(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("initializeControlPlane: %v", err)
+	}
+	if err := controlStore.Close(); err != nil {
+		t.Fatalf("close control plane: %v", err)
+	}
+
+	oldStatusOpenStore := statusOpenStore
+	statusOpenStore = func(context.Context, store.Options) (*store.Store, error) {
+		t.Fatal("doctor setup called statusOpenStore, which runs migrations")
+		return nil, nil
+	}
+	t.Cleanup(func() { statusOpenStore = oldStatusOpenStore })
+
+	calledReadOnly := false
+	oldReadOnly := doctorOpenClickHouseReadOnly
+	doctorOpenClickHouseReadOnly = func(context.Context, store.Options) (*store.Store, error) {
+		calledReadOnly = true
+		return &store.Store{}, nil
+	}
+	t.Cleanup(func() { doctorOpenClickHouseReadOnly = oldReadOnly })
+
+	cmd, _ := doctorTestCommand()
+	if err := runDoctorSetup(cmd, nil); err != nil {
+		t.Fatalf("runDoctorSetup returned error: %v", err)
+	}
+	if !calledReadOnly {
+		t.Fatal("doctor setup did not call read-only ClickHouse check")
+	}
+}
+
 func TestRunDoctorSetupReportsBroadManagedDockerClickHouseBindings(t *testing.T) {
 	resetConfigState(t)
 	withDoctorClickHouseReady(t)
@@ -388,11 +444,11 @@ func doctorTestCommand() (*cobra.Command, *bytes.Buffer) {
 
 func withDoctorClickHouseReady(t *testing.T) {
 	t.Helper()
-	oldOpen := statusOpenStore
-	statusOpenStore = func(context.Context, store.Options) (*store.Store, error) {
+	oldOpen := doctorOpenClickHouseReadOnly
+	doctorOpenClickHouseReadOnly = func(context.Context, store.Options) (*store.Store, error) {
 		return &store.Store{}, nil
 	}
-	t.Cleanup(func() { statusOpenStore = oldOpen })
+	t.Cleanup(func() { doctorOpenClickHouseReadOnly = oldOpen })
 }
 
 func withNoDockerOnPath(t *testing.T) {

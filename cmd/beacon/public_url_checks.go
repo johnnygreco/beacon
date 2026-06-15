@@ -46,6 +46,23 @@ func (e *publicURLCheckError) Unwrap() error {
 	return e.err
 }
 
+type publicURLHealthStatusError struct {
+	status  int
+	body    string
+	headers http.Header
+}
+
+func (e *publicURLHealthStatusError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return fmt.Sprintf("public URL health check returned HTTP %d%s", e.status, hostGuardSuffix(e.headers, e.body))
+}
+
+func (e *publicURLHealthStatusError) hostGuardRejected() bool {
+	return e != nil && publicURLHostGuardRejected(e.headers, e.body)
+}
+
 var newPublicURLCheckClient = func() *http.Client {
 	return &http.Client{Timeout: 10 * time.Second}
 }
@@ -110,7 +127,7 @@ func checkPublicHealth(ctx context.Context, client *http.Client, rootURL string)
 		return fmt.Errorf("public URL health check failed: %w", err)
 	}
 	if status != http.StatusOK {
-		return fmt.Errorf("public URL health check returned HTTP %d%s", status, hostGuardSuffix(headers, body))
+		return &publicURLHealthStatusError{status: status, body: body, headers: headers}
 	}
 	return nil
 }
@@ -191,11 +208,18 @@ func doPublicURLProbe(ctx context.Context, client *http.Client, method, target s
 }
 
 func hostGuardSuffix(headers http.Header, body string) string {
-	if headers != nil && headers.Get(web.HostGuardRejectedHeader) == "rejected" {
-		return " (Beacon host guard rejected the request)"
-	}
-	if strings.Contains(strings.ToLower(body), "host guard") {
+	if publicURLHostGuardRejected(headers, body) {
 		return " (Beacon host guard rejected the request)"
 	}
 	return ""
+}
+
+func publicURLHostGuardRejected(headers http.Header, body string) bool {
+	if headers != nil && headers.Get(web.HostGuardRejectedHeader) == "rejected" {
+		return true
+	}
+	if strings.Contains(strings.ToLower(body), "host guard") {
+		return true
+	}
+	return false
 }

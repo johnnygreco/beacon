@@ -9,10 +9,12 @@ import (
 	"github.com/johnnygreco/beacon/internal/collector"
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/controlplane"
+	"github.com/johnnygreco/beacon/internal/store"
 	"github.com/spf13/cobra"
 )
 
 var errDoctorSetupFailed = errors.New("setup doctor found failures")
+var doctorOpenClickHouseReadOnly = store.OpenReadOnly
 
 type doctorReport struct {
 	out    interface{ Write([]byte) (int, error) }
@@ -163,7 +165,7 @@ func runDoctorClickHouseChecks(ctx context.Context, report *doctorReport, cfg *c
 		report.line("INFO", "ClickHouse managed Docker", "remote ClickHouse configured; skipping local managed Docker binding check")
 	}
 
-	ch, err := statusOpenStore(ctx, opts)
+	ch, err := doctorOpenClickHouseReadOnly(ctx, opts)
 	if err != nil {
 		report.line("FAIL", "ClickHouse migration", fmt.Sprintf("not migration-ready at %s database=%s (%v)", strings.Join(addrs, ","), opts.Database, err))
 		report.remediation("Start ClickHouse with `beacon db up` or fix database.addrs, then run `beacon db migrate`.")

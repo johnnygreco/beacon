@@ -336,7 +336,14 @@ func setupPublicURLChecksPending(err error) bool {
 	if !errors.As(err, &checkErr) {
 		return false
 	}
-	return checkErr.stage == publicURLCheckStageHealth
+	if checkErr.stage != publicURLCheckStageHealth {
+		return false
+	}
+	var healthStatusErr *publicURLHealthStatusError
+	if errors.As(err, &healthStatusErr) && healthStatusErr.hostGuardRejected() {
+		return false
+	}
+	return true
 }
 
 func requireForceForGuidedConfigConflicts(plan *config.GuidedConfigPlan, force bool) error {
