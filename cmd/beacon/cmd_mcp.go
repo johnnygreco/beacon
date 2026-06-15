@@ -111,6 +111,12 @@ func normalizeRemoteMCPEndpoint(raw string) (string, error) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return "", fmt.Errorf("remote MCP URL must use http or https")
 	}
+	if u.User != nil {
+		return "", fmt.Errorf("remote MCP URL must not include userinfo")
+	}
+	if err := config.ValidateURLAuthority(u, "remote MCP URL"); err != nil {
+		return "", err
+	}
 	if u.Scheme == "http" && !config.IsLoopbackURLHost(u.Host) {
 		return "", fmt.Errorf("remote MCP URL must use https for non-loopback hosts")
 	}
