@@ -53,9 +53,11 @@ uses WAL mode. Beacon creates these files owner-readable only. `beacon status`
 reports the metadata path, schema epoch, and counts for nodes, collectors, and
 sources when the metadata store has been initialized.
 
-`beacon init` prints owner and enrollment tokens once. `beacon enroll` accepts
-enrollment tokens through stdin or an environment variable name, not through
-command arguments, so tokens do not need to appear in process listings.
+`beacon init` prints owner and enrollment tokens once. `beacon join` prompts
+securely on an interactive terminal and also accepts enrollment tokens through
+stdin, an environment variable name, or an invite file. The advanced
+`beacon enroll` primitive accepts enrollment tokens through stdin or an
+environment variable name. These paths keep tokens out of process listings.
 
 Remote-safe `beacon collect` writes pending HTTP ingest batches under
 `~/.beacon/spool` by default. The spool directories are owner-only and batch

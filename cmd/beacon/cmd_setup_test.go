@@ -169,9 +169,12 @@ func TestRunInviteMintsLoopbackLocalTunnelToken(t *testing.T) {
 		t.Fatalf("invite output = %q, want local-only check label", output)
 	}
 	for _, line := range strings.Split(output, "\n") {
-		if strings.Contains(line, "beacon enroll") && strings.Contains(line, tokens[0]) {
+		if strings.Contains(line, "beacon join") && strings.Contains(line, tokens[0]) {
 			t.Fatalf("remote command includes token inline: %q", line)
 		}
+	}
+	if !strings.Contains(output, "beacon join http://127.0.0.1:4600 --token-stdin") {
+		t.Fatalf("invite output = %q, want beacon join command", output)
 	}
 }
 

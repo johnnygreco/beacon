@@ -225,8 +225,9 @@ beacon invite --ttl 30m
 ```
 
 Beacon checks non-loopback public URLs before minting the invite token. The
-printed collector command references `BEACON_ENROLL_TOKEN` and does not place
-the token directly on a shell command line.
+printed collector command uses `beacon join` and references
+`BEACON_ENROLL_TOKEN`; it does not place the token directly on a shell command
+line.
 
 ## Initialize owner and enrollment tokens manually
 
@@ -250,10 +251,32 @@ run `beacon init --enroll-ttl 30m` again on the control plane. Existing
 owner/control-plane metadata is reused and new owner and enrollment tokens are
 shown once.
 
-## Collector config
+## Join collectors
 
-On each collector machine, configure `[fleet].role = "collector"` and the local
-capture sources for that host:
+On each collector machine, use the invite from the control plane:
+
+```bash
+beacon join https://beacon.example.com
+```
+
+For automation, pass the token through stdin or an environment variable name:
+
+```bash
+printf '%s\n' "$BEACON_ENROLL_TOKEN" | beacon join https://beacon.example.com --token-stdin
+```
+
+`beacon join` writes collector config, preflights the enrollment route with an
+intentionally invalid bearer so route/proxy failures do not consume the real
+one-use token, enrolls with the control plane, writes the returned ingest token
+with owner-only permissions, sends an authenticated heartbeat, and runs one
+smoke collection. Without a token flag it prompts securely on an interactive
+terminal. Use `--invite-file` with JSON invite output for automation, or
+`--token-env BEACON_ENROLL_TOKEN` when stdin is not convenient.
+
+## Manual collector config
+
+If you prefer the advanced manual flow, configure `[fleet].role = "collector"`
+and the local capture sources for that host:
 
 ```toml
 [server]
@@ -306,9 +329,9 @@ Keep source names stable. Beacon uses node, collector, source, runtime, and
 project metadata to make sessions searchable across the unified dashboard and
 MCP dataset.
 
-## Enroll collectors
+## Manual enrollment primitive
 
-On the collector machine:
+On the collector machine, after manually writing collector config:
 
 ```bash
 printf 'Enrollment token: ' >&2
@@ -335,13 +358,16 @@ Successful enrollment writes:
 - source assignments for the configured capture sources
 - the current control-plane schema epoch
 
+The guided `beacon join` command performs these same enrollment steps plus
+route preflight, heartbeat validation, and one smoke collection.
+
 The enrollment token cannot ingest data. The returned ingest token is bound to
 the assigned node, collector, source list, and epoch.
 
-To re-enroll an existing collector, keep its current ingest token file in place
-and run the same `beacon enroll` command with a fresh enrollment token. Beacon
-uses the existing ingest token as proof that this machine owns the current
-collector identity, then rotates the ingest token file after successful
+To re-enroll an existing collector manually, keep its current ingest token file
+in place and run the same `beacon enroll` command with a fresh enrollment
+token. Beacon uses the existing ingest token as proof that this machine owns the
+current collector identity, then rotates the ingest token file after successful
 enrollment.
 
 ## Run collectors
@@ -572,9 +598,9 @@ Before relying on Beacon as your personal production dashboard:
 - install the same intended build on the control plane and collectors
 - keep the control plane behind HTTPS for non-loopback browser or MCP access
 - choose `reverse-proxy` or `owner-token` auth deliberately
-- run `beacon init` and store the owner token outside shell history
-- enroll each collector with a short-lived one-use enrollment token
-- verify each collector with `beacon collect --once`
+- run `beacon setup dashboard` and store the owner token outside shell history
+- enroll each collector with `beacon invite` plus `beacon join`
+- verify each collector via the heartbeat/smoke checks printed by `beacon join`
 - run each long-lived process under systemd, launchd, tmux, or another
   supervised process manager
 - run `beacon status` on the control plane
@@ -592,22 +618,18 @@ Before relying on Beacon as your personal production dashboard:
 ### Add a collector
 
 1. Install Beacon on the collector machine.
-2. Create or edit `~/.beacon/beacon.toml` with `[fleet].role = "collector"`,
-   `[fleet].control_plane_url`, `[fleet].node_name`, and the local
-   `[[capture.sources]]`.
-3. On the control plane, run `beacon invite --ttl 30m`.
-4. On the collector, run the `beacon enroll https://beacon.example.com
+2. On the control plane, run `beacon invite --ttl 30m`.
+3. On the collector, run the `beacon join https://beacon.example.com
    --token-stdin` or `--token-env BEACON_ENROLL_TOKEN` command from the invite.
-5. Run `beacon collect --once`.
-6. Check `beacon status` on the control plane and confirm the dashboard shows
+4. Check `beacon status` on the control plane and confirm the dashboard shows
    the new node/source filters.
-7. Start the collector as a supervised service.
+5. Start the collector as a supervised service.
 
 ### Rotate a collector ingest token
 
 1. Leave the existing `[fleet].ingest_token_file` on the collector.
 2. On the control plane, run `beacon invite --ttl 30m`.
-3. On the collector, rerun `beacon enroll https://beacon.example.com
+3. On the collector, rerun `beacon join https://beacon.example.com
    --token-stdin` or `--token-env BEACON_ENROLL_TOKEN`.
 4. Confirm the command writes a new ingest token file and preserves the same
    node/collector assignment.

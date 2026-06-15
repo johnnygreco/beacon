@@ -55,7 +55,7 @@ func TestRootCommandShowsVersion(t *testing.T) {
 
 func TestRootCommandExposesCanonicalSubcommands(t *testing.T) {
 	cmd := newRootCmd()
-	want := []string{"setup", "init", "invite", "enroll", "up", "down", "collect", "watch", "mcp", "usage", "status", "db"}
+	want := []string{"setup", "init", "invite", "join", "enroll", "up", "down", "collect", "watch", "mcp", "usage", "status", "db"}
 
 	var got []string
 	for _, sub := range cmd.Commands() {

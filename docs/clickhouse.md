@@ -308,7 +308,7 @@ For remote collectors, reset advances the control-plane `schema_epoch` and old
 ingest tokens stop writing. After the control-plane reset completes:
 
 1. keep or restart the control-plane with `beacon up`;
-2. on each collector machine, run `beacon enroll <control-plane-url>` with a new
+2. on each collector machine, run `beacon join <control-plane-url>` with a new
    enrollment token;
 3. restart `beacon collect`;
 4. verify `beacon status` shows `reset_pending=false`, and verify collectors are

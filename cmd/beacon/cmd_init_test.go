@@ -461,6 +461,7 @@ func TestRunRemoteEnrollPrintsConfigAndCollectorUsesAssignedMetadata(t *testing.
 		t.Fatalf("CreateToken second enroll: %v", err)
 	}
 	out.Reset()
+	cfg.Fleet.ControlPlaneURL = server.URL
 	if err := runRemoteEnroll(cmd, cfg, server.URL, secondEnroll.Plaintext); err != nil {
 		t.Fatalf("second runRemoteEnroll: %v", err)
 	}
