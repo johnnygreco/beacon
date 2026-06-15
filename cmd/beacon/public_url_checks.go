@@ -19,6 +19,33 @@ type publicURLCheckOptions struct {
 	Client *http.Client
 }
 
+type publicURLCheckStage string
+
+const (
+	publicURLCheckStageHealth     publicURLCheckStage = "health"
+	publicURLCheckStageEnrollment publicURLCheckStage = "enrollment"
+	publicURLCheckStageProtected  publicURLCheckStage = "protected"
+)
+
+type publicURLCheckError struct {
+	stage publicURLCheckStage
+	err   error
+}
+
+func (e *publicURLCheckError) Error() string {
+	if e == nil || e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
+
+func (e *publicURLCheckError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
 var newPublicURLCheckClient = func() *http.Client {
 	return &http.Client{Timeout: 10 * time.Second}
 }
@@ -46,14 +73,14 @@ func runPublicURLChecks(ctx context.Context, rawURL string, opts publicURLCheckO
 		client = newPublicURLCheckClient()
 	}
 	if err := checkPublicHealth(ctx, client, rootURL); err != nil {
-		return err
+		return &publicURLCheckError{stage: publicURLCheckStageHealth, err: err}
 	}
 	if err := checkPublicEnrollmentAuth(ctx, client, rootURL); err != nil {
-		return err
+		return &publicURLCheckError{stage: publicURLCheckStageEnrollment, err: err}
 	}
 	if !opts.Unsafe {
 		if err := checkProtectedPublicRoutes(ctx, client, rootURL); err != nil {
-			return err
+			return &publicURLCheckError{stage: publicURLCheckStageProtected, err: err}
 		}
 	}
 	return nil
@@ -122,7 +149,7 @@ func checkProtectedPublicRoutes(ctx context.Context, client *http.Client, rootUR
 		if err != nil {
 			return fmt.Errorf("public URL protected route check %s failed: %w", check.path, err)
 		}
-		if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		if status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusNotFound {
 			continue
 		}
 		return fmt.Errorf("public URL protected route %s returned HTTP %d without authentication%s; set auth.mode to %q or %q, or pass --unsafe-public-url to acknowledge this exposure",
