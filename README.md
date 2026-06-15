@@ -1,408 +1,157 @@
+# Beacon
+
 <p align="center">
-  <img src="assets/beacon.png" alt="Beacon" width="800" />
+  <img src="assets/beacon.png" width="220" alt="Beacon logo">
 </p>
 
-Beacon is a local dashboard for long-running AI coding agents. It watches the
-session files already on your machine, writes normalized events to ClickHouse,
-and gives you a live view of active work, searchable history, tool usage, token
-volume, and past transcripts.
+Beacon collects AI agent activity from the machines you use, rolls it up in one
+local dashboard, and exposes the same data to tools through MCP.
 
-## What It Looks Like
-
-**Dashboard overview.** Active sessions with compact live stat trackers, a
-Sessions-first completed-run table, scoped search filters, selectable Token
-Analytics metrics, and a live Activity Bar in one view.
-
-<p>
-  <img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing active sessions, Sessions-first table controls, selectable Token Analytics metrics, and Activity Bar" />
-</p>
-
-**Session transcript.** A single run with the replayable conversation, tool-use blocks, and subagent handoffs.
-
-<p>
-  <img src="assets/session-screenshot.png" alt="Beacon transcript replay showing conversation detail, tool-use blocks, and subagent handoffs" />
-</p>
-
-## Why Use Beacon
-
-- See active and completed agent runs in one place, including project paths,
-  models, duration, turns, tool calls, subagents, and errors.
-- Watch active sessions appear in the live board while scoped dashboard panels
-  refresh without disturbing the rest of the page.
-- Catch expensive or noisy work quickly with Token Analytics metrics for total,
-  input, output, cache-read tokens, tool calls, errors, and error rate.
-- Search sessions first, then switch the same table to events, tool calls, or
-  error-focused searches when you need detail.
-- Replay a session as a readable transcript with expandable tool payloads and timeline context.
-- Let agents query prior work through MCP tools instead of asking you to remember which session contained the answer.
-
-Beacon currently understands session data from Claude Code, OpenAI Codex, Hermes Agent, OpenCode, and Pi coding-agent runs.
+Use it for a single laptop, a team workstation, or a small fleet of machines.
+The default setup keeps data local unless you deliberately point collectors at a
+shared Beacon dashboard.
 
 ## Install
-
-Beacon is distributed through GitHub Releases and the install script below. The installer supports macOS and Linux on `amd64` and `arm64` when the selected release includes the matching archive.
 
 ```bash
 curl -sSfL https://johnnygreco.dev/beacon/install.sh | sh
 ```
 
-It installs `beacon` to `~/.local/bin`. If ClickHouse is not already available on `PATH`, it also installs a managed ClickHouse binary to `~/.beacon/bin`.
-Beacon release archives are verified against the release `checksums.txt` before
-installation. Managed ClickHouse downloads use the pinned ClickHouse release
-documented in [docs/release.md](docs/release.md).
-
-If your shell cannot find `beacon`, add the install directory to `PATH`:
+The installer puts `beacon` in `$HOME/.local/bin`. Add it to your shell path if
+needed:
 
 ```bash
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Common variants:
+## Run On One Machine
 
-```bash
-curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_DIR=/usr/local/bin sh
-curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERSION=x.y.z sh
-curl -sSfL https://johnnygreco.dev/beacon/install.sh | INCLUDE_PRERELEASE=1 sh
-curl -sSfL https://johnnygreco.dev/beacon/install.sh | INSTALL_CLICKHOUSE=0 sh
-curl -sSfL https://johnnygreco.dev/beacon/install.sh | VERIFY_CHECKSUMS=0 sh
-curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh
-```
-
-Use `INSTALL_CLICKHOUSE=0` only when you already run ClickHouse yourself.
-Use `VERIFY_CHECKSUMS=0` only for local installer debugging or emergency
-workarounds. `UNINSTALL=1` removes the installed `beacon` binary and `~/.beacon`,
-including Beacon-managed ClickHouse data.
-
-Homebrew packaging is not currently a supported distribution channel.
-
-## Start
+Start Beacon:
 
 ```bash
 beacon up
 ```
 
-Open [http://localhost:4600](http://localhost:4600). On startup, Beacon loads `~/.beacon/beacon.toml` if it exists, starts local ClickHouse when the configured ClickHouse address is local, migrates the schema, backfills existing sessions, and then watches for new events.
+Open the dashboard:
 
-For a personal production dashboard across arbitrary machines and collectors,
-see [Personal production guide](docs/production.md). It covers the control
-plane, collector enrollment, HTTPS/reverse proxy setup, remote MCP, redaction,
-reset/replay, and operations runbooks.
-
-Useful commands:
-
-```bash
-beacon setup dashboard --collector-url https://beacon.example  # guided dashboard setup
-beacon invite    # create a one-use collector enrollment invite
-beacon join https://beacon.example  # configure/enroll a collector
-beacon doctor setup # diagnose guided dashboard/collector setup
-beacon init     # create owner and one-use enrollment tokens
-beacon status   # server, ClickHouse, session, and search-index health
-beacon down     # stop the running Beacon web server
-beacon db down  # stop Beacon-managed local ClickHouse
-beacon --version # show the Beacon CLI version
+```text
+http://localhost:4600
 ```
 
-## Dashboard
+Beacon starts the local collector and dashboard together. It can ingest Claude
+Code, OpenAI Codex, Hermes Agent, OpenCode, and Pi coding-agent activity from
+their usual local locations.
 
-The top-left header shows the Beacon mark, live connection indicator, and
-editable dashboard name. The active-session board updates through SSE as
-sessions start or change. Completed sessions load immediately for the selected
-time range; no search is required to populate the table.
+## Run On Multiple Machines
 
-The completed table defaults to **Sessions** because that is the primary review
-workflow. Use the table controls to filter by range, search text, session ID,
-result type, sort order, and pagination. The table refresh button reloads only
-the completed/search table. Sessions search uses Beacon's indexed session
-content, including event text, session metadata, tool names, payload previews,
-and bounded payload JSON.
+Use one machine as the dashboard host, then join each collector machine to it.
 
-Token Analytics has its own range controls, log-scale toggle, model filter,
-metric dropdown, and refresh button. The metric dropdown supports total tokens,
-input tokens, output tokens, cache-read tokens, tool calls, errors, and error
-rate. The selected metric is stored in the dashboard URL as `chart_metric`, so
-shared links and reloads keep the chart state.
+1. On the dashboard host, install Beacon and configure the public URL:
 
-## Capture Sources
+   ```bash
+   beacon setup dashboard --collector-url https://beacon.example.com
+   ```
 
-These sources are enabled by default:
+2. Point `https://beacon.example.com` at the dashboard host. Use your reverse
+   proxy, tunnel, VPN, or load balancer of choice.
 
-| Source | Runtime | Default path |
-|--------|---------|--------------|
-| Claude Code | `claude-code` | `~/.claude/projects/**/*.jsonl` |
-| OpenAI Codex | `codex` | `~/.codex/sessions/**/*.jsonl` |
-| Hermes Agent | `hermes-agent` | `~/.hermes/state.db` |
-| OpenCode | `opencode` | `~/.local/share/opencode/opencode*.db` |
-| Pi coding agent | `pi-coding-agent` | `~/.pi/agent/sessions/**/*.jsonl` |
+3. Start the dashboard. Beacon will verify that the public URL reaches it:
 
-Backfill runs on startup by default, then the watcher keeps configured paths up to date.
+   ```bash
+   beacon up
+   ```
+
+4. Create an invite on the dashboard host:
+
+   ```bash
+   beacon invite
+   ```
+
+5. On each collector machine, install Beacon and run the recommended command
+   printed by the invite. To join interactively and start collection in the
+   foreground, use:
+
+   ```bash
+   beacon join https://beacon.example.com --start
+   ```
+
+6. On later restarts, run the collector directly:
+
+   ```bash
+   beacon collect
+   ```
+
+Check the setup from any machine:
+
+```bash
+beacon doctor setup
+```
+
+For HTTPS, reverse proxy, service manager, recovery, and invite details, see the
+[production guide](docs/production.md).
+
+## What You Get
+
+<p align="center">
+  <img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing usage charts, model breakdowns, and recent sessions">
+</p>
+
+- A dashboard at `http://localhost:4600`
+- Token, cost, model, project, runtime, and session summaries
+- Source-aware ingestion across local AI coding tools
+- MCP tools for querying sessions and usage from other agents
+- Managed local ClickHouse storage, with remote ClickHouse available for larger
+  installations
+- Privacy controls for redaction, hashing, capture filters, and offline operation
+
+## Common Commands
+
+| Task | Command |
+| --- | --- |
+| Start dashboard and local collector | `beacon up` |
+| Run only the collector | `beacon collect` |
+| Open one-time setup flow | `beacon setup dashboard` |
+| Join a remote dashboard | `beacon join https://beacon.example.com` |
+| Create a collector invite | `beacon invite` |
+| Check local and fleet setup | `beacon doctor setup` |
+| Show usage summary | `beacon usage --since now-24h` |
+| Show server and database health | `beacon status` |
+| Query MCP tools over stdio | `beacon mcp` |
+| Show all commands | `beacon --help` |
 
 ## Configuration
 
-Beacon reads `~/.beacon/beacon.toml` by default. Pass `--config <path>` to use another file:
+Beacon writes config to `~/.beacon/beacon.toml` by default. The guided setup
+flow creates the files you need:
 
 ```bash
-beacon --config ./beacon.toml up
+beacon setup dashboard
 ```
 
-Start from the example in [beacon.toml](beacon.toml). The settings most people change are the web port, ClickHouse address, and capture sources:
-
-```toml
-[server]
-host = "127.0.0.1"
-port = 4600
-
-[database]
-addrs = ["127.0.0.1:9000"]
-database = "beacon"
-username = "default"
-password = ""
-secure = false
-
-[dashboard]
-name = "Workstation A"
-
-[auth]
-mode = "loopback"
-cookie_name = "beacon_owner_token"
-allow_insecure_owner_http = false
-
-[fleet]
-role = "both"
-metadata_path = "~/.beacon/control-plane.db"
-control_plane_url = ""
-node_name = "Workstation A"
-ingest_token_file = "~/.beacon/ingest-token"
-ingest_token_env = "BEACON_INGEST_TOKEN"
-spool_dir = "~/.beacon/spool"
-spool_max_bytes = 268435456
-spool_batch_size = 500
-retry_min = "1s"
-retry_max = "1m"
-heartbeat_interval = "30s"
-
-[[capture.sources]]
-name = "codex"
-runtime = "codex"
-provider = "openai"
-glob = "~/.codex/sessions/**/*.jsonl"
-watch_root = "~/.codex/sessions"
-format = "jsonl"
-```
-
-Ports must be in `1..65535`, ClickHouse addresses must include a host and port,
-and each capture source must set `name`, `runtime`, `provider`, `format`,
-`watch_root`, and either `glob` or `globs`. Supported runtime/format pairs are
-`claude-code/jsonl`, `codex/jsonl`, `hermes-agent/sqlite`, `opencode/sqlite`,
-and `pi-coding-agent/jsonl`.
-
-The default `[server].host` is `127.0.0.1` with `[auth].mode = "loopback"`.
-If you bind Beacon to a non-loopback host such as `0.0.0.0`, startup requires
-either `[auth].mode = "owner-token"` with an active owner/admin token created by
-`beacon init`, or `[auth].mode = "reverse-proxy"` when a trusted proxy handles
-access control. Owner-token mode on non-loopback plain HTTP also requires the
-explicit `allow_insecure_owner_http = true` opt-in; use a TLS reverse proxy for
-normal browser access. Without a login UI, owner-token browser access requires
-setting the configured cookie yourself, while API clients can send
-`Authorization: Bearer <owner-token>`.
-
-For a guided multi-machine setup, run `beacon setup dashboard --collector-url
-https://beacon.example` on the dashboard machine. The command writes the
-dashboard/control-plane config, sets `auth.mode = "owner-token"` for
-non-loopback collector URLs, initializes control-plane metadata, and prints any
-new owner token once. Later, run `beacon invite` to create a one-use collector
-enrollment token, then run `beacon join <url>` on the collector machine. Beacon
-checks non-loopback public URLs before startup and before minting invites:
-`/health` must be reachable, `/api/ingest/v1/enroll` must preserve the
-`Authorization` header, and dashboard/API/MCP routes must not be open without
-authentication unless `--unsafe-public-url` is explicitly used. Before `join`
-sends the real enrollment token, it repeats the `/health` and enrollment auth
-preflight for the target control plane. Loopback collector URLs require
-`--local-tunnel` so invite output is clearly marked as tunnel-local.
-
-Set `[dashboard].name` when you run Beacon dashboards for multiple machines or
-workspaces. The configured name becomes the dashboard heading and browser tab
-title; the heading can also be renamed locally from the dashboard without
-editing the config file.
-
-Beacon also keeps a small durable control-plane metadata database at
-`[fleet].metadata_path`, defaulting to `~/.beacon/control-plane.db`. It records
-the local owner instance, schema epoch, node, collector, and source assignments
-so multi-machine collector features have stable identity outside ClickHouse
-table reset. It also stores token hashes, scopes, expiry, revocation state, and
-node/collector/source bindings for owner, enrollment, read/admin, and ingest
-tokens. Plain control-plane tokens are shown once by CLI commands and are not
-stored by the control plane.
-
-Use `beacon init` to create a local owner token and a short-lived one-use
-enrollment token for manual workflows. `beacon enroll --token-stdin` and
-`beacon enroll --token-env BEACON_ENROLL_TOKEN` still support local metadata
-enrollment as advanced primitives. Remote collectors normally use `beacon join
-https://beacon.example`, which prompts securely for the enrollment token when no
-safe token source is provided. It writes collector config, preflights the
-enrollment route with an invalid bearer, consumes the one-use enrollment token
-only after that preflight passes, writes the bound ingest token to
-`[fleet].ingest_token_file` with owner-only permissions, sends an authenticated
-heartbeat, and runs one smoke collection. Re-joining an existing collector
-rotates that file only after proving possession of the current ingest token.
-Beacon never requires enrollment tokens in command arguments.
-
-Remote-safe collection runs with `beacon collect`. It reads configured capture
-sources, applies Beacon's best-effort destructive redaction policy before
-writing to `[fleet].spool_dir`, writes owner-only checksummed spool files, sends
-gzip JSON batches to `/api/ingest/v1/batches`, and advances local checkpoints
-only after a committed acknowledgement from the control plane. The policy covers
-Beacon tokens, common credential formats, configured path/env/literal masks, and
-explicit fixtures; it is not a guarantee that every arbitrary secret pasted into
-agent text can be detected. Remote collectors need
-`[fleet].control_plane_url` and either `[fleet].ingest_token_file` or the
-environment variable named by `[fleet].ingest_token_env`.
-
-A minimal remote collector config looks like:
-
-```toml
-[fleet]
-role = "collector"
-metadata_path = "~/.beacon/control-plane.db"
-control_plane_url = "https://beacon.example"
-node_name = "Mac Mini"
-ingest_token_file = "~/.beacon/ingest-token"
-spool_dir = "~/.beacon/spool"
-
-[[capture.sources]]
-name = "codex"
-runtime = "codex"
-provider = "openai"
-glob = "~/.codex/sessions/**/*.jsonl"
-watch_root = "~/.codex/sessions"
-format = "jsonl"
-```
-
-If `[database].addrs` points to a remote ClickHouse host, Beacon will not start ClickHouse for you. Start the database yourself and run `beacon db migrate`.
+Use the docs below when you need a custom deployment, storage backend, privacy
+policy, or integration surface.
 
 ## Documentation
 
-- [Architecture and data flow](docs/architecture.md)
-- [Personal production guide](docs/production.md)
-- [Privacy, retention, and local data boundaries](docs/privacy.md)
-- [MCP Integration](docs/mcp.md)
-- [Pricing estimate data and fallback behavior](docs/pricing.md)
-- [Usage summaries and safe accounting](docs/usage.md)
-- [Performance baselines and query-plan review](docs/performance.md)
-- [ClickHouse schema, migration, and reset policy](docs/clickhouse.md)
-- [Errors and observability](docs/errors.md)
-- [Toolchain and dependency updates](docs/toolchain.md)
-- [Installer and release process](docs/release.md)
-
-## ClickHouse
-
-For local addresses such as `127.0.0.1:9000`, `localhost:9000`, or `0.0.0.0:9000`, `beacon up` and `beacon watch` try to start ClickHouse when it is not already reachable.
-
-Auto-start prefers:
-
-1. a `clickhouse` binary from `BEACON_CLICKHOUSE_BIN`, `PATH`, or `~/.beacon/bin/clickhouse`
-2. an existing Docker container named `beacon-clickhouse`
-3. a new Docker container using `clickhouse/clickhouse-server:24.12`
-
-Manual database commands:
-
-```bash
-beacon db up            # start local ClickHouse and migrate tables
-beacon db down          # stop Beacon-managed local ClickHouse
-beacon db migrate       # migrate an already-running ClickHouse
-beacon db refresh-projections # rebuild derived projections and search index
-beacon db reset --force # destructive: drop and recreate Beacon tables
-```
-
-By default, `beacon db up` uses the managed ClickHouse binary when available and falls back to Docker.
-
-Native ClickHouse data lives under `~/.beacon/clickhouse`. Docker mode uses the `beacon-clickhouse-data` volume.
-
-For schema ownership, migration behavior, reset policy, and local data
-locations, see [docs/clickhouse.md](docs/clickhouse.md).
-
-## Usage Summaries
-
-Use `beacon usage` when you want exact event-window token accounting without
-writing ClickHouse SQL:
-
-```bash
-beacon usage --source codex --since now-24h
-beacon usage --today --timezone UTC
-beacon usage --source claude --group-by model --limit 10 --json
-```
-
-The default selected total is input plus output tokens. Pass `--include-cache`
-when you want cache-read and cache-create tokens included in the selected total;
-the output still reports cache categories separately. See
-[docs/usage.md](docs/usage.md) for filters, calendar windows, JSON output, and
-safe ClickHouse fallback queries.
-
-## MCP Integration
-
-Beacon ships a read-only stdio MCP server so agents can search prior Beacon
-sessions without leaving their normal coding workflow. Start Beacon before using
-data-backed MCP tools:
-
-```bash
-beacon up
-```
-
-Add Beacon to Claude Code:
-
-```bash
-claude mcp add --transport stdio beacon -- beacon mcp
-```
-
-Add Beacon to Codex:
-
-```bash
-codex mcp add beacon -- beacon mcp
-```
-
-Agents can use `list_agents` for fleet provenance, `search_sessions` for prior
-work, returned `open_ref` values for context, `list_sessions` for recent
-activity, and `usage_summary` for exact event-window token totals. For client
-setup, remote control-plane MCP, direct ClickHouse mode, generic MCP clients, and
-tool argument details, see [docs/mcp.md](docs/mcp.md).
-
-In local ClickHouse mode, `beacon mcp` still initializes if ClickHouse is down,
-but data-backed tool calls return an MCP error telling you to run `beacon up` or
-configure a reachable ClickHouse address. In the common local setup, the
-practical fix is:
-
-```bash
-beacon up
-```
-
-## Commands
-
-| Command | Use it for |
-|---------|------------|
-| `beacon setup dashboard` | Configure this machine as a guided dashboard/control plane |
-| `beacon invite` | Create a one-use collector enrollment invite |
-| `beacon join URL` | Configure and enroll this machine as a collector |
-| `beacon doctor setup` | Diagnose guided dashboard/collector setup |
-| `beacon init` | Create local owner and one-use enrollment tokens |
-| `beacon enroll --token-stdin` | Consume an enrollment token from stdin and mint a bound ingest token |
-| `beacon enroll --token-env NAME` | Consume an enrollment token from an environment variable name |
-| `beacon up` | Start the dashboard and capture service |
-| `beacon down` | Stop the running Beacon web server |
-| `beacon collect` | Run the remote-safe collector spool and HTTP ingest service |
-| `beacon watch` | Capture sessions without the web dashboard |
-| `beacon mcp` | Start the MCP server over stdin/stdout JSON-RPC |
-| `beacon usage` | Summarize captured token usage by window and filters |
-| `beacon status` | Show server, database, session, and search-index status |
-| `beacon --version` | Show the Beacon CLI version |
-| `beacon db up` | Start local ClickHouse and migrate tables |
-| `beacon db down` | Stop Beacon-managed local ClickHouse |
-| `beacon db migrate` | Create or update ClickHouse tables |
-| `beacon db refresh-projections` | Rebuild derived projections and search index |
-| `beacon db reset --force` | Delete Beacon data and recreate tables |
+- [Production guide](docs/production.md): multi-machine deployments, HTTPS,
+  services, invites, recovery, and runbooks.
+- [Privacy model](docs/privacy.md): captured data, redaction, hashing, and
+  operator responsibilities.
+- [MCP integration](docs/mcp.md): tools, filters, stdio usage, and Claude
+  Desktop setup.
+- [Usage analytics](docs/usage.md): token and cost accounting with local JSONL
+  or ClickHouse.
+- [ClickHouse storage](docs/clickhouse.md): schema, setup, migrations, and
+  retention.
+- [Development guide](docs/development.md): source builds, tests, generated
+  files, and visual checks.
+- [Architecture](docs/architecture.md): ingestion pipeline, storage model, and
+  UI shape.
+- [Toolchain](docs/toolchain.md): pinned tool versions and dependency update
+  workflow.
+- [Release process](docs/release.md): release builds, checksums, and publishing.
 
 ## Build From Source
-
-Source builds require Go 1.24.1 or newer. Node/npm are only needed for
-Playwright tests and vendoring browser assets.
 
 ```bash
 git clone https://github.com/johnnygreco/beacon.git
@@ -411,149 +160,19 @@ make build
 ./bin/beacon up
 ```
 
-Development commands:
-
-```bash
-make generate       # regenerate templ output
-make generate-check # verify generated templ output is current
-make fmt            # gofmt tracked Go files
-make fmt-check      # verify tracked Go files are gofmt formatted
-make test           # generate templates and run Go tests
-make test-race      # run Go tests with the race detector
-make test-cover     # run Go tests with race, coverage, and coverage floors
-make lint           # run Go lint checks
-make vulncheck      # run Go vulnerability checks
-make perf-fast      # run fast non-ClickHouse backend benchmarks
-make perf-bench     # run perf benchmarks; set PERF_SIZE=small|medium|large|fleet (fleet is heavy/manual)
-make perf-browser   # run browser perf measurements; set BEACON_BROWSER_PERF_* as needed
-make perf-lab-smoke # seed/serve/run a local perf lab and write JSON/Markdown reports
-make perf-budget    # check a perf lab report against built-in smoke budgets
-make perf-compare   # compare PERF_REPORT against PERF_BASELINE
-make clean          # remove build/test outputs such as bin, dist, coverage, and reports
-make clean-local    # also remove ignored repo-local scratch/agent dirs and local DB files
-make clean-deps     # remove node_modules
-npm ci              # install locked Playwright and asset-vendoring dependencies
-npm run vendor       # refresh vendored frontend assets
-npm run vendor:check # verify vendored frontend assets and notices are current
-npm run test:frontend # JS lint and unit tests
-npm run test:perf:browser # browser page-load, search, and responsiveness measurements
-npm run test:e2e    # dashboard and integrated search Playwright tests
-npm run test:e2e:search # focused dashboard search Playwright tests
-npm run test:a11y   # accessibility tests
-npm run test:visual # visual regression tests
-```
-
-`package.json` is private development metadata for vendored browser assets,
-linting, and Playwright tests. Beacon release versions come from Git tags and
-are injected into the Go binary by GoReleaser.
-
-The Makefile builds its Go package list from tracked `.go` files when run from a
-Git checkout. That keeps local dependency installs such as `node_modules` out of
-Go test, lint, and vulnerability scans while still including test-only packages
-such as `./scripts`.
-
-Cleanup targets only remove files inside the repository checkout. They do not
-delete Beacon user data under `~/.beacon`; use `beacon db reset --force` or the
-installer's `UNINSTALL=1` path when you intentionally want destructive Beacon
-data cleanup.
-
-### Generated Templates
-
-Beacon tracks both `.templ` source files and generated `_templ.go` files. After
-editing any template source under `internal/views`, run `make generate` and
-commit the generated Go diff with the source change. `make test`, `make build`,
-and related local targets run generation first, but they do not replace the
-explicit generated-file review before a PR.
-
-Run `make generate-check` when you want the same stale-generated-output gate CI
-uses. It reruns templ generation and fails if generation changes the worktree.
-Template tests should render public components, pages, and partials and assert
-the resulting HTML behavior, escaping, and helper output instead of targeting
-generated `_templ.go` implementation lines.
-
-Release commands:
-
-```bash
-make publish VERSION=x.y.z
-```
-
-`make publish` expects a clean, up-to-date `main` branch, a working `gh` authentication or `GITHUB_TOKEN`, `zig` for Linux CGO cross-builds, and `goreleaser` on `PATH`. It creates tag `vx.y.z`, runs a local GoReleaser build before pushing the tag, uploads the release artifacts to GitHub Releases, and attempts to roll back the release/tag if publishing fails after the tag push. See [Installer and release process](docs/release.md) for artifact names, verification behavior, and rollback commands.
-
-Most Go tests do not need a live ClickHouse server. Live ClickHouse integration and perf tests are opt-in and require a reachable ClickHouse TCP endpoint:
-
-```bash
-beacon db up
-BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/store ./internal/search ./internal/web
-BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 go test ./internal/perf -bench . -run '^$'
-```
-
-Use `make perf-fast` for deterministic backend benchmarks that do not require
-ClickHouse. It covers parser/normalizer, batch row building, search indexing,
-MCP formatting/dispatch, API serialization, and view rendering paths.
-
-Use `make perf-lab-smoke` for a cohesive local performance lab run. It installs
-the workspace binary, seeds a disposable `beacon_perf_lab` ClickHouse database,
-serves Beacon locally, runs fast/live backend benchmark slices, drives browser
-performance against the served dashboard, and writes reports under
-`test-results/perf/lab/latest/`. Start ClickHouse first with `beacon db up`, or
-set `PERF_LAB_CLICKHOUSE` / `--clickhouse` for another address. Live benchmarks
-reset a separate disposable `beacon_perf_lab_bench` database by default. Set
-`PERF_LAB_ARGS` for options such as `--base-url`, `--skip-browser`, or
-`--output-dir`.
-
-After a lab run, use `make perf-budget` to check the latest report against smoke
-budgets. Compare branch reports with `PERF_BASELINE=... PERF_REPORT=... make
-perf-compare`.
-
-Playwright tests require Node dependencies from `npm ci` and a Chromium
-browser installed by Playwright. They start their own e2e server by default. To
-test against an already running Beacon-compatible server, set
-`BEACON_E2E_BASE_URL`.
-
-Visual regression tests are intentionally local-only for now. The checked-in
-snapshots are Chromium baselines captured on Darwin, and
-`tests/e2e/visual.spec.ts` skips on other platforms so Linux CI does not compare
-against incompatible raster output. Run them from macOS with:
-
-```bash
-npm run test:visual
-npm run test:visual -- --update-snapshots
-```
-
-Only update visual snapshots after reviewing the rendered dashboard and
-transcript states represented by the changed PNG files. Moving this suite into
-CI should include a stable Linux baseline set or a hosted macOS runner, plus the
-corresponding removal of the platform skip.
-
-### Coverage Gates
-
-CI enforces conservative Go coverage regression floors from `coverage.thresholds`.
-The current gates are a total statement floor plus selected runtime packages
-that should not regress without an intentional threshold update. Generated templ
-packages, benchmark/perf helpers, simulator/perfseed binaries, and browser test
-coverage are intentionally excluded from package floors.
-
-Update `coverage.thresholds` in the same PR as any deliberate coverage target
-change. `make test-cover` and CI both run `scripts/check-coverage.sh` against
-the generated coverage profile.
-
-## Troubleshooting
-
-**`beacon` is not found after install.** Add the install directory to `PATH`, usually `export PATH="$HOME/.local/bin:$PATH"`.
-
-**ClickHouse does not start.** Run `beacon db up`. Set `BEACON_CLICKHOUSE_BIN=/path/to/clickhouse` when Beacon should use a specific local binary.
-
-**Beacon connects to the wrong database.** Check `[database].addrs` in `~/.beacon/beacon.toml` or pass `--config <path>`.
-
-**No sessions appear.** Confirm the agent has written session files in one of the configured source paths, then run `beacon status` and restart with `backfill_on_start = true`.
-
-**Port 4600 is already in use.** Change `[server].port` in the config file or stop the existing process with `beacon down`.
+For day-to-day development commands, see the
+[development guide](docs/development.md).
 
 ## Acknowledgements
 
-This project was inspired by Wes McKinney's [agentsview](https://github.com/wesm/agentsview), Eric Tramel's [moraine](https://github.com/eric-tramel/moraine), and Simon Willison's [claude-code-transcripts](https://github.com/simonw/claude-code-transcripts).
+Beacon was inspired by Wes McKinney's
+[agentsview](https://github.com/wesm/agentsview), Eric Tramel's
+[moraine](https://github.com/eric-tramel/moraine), and Simon Willison's
+[claude-code-transcripts](https://github.com/simonw/claude-code-transcripts).
 
-Third-party browser asset notices are tracked in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+The Beacon logo includes the lighthouse glyph by Freepik on
+[Flaticon](https://www.flaticon.com/free-icons/lighthouse), used under the
+Flaticon license.
 
 ## License
 
