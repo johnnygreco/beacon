@@ -157,6 +157,28 @@ node_name = "Smoke Collector"
 	}
 }
 
+func TestRunCollectOnceFailsWhenCorruptSpoolBlocksProgress(t *testing.T) {
+	resetConfigState(t)
+	control, enroll, server, _ := newJoinTestControlPlane(t)
+	defer control.Close()
+	defer server.Close()
+
+	cmd, _ := joinTestCommand(enroll.Plaintext + "\n")
+	if err := runJoin(cmd, []string{server.URL}, joinOptions{TokenStdin: true, Sources: "codex"}); err != nil {
+		t.Fatalf("runJoin returned error: %v", err)
+	}
+	cfg, err := config.Load("")
+	if err != nil {
+		t.Fatalf("load joined config: %v", err)
+	}
+	writeCorruptSpoolQuarantine(t, cfg.Fleet.SpoolDir)
+
+	err = runCollect(newCollectCmd(), true, "")
+	if err == nil || !strings.Contains(err.Error(), "quarantined corrupt") {
+		t.Fatalf("runCollect --once error = %v, want corrupt spool failure", err)
+	}
+}
+
 func TestRunCollectRejectsControlPlaneRoleBeforeMetadata(t *testing.T) {
 	dir := t.TempDir()
 	metadataPath := filepath.Join(dir, "control-plane.db")
@@ -183,6 +205,17 @@ spool_dir = "` + filepath.Join(dir, "spool") + `"
 	}
 	if _, statErr := os.Stat(metadataPath); !os.IsNotExist(statErr) {
 		t.Fatalf("metadata file stat error = %v, want not created", statErr)
+	}
+}
+
+func writeCorruptSpoolQuarantine(t *testing.T, spoolDir string) {
+	t.Helper()
+	quarantineDir := filepath.Join(spoolDir, "quarantine")
+	if err := os.MkdirAll(quarantineDir, 0700); err != nil {
+		t.Fatalf("create quarantine dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(quarantineDir, "00000000000000000001-corrupt.json"), []byte("{"), 0600); err != nil {
+		t.Fatalf("write corrupt quarantine file: %v", err)
 	}
 }
 

@@ -153,8 +153,7 @@ func TestRunSetupDashboardFailsLivePublicCheckFailures(t *testing.T) {
 		case "/health":
 			w.WriteHeader(http.StatusOK)
 		case "/api/ingest/v1/enroll":
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -265,8 +264,7 @@ func TestRunInviteUnsafePublicURLWarns(t *testing.T) {
 		case "/health":
 			w.WriteHeader(http.StatusOK)
 		case "/api/ingest/v1/enroll":
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -298,8 +296,7 @@ func TestRunInviteSaveURLDoesNotWriteWhenPublicChecksFail(t *testing.T) {
 		case "/health":
 			w.WriteHeader(http.StatusOK)
 		case "/api/ingest/v1/enroll":
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -332,6 +329,57 @@ func TestRunInviteSaveURLDoesNotWriteWhenPublicChecksFail(t *testing.T) {
 	}
 }
 
+func TestRunInviteSaveURLPreservesReverseProxyAuthMode(t *testing.T) {
+	configPath, _ := writeInitTestConfig(t)
+	withConfigFile(t, configPath)
+	f, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatalf("open config: %v", err)
+	}
+	if _, err := f.WriteString("\n[auth]\nmode = \"reverse-proxy\"\n"); err != nil {
+		_ = f.Close()
+		t.Fatalf("append auth config: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close config: %v", err)
+	}
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/api/ingest/v1/enroll":
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
+		case "/", "/api/status", "/api/mcp":
+			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	withPublicURLCheckClient(t, server)
+
+	cmd, _ := bufferedCommand()
+	if err := runInvite(cmd, inviteOptions{
+		CollectorURL: "https://beacon.example",
+		SaveURL:      true,
+		TTL:          time.Minute,
+		Format:       "text",
+	}); err != nil {
+		t.Fatalf("runInvite returned error: %v", err)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if cfg.Server.PublicURL != "https://beacon.example" {
+		t.Fatalf("server.public_url = %q, want saved URL", cfg.Server.PublicURL)
+	}
+	if cfg.Auth.Mode != config.AuthModeReverseProxy {
+		t.Fatalf("auth.mode = %q, want preserved reverse-proxy", cfg.Auth.Mode)
+	}
+}
+
 func TestInviteCommandDefaultTTLIsThirtyMinutes(t *testing.T) {
 	cmd := newInviteCmd()
 	flag := cmd.Flags().Lookup("ttl")
@@ -351,12 +399,10 @@ func TestPublicURLChecksPassWhenRoutesAreProtected(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		case "/api/ingest/v1/enroll":
 			if r.Header.Get("Authorization") == "" {
-				w.WriteHeader(http.StatusUnauthorized)
-				_, _ = w.Write([]byte(`{"error":"missing bearer token"}`))
+				writeBeaconEnrollUnauthorized(w, `{"error":"missing bearer token"}`)
 				return
 			}
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
 		case "/", "/api/status", "/api/mcp":
 			w.WriteHeader(http.StatusUnauthorized)
 		default:
@@ -376,8 +422,7 @@ func TestPublicURLChecksPassWhenProtectedRoutesAreNotPublished(t *testing.T) {
 		case "/health":
 			w.WriteHeader(http.StatusOK)
 		case "/api/ingest/v1/enroll":
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
 		case "/", "/api/status", "/api/mcp":
 			http.NotFound(w, r)
 		default:
@@ -391,7 +436,27 @@ func TestPublicURLChecksPassWhenProtectedRoutesAreNotPublished(t *testing.T) {
 	}
 }
 
-func TestPublicURLChecksRejectExposedDashboard(t *testing.T) {
+func TestPublicURLChecksPassWhenProtectedRoutesRedirectToAuth(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/api/ingest/v1/enroll":
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
+		case "/", "/api/status", "/api/mcp":
+			http.Redirect(w, r, "/login", http.StatusFound)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	if err := runPublicURLChecks(context.Background(), server.URL, publicURLCheckOptions{Client: server.Client()}); err != nil {
+		t.Fatalf("runPublicURLChecks returned error: %v", err)
+	}
+}
+
+func TestPublicURLChecksRejectGenericProxyUnauthorizedEnrollment(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/health":
@@ -399,6 +464,57 @@ func TestPublicURLChecksRejectExposedDashboard(t *testing.T) {
 		case "/api/ingest/v1/enroll":
 			w.WriteHeader(http.StatusUnauthorized)
 			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+		default:
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}))
+	defer server.Close()
+
+	err := runPublicURLChecks(context.Background(), server.URL, publicURLCheckOptions{Client: server.Client()})
+	if err == nil || !strings.Contains(err.Error(), "did not reach Beacon") {
+		t.Fatalf("runPublicURLChecks error = %v, want Beacon marker failure", err)
+	}
+}
+
+func TestPublicURLChecksRejectHealthAndEnrollmentRedirects(t *testing.T) {
+	t.Run("health", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, "/health-login", http.StatusTemporaryRedirect)
+		}))
+		defer server.Close()
+
+		err := runPublicURLChecks(context.Background(), server.URL, publicURLCheckOptions{Client: server.Client()})
+		if err == nil || !strings.Contains(err.Error(), "health check returned HTTP 307") {
+			t.Fatalf("runPublicURLChecks error = %v, want health redirect failure", err)
+		}
+	})
+	t.Run("enrollment", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/health":
+				w.WriteHeader(http.StatusOK)
+			case "/api/ingest/v1/enroll":
+				http.Redirect(w, r, "/login", http.StatusTemporaryRedirect)
+			default:
+				http.NotFound(w, r)
+			}
+		}))
+		defer server.Close()
+
+		err := runPublicURLChecks(context.Background(), server.URL, publicURLCheckOptions{Client: server.Client()})
+		if err == nil || !strings.Contains(err.Error(), "enrollment auth check returned HTTP 307") {
+			t.Fatalf("runPublicURLChecks error = %v, want enrollment redirect failure", err)
+		}
+	})
+}
+
+func TestPublicURLChecksRejectExposedDashboard(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/api/ingest/v1/enroll":
+			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
 		default:
 			w.WriteHeader(http.StatusOK)
 		}
@@ -417,8 +533,7 @@ func TestPublicURLChecksRejectStrippedAuthorization(t *testing.T) {
 		case "/health":
 			w.WriteHeader(http.StatusOK)
 		case "/api/ingest/v1/enroll":
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"missing bearer token"}`))
+			writeBeaconEnrollUnauthorized(w, `{"error":"missing bearer token"}`)
 		default:
 			w.WriteHeader(http.StatusUnauthorized)
 		}
@@ -437,6 +552,12 @@ func bufferedCommand() (*cobra.Command, *bytes.Buffer) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	return cmd, &out
+}
+
+func writeBeaconEnrollUnauthorized(w http.ResponseWriter, body string) {
+	w.Header().Set(web.IngestRouteHeader, web.IngestRouteEnroll)
+	w.WriteHeader(http.StatusUnauthorized)
+	_, _ = w.Write([]byte(body))
 }
 
 func withPublicURLCheckClient(t *testing.T, server *httptest.Server) {

@@ -69,6 +69,10 @@ var newPublicURLCheckClient = func() *http.Client {
 
 func newEnrollmentPreflightClient() *http.Client {
 	client := newPublicURLCheckClient()
+	return newNoRedirectPublicURLCheckClient(client)
+}
+
+func newNoRedirectPublicURLCheckClient(client *http.Client) *http.Client {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
@@ -89,6 +93,7 @@ func runPublicURLChecks(ctx context.Context, rawURL string, opts publicURLCheckO
 	if client == nil {
 		client = newPublicURLCheckClient()
 	}
+	client = newNoRedirectPublicURLCheckClient(client)
 	if err := checkPublicHealth(ctx, client, rootURL); err != nil {
 		return &publicURLCheckError{stage: publicURLCheckStageHealth, err: err}
 	}
@@ -115,6 +120,7 @@ func preflightEnrollmentRoute(ctx context.Context, rawURL string, opts publicURL
 	if client == nil {
 		client = newEnrollmentPreflightClient()
 	}
+	client = newNoRedirectPublicURLCheckClient(client)
 	if err := checkPublicHealth(ctx, client, rootURL); err != nil {
 		return err
 	}
@@ -141,6 +147,9 @@ func checkPublicEnrollmentAuth(ctx context.Context, client *http.Client, rootURL
 	if status != http.StatusUnauthorized {
 		return fmt.Errorf("public URL enrollment auth check returned HTTP %d%s", status, hostGuardSuffix(headers, responseBody))
 	}
+	if headers.Get(web.IngestRouteHeader) != web.IngestRouteEnroll {
+		return fmt.Errorf("public URL enrollment auth check did not reach Beacon ingest enrollment route")
+	}
 	normalizedBody := strings.ToLower(responseBody)
 	if strings.Contains(normalizedBody, "missing bearer token") {
 		return fmt.Errorf("public URL enrollment auth check lost the Authorization header")
@@ -166,7 +175,7 @@ func checkProtectedPublicRoutes(ctx context.Context, client *http.Client, rootUR
 		if err != nil {
 			return fmt.Errorf("public URL protected route check %s failed: %w", check.path, err)
 		}
-		if status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusNotFound {
+		if status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusNotFound || isProtectedRouteAuthRedirect(status, headers) {
 			continue
 		}
 		return fmt.Errorf("public URL protected route %s returned HTTP %d without authentication%s; set auth.mode to %q or %q, or pass --unsafe-public-url to acknowledge this exposure",
@@ -178,6 +187,13 @@ func checkProtectedPublicRoutes(ctx context.Context, client *http.Client, rootUR
 		)
 	}
 	return nil
+}
+
+func isProtectedRouteAuthRedirect(status int, headers http.Header) bool {
+	if status < http.StatusMultipleChoices || status >= http.StatusBadRequest {
+		return false
+	}
+	return strings.TrimSpace(headers.Get("Location")) != ""
 }
 
 func doPublicURLProbe(ctx context.Context, client *http.Client, method, target string, body []byte, authorization string) (int, string, http.Header, error) {
