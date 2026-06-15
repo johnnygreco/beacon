@@ -19,6 +19,7 @@ type GuidedConfigPatch struct {
 	PublicURL           string
 	ControlPlaneURL     string
 	AuthMode            string
+	DefaultSourceNames  []string
 	CaptureEnabled      *bool
 	ApplyDefaultSources bool
 }
@@ -152,7 +153,10 @@ func PlanGuidedConfigPatch(patch GuidedConfigPatch) (*GuidedConfigPlan, error) {
 	}
 
 	if patch.ApplyDefaultSources && !hasCaptureSources(decoded) {
-		sources := DefaultCaptureSources()
+		sources, err := filteredDefaultCaptureSources(patch.DefaultSourceNames)
+		if err != nil {
+			return nil, err
+		}
 		doc.appendSources(sources)
 		changes = append(changes, GuidedConfigChange{
 			Field: "capture.sources",
@@ -181,6 +185,46 @@ func PlanGuidedConfigPatch(patch GuidedConfigPatch) (*GuidedConfigPlan, error) {
 		original: existing,
 		mode:     mode,
 	}, nil
+}
+
+func filteredDefaultCaptureSources(names []string) ([]SourceConfig, error) {
+	sources := DefaultCaptureSources()
+	normalizedNames := normalizeSourceNameList(names)
+	if len(normalizedNames) == 0 {
+		return sources, nil
+	}
+	byName := make(map[string]SourceConfig, len(sources))
+	for _, source := range sources {
+		byName[source.Name] = source
+	}
+	filtered := make([]SourceConfig, 0, len(normalizedNames))
+	for _, name := range normalizedNames {
+		source, ok := byName[name]
+		if !ok {
+			return nil, fmt.Errorf("unknown default source %q", name)
+		}
+		filtered = append(filtered, source)
+	}
+	return filtered, nil
+}
+
+func normalizeSourceNameList(names []string) []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, item := range names {
+		for _, part := range strings.Split(item, ",") {
+			name := strings.TrimSpace(part)
+			if name == "" {
+				continue
+			}
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 func (p *GuidedConfigPlan) Content() []byte {

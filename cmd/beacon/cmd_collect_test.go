@@ -139,6 +139,7 @@ node_name = "Smoke Collector"
 	if err := os.WriteFile(sourceFile, []byte(line+strings.Replace(line, "event-1", "event-2", 1)), 0600); err != nil {
 		t.Fatalf("append second source event: %v", err)
 	}
+	cfg.Fleet.ControlPlaneURL = server.URL
 	if err := runRemoteEnroll(newEnrollCmd(), cfg, server.URL, secondEnroll.Plaintext); err != nil {
 		t.Fatalf("second runRemoteEnroll: %v", err)
 	}

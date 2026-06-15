@@ -182,6 +182,42 @@ func TestPlanGuidedConfigPatchUsesDefaultPath(t *testing.T) {
 	}
 }
 
+func TestPlanGuidedConfigPatchFiltersDefaultSources(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "beacon.toml")
+	plan, err := PlanGuidedConfigPatch(GuidedConfigPatch{
+		Path:                path,
+		FleetRole:           FleetRoleCollector,
+		ControlPlaneURL:     "https://beacon.example",
+		DefaultSourceNames:  []string{"codex", "claude"},
+		ApplyDefaultSources: true,
+	})
+	if err != nil {
+		t.Fatalf("PlanGuidedConfigPatch returned error: %v", err)
+	}
+	content := string(plan.Content())
+	for _, want := range []string{`name = "codex"`, `name = "claude"`} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("planned config missing %q:\n%s", want, content)
+		}
+	}
+	for _, notWant := range []string{`name = "hermes"`, `name = "opencode"`, `name = "pi"`} {
+		if strings.Contains(content, notWant) {
+			t.Fatalf("planned config contains %q:\n%s", notWant, content)
+		}
+	}
+}
+
+func TestPlanGuidedConfigPatchRejectsUnknownDefaultSource(t *testing.T) {
+	_, err := PlanGuidedConfigPatch(GuidedConfigPatch{
+		Path:                filepath.Join(t.TempDir(), "beacon.toml"),
+		DefaultSourceNames:  []string{"codex", "missing"},
+		ApplyDefaultSources: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), `unknown default source "missing"`) {
+		t.Fatalf("PlanGuidedConfigPatch error = %v, want unknown source", err)
+	}
+}
+
 func TestGuidedConfigPlanNilAndNoopBehavior(t *testing.T) {
 	var nilPlan *GuidedConfigPlan
 	if got := nilPlan.Content(); got != nil {

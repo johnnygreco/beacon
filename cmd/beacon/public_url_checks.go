@@ -23,6 +23,16 @@ var newPublicURLCheckClient = func() *http.Client {
 	return &http.Client{Timeout: 10 * time.Second}
 }
 
+func newEnrollmentPreflightClient() *http.Client {
+	client := newPublicURLCheckClient()
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	clone := *client
+	clone.CheckRedirect = rejectHTTPRedirect
+	return &clone
+}
+
 func runPublicURLChecks(ctx context.Context, rawURL string, opts publicURLCheckOptions) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -47,6 +57,24 @@ func runPublicURLChecks(ctx context.Context, rawURL string, opts publicURLCheckO
 		}
 	}
 	return nil
+}
+
+func preflightEnrollmentRoute(ctx context.Context, rawURL string, opts publicURLCheckOptions) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	rootURL, err := config.NormalizeRootURL(rawURL, "control-plane URL")
+	if err != nil {
+		return err
+	}
+	client := opts.Client
+	if client == nil {
+		client = newEnrollmentPreflightClient()
+	}
+	if err := checkPublicHealth(ctx, client, rootURL); err != nil {
+		return err
+	}
+	return checkPublicEnrollmentAuth(ctx, client, rootURL)
 }
 
 func checkPublicHealth(ctx context.Context, client *http.Client, rootURL string) error {

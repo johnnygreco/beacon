@@ -178,6 +178,9 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	}
 	var existingIngestToken string
 	if hasLocalIdentity {
+		if err := requireReEnrollmentControlPlaneMatch(cfg.Fleet.ControlPlaneURL, normalizedURL); err != nil {
+			return err
+		}
 		existingIngestToken, err = readIngestToken(cfg)
 		if err != nil {
 			return fmt.Errorf("read existing ingest token for re-enrollment: %w", err)
@@ -300,6 +303,21 @@ func remoteEnrollmentBootstrap(ctx context.Context, cfg *config.Config) (control
 		return boot, true, nil
 	}
 	return boot, false, nil
+}
+
+func requireReEnrollmentControlPlaneMatch(currentURL, targetURL string) error {
+	currentURL = strings.TrimSpace(currentURL)
+	if currentURL == "" {
+		return fmt.Errorf("existing collector identity requires fleet.control_plane_url to match the target control plane before re-enrollment")
+	}
+	normalizedCurrentURL, err := config.NormalizeControlPlaneURL(currentURL, "fleet.control_plane_url")
+	if err != nil {
+		return fmt.Errorf("existing collector identity has invalid fleet.control_plane_url: %w", err)
+	}
+	if normalizedCurrentURL != targetURL {
+		return fmt.Errorf("refusing to send existing ingest token to a different control plane; current control plane is %s and target is %s", normalizedCurrentURL, targetURL)
+	}
+	return nil
 }
 
 func postRemoteEnrollment(ctx context.Context, controlPlaneURL, token, existingIngestToken string, boot ingest.EnrollBootstrap) (*ingest.EnrollResponse, error) {

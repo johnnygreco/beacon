@@ -43,7 +43,7 @@ see [Personal production guide](production.md).
   the collector or fix token placement, then restart collection; Beacon will not
   keep reposting the same terminal batch automatically.
 - `409` epoch or sequence conflicts indicate stale collector metadata or a broken
-  batch order. Re-run `beacon enroll` against the active control plane before
+  batch order. Re-run `beacon join` against the active control plane before
   clearing local spool state.
 
 ### Corrupt spool runbook
@@ -63,7 +63,7 @@ or logs mention a corrupt spool file:
 5. Clear `~/.beacon/spool/collector-state.json` only when you intentionally want
    Beacon to reread sources from the beginning or from parser-detected rotation
    boundaries. Keep it when you are only removing quarantined spool files.
-6. If the collector metadata or token is stale, run `beacon enroll
+6. If the collector metadata or token is stale, run `beacon join
    https://beacon.example --token-stdin` again from the collector. Existing
    collectors must still have the current ingest token file so the control plane
    can rotate it safely.
