@@ -88,6 +88,9 @@ func TestRunJoinPreflightFailureDoesNotWriteConfigOrSendToken(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "preflight failed") {
 		t.Fatalf("runJoin error = %v, want preflight failure", err)
 	}
+	if !strings.Contains(err.Error(), "beacon doctor setup") {
+		t.Fatalf("runJoin error = %v, want doctor guidance", err)
+	}
 	if realTokenRequests != 0 {
 		t.Fatalf("real token requests = %d, want 0", realTokenRequests)
 	}

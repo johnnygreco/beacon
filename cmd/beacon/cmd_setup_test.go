@@ -141,8 +141,12 @@ func TestRunSetupDashboardReportsPendingPublicChecks(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runSetupDashboard returned error: %v", err)
 	}
-	if !strings.Contains(out.String(), "Public URL checks: pending/failed") {
-		t.Fatalf("setup output = %q, want pending/failed public URL check status", out.String())
+	output := out.String()
+	if !strings.Contains(output, "Public URL checks: pending/failed") {
+		t.Fatalf("setup output = %q, want pending/failed public URL check status", output)
+	}
+	if !strings.Contains(output, "beacon doctor setup") {
+		t.Fatalf("setup output = %q, want doctor guidance", output)
 	}
 }
 
@@ -253,6 +257,9 @@ func TestRunInviteSaveURLDoesNotWriteWhenPublicChecksFail(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "public URL checks pass") {
 		t.Fatalf("runInvite error = %v, want public URL check refusal", err)
+	}
+	if !strings.Contains(err.Error(), "beacon doctor setup") {
+		t.Fatalf("runInvite error = %v, want doctor guidance", err)
 	}
 	cfg, loadErr := config.Load(configPath)
 	if loadErr != nil {

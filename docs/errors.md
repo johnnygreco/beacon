@@ -45,6 +45,9 @@ see [Personal production guide](production.md).
 - `409` epoch or sequence conflicts indicate stale collector metadata or a broken
   batch order. Re-run `beacon join` against the active control plane before
   clearing local spool state.
+- Run `beacon doctor setup` on the collector to check route preflight, identity,
+  source assignments, ingest token availability, and spool state without printing
+  token contents.
 
 ### Corrupt spool runbook
 

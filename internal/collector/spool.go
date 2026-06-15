@@ -258,6 +258,17 @@ func (s *Spool) Stats() (SpoolStats, error) {
 	}, nil
 }
 
+func ReadSpoolStats(root string, maxBytes int64) (SpoolStats, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return SpoolStats{}, fmt.Errorf("spool root is required")
+	}
+	if maxBytes <= 0 {
+		return SpoolStats{}, fmt.Errorf("spool max bytes must be positive")
+	}
+	return (&Spool{root: root, maxBytes: maxBytes}).Stats()
+}
+
 func (s *Spool) HasUnacked() (bool, error) {
 	stats, err := s.Stats()
 	if err != nil {

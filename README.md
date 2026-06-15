@@ -94,6 +94,7 @@ Useful commands:
 beacon setup dashboard --collector-url https://beacon.example  # guided dashboard setup
 beacon invite    # create a one-use collector enrollment invite
 beacon join https://beacon.example  # configure/enroll a collector
+beacon doctor setup # diagnose guided dashboard/collector setup
 beacon init     # create owner and one-use enrollment tokens
 beacon status   # server, ClickHouse, session, and search-index health
 beacon down     # stop the running Beacon web server
@@ -380,6 +381,7 @@ beacon up
 | `beacon setup dashboard` | Configure this machine as a guided dashboard/control plane |
 | `beacon invite` | Create a one-use collector enrollment invite |
 | `beacon join URL` | Configure and enroll this machine as a collector |
+| `beacon doctor setup` | Diagnose guided dashboard/collector setup |
 | `beacon init` | Create local owner and one-use enrollment tokens |
 | `beacon enroll --token-stdin` | Consume an enrollment token from stdin and mint a bound ingest token |
 | `beacon enroll --token-env NAME` | Consume an enrollment token from an environment variable name |

@@ -136,6 +136,36 @@ func TestSpoolAckDeletesCommittedBatch(t *testing.T) {
 	}
 }
 
+func TestReadSpoolStatsDoesNotRecoverInflight(t *testing.T) {
+	spool, err := OpenSpool(filepath.Join(t.TempDir(), "spool"), 1<<20)
+	if err != nil {
+		t.Fatalf("OpenSpool: %v", err)
+	}
+	written, err := spool.WritePending(context.Background(), testBatchRequest(t, 1, "batch-inflight"))
+	if err != nil {
+		t.Fatalf("WritePending: %v", err)
+	}
+	inflight, err := spool.MarkInflight(*written)
+	if err != nil {
+		t.Fatalf("MarkInflight: %v", err)
+	}
+
+	stats, err := ReadSpoolStats(spool.Root(), 1<<20)
+	if err != nil {
+		t.Fatalf("ReadSpoolStats: %v", err)
+	}
+	if stats.PendingCount != 0 || stats.InflightCount != 1 {
+		t.Fatalf("read-only stats = %#v, want 0 pending and 1 inflight", stats)
+	}
+	if _, err := os.Stat(inflight.Path); err != nil {
+		t.Fatalf("inflight file stat error = %v, want still inflight", err)
+	}
+	pendingPath := filepath.Join(spool.Root(), spoolPending, filepath.Base(inflight.Path))
+	if _, err := os.Stat(pendingPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pending path stat error = %v, want not created by read-only stats", err)
+	}
+}
+
 func testBatchRequest(t *testing.T, sequence uint64, batchID string) ingest.BatchRequest {
 	t.Helper()
 	req := ingest.BatchRequest{
