@@ -227,7 +227,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 			if bgErr := bg.Wait(); bgErr != nil {
 				return bgErr
 			}
-			return fmt.Errorf("public URL startup checks failed: %w", err)
+			return fmt.Errorf("public URL startup checks failed: %w; run `beacon doctor setup` for diagnostics", err)
 		}
 		if unsafePublicURL {
 			logger.Warn("public URL connectivity checks passed; protected dashboard/API/MCP route checks skipped", "url", cfg.Server.PublicURL)

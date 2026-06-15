@@ -44,6 +44,7 @@ func newRootCmd() *cobra.Command {
 		newMCPCmd(),
 		newUsageCmd(),
 		newStatusCmd(),
+		newDoctorCmd(),
 		newDBCmd(),
 	)
 

@@ -273,6 +273,15 @@ smoke collection. Without a token flag it prompts securely on an interactive
 terminal. Use `--invite-file` with JSON invite output for automation, or
 `--token-env BEACON_ENROLL_TOKEN` when stdin is not convenient.
 
+Run `beacon doctor setup` on either side when setup fails or before leaving the
+flow unattended. On dashboard machines it reports configured public URL,
+metadata, local health, ingest route, and protected-route posture from the local
+vantage point. On collector machines it reports control-plane route preflight,
+local identity/source assignment, ingest token availability, and spool state
+without printing token contents. Loopback public URLs are reported as
+local-tunnel/local-only diagnostics. The command exits nonzero when any `FAIL`
+diagnostic is present.
+
 ## Manual collector config
 
 If you prefer the advanced manual flow, configure `[fleet].role = "collector"`
@@ -600,6 +609,7 @@ Before relying on Beacon as your personal production dashboard:
 - choose `reverse-proxy` or `owner-token` auth deliberately
 - run `beacon setup dashboard` and store the owner token outside shell history
 - enroll each collector with `beacon invite` plus `beacon join`
+- run `beacon doctor setup` on the dashboard and each collector
 - verify each collector via the heartbeat/smoke checks printed by `beacon join`
 - run each long-lived process under systemd, launchd, tmux, or another
   supervised process manager
@@ -621,9 +631,10 @@ Before relying on Beacon as your personal production dashboard:
 2. On the control plane, run `beacon invite --ttl 30m`.
 3. On the collector, run the `beacon join https://beacon.example.com
    --token-stdin` or `--token-env BEACON_ENROLL_TOKEN` command from the invite.
-4. Check `beacon status` on the control plane and confirm the dashboard shows
+4. Run `beacon doctor setup` on the collector.
+5. Check `beacon status` on the control plane and confirm the dashboard shows
    the new node/source filters.
-5. Start the collector as a supervised service.
+6. Start the collector as a supervised service.
 
 ### Rotate a collector ingest token
 

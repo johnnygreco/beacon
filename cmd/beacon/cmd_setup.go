@@ -233,7 +233,7 @@ func runInvite(cmd *cobra.Command, opts inviteOptions) error {
 	}
 	if !config.IsLoopbackURL(collectorURL) {
 		if err := runPublicURLChecks(ctx, collectorURL, publicURLCheckOptions{Unsafe: opts.UnsafePublicURL}); err != nil {
-			return fmt.Errorf("refusing to create invite before public URL checks pass: %w", err)
+			return fmt.Errorf("refusing to create invite before public URL checks pass: %w; run `beacon doctor setup` for diagnostics", err)
 		}
 		if opts.UnsafePublicURL {
 			fmt.Fprintln(cmd.ErrOrStderr(), "Warning: public URL connectivity checks passed, but protected dashboard/API/MCP route checks were skipped because --unsafe-public-url was set.")
@@ -309,7 +309,7 @@ func reportSetupPublicURLChecks(ctx context.Context, out interface{ Write([]byte
 	client := newSetupPublicURLCheckClient()
 	if err := runPublicURLChecks(ctx, collectorURL, publicURLCheckOptions{Unsafe: unsafe, Client: client}); err != nil {
 		fmt.Fprintf(out, "Public URL checks: pending/failed (%v)\n", err)
-		fmt.Fprintln(out, "Run `beacon up` to perform mandatory startup checks before creating invites.")
+		fmt.Fprintln(out, "Run `beacon doctor setup` for diagnostics, then run `beacon up` to perform mandatory startup checks before creating invites.")
 		return
 	}
 	if unsafe {

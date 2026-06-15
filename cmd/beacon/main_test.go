@@ -55,7 +55,7 @@ func TestRootCommandShowsVersion(t *testing.T) {
 
 func TestRootCommandExposesCanonicalSubcommands(t *testing.T) {
 	cmd := newRootCmd()
-	want := []string{"setup", "init", "invite", "join", "enroll", "up", "down", "collect", "watch", "mcp", "usage", "status", "db"}
+	want := []string{"setup", "init", "invite", "join", "enroll", "up", "down", "collect", "watch", "mcp", "usage", "status", "doctor", "db"}
 
 	var got []string
 	for _, sub := range cmd.Commands() {
@@ -81,6 +81,9 @@ func TestRootCommandExposesCanonicalSubcommands(t *testing.T) {
 	}
 	if setup := subcommandByName(cmd, "setup"); setup == nil || subcommandByName(setup, "dashboard") == nil {
 		t.Fatalf("setup command is missing dashboard subcommand")
+	}
+	if doctor := subcommandByName(cmd, "doctor"); doctor == nil || subcommandByName(doctor, "setup") == nil {
+		t.Fatalf("doctor command is missing setup subcommand")
 	}
 }
 

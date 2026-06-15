@@ -112,7 +112,7 @@ func runJoin(cmd *cobra.Command, args []string, opts joinOptions) error {
 		fmt.Fprintln(out, "Control plane URL is loopback; this only works from this collector machine when a local tunnel forwards to the dashboard.")
 	}
 	if err := preflightEnrollmentRoute(ctx, normalizedURL, publicURLCheckOptions{}); err != nil {
-		return fmt.Errorf("control-plane enrollment preflight failed before sending the enrollment token: %w", err)
+		return fmt.Errorf("control-plane enrollment preflight failed before sending the enrollment token: %w; run `beacon doctor setup` for diagnostics", err)
 	}
 	fmt.Fprintln(out, "Enrollment route preflight: passed.")
 	if opts.DryRun {
