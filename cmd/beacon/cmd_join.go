@@ -86,7 +86,8 @@ func runJoin(cmd *cobra.Command, args []string, opts joinOptions) error {
 	if err := validateJoinTokenSourceOptions(cmd, invite.EnrollmentToken, opts); err != nil {
 		return err
 	}
-	if err := ensureJoinTargetMatchesExistingCollector(ctx, normalizedURL); err != nil {
+	freshEnrollment, err := joinFreshEnrollmentMode(ctx, normalizedURL)
+	if err != nil {
 		return err
 	}
 	sourceNames := normalizeJoinSources(opts.Sources)
@@ -132,7 +133,12 @@ func runJoin(cmd *cobra.Command, args []string, opts joinOptions) error {
 	if err != nil {
 		return fmt.Errorf("loading collector config: %w", err)
 	}
-	if err := runRemoteEnroll(cmd, cfg, normalizedURL, token); err != nil {
+	if err := runRemoteEnrollWithOptions(cmd, cfg, normalizedURL, token, remoteEnrollOptions{FreshEnrollment: freshEnrollment}); err != nil {
+		if freshEnrollment {
+			if restoreErr := restoreGuidedConfigBackup(plan); restoreErr != nil {
+				return fmt.Errorf("%w; additionally failed to restore previous config: %v", err, restoreErr)
+			}
+		}
 		return err
 	}
 	cfg, err = config.Load(plan.Path)
@@ -243,27 +249,41 @@ func joinEnrollmentTokenRequiredError() error {
 	return fmt.Errorf("enrollment token must be supplied with --token-stdin, --token-env, --invite-file, or an interactive terminal")
 }
 
-func ensureJoinTargetMatchesExistingCollector(ctx context.Context, targetURL string) error {
+func joinFreshEnrollmentMode(ctx context.Context, targetURL string) (bool, error) {
 	if cfgFile != "" {
 		if _, err := os.Stat(cfgFile); errors.Is(err, os.ErrNotExist) {
-			return nil
+			return false, nil
 		}
 	}
 	existingCfg, err := config.Load(cfgFile)
 	if err != nil {
-		return fmt.Errorf("loading existing config before join: %w", err)
+		return false, fmt.Errorf("loading existing config before join: %w", err)
 	}
 	_, hasLocalIdentity, err := remoteEnrollmentBootstrap(ctx, existingCfg)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !hasLocalIdentity {
-		return nil
+		return false, nil
 	}
 	if existingCfg.Fleet.Role != config.FleetRoleCollector {
+		return true, nil
+	}
+	return false, requireReEnrollmentControlPlaneMatch(existingCfg.Fleet.ControlPlaneURL, targetURL)
+}
+
+func restoreGuidedConfigBackup(plan *config.GuidedConfigPlan) error {
+	if plan == nil || strings.TrimSpace(plan.BackupPath) == "" {
 		return nil
 	}
-	return requireReEnrollmentControlPlaneMatch(existingCfg.Fleet.ControlPlaneURL, targetURL)
+	data, err := os.ReadFile(plan.BackupPath)
+	if err != nil {
+		return fmt.Errorf("read config backup: %w", err)
+	}
+	if err := os.WriteFile(plan.Path, data, 0600); err != nil {
+		return fmt.Errorf("restore config backup: %w", err)
+	}
+	return nil
 }
 
 func runCollectorJoinChecks(cmd *cobra.Command, cfg *config.Config) error {

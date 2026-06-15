@@ -286,6 +286,74 @@ node_name = "Local Dashboard"
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
+	local, localSnapshot, err := initializeControlPlane(context.Background(), cfg, nil)
+	if err != nil {
+		t.Fatalf("initializeControlPlane: %v", err)
+	}
+	if err := local.Close(); err != nil {
+		t.Fatalf("close local control plane: %v", err)
+	}
+
+	control, enroll, server, committer := newJoinTestControlPlane(t)
+	defer control.Close()
+	defer server.Close()
+
+	cmd, out := joinTestCommand(enroll.Plaintext + "\n")
+	err = runJoin(cmd, []string{server.URL}, joinOptions{TokenStdin: true, Force: true, Sources: "codex"})
+	if err != nil {
+		t.Fatalf("runJoin force returned error: %v", err)
+	}
+	if committer.heartbeats == 0 {
+		t.Fatalf("heartbeats = %d, want authenticated heartbeat", committer.heartbeats)
+	}
+	if !strings.Contains(out.String(), "Collector join complete") {
+		t.Fatalf("join output = %q, want completion", out.String())
+	}
+	cfg, err = config.Load(path)
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if cfg.Fleet.Role != config.FleetRoleCollector || cfg.Fleet.ControlPlaneURL != server.URL {
+		t.Fatalf("converted config role/url = %q/%q, want collector/%s", cfg.Fleet.Role, cfg.Fleet.ControlPlaneURL, server.URL)
+	}
+	if _, err := os.Stat(cfg.Fleet.IngestTokenFile); err != nil {
+		t.Fatalf("ingest token file after conversion: %v", err)
+	}
+	localAfter, err := controlplane.Open(cfg.Fleet.MetadataPath)
+	if err != nil {
+		t.Fatalf("open converted metadata: %v", err)
+	}
+	defer localAfter.Close()
+	convertedSnapshot, err := localAfter.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("snapshot converted metadata: %v", err)
+	}
+	if convertedSnapshot.LocalNodeID == "" || convertedSnapshot.LocalCollectorID == "" {
+		t.Fatalf("converted metadata local IDs are empty: node=%q collector=%q", convertedSnapshot.LocalNodeID, convertedSnapshot.LocalCollectorID)
+	}
+	if convertedSnapshot.LocalNodeID == localSnapshot.LocalNodeID || convertedSnapshot.LocalCollectorID == localSnapshot.LocalCollectorID {
+		t.Fatalf("converted metadata reused old local IDs: old=%s/%s new=%s/%s", localSnapshot.LocalNodeID, localSnapshot.LocalCollectorID, convertedSnapshot.LocalNodeID, convertedSnapshot.LocalCollectorID)
+	}
+}
+
+func TestRunJoinForceRestoresConfigWhenLocalIdentityConversionEnrollmentFails(t *testing.T) {
+	resetConfigState(t)
+	path := filepath.Join(t.TempDir(), "beacon.toml")
+	metadataPath := filepath.Join(t.TempDir(), "metadata.db")
+	body := `
+[fleet]
+role = "both"
+metadata_path = "` + metadataPath + `"
+node_name = "Local Dashboard"
+`
+	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	withConfigFile(t, path)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
 	local, _, err := initializeControlPlane(context.Background(), cfg, nil)
 	if err != nil {
 		t.Fatalf("initializeControlPlane: %v", err)
@@ -294,11 +362,16 @@ node_name = "Local Dashboard"
 		t.Fatalf("close local control plane: %v", err)
 	}
 
+	realToken := "bcn_enroll_real_0123456789abcdef"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/health":
 			w.WriteHeader(http.StatusOK)
 		case "/api/ingest/v1/enroll":
+			if strings.Contains(r.Header.Get("Authorization"), realToken) {
+				http.Error(w, "remote enroll failed", http.StatusInternalServerError)
+				return
+			}
 			writeBeaconEnrollUnauthorized(w, `{"error":"unauthorized"}`)
 		default:
 			http.NotFound(w, r)
@@ -306,13 +379,17 @@ node_name = "Local Dashboard"
 	}))
 	defer server.Close()
 
-	cmd, out := joinTestCommand("")
-	err = runJoin(cmd, []string{server.URL}, joinOptions{DryRun: true, Force: true, Sources: "codex"})
-	if err != nil {
-		t.Fatalf("runJoin dry-run force returned error: %v", err)
+	cmd, _ := joinTestCommand(realToken + "\n")
+	err = runJoin(cmd, []string{server.URL}, joinOptions{TokenStdin: true, Force: true, Sources: "codex"})
+	if err == nil || !strings.Contains(err.Error(), "remote enrollment failed") {
+		t.Fatalf("runJoin error = %v, want remote enrollment failure", err)
 	}
-	if !strings.Contains(out.String(), "Dry run: config was not written") {
-		t.Fatalf("join output = %q, want dry-run completion", out.String())
+	cfg, err = config.Load(path)
+	if err != nil {
+		t.Fatalf("reload config after failure: %v", err)
+	}
+	if cfg.Fleet.Role != config.FleetRoleBoth || cfg.Fleet.ControlPlaneURL != "" {
+		t.Fatalf("restored config role/url = %q/%q, want original both/empty", cfg.Fleet.Role, cfg.Fleet.ControlPlaneURL)
 	}
 }
 

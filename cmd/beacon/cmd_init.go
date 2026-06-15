@@ -161,7 +161,15 @@ func runEnroll(cmd *cobra.Command, args []string, tokenStdin bool, tokenEnv stri
 	return nil
 }
 
+type remoteEnrollOptions struct {
+	FreshEnrollment bool
+}
+
 func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, token string) error {
+	return runRemoteEnrollWithOptions(cmd, cfg, controlPlaneURL, token, remoteEnrollOptions{})
+}
+
+func runRemoteEnrollWithOptions(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, token string, opts remoteEnrollOptions) error {
 	normalizedURL, err := config.NormalizeControlPlaneURL(controlPlaneURL, "control-plane URL")
 	if err != nil {
 		return err
@@ -175,6 +183,11 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	boot, hasLocalIdentity, err := remoteEnrollmentBootstrap(commandContext(cmd), cfg)
 	if err != nil {
 		return err
+	}
+	if opts.FreshEnrollment {
+		boot.NodeID = ""
+		boot.CollectorID = ""
+		hasLocalIdentity = false
 	}
 	var existingIngestToken string
 	if hasLocalIdentity {
@@ -192,6 +205,11 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	}
 	if err := writeIngestTokenFile(cfg.Fleet.IngestTokenFile, resp.IngestToken); err != nil {
 		return fmt.Errorf("write ingest token file: %w", err)
+	}
+	if opts.FreshEnrollment {
+		if err := resetLocalMetadataForFreshEnrollment(cfg.Fleet.MetadataPath); err != nil {
+			return err
+		}
 	}
 	store, err := controlplane.Open(cfg.Fleet.MetadataPath)
 	if err != nil {
@@ -220,6 +238,19 @@ func runRemoteEnroll(cmd *cobra.Command, cfg *config.Config, controlPlaneURL, to
 	fmt.Fprintf(out, "Collector: %s\n", resp.Assignment.CollectorID)
 	fmt.Fprintf(out, "Ingest token file: %s\n", cfg.Fleet.IngestTokenFile)
 	fmt.Fprintf(out, "Run collector: %s\n", remoteCollectCommand(normalizedURL))
+	return nil
+}
+
+func resetLocalMetadataForFreshEnrollment(path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("fleet.metadata_path is required for fresh enrollment")
+	}
+	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Remove(candidate); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("reset local collector metadata %q: %w", candidate, err)
+		}
+	}
 	return nil
 }
 
