@@ -9,10 +9,12 @@ import (
 	"github.com/johnnygreco/beacon/internal/collector"
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/controlplane"
+	"github.com/johnnygreco/beacon/internal/store"
 	"github.com/spf13/cobra"
 )
 
 var errDoctorSetupFailed = errors.New("setup doctor found failures")
+var doctorOpenClickHouseReadOnly = store.OpenReadOnly
 
 type doctorReport struct {
 	out    interface{ Write([]byte) (int, error) }
@@ -118,6 +120,8 @@ func runDashboardSetupDoctor(ctx context.Context, report *doctorReport, cfg *con
 		}
 	}
 
+	runDoctorClickHouseChecks(ctx, report, cfg)
+
 	publicURL := strings.TrimSpace(cfg.Server.PublicURL)
 	if publicURL == "" {
 		report.line("WARN", "server.public_url", "not configured; remote collectors do not have an invite URL")
@@ -139,6 +143,36 @@ func runDashboardSetupDoctor(ctx context.Context, report *doctorReport, cfg *con
 	}
 	report.line("PASS", "public URL checks", "/health, enrollment auth, and protected-route posture passed from this machine")
 	report.remediation("Create collector invites with `beacon invite`.")
+}
+
+func runDoctorClickHouseChecks(ctx context.Context, report *doctorReport, cfg *config.Config) {
+	opts := storeOptionsFromConfig(cfg)
+	addrs := clickHouseAddrs(opts)
+	location := "remote"
+	if shouldAutoStartClickHouse(opts) {
+		location = "local"
+	}
+	report.line("INFO", "ClickHouse config", fmt.Sprintf("%s addrs=%s database=%s", location, strings.Join(addrs, ","), opts.Database))
+
+	if shouldAutoStartClickHouse(opts) {
+		if err := ensureLocalManagedDockerClickHousePrivate(opts); err != nil {
+			report.line("FAIL", "ClickHouse managed Docker", err.Error())
+			report.remediation("Remove the broad-bound managed ClickHouse container with `docker rm beacon-clickhouse`, then rerun `beacon db up` or `beacon up`.")
+		} else {
+			report.line("PASS", "ClickHouse managed Docker", "no broad-published beacon-managed Docker bindings detected")
+		}
+	} else {
+		report.line("INFO", "ClickHouse managed Docker", "remote ClickHouse configured; skipping local managed Docker binding check")
+	}
+
+	ch, err := doctorOpenClickHouseReadOnly(ctx, opts)
+	if err != nil {
+		report.line("FAIL", "ClickHouse migration", fmt.Sprintf("not migration-ready at %s database=%s (%v)", strings.Join(addrs, ","), opts.Database, err))
+		report.remediation("Start ClickHouse with `beacon db up` or fix database.addrs, then run `beacon db migrate`.")
+		return
+	}
+	defer ch.Close()
+	report.line("PASS", "ClickHouse migration", fmt.Sprintf("migration-ready at %s database=%s", strings.Join(addrs, ","), opts.Database))
 }
 
 func runCollectorSetupDoctor(ctx context.Context, report *doctorReport, cfg *config.Config) {

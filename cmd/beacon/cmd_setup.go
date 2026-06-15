@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -35,7 +36,10 @@ type inviteOptions struct {
 	UnsafePublicURL bool
 }
 
-const joinInviteSchema = "beacon.invite.v1"
+const (
+	joinInviteSchema = "beacon.invite.v1"
+	defaultInviteTTL = 30 * time.Minute
+)
 
 var newSetupPublicURLCheckClient = func() *http.Client {
 	return &http.Client{Timeout: 2 * time.Second}
@@ -73,7 +77,7 @@ func newSetupDashboardCmd() *cobra.Command {
 }
 
 func newInviteCmd() *cobra.Command {
-	opts := inviteOptions{TTL: 15 * time.Minute, Format: "text"}
+	opts := inviteOptions{TTL: defaultInviteTTL, Format: "text"}
 	cmd := &cobra.Command{
 		Use:   "invite",
 		Short: "Create a one-use collector enrollment invite",
@@ -85,7 +89,7 @@ func newInviteCmd() *cobra.Command {
 	cmd.Flags().StringVar(&opts.CollectorURL, "collector-url", "", "public root URL collectors use to reach this dashboard")
 	cmd.Flags().BoolVar(&opts.LocalTunnel, "local-tunnel", false, "label a loopback collector URL as a local tunnel URL")
 	cmd.Flags().BoolVar(&opts.SaveURL, "save-url", false, "save --collector-url to server.public_url before creating the invite")
-	cmd.Flags().DurationVar(&opts.TTL, "ttl", 15*time.Minute, "duration before the generated enrollment token expires")
+	cmd.Flags().DurationVar(&opts.TTL, "ttl", defaultInviteTTL, "duration before the generated enrollment token expires")
 	cmd.Flags().StringVar(&opts.Format, "format", "text", "output format: text or json")
 	cmd.Flags().BoolVar(&opts.UnsafePublicURL, "unsafe-public-url", false, "acknowledge unauthenticated public dashboard/API exposure")
 	return cmd
@@ -168,7 +172,9 @@ func runSetupDashboard(cmd *cobra.Command, opts setupDashboardOptions) error {
 			fmt.Fprintln(out, "Collector URL mode: local tunnel")
 			fmt.Fprintln(out, "Public URL checks: local-only; ensure the tunnel is running and forwards to this dashboard before starting collectors.")
 		} else if !opts.Start {
-			reportSetupPublicURLChecks(ctx, out, collectorURL, opts.UnsafePublicURL)
+			if err := reportSetupPublicURLChecks(ctx, out, collectorURL, opts.UnsafePublicURL); err != nil {
+				return err
+			}
 		}
 	}
 	fmt.Fprintln(out, "Create collector enrollment invites with `beacon invite`.")
@@ -301,22 +307,43 @@ func ensureOwnerToken(ctx context.Context, store *controlplane.Store) (*controlp
 	return owner, nil
 }
 
-func reportSetupPublicURLChecks(ctx context.Context, out interface{ Write([]byte) (int, error) }, collectorURL string, unsafe bool) {
+func reportSetupPublicURLChecks(ctx context.Context, out interface{ Write([]byte) (int, error) }, collectorURL string, unsafe bool) error {
 	if config.IsLoopbackURL(collectorURL) {
 		fmt.Fprintln(out, "Public URL checks: local-only.")
-		return
+		return nil
 	}
 	client := newSetupPublicURLCheckClient()
 	if err := runPublicURLChecks(ctx, collectorURL, publicURLCheckOptions{Unsafe: unsafe, Client: client}); err != nil {
-		fmt.Fprintf(out, "Public URL checks: pending/failed (%v)\n", err)
-		fmt.Fprintln(out, "Run `beacon doctor setup` for diagnostics, then run `beacon up` to perform mandatory startup checks before creating invites.")
-		return
+		if setupPublicURLChecksPending(err) {
+			fmt.Fprintf(out, "Public URL checks: pending/failed (%v)\n", err)
+			fmt.Fprintln(out, "Run `beacon doctor setup` for diagnostics, then run `beacon up` to perform mandatory startup checks before creating invites.")
+			return nil
+		}
+		fmt.Fprintf(out, "Public URL checks: failed (%v)\n", err)
+		fmt.Fprintln(out, "Run `beacon doctor setup` for diagnostics before creating invites.")
+		return fmt.Errorf("public URL setup checks failed: %w", err)
 	}
 	if unsafe {
 		fmt.Fprintln(out, "Public URL checks: connectivity passed; protected dashboard/API/MCP route checks skipped due to --unsafe-public-url.")
-		return
+		return nil
 	}
 	fmt.Fprintln(out, "Public URL checks: passed.")
+	return nil
+}
+
+func setupPublicURLChecksPending(err error) bool {
+	var checkErr *publicURLCheckError
+	if !errors.As(err, &checkErr) {
+		return false
+	}
+	if checkErr.stage != publicURLCheckStageHealth {
+		return false
+	}
+	var healthStatusErr *publicURLHealthStatusError
+	if errors.As(err, &healthStatusErr) && healthStatusErr.hostGuardRejected() {
+		return false
+	}
+	return true
 }
 
 func requireForceForGuidedConfigConflicts(plan *config.GuidedConfigPlan, force bool) error {

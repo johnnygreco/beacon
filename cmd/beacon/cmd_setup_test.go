@@ -15,6 +15,7 @@ import (
 
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/controlplane"
+	"github.com/johnnygreco/beacon/internal/web"
 	"github.com/spf13/cobra"
 )
 
@@ -120,15 +121,7 @@ func TestRunSetupDashboardReportsPendingPublicChecks(t *testing.T) {
 	withConfigFile(t, cfgPath)
 
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/health":
-			w.WriteHeader(http.StatusOK)
-		case "/api/ingest/v1/enroll":
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
-		default:
-			w.WriteHeader(http.StatusOK)
-		}
+		w.WriteHeader(http.StatusBadGateway)
 	}))
 	defer server.Close()
 	withSetupPublicURLCheckClient(t, server)
@@ -147,6 +140,72 @@ func TestRunSetupDashboardReportsPendingPublicChecks(t *testing.T) {
 	}
 	if !strings.Contains(output, "beacon doctor setup") {
 		t.Fatalf("setup output = %q, want doctor guidance", output)
+	}
+}
+
+func TestRunSetupDashboardFailsLivePublicCheckFailures(t *testing.T) {
+	resetConfigState(t)
+	cfgPath := filepath.Join(t.TempDir(), "beacon.toml")
+	withConfigFile(t, cfgPath)
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/api/ingest/v1/enroll":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+	withSetupPublicURLCheckClient(t, server)
+
+	cmd, out := bufferedCommand()
+	err := runSetupDashboard(cmd, setupDashboardOptions{
+		CollectorURL: "https://beacon.example",
+		Name:         "Public Dashboard",
+	})
+	if err == nil || !strings.Contains(err.Error(), "public URL setup checks failed") {
+		t.Fatalf("runSetupDashboard error = %v, want hard public URL check failure", err)
+	}
+	output := out.String()
+	if !strings.Contains(output, "Public URL checks: failed") {
+		t.Fatalf("setup output = %q, want failed public URL check status", output)
+	}
+	if !strings.Contains(output, "beacon doctor setup") {
+		t.Fatalf("setup output = %q, want doctor guidance", output)
+	}
+}
+
+func TestRunSetupDashboardFailsHostGuardHealthCheck(t *testing.T) {
+	resetConfigState(t)
+	cfgPath := filepath.Join(t.TempDir(), "beacon.toml")
+	withConfigFile(t, cfgPath)
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			t.Fatalf("unexpected path %s; host guard health failure should stop setup checks", r.URL.Path)
+		}
+		w.Header().Set(web.HostGuardRejectedHeader, "rejected")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte("Beacon host guard rejected the request"))
+	}))
+	defer server.Close()
+	withSetupPublicURLCheckClient(t, server)
+
+	cmd, out := bufferedCommand()
+	err := runSetupDashboard(cmd, setupDashboardOptions{
+		CollectorURL: "https://beacon.example",
+		Name:         "Host Guard Dashboard",
+	})
+	if err == nil || !strings.Contains(err.Error(), "public URL setup checks failed") {
+		t.Fatalf("runSetupDashboard error = %v, want hard public URL check failure", err)
+	}
+	output := out.String()
+	if !strings.Contains(output, "Public URL checks: failed") || !strings.Contains(output, "host guard") {
+		t.Fatalf("setup output = %q, want failed host guard public URL check status", output)
 	}
 }
 
@@ -273,6 +332,18 @@ func TestRunInviteSaveURLDoesNotWriteWhenPublicChecksFail(t *testing.T) {
 	}
 }
 
+func TestInviteCommandDefaultTTLIsThirtyMinutes(t *testing.T) {
+	cmd := newInviteCmd()
+	flag := cmd.Flags().Lookup("ttl")
+	if flag == nil {
+		t.Fatal("invite --ttl flag is missing")
+		return
+	}
+	if got := flag.DefValue; got != defaultInviteTTL.String() {
+		t.Fatalf("invite --ttl default = %q, want %q", got, defaultInviteTTL.String())
+	}
+}
+
 func TestPublicURLChecksPassWhenRoutesAreProtected(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -288,6 +359,27 @@ func TestPublicURLChecksPassWhenRoutesAreProtected(t *testing.T) {
 			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
 		case "/", "/api/status", "/api/mcp":
 			w.WriteHeader(http.StatusUnauthorized)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	if err := runPublicURLChecks(context.Background(), server.URL, publicURLCheckOptions{Client: server.Client()}); err != nil {
+		t.Fatalf("runPublicURLChecks returned error: %v", err)
+	}
+}
+
+func TestPublicURLChecksPassWhenProtectedRoutesAreNotPublished(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/api/ingest/v1/enroll":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+		case "/", "/api/status", "/api/mcp":
+			http.NotFound(w, r)
 		default:
 			http.NotFound(w, r)
 		}
