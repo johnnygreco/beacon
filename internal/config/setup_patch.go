@@ -18,6 +18,7 @@ type GuidedConfigPatch struct {
 	Name                string
 	PublicURL           string
 	ControlPlaneURL     string
+	AuthMode            string
 	CaptureEnabled      *bool
 	ApplyDefaultSources bool
 }
@@ -128,6 +129,18 @@ func PlanGuidedConfigPatch(patch GuidedConfigPatch) (*GuidedConfigPlan, error) {
 		}
 		if addStringFieldChange(&changes, decoded, "fleet", "control_plane_url", controlPlaneURL) {
 			doc.setKey("fleet", "control_plane_url", strconv.Quote(controlPlaneURL))
+		}
+	}
+
+	if patch.AuthMode != "" {
+		mode := strings.TrimSpace(patch.AuthMode)
+		switch mode {
+		case AuthModeLoopback, AuthModeOwnerToken, AuthModeReverseProxy:
+		default:
+			return nil, fmt.Errorf("auth.mode must be one of %q, %q, or %q", AuthModeLoopback, AuthModeOwnerToken, AuthModeReverseProxy)
+		}
+		if addStringFieldChange(&changes, decoded, "auth", "mode", mode) {
+			doc.setKey("auth", "mode", strconv.Quote(mode))
 		}
 	}
 

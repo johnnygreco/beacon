@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/johnnygreco/beacon/internal/config"
@@ -19,7 +20,7 @@ func dashboardAuthOptions(ctx context.Context, cfg *config.Config, store *contro
 	}
 	options := []web.RouterOption{}
 	if isLoopbackHost(cfg.Server.Host) {
-		options = append(options, web.WithGlobalMiddleware(web.LoopbackHostMiddleware(cfg.Server.Host)))
+		options = append(options, web.WithGlobalMiddleware(web.LoopbackHostMiddleware(cfg.Server.Host, publicURLHost(cfg.Server.PublicURL))))
 	}
 	if !isLoopbackHost(cfg.Server.Host) {
 		switch cfg.Auth.Mode {
@@ -62,6 +63,14 @@ func dashboardAuthOptions(ctx context.Context, cfg *config.Config, store *contro
 	options = append(options, web.WithAuthMiddleware(web.OwnerTokenMiddleware(authenticator, cfg.Auth.CookieName)))
 	options = append(options, web.WithAPIAuthMiddleware(readTokenAPIMiddleware(store, cfg.Auth.CookieName)))
 	return options, nil
+}
+
+func publicURLHost(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	return parsed.Host
 }
 
 func readTokenAPIMiddleware(store *controlplane.Store, cookieName string) func(http.Handler) http.Handler {

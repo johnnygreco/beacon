@@ -91,6 +91,8 @@ reset/replay, and operations runbooks.
 Useful commands:
 
 ```bash
+beacon setup dashboard --collector-url https://beacon.example  # guided dashboard setup
+beacon invite    # create a one-use collector enrollment invite
 beacon init     # create owner and one-use enrollment tokens
 beacon status   # server, ClickHouse, session, and search-index health
 beacon down     # stop the running Beacon web server
@@ -200,6 +202,18 @@ explicit `allow_insecure_owner_http = true` opt-in; use a TLS reverse proxy for
 normal browser access. Without a login UI, owner-token browser access requires
 setting the configured cookie yourself, while API clients can send
 `Authorization: Bearer <owner-token>`.
+
+For a guided multi-machine setup, run `beacon setup dashboard --collector-url
+https://beacon.example` on the dashboard machine. The command writes the
+dashboard/control-plane config, sets `auth.mode = "owner-token"` for
+non-loopback collector URLs, initializes control-plane metadata, and prints any
+new owner token once. Later, run `beacon invite` to create a one-use collector
+enrollment token. Beacon checks non-loopback public URLs before startup and
+before minting invites: `/health` must be reachable, `/api/ingest/v1/enroll`
+must preserve the `Authorization` header, and dashboard/API/MCP routes must not
+be open without authentication unless `--unsafe-public-url` is explicitly used.
+Loopback collector URLs require `--local-tunnel` so invite output is clearly
+marked as tunnel-local.
 
 Set `[dashboard].name` when you run Beacon dashboards for multiple machines or
 workspaces. The configured name becomes the dashboard heading and browser tab
@@ -358,6 +372,8 @@ beacon up
 
 | Command | Use it for |
 |---------|------------|
+| `beacon setup dashboard` | Configure this machine as a guided dashboard/control plane |
+| `beacon invite` | Create a one-use collector enrollment invite |
 | `beacon init` | Create local owner and one-use enrollment tokens |
 | `beacon enroll --token-stdin` | Consume an enrollment token from stdin and mint a bound ingest token |
 | `beacon enroll --token-env NAME` | Consume an enrollment token from an environment variable name |

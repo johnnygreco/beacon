@@ -205,6 +205,86 @@ func TestStartClickHouseAutoErrorsWithoutNativeOrDockerRuntime(t *testing.T) {
 	}
 }
 
+func TestStartDockerClickHouseBindsPortsToLoopback(t *testing.T) {
+	tmp := t.TempDir()
+	binDir := filepath.Join(tmp, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("create bin dir: %v", err)
+	}
+	logPath := filepath.Join(tmp, "docker.log")
+	dockerPath := filepath.Join(binDir, "docker")
+	script := `#!/bin/sh
+echo "$@" >> "$BEACON_DOCKER_LOG"
+if [ "$1" = "version" ]; then
+  echo "1.47"
+  exit 0
+fi
+if [ "$1" = "container" ] && [ "$2" = "inspect" ]; then
+  exit 1
+fi
+exit 0
+`
+	if err := os.WriteFile(dockerPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write docker fixture: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+	t.Setenv("BEACON_DOCKER_LOG", logPath)
+
+	if err := startDockerClickHouse("clickhouse:test"); err != nil {
+		t.Fatalf("startDockerClickHouse returned error: %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read docker log: %v", err)
+	}
+	log := string(data)
+	for _, want := range []string{"-p 127.0.0.1:9000:9000", "-p 127.0.0.1:8123:8123"} {
+		if !strings.Contains(log, want) {
+			t.Fatalf("docker log = %q, want %q", log, want)
+		}
+	}
+	if strings.Contains(log, "-p 9000:9000") || strings.Contains(log, "-p 8123:8123") {
+		t.Fatalf("docker run uses broad port binding: %q", log)
+	}
+}
+
+func TestUnsafeDockerClickHouseBindings(t *testing.T) {
+	tests := []struct {
+		name      string
+		portsJSON string
+		want      []string
+	}{
+		{
+			name: "loopback bindings",
+			portsJSON: `{
+				"9000/tcp":[{"HostIp":"127.0.0.1","HostPort":"9000"}],
+				"8123/tcp":[{"HostIp":"::1","HostPort":"8123"}]
+			}`,
+		},
+		{
+			name: "broad bindings",
+			portsJSON: `{
+				"9000/tcp":[{"HostIp":"0.0.0.0","HostPort":"9000"}],
+				"8123/tcp":[{"HostIp":"","HostPort":"8123"}]
+			}`,
+			want: []string{"0.0.0.0:9000->9000/tcp", "0.0.0.0:8123->8123/tcp"},
+		},
+		{
+			name:      "invalid json",
+			portsJSON: `{`,
+			want:      []string{"unknown ports"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := unsafeDockerClickHouseBindings(tt.portsJSON)
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("unsafeDockerClickHouseBindings() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestReadNativeClickHousePIDRemovesStalePIDFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
