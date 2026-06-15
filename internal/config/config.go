@@ -660,6 +660,20 @@ func NormalizeRootURL(raw, field string) (string, error) {
 	if parsed.User != nil {
 		return "", fmt.Errorf("%s must not include userinfo", field)
 	}
+	if strings.TrimSpace(parsed.Hostname()) == "" {
+		return "", fmt.Errorf("%s host is required", field)
+	}
+	if parsed.Port() != "" {
+		port, err := strconv.Atoi(parsed.Port())
+		if err != nil {
+			return "", fmt.Errorf("%s port must be numeric", field)
+		}
+		if err := validatePort(field+" port", port); err != nil {
+			return "", err
+		}
+	} else if strings.HasSuffix(parsed.Host, ":") {
+		return "", fmt.Errorf("%s port must be numeric", field)
+	}
 	if parsed.RawQuery != "" {
 		return "", fmt.Errorf("%s must not include a query string", field)
 	}

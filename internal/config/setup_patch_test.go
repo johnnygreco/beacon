@@ -28,6 +28,10 @@ func TestNormalizeRootURL(t *testing.T) {
 		{name: "fragment", raw: "https://beacon.example#x", wantErr: "must not include a fragment"},
 		{name: "path", raw: "https://beacon.example/base", wantErr: "root URL without a path"},
 		{name: "non loopback http", raw: "http://beacon.example", wantErr: "https for non-loopback"},
+		{name: "empty host with port", raw: "https://:443", wantErr: "host is required"},
+		{name: "empty explicit port", raw: "https://beacon.example:", wantErr: "port must be numeric"},
+		{name: "zero port", raw: "https://beacon.example:0", wantErr: "port must be between 1 and 65535"},
+		{name: "out of range port", raw: "https://beacon.example:99999", wantErr: "port must be between 1 and 65535"},
 	}
 
 	for _, tt := range tests {
