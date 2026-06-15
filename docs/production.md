@@ -30,7 +30,8 @@ Control-plane host:
 - owns the dashboard and HTTP ingest endpoints
 - owns ClickHouse writes and schema migration
 - stores control-plane metadata at `[fleet].metadata_path`
-- creates owner and enrollment tokens with `beacon init`
+- creates owner and enrollment tokens with `beacon setup dashboard` and
+  `beacon invite`
 - serves dashboard/API/MCP reads from all enrolled collectors by default
 
 Collector host:
@@ -204,7 +205,30 @@ Use plaintext port `9000` only on loopback, a private network you trust, or an
 SSH tunnel. Normal remote collectors should not receive ClickHouse credentials;
 they should use `beacon collect` and HTTP ingest instead.
 
-## Initialize owner and enrollment tokens
+## Guided dashboard setup
+
+On the control-plane host, prefer the guided setup command:
+
+```bash
+beacon setup dashboard --collector-url https://beacon.example.com
+```
+
+For non-loopback collector URLs, the command writes `server.public_url`, sets
+`auth.mode = "owner-token"`, initializes control-plane metadata, and prints a
+new owner token if one does not already exist. `beacon up` then checks the
+configured public URL before completing startup.
+
+When a collector needs to enroll, create a one-use invite:
+
+```bash
+beacon invite --ttl 30m
+```
+
+Beacon checks non-loopback public URLs before minting the invite token. The
+printed collector command references `BEACON_ENROLL_TOKEN` and does not place
+the token directly on a shell command line.
+
+## Initialize owner and enrollment tokens manually
 
 On the control-plane host:
 
@@ -221,9 +245,10 @@ Store the owner token in a local password manager. Do not paste enrollment or
 owner tokens into shell history, issue comments, logs, or MCP prompts. Pass
 enrollment tokens through stdin or an environment variable name.
 
-If you need another enrollment token later, run `beacon init --enroll-ttl 30m`
-again on the control plane. Existing owner/control-plane metadata is reused and
-new owner and enrollment tokens are shown once.
+If you need another enrollment token later and are not using `beacon invite`,
+run `beacon init --enroll-ttl 30m` again on the control plane. Existing
+owner/control-plane metadata is reused and new owner and enrollment tokens are
+shown once.
 
 ## Collector config
 
@@ -570,9 +595,9 @@ Before relying on Beacon as your personal production dashboard:
 2. Create or edit `~/.beacon/beacon.toml` with `[fleet].role = "collector"`,
    `[fleet].control_plane_url`, `[fleet].node_name`, and the local
    `[[capture.sources]]`.
-3. On the control plane, run `beacon init --enroll-ttl 30m`.
-4. On the collector, run `beacon enroll https://beacon.example.com
-   --token-stdin` or `--token-env BEACON_ENROLL_TOKEN`.
+3. On the control plane, run `beacon invite --ttl 30m`.
+4. On the collector, run the `beacon enroll https://beacon.example.com
+   --token-stdin` or `--token-env BEACON_ENROLL_TOKEN` command from the invite.
 5. Run `beacon collect --once`.
 6. Check `beacon status` on the control plane and confirm the dashboard shows
    the new node/source filters.
@@ -581,7 +606,7 @@ Before relying on Beacon as your personal production dashboard:
 ### Rotate a collector ingest token
 
 1. Leave the existing `[fleet].ingest_token_file` on the collector.
-2. On the control plane, run `beacon init --enroll-ttl 30m`.
+2. On the control plane, run `beacon invite --ttl 30m`.
 3. On the collector, rerun `beacon enroll https://beacon.example.com
    --token-stdin` or `--token-env BEACON_ENROLL_TOKEN`.
 4. Confirm the command writes a new ingest token file and preserves the same

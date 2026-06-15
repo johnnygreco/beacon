@@ -217,6 +217,7 @@ func TestLoopbackHostMiddlewareRejectsDNSRebindingHosts(t *testing.T) {
 		{host: "127.0.0.1:4600", want: http.StatusNoContent},
 		{host: "localhost:4600", want: http.StatusNoContent},
 		{host: "[::1]:4600", want: http.StatusNoContent},
+		{host: "beacon.example", want: http.StatusForbidden},
 		{host: "evil.example:4600", want: http.StatusForbidden},
 		{host: "", want: http.StatusForbidden},
 	}
@@ -231,6 +232,14 @@ func TestLoopbackHostMiddlewareRejectsDNSRebindingHosts(t *testing.T) {
 
 			if rec.Code != tt.want {
 				t.Fatalf("status = %d, want %d", rec.Code, tt.want)
+			}
+			if tt.want == http.StatusForbidden {
+				if rec.Header().Get(HostGuardRejectedHeader) != "rejected" {
+					t.Fatalf("missing host guard rejection header")
+				}
+				if !strings.Contains(rec.Body.String(), "host guard") {
+					t.Fatalf("body = %q, want host guard diagnostic", rec.Body.String())
+				}
 			}
 		})
 	}

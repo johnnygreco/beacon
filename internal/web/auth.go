@@ -27,11 +27,15 @@ func OwnerTokenMiddleware(auth TokenAuthenticator, cookieName string) func(http.
 	}
 }
 
+const HostGuardRejectedHeader = "X-Beacon-Host-Guard"
+
 func LoopbackHostMiddleware(configuredHost string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !isAllowedLoopbackHost(r.Host, configuredHost) {
+				w.Header().Set(HostGuardRejectedHeader, "rejected")
 				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte("beacon host guard rejected\n"))
 				return
 			}
 			next.ServeHTTP(w, r)

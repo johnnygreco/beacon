@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -88,6 +89,9 @@ func runDBUp(cmd *cobra.Command, args []string) error {
 	}
 	opts := storeOptionsFromConfig(cfg)
 
+	if err := ensureLocalManagedDockerClickHousePrivate(opts); err != nil {
+		return err
+	}
 	if !clickHouseReachable(opts) {
 		if err := startClickHouse(runtime, image, opts); err != nil {
 			return err
@@ -113,7 +117,13 @@ func runDBUp(cmd *cobra.Command, args []string) error {
 }
 
 func ensureLocalClickHouse(opts store.Options) error {
-	if !shouldAutoStartClickHouse(opts) || clickHouseReachable(opts) {
+	if !shouldAutoStartClickHouse(opts) {
+		return nil
+	}
+	if err := ensureLocalManagedDockerClickHousePrivate(opts); err != nil {
+		return err
+	}
+	if clickHouseReachable(opts) {
 		return nil
 	}
 	if err := startClickHouse(dbRuntimeAuto, clickHouseImage, opts); err != nil {
@@ -398,6 +408,9 @@ func startDockerClickHouse(image string) error {
 		return fmt.Errorf("docker is required for --runtime docker")
 	}
 	if containerExists(clickHouseContainerName) {
+		if err := ensureDockerClickHouseLoopbackBindings(clickHouseContainerName); err != nil {
+			return err
+		}
 		if out, err := docker("container", "start", clickHouseContainerName); err != nil {
 			return fmt.Errorf("starting ClickHouse container: %w\n%s", err, out)
 		}
@@ -407,8 +420,8 @@ func startDockerClickHouse(image string) error {
 	if out, err := docker(
 		"run", "-d",
 		"--name", clickHouseContainerName,
-		"-p", "9000:9000",
-		"-p", "8123:8123",
+		"-p", "127.0.0.1:9000:9000",
+		"-p", "127.0.0.1:8123:8123",
 		"-v", "beacon-clickhouse-data:/var/lib/clickhouse",
 		image,
 	); err != nil {
@@ -416,6 +429,68 @@ func startDockerClickHouse(image string) error {
 	}
 	fmt.Println("ClickHouse container created.")
 	return nil
+}
+
+func ensureLocalManagedDockerClickHousePrivate(opts store.Options) error {
+	if !shouldAutoStartClickHouse(opts) {
+		return nil
+	}
+	if _, err := exec.LookPath("docker"); err != nil {
+		return nil
+	}
+	if !containerExists(clickHouseContainerName) {
+		return nil
+	}
+	return ensureDockerClickHouseLoopbackBindings(clickHouseContainerName)
+}
+
+type dockerPortBinding struct {
+	HostIP   string `json:"HostIp"`
+	HostPort string `json:"HostPort"`
+}
+
+func ensureDockerClickHouseLoopbackBindings(containerName string) error {
+	out, err := docker("container", "inspect", "--format", "{{json .NetworkSettings.Ports}}", containerName)
+	if err != nil {
+		return fmt.Errorf("inspecting ClickHouse container ports: %w\n%s", err, out)
+	}
+	unsafe := unsafeDockerClickHouseBindings(out)
+	if len(unsafe) == 0 {
+		return nil
+	}
+	return fmt.Errorf("existing Beacon-managed ClickHouse container publishes %s beyond loopback; remove it with `docker rm %s` and rerun `beacon db up` so Beacon recreates it with 127.0.0.1-only bindings",
+		strings.Join(unsafe, ", "),
+		containerName,
+	)
+}
+
+func unsafeDockerClickHouseBindings(portsJSON string) []string {
+	ports := map[string][]dockerPortBinding{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(portsJSON)), &ports); err != nil {
+		return []string{"unknown ports"}
+	}
+	var unsafe []string
+	for _, port := range []string{"9000/tcp", "8123/tcp"} {
+		for _, binding := range ports[port] {
+			if !isLoopbackDockerHostIP(binding.HostIP) {
+				hostIP := strings.TrimSpace(binding.HostIP)
+				if hostIP == "" {
+					hostIP = "0.0.0.0"
+				}
+				unsafe = append(unsafe, hostIP+":"+binding.HostPort+"->"+port)
+			}
+		}
+	}
+	return unsafe
+}
+
+func isLoopbackDockerHostIP(hostIP string) bool {
+	hostIP = strings.TrimSpace(strings.Trim(hostIP, "[]"))
+	if strings.EqualFold(hostIP, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(hostIP)
+	return ip != nil && ip.IsLoopback()
 }
 
 func startNativeClickHouse(opts store.Options) error {

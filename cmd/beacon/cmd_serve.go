@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -204,19 +205,56 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return shutdownHTTPServerOnContext(ctx, srv, 10*time.Second)
 	})
 
-	logger.Info("server listening", "addr", addr)
-	err = srv.ListenAndServe()
-	cancel()
-	bgErr := bg.Wait()
-	if err != nil && err != http.ErrServerClosed {
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		cancel()
+		_ = bg.Wait()
 		return err
 	}
+
+	bg.Go("http server", func(context.Context) error {
+		if err := srv.Serve(listener); err != nil && err != http.ErrServerClosed {
+			return err
+		}
+		return nil
+	})
+
+	logger.Info("server listening", "addr", addr)
+	if cfg.Server.PublicURL != "" && !config.IsLoopbackURL(cfg.Server.PublicURL) {
+		unsafePublicURL := unsafePublicURLFlag(cmd)
+		if err := runPublicURLChecks(ctx, cfg.Server.PublicURL, publicURLCheckOptions{Unsafe: unsafePublicURL}); err != nil {
+			cancel()
+			if bgErr := bg.Wait(); bgErr != nil {
+				return bgErr
+			}
+			return fmt.Errorf("public URL startup checks failed: %w", err)
+		}
+		if unsafePublicURL {
+			logger.Warn("public URL connectivity checks passed; protected dashboard/API/MCP route checks skipped", "url", cfg.Server.PublicURL)
+		} else {
+			logger.Info("public URL checks passed", "url", cfg.Server.PublicURL)
+		}
+	}
+
+	bgErr := bg.Wait()
 	if bgErr != nil {
 		return bgErr
 	}
 
 	logger.Info("server stopped")
 	return nil
+}
+
+func unsafePublicURLFlag(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	flag := cmd.Flags().Lookup("unsafe-public-url")
+	if flag == nil {
+		return false
+	}
+	value, err := strconv.ParseBool(flag.Value.String())
+	return err == nil && value
 }
 
 // pidfilePath returns the path to the beacon pidfile.

@@ -55,7 +55,7 @@ func TestRootCommandShowsVersion(t *testing.T) {
 
 func TestRootCommandExposesCanonicalSubcommands(t *testing.T) {
 	cmd := newRootCmd()
-	want := []string{"init", "enroll", "up", "down", "collect", "watch", "mcp", "usage", "status", "db"}
+	want := []string{"setup", "init", "invite", "enroll", "up", "down", "collect", "watch", "mcp", "usage", "status", "db"}
 
 	var got []string
 	for _, sub := range cmd.Commands() {
@@ -74,6 +74,13 @@ func TestRootCommandExposesCanonicalSubcommands(t *testing.T) {
 		if slices.Contains(got, removed) {
 			t.Fatalf("removed duplicate command %q is still exposed; got %v", removed, got)
 		}
+	}
+
+	if up := subcommandByName(cmd, "up"); up == nil || up.Flags().Lookup("unsafe-public-url") == nil {
+		t.Fatalf("up command is missing --unsafe-public-url")
+	}
+	if setup := subcommandByName(cmd, "setup"); setup == nil || subcommandByName(setup, "dashboard") == nil {
+		t.Fatalf("setup command is missing dashboard subcommand")
 	}
 }
 
@@ -99,6 +106,15 @@ func TestRemovedDuplicateCommandsReturnErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func subcommandByName(cmd *cobra.Command, name string) *cobra.Command {
+	for _, sub := range cmd.Commands() {
+		if sub.Name() == name {
+			return sub
+		}
+	}
+	return nil
 }
 
 func TestCommandTreeDoesNotExposeAliases(t *testing.T) {
