@@ -106,6 +106,9 @@ func runJoin(cmd *cobra.Command, args []string, opts joinOptions) error {
 	if err := requireForceForGuidedConfigConflicts(plan, opts.Force); err != nil {
 		return err
 	}
+	if err := requireForceForJoinFreshEnrollment(freshEnrollment, opts.Force); err != nil {
+		return err
+	}
 
 	out := cmd.OutOrStdout()
 	printGuidedConfigPlan(out, "Beacon collector join", plan)
@@ -134,7 +137,7 @@ func runJoin(cmd *cobra.Command, args []string, opts joinOptions) error {
 		return fmt.Errorf("loading collector config: %w", err)
 	}
 	if err := runRemoteEnrollWithOptions(cmd, cfg, normalizedURL, token, remoteEnrollOptions{FreshEnrollment: freshEnrollment}); err != nil {
-		if freshEnrollment {
+		if freshEnrollment && !remoteEnrollmentLocalCommitFailed(err) {
 			if restoreErr := restoreGuidedConfigBackup(plan); restoreErr != nil {
 				return fmt.Errorf("%w; additionally failed to restore previous config: %v", err, restoreErr)
 			}
@@ -250,14 +253,20 @@ func joinEnrollmentTokenRequiredError() error {
 }
 
 func joinFreshEnrollmentMode(ctx context.Context, targetURL string) (bool, error) {
+	var existingCfg *config.Config
 	if cfgFile != "" {
 		if _, err := os.Stat(cfgFile); errors.Is(err, os.ErrNotExist) {
-			return false, nil
+			existingCfg = &config.Config{}
+			existingCfg.Fleet.Role = config.FleetRoleBoth
+			existingCfg.Fleet.MetadataPath = config.DefaultControlPlaneMetadataPath()
 		}
 	}
-	existingCfg, err := config.Load(cfgFile)
-	if err != nil {
-		return false, fmt.Errorf("loading existing config before join: %w", err)
+	if existingCfg == nil {
+		cfg, err := config.Load(cfgFile)
+		if err != nil {
+			return false, fmt.Errorf("loading existing config before join: %w", err)
+		}
+		existingCfg = cfg
 	}
 	_, hasLocalIdentity, err := remoteEnrollmentBootstrap(ctx, existingCfg)
 	if err != nil {
@@ -272,8 +281,23 @@ func joinFreshEnrollmentMode(ctx context.Context, targetURL string) (bool, error
 	return false, requireReEnrollmentControlPlaneMatch(existingCfg.Fleet.ControlPlaneURL, targetURL)
 }
 
+func requireForceForJoinFreshEnrollment(freshEnrollment bool, force bool) error {
+	if !freshEnrollment || force {
+		return nil
+	}
+	return fmt.Errorf("join would replace existing local Beacon metadata with a remote collector identity; rerun with --force to confirm")
+}
+
 func restoreGuidedConfigBackup(plan *config.GuidedConfigPlan) error {
-	if plan == nil || strings.TrimSpace(plan.BackupPath) == "" {
+	if plan == nil {
+		return nil
+	}
+	if strings.TrimSpace(plan.BackupPath) == "" {
+		if !plan.Exists && plan.Changed && strings.TrimSpace(plan.Path) != "" {
+			if err := os.Remove(plan.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return fmt.Errorf("remove new config after failed join: %w", err)
+			}
+		}
 		return nil
 	}
 	data, err := os.ReadFile(plan.BackupPath)
