@@ -89,6 +89,9 @@ func runDBUp(cmd *cobra.Command, args []string) error {
 	}
 	opts := storeOptionsFromConfig(cfg)
 
+	if err := ensureLocalManagedDockerClickHousePrivate(opts); err != nil {
+		return err
+	}
 	if !clickHouseReachable(opts) {
 		if err := startClickHouse(runtime, image, opts); err != nil {
 			return err
@@ -114,7 +117,13 @@ func runDBUp(cmd *cobra.Command, args []string) error {
 }
 
 func ensureLocalClickHouse(opts store.Options) error {
-	if !shouldAutoStartClickHouse(opts) || clickHouseReachable(opts) {
+	if !shouldAutoStartClickHouse(opts) {
+		return nil
+	}
+	if err := ensureLocalManagedDockerClickHousePrivate(opts); err != nil {
+		return err
+	}
+	if clickHouseReachable(opts) {
 		return nil
 	}
 	if err := startClickHouse(dbRuntimeAuto, clickHouseImage, opts); err != nil {
@@ -420,6 +429,19 @@ func startDockerClickHouse(image string) error {
 	}
 	fmt.Println("ClickHouse container created.")
 	return nil
+}
+
+func ensureLocalManagedDockerClickHousePrivate(opts store.Options) error {
+	if !shouldAutoStartClickHouse(opts) {
+		return nil
+	}
+	if _, err := exec.LookPath("docker"); err != nil {
+		return nil
+	}
+	if !containerExists(clickHouseContainerName) {
+		return nil
+	}
+	return ensureDockerClickHouseLoopbackBindings(clickHouseContainerName)
 }
 
 type dockerPortBinding struct {

@@ -205,7 +205,7 @@ func TestRouterMCPRouteUsesDedicatedMCPAuthMiddleware(t *testing.T) {
 }
 
 func TestLoopbackHostMiddlewareRejectsDNSRebindingHosts(t *testing.T) {
-	middleware := LoopbackHostMiddleware("127.0.0.1", "beacon.example")
+	middleware := LoopbackHostMiddleware("127.0.0.1")
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -217,7 +217,7 @@ func TestLoopbackHostMiddlewareRejectsDNSRebindingHosts(t *testing.T) {
 		{host: "127.0.0.1:4600", want: http.StatusNoContent},
 		{host: "localhost:4600", want: http.StatusNoContent},
 		{host: "[::1]:4600", want: http.StatusNoContent},
-		{host: "beacon.example", want: http.StatusNoContent},
+		{host: "beacon.example", want: http.StatusForbidden},
 		{host: "evil.example:4600", want: http.StatusForbidden},
 		{host: "", want: http.StatusForbidden},
 	}

@@ -285,6 +285,51 @@ func TestUnsafeDockerClickHouseBindings(t *testing.T) {
 	}
 }
 
+func TestEnsureLocalManagedDockerClickHouseRejectsBroadBindings(t *testing.T) {
+	tmp := t.TempDir()
+	binDir := filepath.Join(tmp, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("create bin dir: %v", err)
+	}
+	dockerPath := filepath.Join(binDir, "docker")
+	script := `#!/bin/sh
+if [ "$1" = "container" ] && [ "$2" = "inspect" ] && [ "$3" = "beacon-clickhouse" ]; then
+  exit 0
+fi
+if [ "$1" = "container" ] && [ "$2" = "inspect" ] && [ "$3" = "--format" ]; then
+  echo '{"9000/tcp":[{"HostIp":"0.0.0.0","HostPort":"9000"}],"8123/tcp":[{"HostIp":"127.0.0.1","HostPort":"8123"}]}'
+  exit 0
+fi
+exit 1
+`
+	if err := os.WriteFile(dockerPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write docker fixture: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+
+	err := ensureLocalManagedDockerClickHousePrivate(store.Options{Addrs: []string{"127.0.0.1:9000"}})
+	if err == nil || !strings.Contains(err.Error(), "beyond loopback") {
+		t.Fatalf("ensureLocalManagedDockerClickHousePrivate error = %v, want broad binding refusal", err)
+	}
+}
+
+func TestEnsureLocalManagedDockerClickHouseSkipsRemoteDatabase(t *testing.T) {
+	tmp := t.TempDir()
+	binDir := filepath.Join(tmp, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("create bin dir: %v", err)
+	}
+	dockerPath := filepath.Join(binDir, "docker")
+	if err := os.WriteFile(dockerPath, []byte("#!/bin/sh\nexit 9\n"), 0755); err != nil {
+		t.Fatalf("write docker fixture: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+
+	if err := ensureLocalManagedDockerClickHousePrivate(store.Options{Addrs: []string{"clickhouse.example.com:9000"}}); err != nil {
+		t.Fatalf("ensureLocalManagedDockerClickHousePrivate returned error for remote db: %v", err)
+	}
+}
+
 func TestReadNativeClickHousePIDRemovesStalePIDFile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -32,6 +33,10 @@ type inviteOptions struct {
 	TTL             time.Duration
 	Format          string
 	UnsafePublicURL bool
+}
+
+var newSetupPublicURLCheckClient = func() *http.Client {
+	return &http.Client{Timeout: 2 * time.Second}
 }
 
 func newSetupCmd() *cobra.Command {
@@ -159,6 +164,9 @@ func runSetupDashboard(cmd *cobra.Command, opts setupDashboardOptions) error {
 		fmt.Fprintf(out, "Collector URL: %s\n", collectorURL)
 		if opts.LocalTunnel {
 			fmt.Fprintln(out, "Collector URL mode: local tunnel")
+			fmt.Fprintln(out, "Public URL checks: local-only; ensure the tunnel is running and forwards to this dashboard before starting collectors.")
+		} else if !opts.Start {
+			reportSetupPublicURLChecks(ctx, out, collectorURL, opts.UnsafePublicURL)
 		}
 	}
 	fmt.Fprintln(out, "Create collector enrollment invites with `beacon invite`.")
@@ -209,6 +217,7 @@ func runInvite(cmd *cobra.Command, opts inviteOptions) error {
 	if config.IsLoopbackURL(collectorURL) && !opts.LocalTunnel {
 		return fmt.Errorf("collector URL %s is loopback; pass --local-tunnel only when collectors reach it through a local tunnel", collectorURL)
 	}
+	var saveURLPlan *config.GuidedConfigPlan
 	if opts.SaveURL {
 		patch := config.GuidedConfigPatch{Path: cfgFile, PublicURL: collectorURL}
 		if !config.IsLoopbackURL(collectorURL) {
@@ -218,17 +227,23 @@ func runInvite(cmd *cobra.Command, opts inviteOptions) error {
 		if err != nil {
 			return err
 		}
-		if err := plan.Write(); err != nil {
-			return err
-		}
-		cfg, err = config.Load(plan.Path)
-		if err != nil {
-			return fmt.Errorf("loading saved config: %w", err)
-		}
+		saveURLPlan = plan
 	}
 	if !config.IsLoopbackURL(collectorURL) {
 		if err := runPublicURLChecks(ctx, collectorURL, publicURLCheckOptions{Unsafe: opts.UnsafePublicURL}); err != nil {
 			return fmt.Errorf("refusing to create invite before public URL checks pass: %w", err)
+		}
+		if opts.UnsafePublicURL {
+			fmt.Fprintln(cmd.ErrOrStderr(), "Warning: public URL connectivity checks passed, but protected dashboard/API/MCP route checks were skipped because --unsafe-public-url was set.")
+		}
+	}
+	if saveURLPlan != nil {
+		if err := saveURLPlan.Write(); err != nil {
+			return err
+		}
+		cfg, err = config.Load(saveURLPlan.Path)
+		if err != nil {
+			return fmt.Errorf("loading saved config: %w", err)
 		}
 	}
 
@@ -284,6 +299,24 @@ func ensureOwnerToken(ctx context.Context, store *controlplane.Store) (*controlp
 	return owner, nil
 }
 
+func reportSetupPublicURLChecks(ctx context.Context, out interface{ Write([]byte) (int, error) }, collectorURL string, unsafe bool) {
+	if config.IsLoopbackURL(collectorURL) {
+		fmt.Fprintln(out, "Public URL checks: local-only.")
+		return
+	}
+	client := newSetupPublicURLCheckClient()
+	if err := runPublicURLChecks(ctx, collectorURL, publicURLCheckOptions{Unsafe: unsafe, Client: client}); err != nil {
+		fmt.Fprintf(out, "Public URL checks: pending/failed (%v)\n", err)
+		fmt.Fprintln(out, "Run `beacon up` to perform mandatory startup checks before creating invites.")
+		return
+	}
+	if unsafe {
+		fmt.Fprintln(out, "Public URL checks: connectivity passed; protected dashboard/API/MCP route checks skipped due to --unsafe-public-url.")
+		return
+	}
+	fmt.Fprintln(out, "Public URL checks: passed.")
+}
+
 func requireForceForGuidedConfigConflicts(plan *config.GuidedConfigPlan, force bool) error {
 	if force || plan == nil {
 		return nil
@@ -328,6 +361,7 @@ func writeInviteText(out interface{ Write([]byte) (int, error) }, collectorURL, 
 	fmt.Fprintf(out, "Expires: %s\n", expiresAt.Format(time.RFC3339))
 	if localTunnel {
 		fmt.Fprintln(out, "Mode: local tunnel")
+		fmt.Fprintln(out, "Checks: local-only; ensure the tunnel is running and forwards to this dashboard before starting collectors.")
 	}
 	fmt.Fprintln(out)
 	fmt.Fprintln(out, "On the collector machine:")

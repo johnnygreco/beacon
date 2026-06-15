@@ -19,6 +19,10 @@ type publicURLCheckOptions struct {
 	Client *http.Client
 }
 
+var newPublicURLCheckClient = func() *http.Client {
+	return &http.Client{Timeout: 10 * time.Second}
+}
+
 func runPublicURLChecks(ctx context.Context, rawURL string, opts publicURLCheckOptions) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -29,7 +33,7 @@ func runPublicURLChecks(ctx context.Context, rawURL string, opts publicURLCheckO
 	}
 	client := opts.Client
 	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
+		client = newPublicURLCheckClient()
 	}
 	if err := checkPublicHealth(ctx, client, rootURL); err != nil {
 		return err

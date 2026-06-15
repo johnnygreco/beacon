@@ -29,10 +29,10 @@ func OwnerTokenMiddleware(auth TokenAuthenticator, cookieName string) func(http.
 
 const HostGuardRejectedHeader = "X-Beacon-Host-Guard"
 
-func LoopbackHostMiddleware(configuredHost string, allowedHosts ...string) func(http.Handler) http.Handler {
+func LoopbackHostMiddleware(configuredHost string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !isAllowedLoopbackHost(r.Host, configuredHost, allowedHosts...) {
+			if !isAllowedLoopbackHost(r.Host, configuredHost) {
 				w.Header().Set(HostGuardRejectedHeader, "rejected")
 				w.WriteHeader(http.StatusForbidden)
 				_, _ = w.Write([]byte("beacon host guard rejected\n"))
@@ -75,15 +75,10 @@ func bearerToken(header string) string {
 	return value
 }
 
-func isAllowedLoopbackHost(hostHeader, configuredHost string, allowedHosts ...string) bool {
+func isAllowedLoopbackHost(hostHeader, configuredHost string) bool {
 	host := normalizeHostOnly(hostHeader)
 	if host == "" {
 		return false
-	}
-	for _, allowed := range allowedHosts {
-		if normalized := normalizeHostOnly(allowed); normalized != "" && strings.EqualFold(host, normalized) {
-			return true
-		}
 	}
 	configured := normalizeHostOnly(configuredHost)
 	if configured != "" && strings.EqualFold(host, configured) && isLoopbackLiteral(host) {

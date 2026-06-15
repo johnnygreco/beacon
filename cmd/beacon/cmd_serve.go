@@ -221,14 +221,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	logger.Info("server listening", "addr", addr)
 	if cfg.Server.PublicURL != "" && !config.IsLoopbackURL(cfg.Server.PublicURL) {
-		if err := runPublicURLChecks(ctx, cfg.Server.PublicURL, publicURLCheckOptions{Unsafe: unsafePublicURLFlag(cmd)}); err != nil {
+		unsafePublicURL := unsafePublicURLFlag(cmd)
+		if err := runPublicURLChecks(ctx, cfg.Server.PublicURL, publicURLCheckOptions{Unsafe: unsafePublicURL}); err != nil {
 			cancel()
 			if bgErr := bg.Wait(); bgErr != nil {
 				return bgErr
 			}
 			return fmt.Errorf("public URL startup checks failed: %w", err)
 		}
-		logger.Info("public URL checks passed", "url", cfg.Server.PublicURL)
+		if unsafePublicURL {
+			logger.Warn("public URL connectivity checks passed; protected dashboard/API/MCP route checks skipped", "url", cfg.Server.PublicURL)
+		} else {
+			logger.Info("public URL checks passed", "url", cfg.Server.PublicURL)
+		}
 	}
 
 	bgErr := bg.Wait()

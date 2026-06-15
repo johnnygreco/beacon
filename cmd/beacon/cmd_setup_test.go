@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -112,6 +114,38 @@ func TestRunSetupDashboardRequiresForceForExistingConflicts(t *testing.T) {
 	}
 }
 
+func TestRunSetupDashboardReportsPendingPublicChecks(t *testing.T) {
+	resetConfigState(t)
+	cfgPath := filepath.Join(t.TempDir(), "beacon.toml")
+	withConfigFile(t, cfgPath)
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/api/ingest/v1/enroll":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+	withSetupPublicURLCheckClient(t, server)
+
+	cmd, out := bufferedCommand()
+	err := runSetupDashboard(cmd, setupDashboardOptions{
+		CollectorURL: "https://beacon.example",
+		Name:         "Public Dashboard",
+	})
+	if err != nil {
+		t.Fatalf("runSetupDashboard returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), "Public URL checks: pending/failed") {
+		t.Fatalf("setup output = %q, want pending/failed public URL check status", out.String())
+	}
+}
+
 func TestRunInviteMintsLoopbackLocalTunnelToken(t *testing.T) {
 	configPath, _ := writeInitTestConfig(t)
 	withConfigFile(t, configPath)
@@ -130,6 +164,9 @@ func TestRunInviteMintsLoopbackLocalTunnelToken(t *testing.T) {
 	tokens := tokensFromOutput(output)
 	if len(tokens) != 1 {
 		t.Fatalf("tokens in output = %v, want one enrollment token", tokens)
+	}
+	if !strings.Contains(output, "Checks: local-only") {
+		t.Fatalf("invite output = %q, want local-only check label", output)
 	}
 	for _, line := range strings.Split(output, "\n") {
 		if strings.Contains(line, "beacon enroll") && strings.Contains(line, tokens[0]) {
@@ -150,6 +187,79 @@ func TestRunInviteRejectsLoopbackURLWithoutLocalTunnel(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "--local-tunnel") {
 		t.Fatalf("runInvite error = %v, want local tunnel guidance", err)
+	}
+}
+
+func TestRunInviteUnsafePublicURLWarns(t *testing.T) {
+	configPath, _ := writeInitTestConfig(t)
+	withConfigFile(t, configPath)
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/api/ingest/v1/enroll":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+	withPublicURLCheckClient(t, server)
+
+	cmd, out := bufferedCommand()
+	err := runInvite(cmd, inviteOptions{
+		CollectorURL:    "https://beacon.example",
+		TTL:             time.Minute,
+		Format:          "text",
+		UnsafePublicURL: true,
+	})
+	if err != nil {
+		t.Fatalf("runInvite returned error: %v", err)
+	}
+	if !strings.Contains(out.String(), "Warning: public URL connectivity checks passed") {
+		t.Fatalf("invite output = %q, want unsafe public URL warning", out.String())
+	}
+}
+
+func TestRunInviteSaveURLDoesNotWriteWhenPublicChecksFail(t *testing.T) {
+	configPath, _ := writeInitTestConfig(t)
+	withConfigFile(t, configPath)
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/health":
+			w.WriteHeader(http.StatusOK)
+		case "/api/ingest/v1/enroll":
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+		default:
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer server.Close()
+	withPublicURLCheckClient(t, server)
+
+	cmd, _ := bufferedCommand()
+	err := runInvite(cmd, inviteOptions{
+		CollectorURL: "https://beacon.example",
+		SaveURL:      true,
+		TTL:          time.Minute,
+		Format:       "text",
+	})
+	if err == nil || !strings.Contains(err.Error(), "public URL checks pass") {
+		t.Fatalf("runInvite error = %v, want public URL check refusal", err)
+	}
+	cfg, loadErr := config.Load(configPath)
+	if loadErr != nil {
+		t.Fatalf("load config: %v", loadErr)
+	}
+	if cfg.Server.PublicURL != "" {
+		t.Fatalf("server.public_url = %q, want unchanged empty value", cfg.Server.PublicURL)
+	}
+	if cfg.Auth.Mode != config.AuthModeLoopback {
+		t.Fatalf("auth.mode = %q, want unchanged loopback", cfg.Auth.Mode)
 	}
 }
 
@@ -225,4 +335,37 @@ func bufferedCommand() (*cobra.Command, *bytes.Buffer) {
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	return cmd, &out
+}
+
+func withPublicURLCheckClient(t *testing.T, server *httptest.Server) {
+	t.Helper()
+	oldClient := newPublicURLCheckClient
+	t.Cleanup(func() {
+		newPublicURLCheckClient = oldClient
+	})
+	newPublicURLCheckClient = func() *http.Client {
+		return publicURLTestClient(server)
+	}
+}
+
+func withSetupPublicURLCheckClient(t *testing.T, server *httptest.Server) {
+	t.Helper()
+	oldClient := newSetupPublicURLCheckClient
+	t.Cleanup(func() {
+		newSetupPublicURLCheckClient = oldClient
+	})
+	newSetupPublicURLCheckClient = func() *http.Client {
+		return publicURLTestClient(server)
+	}
+}
+
+func publicURLTestClient(server *httptest.Server) *http.Client {
+	dialer := &net.Dialer{}
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // Test-only local TLS fixture with a synthetic public hostname.
+		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, server.Listener.Addr().String())
+		},
+	}
+	return &http.Client{Transport: transport, Timeout: time.Second}
 }
