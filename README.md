@@ -1,7 +1,7 @@
 # Beacon
 
 <p align="center">
-  <img src="assets/beacon.png" width="220" alt="Beacon logo">
+  <img src="assets/beacon.png" width="800" alt="Beacon">
 </p>
 
 Beacon collects AI agent activity from the machines you use, rolls it up in one
