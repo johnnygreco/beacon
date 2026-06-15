@@ -185,6 +185,49 @@ spool_dir = "` + filepath.Join(dir, "spool") + `"
 	}
 }
 
+func TestRunCollectValidatesControlPlaneOverrideBeforeMetadata(t *testing.T) {
+	dir := t.TempDir()
+	metadataPath := filepath.Join(dir, "collector-control-plane.db")
+	configPath := filepath.Join(dir, "beacon.toml")
+	body := `
+[fleet]
+role = "collector"
+metadata_path = "` + metadataPath + `"
+control_plane_url = "http://127.0.0.1:1"
+ingest_token_file = "` + filepath.Join(dir, "ingest-token") + `"
+spool_dir = "` + filepath.Join(dir, "spool") + `"
+node_name = "Collector"
+`
+	if err := os.WriteFile(configPath, []byte(body), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	withConfigFile(t, configPath)
+
+	tests := []struct {
+		name     string
+		override string
+		wantErr  string
+	}{
+		{name: "path", override: "https://beacon.example/base", wantErr: "--control-plane-url must be a root URL without a path"},
+		{name: "query", override: "https://beacon.example?token=abc", wantErr: "--control-plane-url must not include a query string"},
+		{name: "userinfo", override: "https://user:pass@beacon.example", wantErr: "--control-plane-url must not include userinfo"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := runCollect(newCollectCmd(), true, tt.override)
+			if err == nil {
+				t.Fatal("runCollect returned nil error")
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("runCollect error = %q, want %q", err.Error(), tt.wantErr)
+			}
+			if _, statErr := os.Stat(metadataPath); !os.IsNotExist(statErr) {
+				t.Fatalf("metadata file stat error = %v, want not created", statErr)
+			}
+		})
+	}
+}
+
 type collectSmokeCommitter struct {
 	calls int
 	meta  store.IngestBatchMeta

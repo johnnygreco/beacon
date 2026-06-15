@@ -21,6 +21,9 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Server.Port != 4600 {
 		t.Errorf("Server.Port = %d, want %d", cfg.Server.Port, 4600)
 	}
+	if cfg.Server.PublicURL != "" {
+		t.Errorf("Server.PublicURL = %q, want empty default", cfg.Server.PublicURL)
+	}
 	if cfg.Database.ReadPoolSize != 8 {
 		t.Errorf("Database.ReadPoolSize = %d, want %d", cfg.Database.ReadPoolSize, 8)
 	}
@@ -117,6 +120,7 @@ func TestLoad_CustomConfigFile(t *testing.T) {
 [server]
 host = "127.0.0.1"
 port = 8080
+public_url = "https://dashboard.example/"
 
 [database]
 addrs = ["clickhouse.internal:9440"]
@@ -176,6 +180,9 @@ format = "jsonl"
 	}
 	if cfg.Server.Port != 8080 {
 		t.Errorf("Server.Port = %d, want %d", cfg.Server.Port, 8080)
+	}
+	if cfg.Server.PublicURL != "https://dashboard.example" {
+		t.Errorf("Server.PublicURL = %q, want https://dashboard.example", cfg.Server.PublicURL)
 	}
 	if len(cfg.Database.Addrs) != 1 || cfg.Database.Addrs[0] != "clickhouse.internal:9440" {
 		t.Fatalf("Database.Addrs = %v, want custom addr", cfg.Database.Addrs)
@@ -342,6 +349,31 @@ func TestLoad_InvalidValues(t *testing.T) {
 			wantErr: "server.port must be between 1 and 65535",
 		},
 		{
+			name:    "server public url userinfo",
+			body:    "[server]\npublic_url = \"https://user:pass@beacon.example\"\n",
+			wantErr: "server.public_url must not include userinfo",
+		},
+		{
+			name:    "server public url query",
+			body:    "[server]\npublic_url = \"https://beacon.example?token=abc\"\n",
+			wantErr: "server.public_url must not include a query string",
+		},
+		{
+			name:    "server public url fragment",
+			body:    "[server]\npublic_url = \"https://beacon.example#dashboard\"\n",
+			wantErr: "server.public_url must not include a fragment",
+		},
+		{
+			name:    "server public url path",
+			body:    "[server]\npublic_url = \"https://beacon.example/beacon\"\n",
+			wantErr: "server.public_url must be a root URL without a path",
+		},
+		{
+			name:    "server public url non loopback http",
+			body:    "[server]\npublic_url = \"http://beacon.example\"\n",
+			wantErr: "server.public_url must use https for non-loopback hosts",
+		},
+		{
 			name:    "database address",
 			body:    "[database]\naddrs = [\"127.0.0.1\"]\n",
 			wantErr: "database.addrs[0] must be host:port",
@@ -435,6 +467,11 @@ func TestLoad_InvalidValues(t *testing.T) {
 			name:    "fleet collector url non loopback http",
 			body:    "[fleet]\ncontrol_plane_url = \"http://beacon.example\"\n",
 			wantErr: "fleet.control_plane_url must use https for non-loopback hosts",
+		},
+		{
+			name:    "fleet collector url path",
+			body:    "[fleet]\ncontrol_plane_url = \"https://beacon.example/collector\"\n",
+			wantErr: "fleet.control_plane_url must be a root URL without a path",
 		},
 		{
 			name:    "fleet node id",
@@ -577,6 +614,7 @@ func TestValidate_InvalidFields(t *testing.T) {
 func TestValidate_NormalizesTrimmedFields(t *testing.T) {
 	cfg := validTestConfig()
 	cfg.Server.Host = " 127.0.0.1 "
+	cfg.Server.PublicURL = " https://beacon.example/ "
 	cfg.Database.Addrs = []string{" 127.0.0.1:9000 "}
 	cfg.Database.Database = " beacon_test "
 	cfg.Capture.Sources = []SourceConfig{
@@ -605,6 +643,9 @@ func TestValidate_NormalizesTrimmedFields(t *testing.T) {
 	}
 	if cfg.Server.Host != "127.0.0.1" || cfg.Database.Addrs[0] != "127.0.0.1:9000" || cfg.Database.Database != "beacon_test" {
 		t.Fatalf("top-level fields not normalized: %#v", cfg)
+	}
+	if cfg.Server.PublicURL != "https://beacon.example" {
+		t.Fatalf("server public URL not normalized: %#v", cfg.Server)
 	}
 	source := cfg.Capture.Sources[0]
 	if source.Name != "codex" || source.Runtime != "codex" || source.Provider != "openai" ||

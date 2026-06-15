@@ -33,8 +33,9 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Host string
-	Port int
+	Host      string
+	Port      int
+	PublicURL string `mapstructure:"public_url"`
 }
 
 type DatabaseConfig struct {
@@ -180,6 +181,7 @@ func Load(cfgFile string) (*Config, error) {
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.host", "127.0.0.1")
 	v.SetDefault("server.port", 4600)
+	v.SetDefault("server.public_url", "")
 	v.SetDefault("database.addrs", []string{"127.0.0.1:9000"})
 	v.SetDefault("database.database", "beacon")
 	v.SetDefault("database.username", "default")
@@ -288,6 +290,14 @@ func Validate(cfg *Config) error {
 	}
 	if err := validatePort("server.port", cfg.Server.Port); err != nil {
 		return err
+	}
+	cfg.Server.PublicURL = strings.TrimSpace(cfg.Server.PublicURL)
+	if cfg.Server.PublicURL != "" {
+		normalized, err := NormalizeRootURL(cfg.Server.PublicURL, "server.public_url")
+		if err != nil {
+			return err
+		}
+		cfg.Server.PublicURL = normalized
 	}
 
 	if len(cfg.Database.Addrs) == 0 {
@@ -634,25 +644,76 @@ func validateHostPort(field, value string) error {
 }
 
 func NormalizeControlPlaneURL(raw, field string) (string, error) {
+	return NormalizeRootURL(raw, field)
+}
+
+func NormalizeRootURL(raw, field string) (string, error) {
 	field = strings.TrimSpace(field)
 	if field == "" {
-		field = "control plane URL"
+		field = "URL"
 	}
-	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	raw = strings.TrimSpace(raw)
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return "", fmt.Errorf("%s must be an absolute URL", field)
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+	if parsed.User != nil {
+		return "", fmt.Errorf("%s must not include userinfo", field)
+	}
+	if err := ValidateURLAuthority(parsed, field); err != nil {
+		return "", err
+	}
+	if parsed.RawQuery != "" {
+		return "", fmt.Errorf("%s must not include a query string", field)
+	}
+	if parsed.Fragment != "" {
+		return "", fmt.Errorf("%s must not include a fragment", field)
+	}
+	path := parsed.EscapedPath()
+	if path != "" && path != "/" {
+		return "", fmt.Errorf("%s must be a root URL without a path", field)
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
 		return "", fmt.Errorf("%s must use http or https", field)
 	}
-	if parsed.Scheme == "http" && !isLoopbackURLHost(parsed.Host) {
+	if scheme == "http" && !IsLoopbackURLHost(parsed.Host) {
 		return "", fmt.Errorf("%s must use https for non-loopback hosts", field)
 	}
-	return raw, nil
+	return scheme + "://" + parsed.Host, nil
 }
 
-func isLoopbackURLHost(hostport string) bool {
+func ValidateURLAuthority(parsed *url.URL, field string) error {
+	field = strings.TrimSpace(field)
+	if field == "" {
+		field = "URL"
+	}
+	if parsed == nil {
+		return fmt.Errorf("%s must be an absolute URL", field)
+	}
+	if strings.TrimSpace(parsed.Hostname()) == "" {
+		return fmt.Errorf("%s host is required", field)
+	}
+	if parsed.Port() != "" {
+		port, err := strconv.Atoi(parsed.Port())
+		if err != nil {
+			return fmt.Errorf("%s port must be numeric", field)
+		}
+		if err := validatePort(field+" port", port); err != nil {
+			return err
+		}
+	} else if strings.HasSuffix(parsed.Host, ":") {
+		return fmt.Errorf("%s port must be numeric", field)
+	}
+	return nil
+}
+
+func IsLoopbackURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	return err == nil && parsed.Host != "" && IsLoopbackURLHost(parsed.Host)
+}
+
+func IsLoopbackURLHost(hostport string) bool {
 	host := strings.TrimSpace(hostport)
 	if parsedHost, _, err := net.SplitHostPort(host); err == nil {
 		host = parsedHost

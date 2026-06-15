@@ -46,3 +46,25 @@ func TestNormalizeRemoteMCPEndpointRejectsNonLoopbackHTTP(t *testing.T) {
 		t.Fatalf("non-loopback http error = %v", err)
 	}
 }
+
+func TestNormalizeRemoteMCPEndpointRejectsMalformedAuthority(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		wantErr string
+	}{
+		{name: "userinfo", raw: "https://user:pass@beacon.example/custom/mcp", wantErr: "remote MCP URL must not include userinfo"},
+		{name: "empty host with port", raw: "https://:443/custom/mcp", wantErr: "remote MCP URL host is required"},
+		{name: "empty explicit port", raw: "https://beacon.example:/custom/mcp", wantErr: "remote MCP URL port must be numeric"},
+		{name: "zero port", raw: "https://beacon.example:0/custom/mcp", wantErr: "remote MCP URL port must be between 1 and 65535"},
+		{name: "out of range port", raw: "https://beacon.example:99999/custom/mcp", wantErr: "remote MCP URL port must be between 1 and 65535"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := normalizeRemoteMCPEndpoint(tt.raw)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("normalizeRemoteMCPEndpoint error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}

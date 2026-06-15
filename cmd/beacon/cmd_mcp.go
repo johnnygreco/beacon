@@ -103,13 +103,22 @@ func runMCPServerLifecycle(lifecycle mcpLifecycleContext, run func(context.Conte
 }
 
 func normalizeRemoteMCPEndpoint(raw string) (string, error) {
-	normalized, err := config.NormalizeControlPlaneURL(raw, "remote MCP URL")
-	if err != nil {
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("remote MCP URL must be an absolute URL")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("remote MCP URL must use http or https")
+	}
+	if u.User != nil {
+		return "", fmt.Errorf("remote MCP URL must not include userinfo")
+	}
+	if err := config.ValidateURLAuthority(u, "remote MCP URL"); err != nil {
 		return "", err
 	}
-	u, err := url.Parse(normalized)
-	if err != nil {
-		return "", err
+	if u.Scheme == "http" && !config.IsLoopbackURLHost(u.Host) {
+		return "", fmt.Errorf("remote MCP URL must use https for non-loopback hosts")
 	}
 	if strings.TrimRight(u.Path, "/") == "" {
 		u.Path = "/api/mcp"
