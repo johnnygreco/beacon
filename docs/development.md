@@ -54,9 +54,10 @@ test results.
 ## Generated Files
 
 Beacon embeds dashboard assets and configuration templates in the Go binary.
-Some generated files are intentionally kept out of source control:
+Templ output is generated and checked into source control with the matching
+`.templ` files. Configuration template generated files are intentionally kept
+out of source control:
 
-- `internal/web/static/`
 - `internal/config/templates/*.generated.go`
 
 Regenerate them with:
@@ -65,9 +66,8 @@ Regenerate them with:
 make generate
 ```
 
-`make build` and `make test` run generation automatically. Templ output is
-different: commit both the `.templ` source and matching `_templ.go` file, and
-use `make generate-check` before opening a PR to catch stale generated templates.
+`make build` and `make test` run generation automatically. Use
+`make generate-check` before opening a PR to catch stale generated templates.
 
 ## Coverage Gates
 

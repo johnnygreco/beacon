@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const transcriptScript = fs.readFileSync(path.join(__dirname, "../../static/js/transcript.js"), "utf8");
+const transcriptScript = fs.readFileSync(path.join(__dirname, "../../internal/assets/static/js/transcript.js"), "utf8");
 
 function loadTranscriptSandbox({ currentSearch, transcriptPath }) {
   const backLink = {

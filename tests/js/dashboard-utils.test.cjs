@@ -1,7 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 
-const utils = require("../../static/js/dashboard/utils.js");
+const utils = require("../../internal/assets/static/js/dashboard/utils.js");
 
 test("dashboard text helpers escape HTML and attributes", () => {
   assert.equal(utils.escapeHTML(`<span data-x="1">&'</span>`), "&lt;span data-x=&quot;1&quot;&gt;&amp;&#39;&lt;/span&gt;");

@@ -42,7 +42,7 @@ dashboard, and writes:
 - `test-results/perf/lab/latest/beacon-server.log`
 
 The lab requires ClickHouse to be reachable before seeding. Start local
-ClickHouse with `go run ./cmd/beacon db up`, or point the lab at an existing
+ClickHouse with `go run . db up`, or point the lab at an existing
 instance with `PERF_LAB_CLICKHOUSE` / `--clickhouse`. The runner refuses invalid
 database identifiers and refuses to reset databases whose names do not start
 with `beacon_perf` unless `--allow-unsafe-database-reset` is passed. Keep the
@@ -167,13 +167,13 @@ Recommended change-type validation:
 | --- | --- |
 | Parser, indexing, MCP formatting, API shaping, or view rendering hot paths | `make perf-fast` and `make perf-budget` if a lab report is generated |
 | Dashboard JS, browser behavior, or user-facing workflow timing | `npm run test:perf:browser` or `make perf-lab-smoke`, then `make perf-budget` |
-| ClickHouse query shape, projections, search, MCP live tools, or perf seed data | `go run ./cmd/beacon db up`, `PERF_SIZE=medium make perf-bench`, `PERF_SIZE=medium make perf-explain`, and `make perf-lab-smoke` |
+| ClickHouse query shape, projections, search, MCP live tools, or perf seed data | `go run . db up`, `PERF_SIZE=medium make perf-bench`, `PERF_SIZE=medium make perf-explain`, and `make perf-lab-smoke` |
 | PRs intended to prove no end-to-end regression | `make perf-lab-smoke`, `make perf-budget`, and `make perf-compare` against a same-machine baseline |
 
 Start local ClickHouse once:
 
 ```bash
-go run ./cmd/beacon db up
+go run . db up
 ```
 
 Capture benchmark timings:

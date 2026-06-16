@@ -12,7 +12,7 @@ function loadNameSandbox() {
 
 function runNameScript(sandbox) {
   vm.createContext(sandbox);
-  const scriptPath = path.join(__dirname, "../../static/js/dashboard/name.js");
+  const scriptPath = path.join(__dirname, "../../internal/assets/static/js/dashboard/name.js");
   vm.runInContext(fs.readFileSync(scriptPath, "utf8"), sandbox, { filename: scriptPath });
 }
 

@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const utils = require("../../static/js/charts/utils.js");
+const utils = require("../../internal/assets/static/js/charts/utils.js");
 
 function loadDashboardModelsSandbox() {
   const sandbox = {
@@ -15,7 +15,7 @@ function loadDashboardModelsSandbox() {
     providerDisplayName: utils.providerDisplayName,
   };
   vm.createContext(sandbox);
-  const scriptPath = path.join(__dirname, "../../static/js/charts/dashboard-models.js");
+  const scriptPath = path.join(__dirname, "../../internal/assets/static/js/charts/dashboard-models.js");
   vm.runInContext(fs.readFileSync(scriptPath, "utf8"), sandbox, { filename: scriptPath });
   return sandbox;
 }

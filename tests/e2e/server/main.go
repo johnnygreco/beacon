@@ -10,14 +10,14 @@ import (
 	"net/http"
 	"os"
 
-	beacon "github.com/johnnygreco/beacon"
+	"github.com/johnnygreco/beacon/internal/assets"
 	"github.com/johnnygreco/beacon/internal/sse"
 	"github.com/johnnygreco/beacon/internal/web"
 )
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	staticFS, err := fs.Sub(beacon.StaticFS, "static")
+	staticFS, err := fs.Sub(assets.StaticFS, "static")
 	if err != nil {
 		log.Fatalf("prepare static fs: %v", err)
 	}

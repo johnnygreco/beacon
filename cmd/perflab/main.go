@@ -568,7 +568,7 @@ func buildLabBeaconBinary(ctx context.Context, outputDir string) (string, error)
 	if runtime.GOOS == "windows" {
 		beaconBin += ".exe"
 	}
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", beaconBin, "./cmd/beacon")
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", beaconBin, ".")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("build lab beacon binary: %w\n%s", err, tailString(string(out), 4000))

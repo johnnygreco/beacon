@@ -1,4 +1,4 @@
-package main
+package beaconcli
 
 import (
 	"bytes"
@@ -31,12 +31,6 @@ func TestRootCommandShowsHelpWithoutSubcommand(t *testing.T) {
 }
 
 func TestRootCommandShowsVersion(t *testing.T) {
-	oldVersion := version
-	version = "1.2.3-test"
-	t.Cleanup(func() {
-		version = oldVersion
-	})
-
 	cmd := newRootCmd()
 	var out bytes.Buffer
 	cmd.SetOut(&out)
@@ -46,7 +40,7 @@ func TestRootCommandShowsVersion(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatalf("Execute() returned error: %v", err)
 	}
-	want := "beacon version 1.2.3-test\n"
+	want := "beacon version dev\n"
 	if out.String() != want {
 		t.Fatalf("version output = %q, want %q", out.String(), want)
 	}

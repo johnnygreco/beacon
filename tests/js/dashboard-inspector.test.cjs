@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const utils = require("../../static/js/dashboard/utils.js");
+const utils = require("../../internal/assets/static/js/dashboard/utils.js");
 
 function fakeClassList(initial = []) {
   const values = new Set(initial);
@@ -134,7 +134,7 @@ function loadInspectorSandbox(transcriptHTML = '<div id="chat-view" class="trans
     URL,
   };
   vm.createContext(sandbox);
-  const inspectorPath = path.join(__dirname, "../../static/js/dashboard/inspector.js");
+  const inspectorPath = path.join(__dirname, "../../internal/assets/static/js/dashboard/inspector.js");
   vm.runInContext(fs.readFileSync(inspectorPath, "utf8"), sandbox, { filename: inspectorPath });
   return { sandbox, elements, listeners, closeButton, fetches };
 }

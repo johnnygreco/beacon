@@ -204,15 +204,15 @@ func TestDashboardLiveAnalyticsUsesSingleTokenChart(t *testing.T) {
 func dashboardClientScript(t *testing.T) string {
 	t.Helper()
 	paths := []string{
-		"../../../static/js/dashboard/utils.js",
-		"../../../static/js/dashboard/theme.js",
-		"../../../static/js/dashboard/inspector.js",
-		"../../../static/js/dashboard/timeline.js",
-		"../../../static/js/dashboard/state.js",
-		"../../../static/js/dashboard/name.js",
-		"../../../static/js/dashboard/table.js",
-		"../../../static/js/dashboard/render.js",
-		"../../../static/js/dashboard/controls.js",
+		"../../assets/static/js/dashboard/utils.js",
+		"../../assets/static/js/dashboard/theme.js",
+		"../../assets/static/js/dashboard/inspector.js",
+		"../../assets/static/js/dashboard/timeline.js",
+		"../../assets/static/js/dashboard/state.js",
+		"../../assets/static/js/dashboard/name.js",
+		"../../assets/static/js/dashboard/table.js",
+		"../../assets/static/js/dashboard/render.js",
+		"../../assets/static/js/dashboard/controls.js",
 	}
 	var out strings.Builder
 	for _, path := range paths {

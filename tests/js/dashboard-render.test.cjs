@@ -4,10 +4,10 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const utils = require("../../static/js/dashboard/utils.js");
-const stateScript = fs.readFileSync(path.join(__dirname, "../../static/js/dashboard/state.js"), "utf8");
-const renderScript = fs.readFileSync(path.join(__dirname, "../../static/js/dashboard/render.js"), "utf8");
-const css = fs.readFileSync(path.join(__dirname, "../../static/css/custom.css"), "utf8");
+const utils = require("../../internal/assets/static/js/dashboard/utils.js");
+const stateScript = fs.readFileSync(path.join(__dirname, "../../internal/assets/static/js/dashboard/state.js"), "utf8");
+const renderScript = fs.readFileSync(path.join(__dirname, "../../internal/assets/static/js/dashboard/render.js"), "utf8");
+const css = fs.readFileSync(path.join(__dirname, "../../internal/assets/static/css/custom.css"), "utf8");
 
 function loadRenderSandbox() {
   const sandbox = {

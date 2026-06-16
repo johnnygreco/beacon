@@ -6,7 +6,7 @@
   "scripts": {
     "vendor": "node scripts/vendor-assets.mjs",
     "vendor:check": "node scripts/vendor-assets.mjs --check",
-    "lint:js": "eslint static/js tests/js --max-warnings=0",
+    "lint:js": "eslint internal/assets/static/js tests/js --max-warnings=0",
     "test:unit": "node --test tests/js/*.test.cjs",
     "test:frontend": "npm run lint:js && npm run test:unit",
     "test:e2e": "playwright test tests/e2e/dashboard.spec.ts tests/e2e/dashboard-search.spec.ts",

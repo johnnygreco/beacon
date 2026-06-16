@@ -9,14 +9,14 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 build: generate ## Build the beacon binary
-	go build -o bin/beacon ./cmd/beacon
+	go build -o bin/beacon .
 
 install-local: generate ## Install local dev beacon globally (INSTALL_DIR=~/.local/bin)
 	mkdir -p "$(INSTALL_DIR)"
-	go build -o "$(INSTALL_DIR)/beacon" ./cmd/beacon
+	go build -o "$(INSTALL_DIR)/beacon" .
 
 run: generate ## Run the beacon server
-	go run ./cmd/beacon up
+	go run . up
 
 generate: ## Generate templ templates
 	go tool templ generate

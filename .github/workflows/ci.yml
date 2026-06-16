@@ -128,12 +128,19 @@ jobs:
       - name: Generate templates
         run: go tool templ generate
       - name: Build
+        run: go build .
+      - name: Check legacy command package build
         run: go build ./cmd/beacon
       - name: Check version linker injection
         run: |
-          go build -ldflags "-X main.version=ci-test" -o /tmp/beacon-version ./cmd/beacon
+          go build -ldflags "-X github.com/johnnygreco/beacon/internal/buildinfo.version=ci-test" -o /tmp/beacon-version .
           output="$(/tmp/beacon-version --version)"
           test "$output" = "beacon version ci-test"
+      - name: Check root installability
+        run: |
+          tmpbin="$(mktemp -d)"
+          GOBIN="$tmpbin" go install .
+          test -x "$tmpbin/beacon"
 
   playwright:
     runs-on: ubuntu-latest
