@@ -2283,6 +2283,16 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
   min-width: 66rem;
 }
 
+.dashboard-local-topology .dashboard-machine-only,
+.dashboard-local-topology .active-session-scope-controls {
+  display: none !important;
+}
+
+#dashboard-fleet[aria-hidden="true"],
+#dashboard-header-fleet-metrics[aria-hidden="true"] {
+  display: none !important;
+}
+
 #active-sessions {
   display: flex;
   flex-direction: column;

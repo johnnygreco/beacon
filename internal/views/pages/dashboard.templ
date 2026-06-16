@@ -7,7 +7,7 @@ import (
 
 templ Dashboard(data views.DashboardData) {
 	@views.Layout(data.PageTitle(), "dashboard") {
-		<div id="dashboard-wrap" class="dashboard-shell">
+		<div id="dashboard-wrap" class="dashboard-shell dashboard-local-topology">
 			<div id="dashboard-main" class="dashboard-main">
 				<header class="dashboard-header" aria-labelledby="dashboard-heading">
 					<div class="dashboard-header-title">
@@ -36,8 +36,7 @@ templ Dashboard(data views.DashboardData) {
 							</p>
 						</div>
 					</div>
-					<div id="dashboard-header-fleet-metrics" class="dashboard-header-fleet-metrics" aria-label="Fleet status summary">
-						<span class="dashboard-header-fleet-loading">Loading fleet...</span>
+					<div id="dashboard-header-fleet-metrics" class="dashboard-header-fleet-metrics hidden" aria-label="Machine status summary" aria-hidden="true">
 					</div>
 					<div class="dashboard-header-actions" role="group" aria-label="Dashboard controls">
 						<div id="dashboard-theme-control" class="dashboard-theme-control" role="group" aria-label="Theme controls">
@@ -100,16 +99,16 @@ templ Dashboard(data views.DashboardData) {
 				@templ.JSONScript("dashboard-token-cumulative-data", data.TokenCumulative)
 
 				<div class="dashboard-workspace">
-					<section id="dashboard-fleet" class="dashboard-panel dashboard-fleet-panel" aria-labelledby="dashboard-fleet-title">
+					<section id="dashboard-fleet" class="dashboard-panel dashboard-fleet-panel hidden" aria-labelledby="dashboard-fleet-title" aria-hidden="true">
 						<div class="dashboard-fleet-heading">
 							<div class="min-w-0">
-								<h2 id="dashboard-fleet-title" class="dashboard-fleet-title">Fleet</h2>
-								<p id="dashboard-fleet-subtitle" class="dashboard-fleet-subtitle">All collectors and runtimes</p>
+								<h2 id="dashboard-fleet-title" class="dashboard-fleet-title">Machines</h2>
+								<p id="dashboard-fleet-subtitle" class="dashboard-fleet-subtitle">Collectors and runtimes</p>
 							</div>
 							<div id="dashboard-scope-chips" class="dashboard-scope-chips" aria-label="Active dashboard scope"></div>
 						</div>
 						<div id="dashboard-fleet-strip" class="dashboard-fleet-strip" aria-live="polite">
-							<div class="dashboard-fleet-empty">Loading fleet...</div>
+							<div class="dashboard-fleet-empty">Loading machine status...</div>
 						</div>
 					</section>
 
@@ -262,7 +261,7 @@ templ Dashboard(data views.DashboardData) {
 												Name <span class="sort-arrow" aria-hidden="true">▼</span>
 											</button>
 										</th>
-										<th scope="col" aria-sort="none" class="text-left py-2 px-3 font-medium select-none" data-sort-key="node">
+										<th scope="col" aria-sort="none" class="text-left py-2 px-3 font-medium select-none dashboard-machine-only" data-sort-key="node">
 											<button type="button" class="dashboard-sort-button" data-dashboard-sort="node">
 												Node <span class="sort-arrow" aria-hidden="true">▼</span>
 											</button>

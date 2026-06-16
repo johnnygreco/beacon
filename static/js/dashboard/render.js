@@ -11,6 +11,7 @@ var formatTokens = dashboardUtils.formatTokens;
 var absoluteTime = dashboardUtils.absoluteTime;
 var durationSeconds = dashboardUtils.durationSeconds;
 var requestURL = dashboardUtils.requestURL;
+var dashboardAdvancedTopology = false;
 
 function modelChip(model) {
 	if (!model) return '';
@@ -47,8 +48,8 @@ function nodeLabel(value) {
 function nodeBadge(value, interactive) {
 	var raw = String(value || '').trim();
 	var label = nodeLabel(raw);
-	if (interactive === false || !raw) return '<span class="dashboard-scope-inline-chip dashboard-scope-inline-chip-static">' + escapeHTML(label) + '</span>';
-	return '<button type="button" class="dashboard-scope-inline-chip" data-dashboard-scope-field="node_id" data-dashboard-scope-value="' + escapeAttr(raw) + '" aria-label="Filter dashboard to node ' + escapeAttr(label) + '" title="Filter dashboard to node ' + escapeAttr(label) + '">' + escapeHTML(label) + '</button>';
+	if (interactive === false || !raw) return '<span class="dashboard-machine-only dashboard-scope-inline-chip dashboard-scope-inline-chip-static">' + escapeHTML(label) + '</span>';
+	return '<button type="button" class="dashboard-machine-only dashboard-scope-inline-chip" data-dashboard-scope-field="node_id" data-dashboard-scope-value="' + escapeAttr(raw) + '" aria-label="Filter dashboard to node ' + escapeAttr(label) + '" title="Filter dashboard to node ' + escapeAttr(label) + '">' + escapeHTML(label) + '</button>';
 }
 
 function runtimeBadge(value, fallback, interactive) {
@@ -308,7 +309,8 @@ function completedRow(session, isSubagent, parentID) {
 	var rowClass = isSubagent ? 'border-b border-gray-800/50 cursor-pointer transition-colors bg-gray-800/20' : 'border-b border-gray-800/50 cursor-pointer transition-colors';
 	var nameCellClass = isSubagent ? 'py-1.5 px-3 text-sm text-gray-400 whitespace-nowrap pl-10' : 'py-2 px-3 text-sm text-gray-300 whitespace-nowrap';
 	var endedLabel = absoluteTime(session.ended_at);
-	var mobileMeta = node + ' · ' + runtime + ' · ' + formatTokens(totalTokens) + ' tok · ' + toolCount + ' tools · ' + errorCount + ' err · ' + (session.duration || endedLabel);
+	var mobileNodeMeta = '<span class="dashboard-machine-only">' + escapeHTML(node) + ' · </span>';
+	var mobileMeta = mobileNodeMeta + escapeHTML(runtime + ' · ' + formatTokens(totalTokens) + ' tok · ' + toolCount + ' tools · ' + errorCount + ' err · ' + (session.duration || endedLabel));
 	var toggle = '';
 	if (!isSubagent && subagentCount > 0) {
 		toggle = '<button type="button" class="json-subagent-toggle text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0" data-session-id="' + escapeAttr(session.id) + '" title="' + subagentCount + ' subagents" aria-label="Toggle ' + subagentCount + ' subagents for ' + escapeAttr(sessionTitle(session)) + '" aria-expanded="false"><svg class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg></button>';
@@ -333,8 +335,8 @@ function completedRow(session, isSubagent, parentID) {
 		' data-sort-ended="' + endedSort + '"' +
 		' data-sort-id="' + escapeAttr(session.id) + '"';
 	return '<tr' + attrs + rowActionAttrs + ' class="' + rowClass + '">' +
-		'<td class="' + nameCellClass + '"><span class="inline-flex items-center gap-1.5">' + toggle + subPrefix + titleButton + subCount + '</span><span class="mobile-session-meta hidden">' + escapeHTML(mobileMeta) + '</span></td>' +
-		'<td class="py-2 px-3 text-xs whitespace-nowrap">' + (isSubagent ? '' : nodeBadge(session.node_id)) + '</td>' +
+		'<td class="' + nameCellClass + '"><span class="inline-flex items-center gap-1.5">' + toggle + subPrefix + titleButton + subCount + '</span><span class="mobile-session-meta hidden">' + mobileMeta + '</span></td>' +
+		'<td class="py-2 px-3 text-xs whitespace-nowrap dashboard-machine-only">' + (isSubagent ? '' : nodeBadge(session.node_id)) + '</td>' +
 		'<td class="py-2 px-3 text-xs whitespace-nowrap">' + (isSubagent ? '' : runtimeBadge(session.runtime, session.source || session.provider)) + '</td>' +
 		'<td class="py-2 px-3 text-xs text-gray-400 max-w-[160px] truncate" title="' + escapeAttr(session.last_model || '') + '">' + escapeHTML(shortModel(session.last_model || '')) + '</td>' +
 		'<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums">' + formatTokens(totalTokens) + '</td>' +
@@ -764,7 +766,7 @@ function renderActivity(items) {
 	setHTMLIfChanged(feed, '<div class="activity-bar-list"><div class="activity-bar-rail" aria-hidden="true"></div>' + items.map(function(item) {
 		var url = requestURL('/sessions/' + encodeURIComponent(item.session_id || '') + '#' + encodeURIComponent(item.id || ''), {});
 		var provider = item.provider ? '<span class="px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 ' + providerBadgeClasses(item.provider) + '">' + escapeHTML(providerShort(item.provider)) + '</span>' : '';
-		var node = item.node_id ? '<span class="px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 bg-gray-700/70 text-gray-300">' + escapeHTML(nodeLabel(item.node_id)) + '</span>' : '';
+		var node = item.node_id ? '<span class="dashboard-machine-only px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 bg-gray-700/70 text-gray-300">' + escapeHTML(nodeLabel(item.node_id)) + '</span>' : '';
 		var runtime = item.runtime ? '<span class="px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 bg-blue-500/10 text-blue-300">' + escapeHTML(runtimeLabel(item.runtime)) + '</span>' : '';
 		var sid = item.session_id ? '<span class="text-xs text-gray-600 font-mono flex-shrink-0">' + escapeHTML(shortID(item.session_id)) + '</span>' : '';
 		return '<a href="' + escapeAttr(url) + '" data-type="' + escapeAttr(item.type) + '" data-transcript-link="true" class="activity-bar-item group">' +
@@ -799,6 +801,69 @@ function fleetStatusClass(status) {
 
 function headerMetric(label, value, tone) {
 	return '<span class="dashboard-header-fleet-pill' + (tone ? ' dashboard-header-fleet-pill-' + escapeAttr(tone) : '') + '"><strong>' + escapeHTML(value) + '</strong><span>' + escapeHTML(label) + '</span></span>';
+}
+
+function dashboardHasMachineAttention(response) {
+	response = response || {};
+	var totals = response.totals || {};
+	if (nonNegativeInt(totals.stale_collectors) > 0) return true;
+	if (nonNegativeInt(totals.offline_collectors) > 0) return true;
+	if (nonNegativeInt(totals.missing_heartbeat_collectors) > 0) return true;
+	if (nonNegativeInt(totals.queue_depth) > 0) return true;
+	if (nonNegativeInt(totals.spool_bytes) > 0) return true;
+	if (nonNegativeInt(totals.heartbeat_error_count) > 0) return true;
+	return (Array.isArray(response.nodes) ? response.nodes : []).some(function(node) {
+		if (!node) return false;
+		var status = String(node.status || node.heartbeat_status || '').trim();
+		if (status && status !== 'online' && status !== 'active') return true;
+		if (nonNegativeInt(node.missing_heartbeat_collectors) > 0) return true;
+		if (nonNegativeInt(node.queue_depth) > 0) return true;
+		if (nonNegativeInt(node.spool_bytes) > 0) return true;
+		if (nonNegativeInt(node.heartbeat_error_count) > 0) return true;
+		return (Array.isArray(node.sources_detail) ? node.sources_detail : []).some(function(source) {
+			if (!source) return false;
+			var sourceStatus = String(source.status || '').trim();
+			return (sourceStatus && sourceStatus !== 'online' && sourceStatus !== 'active') ||
+				nonNegativeInt(source.queue_depth) > 0 ||
+				nonNegativeInt(source.spool_bytes) > 0 ||
+				nonNegativeInt(source.error_count) > 0;
+		});
+	});
+}
+
+function dashboardShouldShowMachinePanel(response) {
+	response = response || {};
+	var totals = response.totals || {};
+	var nodes = Array.isArray(response.nodes) ? response.nodes : [];
+	if (typeof dashboardHasScopeFilters === 'function' && dashboardHasScopeFilters()) return true;
+	if (nodes.length > 1) return true;
+	if (nonNegativeInt(totals.node_count) > 1) return true;
+	if (nonNegativeInt(totals.collector_count) > 1) return true;
+	if (nodes.some(function(node) { return nonNegativeInt(node && node.collector_count) > 1; })) return true;
+	return dashboardHasMachineAttention(response);
+}
+
+function setDashboardTopologyMode(advanced) {
+	advanced = !!advanced;
+	var changed = dashboardAdvancedTopology !== advanced;
+	dashboardAdvancedTopology = advanced;
+	var wrap = document.getElementById('dashboard-wrap');
+	if (wrap) {
+		wrap.classList.toggle('dashboard-advanced-topology', advanced);
+		wrap.classList.toggle('dashboard-local-topology', !advanced);
+	}
+	var panel = document.getElementById('dashboard-fleet');
+	if (panel) {
+		panel.classList.toggle('hidden', !advanced);
+		panel.setAttribute('aria-hidden', advanced ? 'false' : 'true');
+	}
+	var header = document.getElementById('dashboard-header-fleet-metrics');
+	if (header) {
+		header.classList.toggle('hidden', !advanced);
+		header.setAttribute('aria-hidden', advanced ? 'false' : 'true');
+		if (!advanced) setHTMLIfChanged(header, '');
+	}
+	return changed;
 }
 
 function renderFleetHeader(totals) {
@@ -904,7 +969,7 @@ function syncDashboardScopeControls() {
 		chips.push('<button type="button" class="dashboard-scope-clear-all" data-dashboard-scope-clear="all" aria-label="Clear all dashboard filters">Clear all</button>');
 		setHTMLIfChanged(wrap, chips.join(''));
 	} else {
-		setHTMLIfChanged(wrap, '<span class="dashboard-scope-empty">All fleet</span>');
+		setHTMLIfChanged(wrap, '<span class="dashboard-scope-empty">All machines</span>');
 	}
 }
 
@@ -964,19 +1029,33 @@ function renderFleet(response) {
 	var nodes = Array.isArray(response.nodes) ? response.nodes : [];
 	var strip = document.getElementById('dashboard-fleet-strip');
 	var subtitle = document.getElementById('dashboard-fleet-subtitle');
-	renderFleetHeader(response.totals || {});
+	var advanced = dashboardShouldShowMachinePanel(response);
+	setDashboardTopologyMode(advanced);
 	rememberFleetSourceScopeLabels(nodes);
 	syncDashboardScopeControls();
+	if (!advanced) return;
+	renderFleetHeader(response.totals || {});
 	if (subtitle) {
 		var totals = response.totals || {};
 		subtitle.textContent = nonNegativeInt(totals.node_count) + ' nodes · ' + nonNegativeInt(totals.collector_count) + ' collectors · ' + nonNegativeInt(totals.active_sessions) + ' active sessions';
 	}
 	if (!strip) return;
 	if (nodes.length === 0) {
-		setHTMLIfChanged(strip, '<div class="dashboard-fleet-empty">No fleet activity yet</div>');
+		setHTMLIfChanged(strip, '<div class="dashboard-fleet-empty">No machine activity yet</div>');
 		return;
 	}
 	setHTMLIfChanged(strip, nodes.map(fleetNodeCard).join(''));
+}
+
+function renderFleetError() {
+	if (!dashboardAdvancedTopology && !(typeof dashboardHasScopeFilters === 'function' && dashboardHasScopeFilters())) return;
+	setDashboardTopologyMode(true);
+	syncDashboardScopeControls();
+	renderFleetHeader({});
+	var subtitle = document.getElementById('dashboard-fleet-subtitle');
+	if (subtitle) subtitle.textContent = 'Machine status unavailable';
+	var strip = document.getElementById('dashboard-fleet-strip');
+	if (strip) setHTMLIfChanged(strip, '<div class="dashboard-fleet-empty dashboard-fleet-error">Unable to load machine status. <button type="button" data-dashboard-retry="fleet">Retry</button></div>');
 }
 
 function rangeLabel(value) {
@@ -1246,9 +1325,7 @@ async function loadDashboardFleet() {
 	var result = await fetchDashboardJSON('fleet', requestURL('/api/dashboard/fleet', {}));
 	if (!result || result.stale) return;
 	if (result.error) {
-		renderFleet({totals: {}, nodes: []});
-		var strip = document.getElementById('dashboard-fleet-strip');
-		if (strip) setHTMLIfChanged(strip, '<div class="dashboard-fleet-empty dashboard-fleet-error">Unable to load fleet status. <button type="button" data-dashboard-retry="fleet">Retry</button></div>');
+		renderFleetError();
 		return;
 	}
 	renderFleet(result.data);

@@ -48,6 +48,28 @@ type DashboardScrollRecorderReport = {
 };
 
 const fixedNow = '2026-05-09T18:00:00.000Z';
+const localNodeID = 'node-local';
+const localCollectorID = 'collector-local';
+
+function advancedMachineScenario(scenario: Scenario): boolean {
+  return scenario === 'error-heavy' || scenario === 'many-active' || scenario === 'long-active';
+}
+
+function localizeMachineIdentity<T extends Record<string, unknown>>(item: T): T {
+  const localized = {
+    ...item,
+    node_id: localNodeID,
+    collector_id: localCollectorID,
+  } as T;
+  if (Array.isArray(localized.child_sessions)) {
+    localized.child_sessions = (localized.child_sessions as Array<Record<string, unknown>>).map(localizeMachineIdentity);
+  }
+  return localized;
+}
+
+function topologyItems<T extends Record<string, unknown>>(items: T[], scenario: Scenario): T[] {
+  return advancedMachineScenario(scenario) ? items : items.map(localizeMachineIdentity);
+}
 
 function iso(daysAgo: number, hours = 0): string {
   const d = new Date(fixedNow);
@@ -595,7 +617,7 @@ function activityItems(scenario: Scenario, range = '24h') {
       relative_time: '4h ago',
     },
   ];
-  return scenario === 'error-heavy'
+  const items = scenario === 'error-heavy'
     ? [...base, ...Array.from({ length: 7 }, (_, i) => ({
       id: `event-error-heavy-${i}`,
       type: i % 2 === 0 ? 'error' : 'tool_error',
@@ -611,11 +633,12 @@ function activityItems(scenario: Scenario, range = '24h') {
       relative_time: `${5 + i}h ago`,
     }))]
     : base;
+  return topologyItems(items, scenario);
 }
 
 function fleetPayload(scenario: Scenario, url?: URL) {
   const empty = scenario === 'empty';
-  const nodes = empty ? [] : [
+  const nodes = empty ? [] : (advancedMachineScenario(scenario) ? [
     {
       node_id: 'node-a',
       label: 'Node A',
@@ -718,7 +741,52 @@ function fleetPayload(scenario: Scenario, url?: URL) {
         },
       ],
     },
-  ];
+  ] : [
+    {
+      node_id: localNodeID,
+      label: 'Local machine',
+      status: 'online',
+      collector_count: 1,
+      missing_heartbeat_collectors: 0,
+      collectors: [localCollectorID],
+      sources: ['source-a', 'source-b'],
+      runtimes: ['runtime-a', 'runtime-b'],
+      projects: ['beacon', 'dashboard'],
+      active_sessions: 1,
+      attention_sessions: 1,
+      total_sessions: 40,
+      total_tokens: 550000,
+      error_count: 2,
+      queue_depth: 0,
+      spool_bytes: 0,
+      active_files: 7,
+      heartbeat_error_count: 0,
+      last_seen_label: 'just now',
+      heartbeat_status: 'online',
+      sources_detail: [
+        {
+          collector_id: localCollectorID,
+          source_id: 'source-a',
+          source_name: 'source-a',
+          status: 'online',
+          queue_depth: 0,
+          spool_bytes: 0,
+          active_files: 3,
+          error_count: 0,
+        },
+        {
+          collector_id: localCollectorID,
+          source_id: 'source-b',
+          source_name: 'source-b',
+          status: 'online',
+          queue_depth: 0,
+          spool_bytes: 0,
+          active_files: 4,
+          error_count: 0,
+        },
+      ],
+    },
+  ]);
 	  const filtered = nodes.filter((node) => fleetNodeMatchesScope(node, url));
 	  const totals = filtered.reduce((acc, node) => {
 	    acc.node_count += 1;
@@ -870,9 +938,9 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
     return { state: 'ready', query, range, event_kind: eventKind, session_id: sessionID, sort, limit, scope, has_more: false, items: [] };
   }
   const denseSearchFixture = scenario === 'search-many';
-  const source = denseSearchFixture || query.toLowerCase() === 'many'
+  const source = topologyItems(denseSearchFixture || query.toLowerCase() === 'many'
     ? dashboardSearchManyResults(range)
-    : dashboardSearchBaseResults();
+    : dashboardSearchBaseResults(), scenario);
   const acceptedKinds = eventKind === 'error'
     ? new Set(['error', 'tool_error'])
     : new Set(eventKind && eventKind !== 'event' && eventKind !== 'session' ? [eventKind] : []);
@@ -891,7 +959,7 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
   const seenSessions = new Set(sortedEvents.map((result) => result.session_id));
   const includeSessionResults = eventKind === 'session' || (query && !eventKind);
   const sessionResults = includeSessionResults
-    ? baseCompletedSessions
+    ? topologyItems(baseCompletedSessions, scenario)
       .filter((session) => {
         if (seenSessions.has(session.id)) return false;
         if (!sessionMatchesScope(session, url)) return false;
@@ -955,19 +1023,20 @@ function completedForRequest(url: URL, scenario: Scenario) {
   const range = panelRange(url, ['completed_range', 'range', 'search_range']);
   const offset = Number(url.searchParams.get('offset') || 0);
   const limit = Number(url.searchParams.get('limit') || 30);
+  const sessions = topologyItems(baseCompletedSessions, scenario);
   let source = filterSessionsByScope(query
-    ? baseCompletedSessions.filter((s) => {
+    ? sessions.filter((s) => {
       const metadata = [s.id, s.title, s.last_model, s.working_dir, s.provider].join(' ').toLowerCase();
       const indexedEventText = s.id === TEST_SESSION_ID ? 'read dashboard fixture payload' : '';
       const queryTokens = query.split(/\s+/).filter(Boolean);
       return metadata.includes(query) || (queryTokens.length > 0 && queryTokens.every((token) => indexedEventText.includes(token)));
     })
-    : baseCompletedSessions, url);
+    : sessions, url);
   const rangeLabel = rangeFixtureLabel(range);
   if (rangeLabel && !query && offset === 0) {
     source = [
       {
-        ...baseCompletedSessions[1],
+        ...topologyItems([baseCompletedSessions[1]], scenario)[0],
         id: `session-range-${range || 'all'}`,
         title: `${rangeLabel} completed session`,
         ended_at: iso(0, 2),
@@ -1048,7 +1117,7 @@ function activeForScenario(scenario: Scenario, url?: URL) {
   if (scenario === 'empty') return [];
   if (scenario === 'many-active') return filterSessionsByScope(manyActiveSessions(), url);
   if (scenario === 'long-active') return filterSessionsByScope(longActiveSessions(), url);
-  return filterSessionsByScope(activeSessions, url);
+  return filterSessionsByScope(topologyItems(activeSessions, scenario), url);
 }
 
 function initialStorageForScenario(scenario: Scenario): Record<string, string> {
@@ -1318,11 +1387,11 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
   });
 
   await page.route('**/api/sessions?**', async (route) => {
-    return fulfillJSON(route, [...baseCompletedSessions, ...activeForScenario(scenario)], 200, 'APISessionSummary[]');
+    return fulfillJSON(route, [...topologyItems(baseCompletedSessions, scenario), ...activeForScenario(scenario)], 200, 'APISessionSummary[]');
   });
 
   await page.route('**/api/sessions/*/subagents', async (route) => {
-    return fulfillJSON(route, childSessions, 200, 'APISessionSummary[]');
+    return fulfillJSON(route, topologyItems(childSessions, scenario), 200, 'APISessionSummary[]');
   });
 
   await page.route('**/api/sessions/*/events**', async (route) => {
@@ -1332,7 +1401,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
   await page.route('**/api/sessions/*', async (route) => {
     const url = new URL(route.request().url());
     const id = decodeURIComponent(url.pathname.split('/').pop() || '');
-    const session = [...baseCompletedSessions, ...activeForScenario(scenario), ...childSessions].find((s) => s.id === id) || baseCompletedSessions[0];
+    const session = [...topologyItems(baseCompletedSessions, scenario), ...activeForScenario(scenario), ...topologyItems(childSessions, scenario)].find((s) => s.id === id) || topologyItems([baseCompletedSessions[0]], scenario)[0];
     return fulfillJSON(route, { session }, 200, 'APISessionDetail');
   });
 
