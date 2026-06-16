@@ -207,6 +207,7 @@ func TestLoadInvalidValues(t *testing.T) {
 		wantErr string
 	}{
 		{name: "server port", body: "[server]\nport = 0\n", wantErr: "server.port must be between 1 and 65535"},
+		{name: "server host non loopback", body: "[server]\nhost = \"0.0.0.0\"\n", wantErr: "server.host"},
 		{name: "database address", body: "[database]\naddrs = [\"127.0.0.1\"]\n", wantErr: "database.addrs[0] must be host:port"},
 		{name: "database name", body: "[database]\ndatabase = \"beacon-prod\"\n", wantErr: "database.database"},
 		{name: "reconcile duration", body: "[capture]\nreconcile_interval = \"0s\"\n", wantErr: "capture.reconcile_interval must be positive"},

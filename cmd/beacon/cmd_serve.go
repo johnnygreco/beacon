@@ -36,10 +36,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	if !config.IsLoopbackURLHost(cfg.Server.Host) {
-		return fmt.Errorf("server.host %q is not loopback; Beacon now supports local dashboards only", cfg.Server.Host)
-	}
-
 	pidFile, err := acquirePIDFile()
 	if err != nil {
 		return fmt.Errorf("acquire beacon pidfile: %w", err)

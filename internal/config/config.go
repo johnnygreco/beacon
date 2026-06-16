@@ -221,6 +221,9 @@ func Validate(cfg *Config) error {
 	if cfg.Server.Host == "" {
 		return fmt.Errorf("server.host is required")
 	}
+	if !IsLoopbackURLHost(cfg.Server.Host) {
+		return fmt.Errorf("server.host %q is not loopback; Beacon supports local dashboards only", cfg.Server.Host)
+	}
 	if err := validatePort("server.port", cfg.Server.Port); err != nil {
 		return err
 	}
