@@ -5,15 +5,13 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"github.com/johnnygreco/beacon/internal/search"
+	"github.com/johnnygreco/beacon/internal/views"
 	"io"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/johnnygreco/beacon/internal/controlplane"
-	"github.com/johnnygreco/beacon/internal/search"
-	"github.com/johnnygreco/beacon/internal/views"
 )
 
 func TestBuildChatTurns_EmptyInput(t *testing.T) {
@@ -134,77 +132,6 @@ func TestFleetHeartbeatScopeAvoidsHeartbeatOnlyMissingColumns(t *testing.T) {
 	}
 }
 
-func TestDashboardFleetSeedsEnrolledCollectorsFromSnapshot(t *testing.T) {
-	snapshot := &controlplane.Snapshot{
-		Nodes: []controlplane.Node{
-			{ID: "node-a", DisplayName: "Node A"},
-			{ID: "node-b", DisplayName: "Node B"},
-		},
-		Collectors: []controlplane.Collector{
-			{ID: "collector-a", NodeID: "node-a"},
-			{ID: "collector-b", NodeID: "node-b"},
-		},
-		Sources: []controlplane.Source{
-			{ID: "source-a", CollectorID: "collector-a", Name: "shared-source", Runtime: "runtime-a"},
-			{ID: "source-b", CollectorID: "collector-b", Name: "shared-source", Runtime: "runtime-b"},
-		},
-	}
-
-	fleet := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{}, snapshot)
-	if fleet.Totals.NodeCount != 2 || fleet.Totals.CollectorCount != 2 || fleet.Totals.MissingHeartbeats != 2 {
-		t.Fatalf("fleet totals = %#v, want two enrolled collectors with missing heartbeats", fleet.Totals)
-	}
-	node, ok := fleetNodeByID(fleet.Nodes, "node-a")
-	if !ok {
-		t.Fatalf("node-a missing from fleet nodes: %#v", fleet.Nodes)
-	}
-	if node.Label != "Node A" || node.Status != "offline" || node.HeartbeatStatus != "missing" {
-		t.Fatalf("node-a metadata/status = %#v, want enrolled offline node with missing heartbeat", node)
-	}
-	if fmt.Sprint(node.Collectors) != "[collector-a]" || fmt.Sprint(node.Sources) != "[shared-source]" || fmt.Sprint(node.Runtimes) != "[runtime-a]" {
-		t.Fatalf("node-a scope metadata = collectors=%#v sources=%#v runtimes=%#v", node.Collectors, node.Sources, node.Runtimes)
-	}
-	if len(node.SourcesDetail) != 1 || node.SourcesDetail[0].SourceID != "source-a" || node.SourcesDetail[0].SourceName != "shared-source" {
-		t.Fatalf("node-a source detail = %#v, want stable source id with display name", node.SourcesDetail)
-	}
-
-	runtimeScoped := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{Runtimes: []string{"runtime-a"}}, snapshot)
-	if runtimeScoped.Totals.NodeCount != 1 || runtimeScoped.Totals.CollectorCount != 1 {
-		t.Fatalf("runtime-scoped totals = %#v, want one metadata-matched collector", runtimeScoped.Totals)
-	}
-	if node, ok := fleetNodeByID(runtimeScoped.Nodes, "node-a"); !ok || fmt.Sprint(node.Collectors) != "[collector-a]" {
-		t.Fatalf("runtime-scoped nodes = %#v, want node-a collector-a", runtimeScoped.Nodes)
-	}
-
-	collectorScoped := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{CollectorIDs: []string{"collector-b"}}, snapshot)
-	if collectorScoped.Totals.NodeCount != 1 || collectorScoped.Totals.CollectorCount != 1 {
-		t.Fatalf("collector-scoped totals = %#v, want one metadata-matched collector", collectorScoped.Totals)
-	}
-	if node, ok := fleetNodeByID(collectorScoped.Nodes, "node-b"); !ok || fmt.Sprint(node.Collectors) != "[collector-b]" {
-		t.Fatalf("collector-scoped nodes = %#v, want node-b collector-b", collectorScoped.Nodes)
-	}
-
-	sourceNameScoped := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{SourceNames: []string{"shared-source"}}, snapshot)
-	if sourceNameScoped.Totals.NodeCount != 2 || sourceNameScoped.Totals.CollectorCount != 2 {
-		t.Fatalf("source-name-scoped totals = %#v, want both duplicate-name sources", sourceNameScoped.Totals)
-	}
-
-	sourceScoped := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{SourceIDs: []string{"source-b"}}, snapshot)
-	if sourceScoped.Totals.NodeCount != 1 || sourceScoped.Totals.CollectorCount != 1 {
-		t.Fatalf("source-id-scoped totals = %#v, want one metadata-matched source", sourceScoped.Totals)
-	}
-	if node, ok := fleetNodeByID(sourceScoped.Nodes, "node-b"); !ok || fmt.Sprint(node.Sources) != "[shared-source]" {
-		t.Fatalf("source-id-scoped nodes = %#v, want node-b shared-source", sourceScoped.Nodes)
-	} else if len(node.SourcesDetail) != 1 || node.SourcesDetail[0].SourceID != "source-b" || node.SourcesDetail[0].SourceName != "shared-source" {
-		t.Fatalf("source-id-scoped detail = %#v, want source-b shared-source", node.SourcesDetail)
-	}
-
-	projectScoped := QueryDashboardFleet(context.Background(), nil, APIScopeFilters{ProjectKeys: []string{"project-a"}}, snapshot)
-	if projectScoped.Totals.NodeCount != 0 || projectScoped.Totals.CollectorCount != 0 {
-		t.Fatalf("project-scoped metadata-only fleet = %#v, want no project membership without observed data", projectScoped)
-	}
-}
-
 func TestParseFleetSourceDetails(t *testing.T) {
 	got := parseFleetSourceDetails([]string{
 		"collector-a\tsource-a\tshared-source",
@@ -223,49 +150,6 @@ func TestParseFleetSourceDetails(t *testing.T) {
 	}
 }
 
-func TestFleetHeartbeatRuntimeScopeUsesEnrollmentMetadata(t *testing.T) {
-	snapshot := &controlplane.Snapshot{
-		Sources: []controlplane.Source{
-			{ID: "source-a", CollectorID: "collector-a", Name: "source-a", Runtime: "runtime-a"},
-			{ID: "source-b", CollectorID: "collector-a", Name: "source-b", Runtime: "runtime-b"},
-		},
-	}
-	scope := APIScopeFilters{Runtimes: []string{"runtime-a"}}
-	heartbeatScope := fleetHeartbeatQueryScope(scope, snapshot)
-	if len(heartbeatScope.Runtimes) != 0 {
-		t.Fatalf("heartbeat SQL scope runtimes = %#v, want metadata-side runtime filtering", heartbeatScope.Runtimes)
-	}
-
-	sourcesByCollector := fleetEnrollmentSourcesByCollector(snapshot)
-	rowA := fleetHeartbeatAggregate{NodeID: "node-a", CollectorID: "collector-a", SourceID: "source-a", SourceName: "source-a"}
-	rowB := fleetHeartbeatAggregate{NodeID: "node-a", CollectorID: "collector-a", SourceID: "source-b", SourceName: "source-b"}
-	removedSource := fleetHeartbeatAggregate{NodeID: "node-a", CollectorID: "collector-a", SourceID: "source-removed", SourceName: "source-removed"}
-	unknownCollector := fleetHeartbeatAggregate{NodeID: "node-a", CollectorID: "collector-removed", SourceID: "source-a", SourceName: "source-a"}
-	if !fleetHeartbeatMatchesEnrollmentScope(rowA, APIScopeFilters{}, snapshot, sourcesByCollector) {
-		t.Fatalf("currently enrolled heartbeat row should match default enrollment scope")
-	}
-	if fleetHeartbeatMatchesEnrollmentScope(removedSource, APIScopeFilters{}, snapshot, sourcesByCollector) {
-		t.Fatalf("removed source heartbeat row should not match default enrollment scope")
-	}
-	if fleetHeartbeatMatchesEnrollmentScope(unknownCollector, APIScopeFilters{}, snapshot, sourcesByCollector) {
-		t.Fatalf("unknown collector heartbeat row should not match default enrollment scope")
-	}
-	if !fleetHeartbeatMatchesEnrollmentScope(rowA, scope, snapshot, sourcesByCollector) {
-		t.Fatalf("runtime-a heartbeat row should match enrollment metadata")
-	}
-	if fleetHeartbeatMatchesEnrollmentScope(rowB, scope, snapshot, sourcesByCollector) {
-		t.Fatalf("runtime-b heartbeat row should not match runtime-a enrollment scope")
-	}
-
-	projectScope := APIScopeFilters{Runtimes: []string{"runtime-a"}, ProjectKeys: []string{"project-a"}}
-	if got := fleetHeartbeatQueryScope(projectScope, snapshot); fmt.Sprint(got.Runtimes) != "[runtime-a]" {
-		t.Fatalf("project-scoped heartbeat SQL runtimes = %#v, want data-backed runtime filtering", got.Runtimes)
-	}
-	if !fleetHeartbeatMatchesEnrollmentScope(rowB, projectScope, snapshot, sourcesByCollector) {
-		t.Fatalf("project-scoped heartbeat rows should defer runtime/project filtering to session data")
-	}
-}
-
 func TestFleetNodeStatusMarksActiveSessionOnlyNodes(t *testing.T) {
 	builder := &fleetNodeBuilder{
 		node: APIDashboardFleetNode{ActiveSessions: 1},
@@ -277,15 +161,6 @@ func TestFleetNodeStatusMarksActiveSessionOnlyNodes(t *testing.T) {
 	if collectorStatus := fleetCollectorStatus(builder, "collector-local"); collectorStatus != "missing" {
 		t.Fatalf("session-only collector health = %q, want missing", collectorStatus)
 	}
-}
-
-func fleetNodeByID(nodes []APIDashboardFleetNode, nodeID string) (APIDashboardFleetNode, bool) {
-	for _, node := range nodes {
-		if node.NodeID == nodeID {
-			return node, true
-		}
-	}
-	return APIDashboardFleetNode{}, false
 }
 
 func TestFleetCollectorStatusSurfacesMixedSourceHealth(t *testing.T) {

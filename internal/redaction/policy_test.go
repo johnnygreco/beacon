@@ -5,9 +5,8 @@ import (
 	"testing"
 )
 
-func TestPolicyRedactsBeaconTokensAndCommonCredentials(t *testing.T) {
+func TestPolicyRedactsCommonCredentials(t *testing.T) {
 	input := strings.Join([]string{
-		"owner=bcn_owner_local_0123456789abcdef",
 		`{"api_key":"sk-test-fixture-that-is-long-enough"}`,
 		"Authorization: Bearer abcdefghijklmnop",
 		"aws=AKIA1234567890ABCDEF",
@@ -18,7 +17,6 @@ func TestPolicyRedactsBeaconTokensAndCommonCredentials(t *testing.T) {
 
 	got := DefaultPolicy().Redact(input)
 	for _, leaked := range []string{
-		"bcn_owner_local_0123456789abcdef",
 		"sk-test-fixture-that-is-long-enough",
 		"abcdefghijklmnop",
 		"AKIA1234567890ABCDEF",
@@ -30,7 +28,7 @@ func TestPolicyRedactsBeaconTokensAndCommonCredentials(t *testing.T) {
 			t.Fatalf("redacted output leaked %q: %s", leaked, got)
 		}
 	}
-	for _, marker := range []string{TokenMarker, SecretMarker, PrivateKeyMarker, CredentialMarker} {
+	for _, marker := range []string{SecretMarker, PrivateKeyMarker, CredentialMarker} {
 		if !strings.Contains(got, marker) {
 			t.Fatalf("redacted output missing marker %q: %s", marker, got)
 		}

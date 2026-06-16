@@ -11,7 +11,6 @@ import (
 const Version = "redact-v1"
 
 const (
-	TokenMarker      = "[REDACTED_TOKEN]"
 	SecretMarker     = "[REDACTED_SECRET]"
 	PathMarker       = "[REDACTED_PATH]"
 	EnvMarker        = "[REDACTED_ENV]"
@@ -21,11 +20,6 @@ const (
 )
 
 var DefaultEnvMasks = []string{
-	"BEACON_OWNER_TOKEN",
-	"BEACON_ENROLL_TOKEN",
-	"BEACON_INGEST_TOKEN",
-	"BEACON_READ_TOKEN",
-	"BEACON_ADMIN_TOKEN",
 	"OPENAI_API_KEY",
 	"ANTHROPIC_API_KEY",
 	"GITHUB_TOKEN",
@@ -58,7 +52,6 @@ type regexReplacement struct {
 	replacement string
 }
 
-var tokenPattern = regexp.MustCompile(`\bbcn_(?:owner|enroll|ingest|read|admin)_[A-Za-z0-9][A-Za-z0-9_.:-]*\b`)
 var privateKeyPattern = regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`)
 var urlCredentialPattern = regexp.MustCompile(`(?i)([a-z][a-z0-9+.-]*://)([^/@:\s]+):([^/@\s]+)@`)
 
@@ -99,7 +92,6 @@ func (p *Policy) Apply(value string) Result {
 		return Result{Text: value}
 	}
 	original := value
-	value = tokenPattern.ReplaceAllString(value, TokenMarker)
 	value = privateKeyPattern.ReplaceAllString(value, PrivateKeyMarker)
 	value = urlCredentialPattern.ReplaceAllString(value, `${1}`+CredentialMarker+`@`)
 	for _, pattern := range credentialPatterns {

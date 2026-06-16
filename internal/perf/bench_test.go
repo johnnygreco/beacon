@@ -227,7 +227,7 @@ func TestConcurrentIngestReadSmoke(t *testing.T) {
 
 	ch := sharedStore
 	searcher := search.NewSearcher(ch.DB, benchLogger, 25, 0)
-	api := web.NewAPIHandlers(ch.DB, searcher, benchLogger, nil)
+	api := web.NewAPIHandlers(ch.DB, searcher, benchLogger)
 
 	done := make(chan struct{})
 	errs := make(chan error, 16)
@@ -452,7 +452,7 @@ func BenchmarkQuerySessionDetail(b *testing.B) {
 
 func BenchmarkAPIDashboardJSON(b *testing.B) {
 	ch := requirePerfStore(b)
-	api := web.NewAPIHandlers(ch.DB, nil, benchLogger, nil)
+	api := web.NewAPIHandlers(ch.DB, nil, benchLogger)
 	cases := []struct {
 		name    string
 		target  string

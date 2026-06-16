@@ -133,7 +133,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Web server
 	handlers := web.NewHandlers(ch.DB, searcher, logger, cfg.Dashboard.Name)
-	apiHandlers := web.NewAPIHandlers(ch.DB, searcher, logger, nil)
+	apiHandlers := web.NewAPIHandlers(ch.DB, searcher, logger)
 	mcpHTTPServer := mcp.NewServer(ch.DB, searcher, logger)
 	mcpHTTPServer.SetDefaultContextWindow(cfg.MCP.ContextWindow)
 	staticFS, err := fs.Sub(beacon.StaticFS, "static")

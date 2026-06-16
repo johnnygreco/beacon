@@ -1,41 +1,18 @@
 package web
 
 import (
-	"context"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 )
 
-type TokenAuthenticator func(context.Context, string) bool
-
-func OwnerTokenMiddleware(auth TokenAuthenticator, cookieName string) func(http.Handler) http.Handler {
-	cookieName = strings.TrimSpace(cookieName)
-	if cookieName == "" {
-		cookieName = "beacon_owner_token"
-	}
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			for _, token := range requestOwnerTokens(r, cookieName) {
-				if auth != nil && auth(r.Context(), token) {
-					next.ServeHTTP(w, r)
-					return
-				}
-			}
-			w.WriteHeader(http.StatusUnauthorized)
-		})
-	}
-}
-
 const HostGuardRejectedHeader = "X-Beacon-Host-Guard"
-const IngestRouteHeader = "X-Beacon-Ingest-Route"
-const IngestRouteEnroll = "enroll"
 
-func LoopbackHostMiddleware(configuredHost string, allowedHosts ...string) func(http.Handler) http.Handler {
+func LoopbackHostMiddleware(configuredHost string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !isAllowedLoopbackHost(r.Host, configuredHost, allowedHosts...) {
+			if !isAllowedLoopbackHost(r.Host, configuredHost) {
 				w.Header().Set(HostGuardRejectedHeader, "rejected")
 				w.WriteHeader(http.StatusForbidden)
 				_, _ = w.Write([]byte("beacon host guard rejected\n"))
@@ -46,39 +23,7 @@ func LoopbackHostMiddleware(configuredHost string, allowedHosts ...string) func(
 	}
 }
 
-func requestOwnerTokens(r *http.Request, cookieName string) []string {
-	var tokens []string
-	if token := bearerToken(r.Header.Get("Authorization")); token != "" {
-		tokens = append(tokens, token)
-	}
-	if cookie, err := r.Cookie(cookieName); err == nil {
-		if token := strings.TrimSpace(cookie.Value); token != "" {
-			tokens = append(tokens, token)
-		}
-	}
-	return tokens
-}
-
-func RequestAuthTokens(r *http.Request, cookieName string) []string {
-	return requestOwnerTokens(r, cookieName)
-}
-
-func bearerToken(header string) string {
-	header = strings.TrimSpace(header)
-	if len(header) <= len("Bearer") || !strings.EqualFold(header[:len("Bearer")], "Bearer") {
-		return ""
-	}
-	if header[len("Bearer")] != ' ' && header[len("Bearer")] != '\t' {
-		return ""
-	}
-	value := strings.TrimSpace(header[len("Bearer"):])
-	if value == "" || strings.ContainsAny(value, " \t\r\n") {
-		return ""
-	}
-	return value
-}
-
-func isAllowedLoopbackHost(hostHeader, configuredHost string, allowedHosts ...string) bool {
+func isAllowedLoopbackHost(hostHeader, configuredHost string) bool {
 	host := normalizeHostOnly(hostHeader)
 	if host == "" {
 		return false
@@ -92,12 +37,6 @@ func isAllowedLoopbackHost(hostHeader, configuredHost string, allowedHosts ...st
 	}
 	if isLoopbackLiteral(host) {
 		return true
-	}
-	for _, allowedHost := range allowedHosts {
-		allowed := normalizeHostOnly(allowedHost)
-		if allowed != "" && strings.EqualFold(host, allowed) {
-			return true
-		}
 	}
 	return false
 }
