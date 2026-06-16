@@ -762,6 +762,39 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('keeps the machine status retry visible when advanced refresh fails', async ({ page }) => {
+    await installDashboardFixtures(page, { scenario: 'many-active', mockEventSource: true });
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+    await expect(page.locator('#dashboard-wrap')).toHaveClass(/dashboard-advanced-topology/);
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(3);
+
+    let failNextFleet = true;
+    await page.route('**/api/dashboard/fleet**', async (route) => {
+      if (!failNextFleet) return route.fallback();
+      failNextFleet = false;
+      return route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'fixture failure' }),
+      });
+    });
+
+    const failedFleetRefresh = page.waitForResponse((response) => new URL(response.url()).pathname === '/api/dashboard/fleet' && response.status() === 500);
+    await emitDashboardEvent(page, 'active-sessions-update');
+    await failedFleetRefresh;
+
+    await expect(page.locator('#dashboard-wrap')).toHaveClass(/dashboard-advanced-topology/);
+    await expect(page.locator('#dashboard-fleet')).toBeVisible();
+    await expect(page.locator('#dashboard-fleet')).toContainText('Unable to load machine status.');
+    await expect(page.locator('#dashboard-fleet [data-dashboard-retry="fleet"]')).toBeVisible();
+
+    await page.locator('#dashboard-fleet [data-dashboard-retry="fleet"]').click();
+    await expect(page.locator('#dashboard-fleet .dashboard-fleet-node')).toHaveCount(3);
+    await expectNoHorizontalOverflow(page);
+  });
+
   test('keeps the one-machine dashboard out of fleet mode by default', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);

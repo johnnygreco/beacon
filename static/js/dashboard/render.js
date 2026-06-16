@@ -1047,6 +1047,17 @@ function renderFleet(response) {
 	setHTMLIfChanged(strip, nodes.map(fleetNodeCard).join(''));
 }
 
+function renderFleetError() {
+	if (!dashboardAdvancedTopology && !(typeof dashboardHasScopeFilters === 'function' && dashboardHasScopeFilters())) return;
+	setDashboardTopologyMode(true);
+	syncDashboardScopeControls();
+	renderFleetHeader({});
+	var subtitle = document.getElementById('dashboard-fleet-subtitle');
+	if (subtitle) subtitle.textContent = 'Machine status unavailable';
+	var strip = document.getElementById('dashboard-fleet-strip');
+	if (strip) setHTMLIfChanged(strip, '<div class="dashboard-fleet-empty dashboard-fleet-error">Unable to load machine status. <button type="button" data-dashboard-retry="fleet">Retry</button></div>');
+}
+
 function rangeLabel(value) {
 	if (value === '1h') return 'Last hour';
 	if (value === '24h') return 'Last 24 hours';
@@ -1314,9 +1325,7 @@ async function loadDashboardFleet() {
 	var result = await fetchDashboardJSON('fleet', requestURL('/api/dashboard/fleet', {}));
 	if (!result || result.stale) return;
 	if (result.error) {
-		renderFleet({totals: {}, nodes: []});
-		var strip = document.getElementById('dashboard-fleet-strip');
-		if (strip && dashboardAdvancedTopology) setHTMLIfChanged(strip, '<div class="dashboard-fleet-empty dashboard-fleet-error">Unable to load machine status. <button type="button" data-dashboard-retry="fleet">Retry</button></div>');
+		renderFleetError();
 		return;
 	}
 	renderFleet(result.data);
