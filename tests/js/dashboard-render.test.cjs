@@ -12,8 +12,10 @@ function loadRenderSandbox() {
       BeaconDashboard: { utils },
       dashboardSessionIndex: {},
       AbortController: globalThis.AbortController,
+      location: { search: "" },
     },
     AbortController: globalThis.AbortController,
+    URLSearchParams,
     document: {
       getElementById() {
         return null;
@@ -86,6 +88,33 @@ function dashboardElementStub() {
     },
   };
 }
+
+test("dashboard scope controls render clearable local filters", () => {
+  const sandbox = loadRenderSandbox();
+  const chips = dashboardElementStub();
+  sandbox.document.getElementById = (id) => (id === "dashboard-scope-chips" ? chips : null);
+  sandbox.window.location.search = "?source_names=source-a,source-b&runtime=runtime-a&project_key=beacon";
+
+  sandbox.syncDashboardScopeControls();
+
+  assert.equal(chips.attributes["aria-hidden"], "false");
+  assert.equal(chips.classList.contains("hidden"), false);
+  assert.match(chips.innerHTML, /data-dashboard-scope-clear="source_name"/);
+  assert.match(chips.innerHTML, /data-dashboard-scope-value="source-a"/);
+  assert.match(chips.innerHTML, /data-dashboard-scope-value="source-b"/);
+  assert.match(chips.innerHTML, /data-dashboard-scope-clear="runtime"/);
+  assert.match(chips.innerHTML, /data-dashboard-scope-value="runtime-a"/);
+  assert.match(chips.innerHTML, /data-dashboard-scope-clear="project_key"/);
+  assert.match(chips.innerHTML, /data-dashboard-scope-value="beacon"/);
+  assert.match(chips.innerHTML, /data-dashboard-scope-clear="all"/);
+
+  sandbox.window.location.search = "";
+  sandbox.syncDashboardScopeControls();
+
+  assert.equal(chips.attributes["aria-hidden"], "true");
+  assert.equal(chips.classList.contains("hidden"), true);
+  assert.equal(chips.innerHTML, "");
+});
 
 test("completed session rows escape malicious payload fields", () => {
   const sandbox = loadRenderSandbox();

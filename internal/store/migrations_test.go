@@ -35,6 +35,25 @@ func TestTableNamesIncludesDataTables(t *testing.T) {
 	}
 }
 
+func TestLegacyTablesAreResetOnly(t *testing.T) {
+	schema := strings.Join(Schema("beacon"), "\n")
+	resetNames := make(map[string]bool, len(resetTableNames()))
+	for _, table := range resetTableNames() {
+		resetNames[table] = true
+	}
+	for _, table := range legacyTableNames {
+		if strings.Contains(schema, "beacon."+table) {
+			t.Fatalf("schema creates legacy table %s", table)
+		}
+		if !resetNames[table] {
+			t.Fatalf("reset names missing legacy table %s", table)
+		}
+		if !ownedTableNameSet()[table] {
+			t.Fatalf("owned table detection missing legacy table %s", table)
+		}
+	}
+}
+
 func TestSchemaUsesClickHouseEngines(t *testing.T) {
 	schema := strings.Join(Schema("beacon"), "\n")
 	for _, expected := range []string{

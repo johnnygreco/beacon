@@ -31,7 +31,30 @@ var dataTableNames = []string{
 	"search_query_log",
 }
 
+var legacyTableNames = []string{
+	"capture_heartbeats",
+	"ingest_batches",
+}
+
 var tableNames = append([]string{schemaVersionTable}, dataTableNames...)
+
+func resetTableNames() []string {
+	names := make([]string, 0, len(tableNames)+len(legacyTableNames))
+	names = append(names, tableNames...)
+	names = append(names, legacyTableNames...)
+	return names
+}
+
+func ownedTableNameSet() map[string]bool {
+	names := make(map[string]bool, len(dataTableNames)+len(legacyTableNames))
+	for _, table := range dataTableNames {
+		names[table] = true
+	}
+	for _, table := range legacyTableNames {
+		names[table] = true
+	}
+	return names
+}
 
 func Migrate(ctx context.Context, db *sql.DB, database string) error {
 	database = cleanIdent(database)
@@ -58,8 +81,9 @@ func Migrate(ctx context.Context, db *sql.DB, database string) error {
 
 func Reset(ctx context.Context, db *sql.DB, database string) error {
 	database = cleanIdent(database)
-	for i := len(tableNames) - 1; i >= 0; i-- {
-		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s.%s", database, tableNames[i])); err != nil {
+	names := resetTableNames()
+	for i := len(names) - 1; i >= 0; i-- {
+		if _, err := db.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s.%s", database, names[i])); err != nil {
 			return err
 		}
 	}
@@ -116,10 +140,7 @@ func inspectSchemaState(ctx context.Context, db *sql.DB, database string) (schem
 	}
 	defer rows.Close()
 
-	ownedDataTables := make(map[string]bool, len(dataTableNames))
-	for _, table := range dataTableNames {
-		ownedDataTables[table] = true
-	}
+	ownedDataTables := ownedTableNameSet()
 	for rows.Next() {
 		var name string
 		if err := rows.Scan(&name); err != nil {

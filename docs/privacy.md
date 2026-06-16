@@ -74,11 +74,14 @@ Beacon sets dashboard security headers including `Content-Security-Policy`,
 JavaScript execution. Dashboard controls are wired through external scripts and
 server-rendered captured content is escaped by default.
 
-Current machine-to-machine POST routes are HTTP ingest and MCP JSON-RPC routes;
-they are protected by token authentication and are not browser form mutation
-surfaces. If Beacon adds browser-driven mutation routes such as token
-management, reset, enrollment approval, or admin settings, those routes should
-require same-origin proof or CSRF protection and must not mutate state via GET.
+Beacon does not provide an HTTP ingest route or Beacon-managed bearer-token API
+authentication. The optional `POST /api/mcp` route exposes the same read-only
+MCP tools as the local dashboard server and inherits the dashboard server's
+local-trust boundary. If Beacon is exposed beyond loopback, put it behind an
+external authenticated proxy or equivalent network control. If Beacon adds
+browser-driven mutation routes such as reset or admin settings, those routes
+should require same-origin proof or CSRF protection and must not mutate state
+via GET.
 
 ## Retention policy
 
@@ -89,7 +92,8 @@ Current cleanup options:
 
 - `beacon db reset --force` drops and recreates Beacon-owned ClickHouse tables in
   the configured database. This deletes Beacon data from those tables but does
-  not remove original agent session files or the control-plane metadata database.
+  not remove original agent session files or ClickHouse data outside Beacon-owned
+  tables.
 - `curl -sSfL https://johnnygreco.dev/beacon/install.sh | UNINSTALL=1 sh`
   removes the installed `beacon` binary and deletes `~/.beacon`, including
   Beacon-managed native ClickHouse data.
@@ -127,7 +131,7 @@ can still be stored and indexed. Existing ClickHouse data is not automatically
 backfilled when the policy changes; reset/replay or reingest is required if you
 want old rows rewritten under a new policy.
 
-Dashboard, API, MCP, raw-table, search, log, and spool leak-prevention tests are
+Dashboard, API, MCP, raw-table, search, and log leak-prevention tests are
 checks that protected surfaces do not re-expose values already matched by the
 configured write-boundary policy. They are not a second read-time classifier or
 policy engine.

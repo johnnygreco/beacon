@@ -758,7 +758,60 @@ function renderActivity(items) {
 	}).join('') + '</div>');
 }
 
-function syncDashboardScopeControls() {}
+var dashboardScopeChipConfig = [
+	{field: 'source_name', label: 'Source', params: ['source_name', 'source_names']},
+	{field: 'runtime', label: 'Runtime', params: ['runtime', 'runtimes']},
+	{field: 'project_key', label: 'Project', params: ['project_key', 'project_keys']}
+];
+
+function dashboardCurrentScopeParams() {
+	var search = '';
+	if (typeof window !== 'undefined' && window.location) search = window.location.search || '';
+	else if (typeof location !== 'undefined') search = location.search || '';
+	return new URLSearchParams(search);
+}
+
+function dashboardScopeValues(config, params) {
+	var seen = {};
+	var values = [];
+	config.params.forEach(function(name) {
+		params.getAll(name).forEach(function(raw) {
+			String(raw || '').split(',').forEach(function(part) {
+				var value = part.trim();
+				if (!value || seen[value]) return;
+				seen[value] = true;
+				values.push(value);
+			});
+		});
+	});
+	return values;
+}
+
+function dashboardScopeChip(config, value) {
+	var label = config.label;
+	var labelLower = label.toLowerCase();
+	return '<button type="button" class="dashboard-scope-chip" data-dashboard-scope-clear="' + escapeAttr(config.field) + '" data-dashboard-scope-value="' + escapeAttr(value) + '" aria-label="Clear ' + escapeAttr(labelLower) + ' filter ' + escapeAttr(value) + '" title="Clear ' + escapeAttr(labelLower) + ' filter ' + escapeAttr(value) + '">' +
+		'<span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(value) + '</strong><span aria-hidden="true">x</span>' +
+		'</button>';
+}
+
+function syncDashboardScopeControls() {
+	var host = document.getElementById('dashboard-scope-chips');
+	if (!host) return;
+	var params = dashboardCurrentScopeParams();
+	var chips = [];
+	dashboardScopeChipConfig.forEach(function(config) {
+		dashboardScopeValues(config, params).forEach(function(value) {
+			chips.push(dashboardScopeChip(config, value));
+		});
+	});
+	if (chips.length > 0) {
+		chips.push('<button type="button" class="dashboard-scope-clear-all" data-dashboard-scope-clear="all" aria-label="Clear all dashboard filters" title="Clear all dashboard filters">Clear all</button>');
+	}
+	host.classList.toggle('hidden', chips.length === 0);
+	host.setAttribute('aria-hidden', chips.length === 0 ? 'true' : 'false');
+	setHTMLIfChanged(host, chips.join(''));
+}
 
 function rangeLabel(value) {
 	if (value === '1h') return 'Last hour';

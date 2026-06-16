@@ -945,6 +945,36 @@ func TestClickHouseMigrateRejectsLegacySchemaWithoutVersion(t *testing.T) {
 	}
 }
 
+func TestClickHouseResetDropsRemovedBeaconOwnedTables(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	database := "beacon_test_schema_legacy_reset"
+	if _, err := ch.DB.ExecContext(ctx, "DROP DATABASE IF EXISTS "+database); err != nil {
+		t.Fatalf("drop test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = ch.DB.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+database)
+	})
+	if _, err := ch.DB.ExecContext(ctx, "CREATE DATABASE "+database); err != nil {
+		t.Fatalf("create test database: %v", err)
+	}
+	for _, table := range legacyTableNames {
+		if _, err := ch.DB.ExecContext(ctx, fmt.Sprintf("CREATE TABLE %s.%s (id UInt8) ENGINE = MergeTree ORDER BY id", database, table)); err != nil {
+			t.Fatalf("create legacy table %s: %v", table, err)
+		}
+	}
+	if err := Reset(ctx, ch.DB, database); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	tables := clickHouseTableSet(t, ch.DB, database)
+	assertBeaconTableSet(t, tables)
+	for _, table := range legacyTableNames {
+		if tables[table] {
+			t.Fatalf("legacy table %s still exists after reset", table)
+		}
+	}
+}
+
 func TestClickHouseFreshMigrateAndResetCreateSameTables(t *testing.T) {
 	ch := setupLiveClickHouse(t)
 	ctx := context.Background()

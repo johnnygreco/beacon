@@ -3523,6 +3523,11 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
   min-width: 0;
 }
 
+.dashboard-table-title-row .dashboard-scope-chips {
+  justify-content: flex-end;
+  padding-top: 0.05rem;
+}
+
 .dashboard-table-controls-scroll {
   min-width: 0;
   max-width: 100%;
@@ -4150,6 +4155,15 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
 
   .completed-table-title {
     width: 100%;
+  }
+
+  .dashboard-table-title-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dashboard-table-title-row .dashboard-scope-chips {
+    justify-content: flex-start;
   }
 
   .dashboard-search-input {
