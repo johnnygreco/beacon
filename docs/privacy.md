@@ -74,14 +74,12 @@ Beacon sets dashboard security headers including `Content-Security-Policy`,
 JavaScript execution. Dashboard controls are wired through external scripts and
 server-rendered captured content is escaped by default.
 
-Beacon does not provide an HTTP ingest route or Beacon-managed bearer-token API
-authentication. The optional `POST /api/mcp` route exposes the same read-only
-MCP tools as the local dashboard server and inherits the dashboard server's
-local-trust boundary. If Beacon is exposed beyond loopback, put it behind an
-external authenticated proxy or equivalent network control. If Beacon adds
-browser-driven mutation routes such as reset or admin settings, those routes
-should require same-origin proof or CSRF protection and must not mutate state
-via GET.
+The optional `POST /api/mcp` route exposes the same read-only MCP tools as the
+local dashboard server and inherits the dashboard server's local-trust boundary.
+If Beacon is exposed beyond loopback, put it behind an external authenticated
+proxy or equivalent network control. If Beacon adds browser-driven mutation
+routes such as reset or admin settings, those routes should require same-origin
+proof or CSRF protection and must not mutate state via GET.
 
 ## Retention policy
 
