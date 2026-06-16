@@ -162,7 +162,7 @@ const dashboardScopeParamNames = [
   'project_keys',
 ];
 
-function dashboardHasNoFleetScope(url: URL) {
+function dashboardHasNoMachineScope(url: URL) {
   return dashboardScopeParamNames.every((name) => !url.searchParams.has(name));
 }
 
@@ -620,7 +620,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
-  test('uses fleet chips as global dashboard scope controls', async ({ page }) => {
+  test('uses machine chips as global dashboard scope controls', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page, { scenario: 'many-active' });
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -657,7 +657,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await waitForCompletedRows(page, 15);
     await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(2);
 
-    let clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoFleetScope);
+    let clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoMachineScope);
     await page.locator('[data-dashboard-scope-clear="all"]').click();
     await Promise.all(clearResponses);
     await waitForNoDashboardScopeInURL(page);
@@ -678,7 +678,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await waitForCompletedRows(page, 15);
     await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(2);
 
-    clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoFleetScope);
+    clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoMachineScope);
     await page.locator('[data-dashboard-scope-clear="all"]').click();
     await Promise.all(clearResponses);
     await waitForNoDashboardScopeInURL(page);
@@ -704,7 +704,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await waitForCompletedRows(page, 0);
     await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(0);
 
-    clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoFleetScope);
+    clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoMachineScope);
     await page.locator('[data-dashboard-scope-clear="all"]').click();
     await Promise.all(clearResponses);
     await waitForNoDashboardScopeInURL(page);
@@ -723,7 +723,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await waitForCompletedRows(page, 15);
     await expect(page.locator('#activity-feed .activity-bar-item')).toHaveCount(2);
 
-    clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoFleetScope);
+    clearResponses = waitForDashboardPanelResponses(page, dashboardHasNoMachineScope);
     await page.locator('[data-dashboard-scope-clear="all"]').click();
     await Promise.all(clearResponses);
     await waitForNoDashboardScopeInURL(page);

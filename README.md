@@ -4,12 +4,12 @@
   <img src="assets/beacon.png" width="800" alt="Beacon">
 </p>
 
-Beacon collects AI agent activity from the machines you use, rolls it up in one
-local dashboard, and exposes the same data to tools through MCP.
+Beacon collects AI agent activity on the machine you use, rolls it up in a local
+dashboard, and exposes the same data to tools through MCP.
 
-Use it for a single laptop, a team workstation, or a small fleet of machines.
-The default setup keeps data local unless you deliberately point collectors at a
-shared Beacon dashboard.
+Most users can run Beacon on one laptop or workstation and stop there. The
+default setup keeps capture, storage, and the dashboard local unless you
+deliberately opt into remote collectors and a shared dashboard host.
 
 ## Install
 
@@ -42,11 +42,26 @@ Beacon starts the local collector and dashboard together. It can ingest Claude
 Code, OpenAI Codex, Hermes Agent, OpenCode, and Pi coding-agent activity from
 their usual local locations.
 
-## Run On Multiple Machines
+## What You Get
 
-Use one machine as the dashboard host, then join each collector machine to it.
+<p align="center">
+  <img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing usage charts, model breakdowns, and recent sessions">
+</p>
 
-1. On the dashboard host, install Beacon and configure the public URL:
+- A dashboard at `http://localhost:4600`
+- Token, cost, model, project, runtime, and session summaries
+- Source-aware ingestion across local AI coding tools
+- MCP tools for querying sessions and usage from other agents
+- Managed local ClickHouse storage, with remote ClickHouse available for larger
+  installations
+- Privacy controls for redaction, hashing, capture filters, and offline operation
+
+## Advanced: Run On Multiple Machines
+
+You can skip this section for ordinary local use. Use it only when you want one
+Beacon dashboard host to collect activity from additional machines.
+
+1. On the dashboard host, install Beacon and configure the public collector URL:
 
    ```bash
    beacon setup dashboard --collector-url https://beacon.example.com
@@ -81,39 +96,25 @@ Use one machine as the dashboard host, then join each collector machine to it.
    beacon collect
    ```
 
-Check the setup from any machine:
+Check local or shared setup from any machine:
 
 ```bash
 beacon doctor setup
 ```
 
 For HTTPS, reverse proxy, service manager, recovery, and invite details, see the
-[production guide](docs/production.md).
-
-## What You Get
-
-<p align="center">
-  <img src="assets/beacon-screenshot.png" alt="Beacon dashboard showing usage charts, model breakdowns, and recent sessions">
-</p>
-
-- A dashboard at `http://localhost:4600`
-- Token, cost, model, project, runtime, and session summaries
-- Source-aware ingestion across local AI coding tools
-- MCP tools for querying sessions and usage from other agents
-- Managed local ClickHouse storage, with remote ClickHouse available for larger
-  installations
-- Privacy controls for redaction, hashing, capture filters, and offline operation
+[advanced production guide](docs/production.md).
 
 ## Common Commands
 
 | Task | Command |
 | --- | --- |
 | Start dashboard and local collector | `beacon up` |
-| Run only the collector | `beacon collect` |
-| Open one-time setup flow | `beacon setup dashboard` |
-| Join a remote dashboard | `beacon join https://beacon.example.com` |
-| Create a collector invite | `beacon invite` |
-| Check local and fleet setup | `beacon doctor setup` |
+| Run a collector process for an advanced shared setup | `beacon collect` |
+| Configure an advanced shared dashboard | `beacon setup dashboard` |
+| Join an advanced shared dashboard | `beacon join https://beacon.example.com` |
+| Create a collector invite for another machine | `beacon invite` |
+| Check local or shared setup | `beacon doctor setup` |
 | Show usage summary | `beacon usage --since now-24h` |
 | Show server and database health | `beacon status` |
 | Query MCP tools over stdio | `beacon mcp` |
@@ -133,7 +134,7 @@ policy, or integration surface.
 
 ## Documentation
 
-- [Production guide](docs/production.md): multi-machine deployments, HTTPS,
+- [Advanced production guide](docs/production.md): multi-machine deployments, HTTPS,
   services, invites, recovery, and runbooks.
 - [Privacy model](docs/privacy.md): captured data, redaction, hashing, and
   operator responsibilities.

@@ -3,8 +3,8 @@
 Beacon keeps user-facing errors short and actionable while preserving internal
 details in logs or persisted diagnostics.
 
-For install, enrollment, reset/replay, remote MCP, and production operations,
-see [Personal production guide](production.md).
+For install, enrollment, reset/replay, remote MCP, and advanced production
+operations, see [Advanced personal production guide](production.md).
 
 ## User-facing messages
 

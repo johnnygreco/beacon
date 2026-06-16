@@ -4,8 +4,9 @@ Beacon stores normalized agent activity in ClickHouse. The schema is defined in
 [`internal/store/migrations.go`](../internal/store/migrations.go), and all
 application writes go through `internal/store`.
 
-For personal-production database placement, HTTPS control-plane setup, and
-reset/re-enrollment runbooks, see [Personal production guide](production.md).
+For advanced personal-production database placement, HTTPS control-plane setup,
+and reset/re-enrollment runbooks, see
+[Advanced personal production guide](production.md).
 
 The default database is `beacon`. A different database name can be configured in
 `[database].database`; invalid names are rejected during config validation before
