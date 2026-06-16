@@ -66,9 +66,10 @@ func Migrate(ctx context.Context, db *sql.DB, database string) error {
 		return err
 	}
 	if state.hasVersionRow {
-		return validateSchemaState(state, database, true)
-	}
-	if err := validateSchemaState(state, database, true); err != nil {
+		if err := validateSchemaState(state, database, true); err != nil {
+			return err
+		}
+	} else if err := validateSchemaState(state, database, true); err != nil {
 		return err
 	}
 	for _, stmt := range Schema(database) {

@@ -975,6 +975,37 @@ func TestClickHouseResetDropsRemovedBeaconOwnedTables(t *testing.T) {
 	}
 }
 
+func TestClickHouseMigrateCurrentVersionRecreatesMissingTables(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	database := "beacon_test_schema_repair"
+	if _, err := ch.DB.ExecContext(ctx, "DROP DATABASE IF EXISTS "+database); err != nil {
+		t.Fatalf("drop test database: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = ch.DB.ExecContext(context.Background(), "DROP DATABASE IF EXISTS "+database)
+	})
+	if _, err := ch.DB.ExecContext(ctx, "CREATE DATABASE "+database); err != nil {
+		t.Fatalf("create test database: %v", err)
+	}
+	if _, err := ch.DB.ExecContext(ctx, fmt.Sprintf(`CREATE TABLE %s.%s (
+		id UInt8,
+		version UInt32,
+		updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
+	)
+	ENGINE = ReplacingMergeTree(updated_at)
+	ORDER BY id`, database, schemaVersionTable)); err != nil {
+		t.Fatalf("create schema version table: %v", err)
+	}
+	if err := writeSchemaVersion(ctx, ch.DB, database); err != nil {
+		t.Fatalf("write schema version: %v", err)
+	}
+	if err := Migrate(ctx, ch.DB, database); err != nil {
+		t.Fatalf("migrate current version with missing tables: %v", err)
+	}
+	assertBeaconTableSet(t, clickHouseTableSet(t, ch.DB, database))
+}
+
 func TestClickHouseFreshMigrateAndResetCreateSameTables(t *testing.T) {
 	ch := setupLiveClickHouse(t)
 	ctx := context.Background()

@@ -5,6 +5,9 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const utils = require("../../static/js/dashboard/utils.js");
+const stateScript = fs.readFileSync(path.join(__dirname, "../../static/js/dashboard/state.js"), "utf8");
+const renderScript = fs.readFileSync(path.join(__dirname, "../../static/js/dashboard/render.js"), "utf8");
+const css = fs.readFileSync(path.join(__dirname, "../../static/css/custom.css"), "utf8");
 
 function loadRenderSandbox() {
   const sandbox = {
@@ -47,8 +50,7 @@ function loadRenderSandbox() {
     loadCompletedSessions() {},
   };
   vm.createContext(sandbox);
-  const renderPath = path.join(__dirname, "../../static/js/dashboard/render.js");
-  vm.runInContext(fs.readFileSync(renderPath, "utf8"), sandbox, { filename: renderPath });
+  vm.runInContext(renderScript, sandbox, { filename: "render.js" });
   return sandbox;
 }
 
@@ -114,6 +116,26 @@ test("dashboard scope controls render clearable local filters", () => {
   assert.equal(chips.attributes["aria-hidden"], "true");
   assert.equal(chips.classList.contains("hidden"), true);
   assert.equal(chips.innerHTML, "");
+});
+
+test("dashboard scope controls stay hidden when empty", () => {
+  assert.match(css, /\.dashboard-scope-chips\.hidden\s*\{[^}]*display:\s*none\s*!important;/s);
+});
+
+test("render scope helpers do not shadow state scope helpers", () => {
+  const sandbox = loadRenderSandbox();
+  sandbox.window.location.search = "?runtime=runtime-a";
+  sandbox.location = sandbox.window.location;
+  sandbox.window.history = { replaceState() {} };
+  sandbox.window.sessionStorage = { getItem() { return null; }, setItem() {}, removeItem() {} };
+  sandbox.window.localStorage = { getItem() { return null; }, setItem() {}, removeItem() {} };
+  sandbox.window.requestAnimationFrame = (callback) => callback();
+  sandbox.document.addEventListener = () => {};
+  vm.runInContext(stateScript, sandbox, { filename: "state.js" });
+	vm.runInContext(renderScript, sandbox, { filename: "render.js" });
+
+	assert.equal(sandbox.dashboardHasScopeFilters(), true);
+	assert.deepEqual([...sandbox.dashboardScopeValues("runtime")], ["runtime-a"]);
 });
 
 test("completed session rows escape malicious payload fields", () => {

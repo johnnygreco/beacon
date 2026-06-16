@@ -1906,6 +1906,10 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
   min-width: 0;
 }
 
+.dashboard-scope-chips.hidden {
+  display: none !important;
+}
+
 .dashboard-scope-empty {
   color: var(--dash-text-muted);
   font-size: 0.75rem;

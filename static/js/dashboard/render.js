@@ -771,7 +771,7 @@ function dashboardCurrentScopeParams() {
 	return new URLSearchParams(search);
 }
 
-function dashboardScopeValues(config, params) {
+function dashboardScopeChipValues(config, params) {
 	var seen = {};
 	var values = [];
 	config.params.forEach(function(name) {
@@ -801,7 +801,7 @@ function syncDashboardScopeControls() {
 	var params = dashboardCurrentScopeParams();
 	var chips = [];
 	dashboardScopeChipConfig.forEach(function(config) {
-		dashboardScopeValues(config, params).forEach(function(value) {
+		dashboardScopeChipValues(config, params).forEach(function(value) {
 			chips.push(dashboardScopeChip(config, value));
 		});
 	});
