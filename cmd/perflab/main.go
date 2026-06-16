@@ -78,8 +78,6 @@ type datasetReport struct {
 	Events            int    `json:"events,omitempty"`
 	Payloads          int    `json:"payloads,omitempty"`
 	SearchPostings    int    `json:"search_postings,omitempty"`
-	Nodes             int    `json:"nodes,omitempty"`
-	Collectors        int    `json:"collectors,omitempty"`
 	Sources           int    `json:"sources,omitempty"`
 	Runtimes          int    `json:"runtimes,omitempty"`
 	Projects          int    `json:"projects,omitempty"`
@@ -89,8 +87,7 @@ type datasetReport struct {
 	TargetPayloads    int    `json:"target_payloads,omitempty"`
 	TargetPostings    int    `json:"target_search_postings,omitempty"`
 	CommonSearchToken string `json:"common_search_token,omitempty"`
-	ScopedCollectorID string `json:"scoped_collector_id,omitempty"`
-	ScopedSourceID    string `json:"scoped_source_id,omitempty"`
+	ScopedSourceName  string `json:"scoped_source_name,omitempty"`
 	ScopedProjectKey  string `json:"scoped_project_key,omitempty"`
 	Heavy             bool   `json:"heavy,omitempty"`
 	Duration          string `json:"duration,omitempty"`
@@ -161,7 +158,7 @@ func main() {
 func parseFlags() labConfig {
 	var cfg labConfig
 	flag.StringVar(&cfg.OutputDir, "output-dir", envString("PERF_LAB_OUTPUT_DIR", "test-results/perf/lab/latest"), "Report output directory")
-	flag.StringVar(&cfg.Size, "size", envString("PERF_LAB_SIZE", "small"), "Dataset size: small, medium, large, fleet (fleet is heavy/manual)")
+	flag.StringVar(&cfg.Size, "size", envString("PERF_LAB_SIZE", "small"), "Dataset size: small, medium, large, stress (stress is heavy/manual)")
 	flag.StringVar(&cfg.ClickHouse, "clickhouse", envString("PERF_LAB_CLICKHOUSE", "127.0.0.1:9000"), "ClickHouse address")
 	flag.StringVar(&cfg.Database, "database", envString("PERF_LAB_DATABASE", "beacon_perf_lab"), "Disposable ClickHouse database for the served lab app")
 	flag.IntVar(&cfg.Port, "port", envInt("PERF_LAB_PORT", 4611), "Port for a lab-started Beacon server")
@@ -348,10 +345,10 @@ func validateLabPlan(cfg labConfig) error {
 
 func validateLabSize(size string) error {
 	switch size {
-	case string(perf.SizeSmall), string(perf.SizeMedium), string(perf.SizeLarge), string(perf.SizeFleet):
+	case string(perf.SizeSmall), string(perf.SizeMedium), string(perf.SizeLarge), string(perf.SizeStress):
 		return nil
 	default:
-		return fmt.Errorf("invalid lab dataset size %q; use small, medium, large, or fleet", size)
+		return fmt.Errorf("invalid lab dataset size %q; use small, medium, large, or stress", size)
 	}
 }
 
@@ -470,8 +467,6 @@ func seedPerfDatabase(ctx context.Context, cfg labConfig) (datasetReport, error)
 	report.Events = stats.Events
 	report.Payloads = stats.Payloads
 	report.SearchPostings = stats.SearchPostings
-	report.Nodes = stats.Nodes
-	report.Collectors = stats.Collectors
 	report.Sources = stats.Sources
 	report.Runtimes = stats.Runtimes
 	report.Projects = stats.Projects
@@ -488,8 +483,6 @@ func datasetReportFromProfile(size, database, liveDatabase string) datasetReport
 		Size:              string(seedSize),
 		Database:          database,
 		LiveBenchDatabase: liveDatabase,
-		Nodes:             profile.Nodes,
-		Collectors:        profile.Collectors,
 		Sources:           profile.Sources,
 		Runtimes:          profile.Runtimes,
 		Projects:          profile.Projects,
@@ -499,8 +492,7 @@ func datasetReportFromProfile(size, database, liveDatabase string) datasetReport
 		TargetPayloads:    profile.TargetPayloads,
 		TargetPostings:    profile.TargetSearchPostings,
 		CommonSearchToken: profile.CommonSearchToken,
-		ScopedCollectorID: profile.ScopedCollectorID,
-		ScopedSourceID:    profile.ScopedSourceID,
+		ScopedSourceName:  profile.ScopedSourceName,
 		ScopedProjectKey:  profile.ScopedProjectKey,
 		Heavy:             profile.Heavy,
 	}
@@ -859,8 +851,8 @@ func markdownReport(report labReport) string {
 		fmt.Fprintf(&b, " (%d sessions, %d events, %d payloads, %d postings, seed %s)", report.Dataset.Sessions, report.Dataset.Events, report.Dataset.Payloads, report.Dataset.SearchPostings, report.Dataset.Duration)
 	}
 	fmt.Fprintf(&b, "\n")
-	fmt.Fprintf(&b, "- Fleet shape: %d nodes, %d collectors, %d sources, %d runtimes, %d projects, %d active, %d idle",
-		report.Dataset.Nodes, report.Dataset.Collectors, report.Dataset.Sources, report.Dataset.Runtimes, report.Dataset.Projects, report.Dataset.ActiveSessions, report.Dataset.IdleSessions)
+	fmt.Fprintf(&b, "- Source shape: %d sources, %d runtimes, %d projects, %d active, %d idle",
+		report.Dataset.Sources, report.Dataset.Runtimes, report.Dataset.Projects, report.Dataset.ActiveSessions, report.Dataset.IdleSessions)
 	if report.Dataset.Heavy {
 		fmt.Fprintf(&b, " (heavy opt-in)")
 	}

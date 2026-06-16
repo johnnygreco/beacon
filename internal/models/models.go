@@ -56,9 +56,6 @@ type Event struct {
 	RawSessionID       string     `json:"raw_session_id,omitempty"`
 	ParentSessionID    string     `json:"parent_session_id,omitempty"`
 	RawParentSessionID string     `json:"raw_parent_session_id,omitempty"`
-	NodeID             string     `json:"node_id,omitempty"`
-	CollectorID        string     `json:"collector_id,omitempty"`
-	SourceID           string     `json:"source_id,omitempty"`
 	SessionDate        *time.Time `json:"session_date,omitempty"`
 	SourceName         string     `json:"source_name"`
 	Runtime            string     `json:"runtime"`
@@ -90,8 +87,6 @@ type Event struct {
 	SourceGeneration   int        `json:"source_generation"`
 	RawEventID         string     `json:"raw_event_id,omitempty"`
 	SourceEventIndex   uint64     `json:"source_event_index,omitempty"`
-	BatchID            string     `json:"batch_id,omitempty"`
-	ControlPlaneEpoch  string     `json:"control_plane_epoch,omitempty"`
 	PayloadDigest      string     `json:"payload_digest,omitempty"`
 	RedactionStatus    string     `json:"redaction_status,omitempty"`
 	RedactionVersion   string     `json:"redaction_version,omitempty"`
@@ -99,30 +94,25 @@ type Event struct {
 }
 
 type RawRecord struct {
-	RecordUID         string    `json:"record_uid"`
-	EventUID          string    `json:"event_uid"`
-	NodeID            string    `json:"node_id,omitempty"`
-	CollectorID       string    `json:"collector_id,omitempty"`
-	SourceID          string    `json:"source_id,omitempty"`
-	SourceName        string    `json:"source_name"`
-	Runtime           string    `json:"runtime"`
-	Provider          string    `json:"provider"`
-	Format            string    `json:"format"`
-	SourceFile        string    `json:"source_file"`
-	SourceLineNo      int       `json:"source_line_no"`
-	SourceOffset      int64     `json:"source_offset"`
-	SourceGeneration  int       `json:"source_generation"`
-	SessionID         string    `json:"session_id"`
-	RawSessionID      string    `json:"raw_session_id,omitempty"`
-	RawEventID        string    `json:"raw_event_id,omitempty"`
-	SourceEventIndex  uint64    `json:"source_event_index,omitempty"`
-	BatchID           string    `json:"batch_id,omitempty"`
-	ControlPlaneEpoch string    `json:"control_plane_epoch,omitempty"`
-	PayloadDigest     string    `json:"payload_digest,omitempty"`
-	RedactionStatus   string    `json:"redaction_status,omitempty"`
-	RedactionVersion  string    `json:"redaction_version,omitempty"`
-	PayloadJSON       string    `json:"payload_json"`
-	CapturedAt        time.Time `json:"captured_at"`
+	RecordUID        string    `json:"record_uid"`
+	EventUID         string    `json:"event_uid"`
+	SourceName       string    `json:"source_name"`
+	Runtime          string    `json:"runtime"`
+	Provider         string    `json:"provider"`
+	Format           string    `json:"format"`
+	SourceFile       string    `json:"source_file"`
+	SourceLineNo     int       `json:"source_line_no"`
+	SourceOffset     int64     `json:"source_offset"`
+	SourceGeneration int       `json:"source_generation"`
+	SessionID        string    `json:"session_id"`
+	RawSessionID     string    `json:"raw_session_id,omitempty"`
+	RawEventID       string    `json:"raw_event_id,omitempty"`
+	SourceEventIndex uint64    `json:"source_event_index,omitempty"`
+	PayloadDigest    string    `json:"payload_digest,omitempty"`
+	RedactionStatus  string    `json:"redaction_status,omitempty"`
+	RedactionVersion string    `json:"redaction_version,omitempty"`
+	PayloadJSON      string    `json:"payload_json"`
+	CapturedAt       time.Time `json:"captured_at"`
 }
 
 type EventLink struct {
@@ -136,50 +126,34 @@ type EventLink struct {
 	LinkedSessionID    string `json:"linked_session_id,omitempty"`
 	RawLinkedSessionID string `json:"raw_linked_session_id,omitempty"`
 	RawLinkedEventID   string `json:"raw_linked_event_id,omitempty"`
-	CollectorID        string `json:"collector_id,omitempty"`
-	SourceID           string `json:"source_id,omitempty"`
-	BatchID            string `json:"batch_id,omitempty"`
-	ControlPlaneEpoch  string `json:"control_plane_epoch,omitempty"`
 }
 
 type ToolPayload struct {
-	EventUID          string `json:"event_uid"`
-	CollectorID       string `json:"collector_id,omitempty"`
-	SourceID          string `json:"source_id,omitempty"`
-	ToolName          string `json:"tool_name"`
-	ToolPhase         string `json:"tool_phase"`
-	InputJSON         string `json:"input_json"`
-	OutputJSON        string `json:"output_json"`
-	InputPreview      string `json:"input_preview"`
-	OutputPreview     string `json:"output_preview"`
-	BatchID           string `json:"batch_id,omitempty"`
-	ControlPlaneEpoch string `json:"control_plane_epoch,omitempty"`
-	PayloadDigest     string `json:"payload_digest,omitempty"`
-	RedactionStatus   string `json:"redaction_status,omitempty"`
-	RedactionVersion  string `json:"redaction_version,omitempty"`
+	EventUID         string `json:"event_uid"`
+	ToolName         string `json:"tool_name"`
+	ToolPhase        string `json:"tool_phase"`
+	InputJSON        string `json:"input_json"`
+	OutputJSON       string `json:"output_json"`
+	InputPreview     string `json:"input_preview"`
+	OutputPreview    string `json:"output_preview"`
+	PayloadDigest    string `json:"payload_digest,omitempty"`
+	RedactionStatus  string `json:"redaction_status,omitempty"`
+	RedactionVersion string `json:"redaction_version,omitempty"`
 }
 
 type CaptureError struct {
-	ID                string    `json:"id"`
-	NodeID            string    `json:"node_id,omitempty"`
-	CollectorID       string    `json:"collector_id,omitempty"`
-	SourceID          string    `json:"source_id,omitempty"`
-	SourceName        string    `json:"source_name"`
-	SourceFile        string    `json:"source_file"`
-	SourceLineNo      int       `json:"source_line_no"`
-	SourceOffset      int64     `json:"source_offset"`
-	BatchID           string    `json:"batch_id,omitempty"`
-	ControlPlaneEpoch string    `json:"control_plane_epoch,omitempty"`
-	ErrorClass        string    `json:"error_class"`
-	ErrorMessage      string    `json:"error_message"`
-	ContextFragment   string    `json:"context_fragment"`
-	CreatedAt         time.Time `json:"created_at"`
+	ID              string    `json:"id"`
+	SourceName      string    `json:"source_name"`
+	SourceFile      string    `json:"source_file"`
+	SourceLineNo    int       `json:"source_line_no"`
+	SourceOffset    int64     `json:"source_offset"`
+	ErrorClass      string    `json:"error_class"`
+	ErrorMessage    string    `json:"error_message"`
+	ContextFragment string    `json:"context_fragment"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 type Checkpoint struct {
-	NodeID           string `json:"node_id,omitempty"`
-	CollectorID      string `json:"collector_id,omitempty"`
-	SourceID         string `json:"source_id,omitempty"`
 	SourceName       string `json:"source_name"`
 	SourceFileKey    string `json:"source_file_key,omitempty"`
 	SourceFile       string `json:"source_file"`
@@ -207,27 +181,9 @@ func (cp Checkpoint) EffectiveSourceFileKey() string {
 	return CheckpointSourceFileKey(cp.SourceName, cp.SourceFile)
 }
 
-type CaptureHeartbeat struct {
-	NodeID            string     `json:"node_id"`
-	CollectorID       string     `json:"collector_id"`
-	SourceID          string     `json:"source_id"`
-	SourceName        string     `json:"source_name"`
-	ControlPlaneEpoch string     `json:"control_plane_epoch"`
-	Status            string     `json:"status"`
-	QueueDepth        int        `json:"queue_depth"`
-	SpoolBytes        int64      `json:"spool_bytes"`
-	ActiveFiles       int        `json:"active_files"`
-	ErrorCount        int        `json:"error_count"`
-	LastEventAt       *time.Time `json:"last_event_at,omitempty"`
-	CreatedAt         time.Time  `json:"created_at"`
-}
-
 type SearchDocument struct {
 	EventUID       string    `json:"event_uid"`
 	SessionID      string    `json:"session_id"`
-	NodeID         string    `json:"node_id,omitempty"`
-	CollectorID    string    `json:"collector_id,omitempty"`
-	SourceID       string    `json:"source_id,omitempty"`
 	SourceName     string    `json:"source_name,omitempty"`
 	Runtime        string    `json:"runtime,omitempty"`
 	Format         string    `json:"format,omitempty"`
@@ -248,9 +204,6 @@ type SearchPosting struct {
 	Token          string    `json:"token"`
 	EventUID       string    `json:"event_uid"`
 	SessionID      string    `json:"session_id"`
-	NodeID         string    `json:"node_id,omitempty"`
-	CollectorID    string    `json:"collector_id,omitempty"`
-	SourceID       string    `json:"source_id,omitempty"`
 	SourceName     string    `json:"source_name,omitempty"`
 	Runtime        string    `json:"runtime,omitempty"`
 	Format         string    `json:"format,omitempty"`

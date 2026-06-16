@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -831,10 +830,10 @@ func TestClickHouseSchemaVersionRecorded(t *testing.T) {
 	}
 }
 
-func TestClickHouseMigrateV6RecreatesAnalyticsProjectionWithRefreshID(t *testing.T) {
+func TestClickHouseMigrateRejectsUnsupportedVersion(t *testing.T) {
 	ch := setupLiveClickHouse(t)
 	ctx := context.Background()
-	database := "beacon_test_schema_v6_to_v7"
+	database := "beacon_test_schema_unsupported"
 	if _, err := ch.DB.ExecContext(ctx, "DROP DATABASE IF EXISTS "+database); err != nil {
 		t.Fatalf("drop test database: %v", err)
 	}
@@ -852,378 +851,19 @@ func TestClickHouseMigrateV6RecreatesAnalyticsProjectionWithRefreshID(t *testing
 		ENGINE = ReplacingMergeTree(updated_at)
 		ORDER BY id`,
 		`INSERT INTO ` + database + `.` + schemaVersionTable + ` (id, version) VALUES (1, 6)`,
-		legacyAnalyticsProjectionV6SQL(database),
 	} {
 		if _, err := ch.DB.ExecContext(ctx, stmt); err != nil {
 			t.Fatalf("prepare v6 schema: %v\n%s", err, stmt)
 		}
 	}
 
-	if err := Migrate(ctx, ch.DB, database); err != nil {
-		t.Fatalf("migrate v6 to current: %v", err)
+	err := Migrate(ctx, ch.DB, database)
+	if err == nil {
+		t.Fatalf("Migrate returned nil for unsupported schema")
 	}
-	version, ok, err := DetectSchemaVersion(ctx, ch.DB, database)
-	if err != nil {
-		t.Fatalf("detect migrated schema version: %v", err)
-	}
-	if !ok || version != CurrentSchemaVersion {
-		t.Fatalf("migrated schema version = %d ok=%v, want %d true", version, ok, CurrentSchemaVersion)
-	}
-	columns := clickHouseColumnSet(t, ch.DB, database, "analytics_projection")
-	for _, column := range []string{"refresh_id", "updated_at"} {
-		if !columns[column] {
-			t.Fatalf("migrated analytics_projection missing %s; columns=%v", column, columns)
-		}
-	}
-}
-
-func TestClickHouseMigrateV6RebuildsAnalyticsOnOutdatedRefresh(t *testing.T) {
-	ch := setupLiveClickHouse(t)
-	ctx := context.Background()
-	sessionID := "v6-rebuild-analytics"
-	event := models.Event{
-		EventUID:     "v6-rebuild-event",
-		SessionID:    sessionID,
-		SourceName:   "codex",
-		Runtime:      "codex",
-		Provider:     "openai",
-		Format:       models.FormatJSONL,
-		EventKind:    models.EventKindMessage,
-		ActorRole:    models.ActorRoleAssistant,
-		Timestamp:    time.Date(2026, 6, 8, 15, 0, 0, 0, time.UTC),
-		TextContent:  "v6 migration analytics rebuild",
-		TextPreview:  "v6 migration analytics rebuild",
-		InputTokens:  3,
-		OutputTokens: 4,
-		CWD:          "/Users/example/projects/beacon",
-		EventVersion: 1,
-		SourceFile:   "v6-rebuild.jsonl",
-		SourceLineNo: 1,
-	}
-	if err := ch.insertActivityEvents(ctx, []models.Event{event}); err != nil {
-		t.Fatalf("insert activity event: %v", err)
-	}
-	if err := ch.RefreshSessionProjections(ctx, []string{sessionID}); err != nil {
-		t.Fatalf("refresh session projection: %v", err)
-	}
-	if _, err := ch.DB.ExecContext(ctx, "DROP TABLE analytics_projection"); err != nil {
-		t.Fatalf("drop analytics projection: %v", err)
-	}
-	if _, err := ch.DB.ExecContext(ctx, legacyAnalyticsProjectionV6SQL(ch.Database())); err != nil {
-		t.Fatalf("create v6 analytics projection: %v", err)
-	}
-	time.Sleep(5 * time.Millisecond)
-	if _, err := ch.DB.ExecContext(ctx, `INSERT INTO schema_version (id, version) VALUES (?, ?)`, schemaVersionRowID, 6); err != nil {
-		t.Fatalf("mark schema v6: %v", err)
-	}
-	time.Sleep(5 * time.Millisecond)
-
-	if err := Migrate(ctx, ch.DB, ch.Database()); err != nil {
-		t.Fatalf("migrate v6 to current: %v", err)
-	}
-	refreshed, didRefresh, err := ch.RefreshOutdatedProjections(ctx)
-	if err != nil {
-		t.Fatalf("refresh outdated projections after migration: %v", err)
-	}
-	if !didRefresh || refreshed != 1 {
-		t.Fatalf("refresh after migration = count %d refreshed %v, want 1 true", refreshed, didRefresh)
-	}
-	rows, tokens := analyticsProjectionTotals(t, ch.DB, sessionID, "beacon")
-	if rows == 0 || tokens != 7 {
-		t.Fatalf("analytics after migration refresh rows/tokens = %d/%d, want rebuilt beacon tokens", rows, tokens)
-	}
-}
-
-func legacyAnalyticsProjectionV6SQL(database string) string {
-	return `CREATE TABLE ` + database + `.analytics_projection (
-		session_id String,
-		node_id String,
-		collector_id String,
-		source_id String,
-		source_name LowCardinality(String),
-		runtime LowCardinality(String),
-		format LowCardinality(String),
-		project_key String,
-		project_path String,
-		minute DateTime64(3, 'UTC'),
-		provider LowCardinality(String),
-		model LowCardinality(String),
-		tool_name LowCardinality(String),
-		event_kind LowCardinality(String),
-		event_count UInt64,
-		call_count UInt64,
-		tool_call_count UInt64,
-		tool_result_count UInt64,
-		input_tokens UInt64,
-		output_tokens UInt64,
-		cache_read_tokens UInt64,
-		cache_create_tokens UInt64,
-		total_tokens UInt64,
-		duration_ms_sum UInt64,
-		cost_usd_sum Float64,
-		updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
-	)
-	ENGINE = ReplacingMergeTree(updated_at)
-	ORDER BY (session_id, minute)`
-}
-
-func TestClickHouseInsertCaptureHeartbeats(t *testing.T) {
-	ch := setupLiveClickHouse(t)
-	ctx := context.Background()
-	lastEventAt := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
-	if err := ch.InsertCaptureHeartbeats(ctx, []models.CaptureHeartbeat{{
-		NodeID:            "node-heartbeat",
-		CollectorID:       "collector-heartbeat",
-		SourceID:          "source-heartbeat",
-		SourceName:        "codex",
-		ControlPlaneEpoch: "1",
-		Status:            "healthy",
-		QueueDepth:        2,
-		SpoolBytes:        4096,
-		ActiveFiles:       3,
-		ErrorCount:        1,
-		LastEventAt:       &lastEventAt,
-	}}); err != nil {
-		t.Fatalf("InsertCaptureHeartbeats: %v", err)
-	}
-	var queueDepth uint32
-	var spoolBytes uint64
-	var status string
-	if err := ch.DB.QueryRowContext(ctx,
-		`SELECT argMax(queue_depth, created_at), argMax(spool_bytes, created_at), argMax(status, created_at)
-		 FROM capture_heartbeats
-		 WHERE collector_id = ? AND source_id = ?`,
-		"collector-heartbeat",
-		"source-heartbeat",
-	).Scan(&queueDepth, &spoolBytes, &status); err != nil {
-		t.Fatalf("query heartbeat: %v", err)
-	}
-	if queueDepth != 2 || spoolBytes != 4096 || status != "healthy" {
-		t.Fatalf("heartbeat = queue %d spool %d status %q", queueDepth, spoolBytes, status)
-	}
-}
-
-func TestClickHouseCommitIngestBatchIsIdempotent(t *testing.T) {
-	ch := setupLiveClickHouse(t)
-	ctx := context.Background()
-	meta := IngestBatchMeta{
-		CollectorID:       "collector-ingest",
-		BatchID:           "batch-ingest-1",
-		NodeID:            "node-ingest",
-		Sequence:          1,
-		ControlPlaneEpoch: "1",
-		PayloadDigest:     "sha256:batch-one",
-		RedactionVersion:  "redact-v1",
-		CreatedAt:         time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC),
-	}
-	event := models.Event{
-		EventUID:          "evt-ingest-1",
-		SessionID:         "session-ingest",
-		NodeID:            meta.NodeID,
-		CollectorID:       meta.CollectorID,
-		SourceID:          "source-ingest",
-		SourceName:        "codex",
-		Runtime:           "codex",
-		Provider:          "openai",
-		Format:            "jsonl",
-		EventKind:         "message",
-		ActorRole:         "assistant",
-		Timestamp:         time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC),
-		TextContent:       "ingest idempotency",
-		TextPreview:       "ingest idempotency",
-		SourceFile:        "session.jsonl",
-		SourceLineNo:      1,
-		BatchID:           meta.BatchID,
-		ControlPlaneEpoch: meta.ControlPlaneEpoch,
-		PayloadDigest:     "sha256:event-one",
-		RedactionStatus:   "redacted",
-		RedactionVersion:  meta.RedactionVersion,
-	}
-	rows := RowBatch{
-		ActivityEvents: []models.Event{event},
-		RawRecords:     []models.RawRecord{NewRawRecord(event)},
-		Checkpoints: []models.Checkpoint{{
-			NodeID:      meta.NodeID,
-			CollectorID: meta.CollectorID,
-			SourceID:    "source-ingest",
-			SourceName:  "codex",
-			SourceFile:  "session.jsonl",
-			LastOffset:  42,
-			LastLineNo:  1,
-		}},
-	}
-
-	ack, err := ch.CommitIngestBatch(ctx, meta, rows)
-	if err != nil {
-		t.Fatalf("CommitIngestBatch: %v", err)
-	}
-	if ack.NextSequence != 2 || ack.EventsWritten != 1 || ack.RawRecordsWritten != 1 {
-		t.Fatalf("ack = %#v, want next 2 and one row", ack)
-	}
-	duplicate, err := ch.CommitIngestBatch(ctx, meta, rows)
-	if err != nil {
-		t.Fatalf("duplicate CommitIngestBatch: %v", err)
-	}
-	if duplicate != ack {
-		t.Fatalf("duplicate ack = %#v, want %#v", duplicate, ack)
-	}
-	conflict := meta
-	conflict.PayloadDigest = "sha256:different"
-	if _, err := ch.CommitIngestBatch(ctx, conflict, rows); !errors.Is(err, ErrIngestBatchDigestMismatch) {
-		t.Fatalf("conflict error = %v, want ErrIngestBatchDigestMismatch", err)
-	}
-	gap := meta
-	gap.BatchID = "batch-ingest-gap"
-	gap.Sequence = 3
-	gap.PayloadDigest = "sha256:gap"
-	if _, err := ch.CommitIngestBatch(ctx, gap, rows); !errors.Is(err, ErrIngestBatchSequenceGap) {
-		t.Fatalf("sequence gap error = %v, want ErrIngestBatchSequenceGap", err)
-	}
-
-	var status string
-	if err := ch.DB.QueryRowContext(ctx,
-		`SELECT argMax(status, state_version)
-			 FROM ingest_batches
-			 WHERE collector_id = ? AND batch_id = ?`,
-		meta.CollectorID,
-		meta.BatchID,
-	).Scan(&status); err != nil {
-		t.Fatalf("query ingest batch status: %v", err)
-	}
-	if status != BatchStateCommitted {
-		t.Fatalf("status = %q, want committed", status)
-	}
-	var checkpointOffset uint64
-	if err := ch.DB.QueryRowContext(ctx,
-		`SELECT argMax(last_offset, updated_at)
-		 FROM capture_checkpoints
-		 WHERE collector_id = ? AND source_id = ? AND source_file = ?`,
-		meta.CollectorID,
-		"source-ingest",
-		"session.jsonl",
-	).Scan(&checkpointOffset); err != nil {
-		t.Fatalf("query checkpoint: %v", err)
-	}
-	if checkpointOffset != 42 {
-		t.Fatalf("checkpoint offset = %d, want 42", checkpointOffset)
-	}
-}
-
-func TestClickHouseIngestBatchStateVersionBreaksTimestampTies(t *testing.T) {
-	ch := setupLiveClickHouse(t)
-	ctx := context.Background()
-	meta := IngestBatchMeta{
-		CollectorID:       "collector-state-version",
-		BatchID:           "batch-state-version",
-		NodeID:            "node-state-version",
-		Sequence:          1,
-		ControlPlaneEpoch: "1",
-		PayloadDigest:     "sha256:state-version",
-		RedactionVersion:  "redact-v1",
-		CreatedAt:         time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC),
-	}
-	tiedAt := time.Date(2026, 6, 7, 12, 1, 2, 123000000, time.UTC)
-	receiving := batchRecordFromRows(meta, RowBatch{}, 1, BatchStateReceiving, "")
-	receiving.ReceivedAt = tiedAt
-	receiving.UpdatedAt = tiedAt
-	committed := batchRecordFromRows(meta, RowBatch{}, 2, BatchStateCommitted, "")
-	committed.ReceivedAt = tiedAt
-	committed.UpdatedAt = tiedAt
-	committed.CommittedAt = &tiedAt
-	if err := ch.insertIngestBatchRecord(ctx, receiving); err != nil {
-		t.Fatalf("insert receiving: %v", err)
-	}
-	if err := ch.insertIngestBatchRecord(ctx, committed); err != nil {
-		t.Fatalf("insert committed: %v", err)
-	}
-	record, ok, err := ch.GetIngestBatch(ctx, meta.CollectorID, meta.BatchID)
-	if err != nil {
-		t.Fatalf("GetIngestBatch: %v", err)
-	}
-	if !ok || record.Status != BatchStateCommitted || record.StateVersion != 2 {
-		t.Fatalf("record = %#v ok=%v, want committed state_version 2", record, ok)
-	}
-}
-
-func TestClickHouseCommitIngestBatchConcurrentDuplicateIsIdempotent(t *testing.T) {
-	ch := setupLiveClickHouse(t)
-	ctx := context.Background()
-	meta := IngestBatchMeta{
-		CollectorID:       "collector-concurrent",
-		BatchID:           "batch-concurrent",
-		NodeID:            "node-concurrent",
-		Sequence:          1,
-		ControlPlaneEpoch: "1",
-		PayloadDigest:     "sha256:concurrent",
-		RedactionVersion:  "redact-v1",
-		CreatedAt:         time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC),
-	}
-	event := models.Event{
-		EventUID:          "evt-concurrent",
-		SessionID:         "session-concurrent",
-		NodeID:            meta.NodeID,
-		CollectorID:       meta.CollectorID,
-		SourceID:          "source-concurrent",
-		SourceName:        "codex",
-		Runtime:           "codex",
-		Provider:          "openai",
-		Format:            "jsonl",
-		EventKind:         "message",
-		ActorRole:         "assistant",
-		Timestamp:         time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC),
-		TextContent:       "concurrent duplicate",
-		TextPreview:       "concurrent duplicate",
-		SourceFile:        "session.jsonl",
-		SourceLineNo:      1,
-		BatchID:           meta.BatchID,
-		ControlPlaneEpoch: meta.ControlPlaneEpoch,
-		PayloadDigest:     meta.PayloadDigest,
-		RedactionStatus:   "redacted",
-		RedactionVersion:  meta.RedactionVersion,
-	}
-	rows := RowBatch{
-		ActivityEvents: []models.Event{event},
-		RawRecords:     []models.RawRecord{NewRawRecord(event)},
-	}
-
-	const workers = 4
-	acks := make(chan IngestBatchAck, workers)
-	errs := make(chan error, workers)
-	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			ack, err := ch.CommitIngestBatch(ctx, meta, rows)
-			if err != nil {
-				errs <- err
-				return
-			}
-			acks <- ack
-		}()
-	}
-	wg.Wait()
-	close(acks)
-	close(errs)
-	for err := range errs {
-		t.Fatalf("concurrent CommitIngestBatch: %v", err)
-	}
-	var first IngestBatchAck
-	for ack := range acks {
-		if first.BatchID == "" {
-			first = ack
-			continue
-		}
-		if ack != first {
-			t.Fatalf("ack = %#v, want %#v", ack, first)
-		}
-	}
-	record, ok, err := ch.GetIngestBatch(ctx, meta.CollectorID, meta.BatchID)
-	if err != nil {
-		t.Fatalf("GetIngestBatch: %v", err)
-	}
-	if !ok || record.Status != BatchStateCommitted {
-		t.Fatalf("record = %#v ok=%v, want committed", record, ok)
+	var unsupported *UnsupportedSchemaError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("Migrate error = %T %v, want UnsupportedSchemaError", err, err)
 	}
 }
 
@@ -1254,18 +894,13 @@ func TestClickHouseCaptureErrorsAreReplayDeduped(t *testing.T) {
 	ch := setupLiveClickHouse(t)
 	ctx := context.Background()
 	errRow := models.CaptureError{
-		ID:                "capture-error-dedupe",
-		NodeID:            "node-errors",
-		CollectorID:       "collector-errors",
-		SourceID:          "source-errors",
-		SourceName:        "codex",
-		SourceFile:        "session.jsonl",
-		BatchID:           "batch-errors",
-		ControlPlaneEpoch: "1",
-		ErrorClass:        "parse_error",
-		ErrorMessage:      "bad json",
-		ContextFragment:   "{bad",
-		CreatedAt:         time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC),
+		ID:              "capture-error-dedupe",
+		SourceName:      "codex",
+		SourceFile:      "session.jsonl",
+		ErrorClass:      "parse_error",
+		ErrorMessage:    "bad json",
+		ContextFragment: "{bad",
+		CreatedAt:       time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC),
 	}
 	rows := RowBatch{CaptureErrors: []models.CaptureError{errRow}}
 	if err := ch.Flush(ctx, rows); err != nil {
@@ -1278,9 +913,8 @@ func TestClickHouseCaptureErrorsAreReplayDeduped(t *testing.T) {
 	if err := ch.DB.QueryRowContext(ctx,
 		`SELECT count()
 		 FROM capture_errors FINAL
-		 WHERE collector_id = ? AND batch_id = ? AND id = ?`,
-		errRow.CollectorID,
-		errRow.BatchID,
+		 WHERE source_name = ? AND id = ?`,
+		errRow.SourceName,
 		errRow.ID,
 	).Scan(&count); err != nil {
 		t.Fatalf("query capture errors: %v", err)
@@ -1382,28 +1016,6 @@ func clickHouseCreateStatements(t *testing.T, db *sql.DB, database string) map[s
 		schema[table] = stmt
 	}
 	return schema
-}
-
-func clickHouseColumnSet(t *testing.T, db *sql.DB, database, table string) map[string]bool {
-	t.Helper()
-	rows, err := db.QueryContext(context.Background(), fmt.Sprintf("DESCRIBE TABLE %s.%s", database, table))
-	if err != nil {
-		t.Fatalf("describe table %s: %v", table, err)
-	}
-	defer rows.Close()
-
-	columns := make(map[string]bool)
-	for rows.Next() {
-		var name, typ, defaultType, defaultExpression, comment, codecExpression, ttlExpression string
-		if err := rows.Scan(&name, &typ, &defaultType, &defaultExpression, &comment, &codecExpression, &ttlExpression); err != nil {
-			t.Fatalf("scan column: %v", err)
-		}
-		columns[name] = true
-	}
-	if err := rows.Err(); err != nil {
-		t.Fatalf("read columns: %v", err)
-	}
-	return columns
 }
 
 func assertBeaconTableSet(t *testing.T, tables map[string]bool) {

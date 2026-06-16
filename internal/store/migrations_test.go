@@ -53,31 +53,34 @@ func TestSchemaUsesClickHouseEngines(t *testing.T) {
 func TestSchemaIncludesSourceMetadataColumns(t *testing.T) {
 	schema := strings.Join(Schema("beacon"), "\n")
 	for _, expected := range []string{
+		"source_name LowCardinality(String)",
 		"runtime LowCardinality(String)",
 		"format LowCardinality(String)",
 		"source_generation UInt32",
-		"collector_id String",
-		"source_id String",
 		"raw_event_id String",
 		"source_event_index UInt64",
-		"batch_id String",
-		"control_plane_epoch String",
 		"payload_digest String",
 		"redaction_status LowCardinality(String)",
 		"state_json String DEFAULT ''",
-		"beacon.ingest_batches",
-		"beacon.capture_heartbeats",
-		"spool_bytes UInt64",
-		"ORDER BY (collector_id, source_id, created_at)",
-		"state_version UInt64",
-		"status LowCardinality(String)",
-		"committed_at Nullable(DateTime64(3, 'UTC'))",
 		"source_file_key String",
-		"ORDER BY (collector_id, source_id, source_name, source_file_key)",
-		"ORDER BY (collector_id, batch_id, id)",
+		"ORDER BY (source_name, source_file_key)",
+		"ORDER BY (source_name, id)",
 	} {
 		if !strings.Contains(schema, expected) {
 			t.Fatalf("schema missing %s", expected)
+		}
+	}
+	for _, removed := range []string{
+		strings.Join([]string{"node", "id"}, "_") + " String",
+		strings.Join([]string{"collector", "id"}, "_") + " String",
+		strings.Join([]string{"source", "id"}, "_") + " String",
+		strings.Join([]string{"batch", "id"}, "_") + " String",
+		strings.Join([]string{"control", "plane", "epoch"}, "_") + " String",
+		"beacon." + strings.Join([]string{"ingest", "batches"}, "_"),
+		"beacon." + strings.Join([]string{"capture", "heartbeats"}, "_"),
+	} {
+		if strings.Contains(schema, removed) {
+			t.Fatalf("schema still contains removed multi-machine field/table %s", removed)
 		}
 	}
 }
@@ -104,14 +107,14 @@ func TestSchemaIncludesAnalyticsProjection(t *testing.T) {
 	for _, expected := range []string{
 		"beacon.analytics_projection",
 		"minute DateTime64(3, 'UTC')",
-		"collector_id String",
+		"source_name LowCardinality(String)",
 		"project_key String",
 		"call_count UInt64",
 		"duration_ms_sum UInt64",
 		"cost_usd_sum Float64",
 		"refresh_id String",
 		"updated_at DateTime64(9, 'UTC') DEFAULT now64(9)",
-		"ORDER BY (collector_id, source_id, project_key, project_path, session_id, node_id, source_name, runtime, format, minute, provider, model, tool_name, event_kind)",
+		"ORDER BY (project_key, project_path, session_id, source_name, runtime, format, minute, provider, model, tool_name, event_kind)",
 	} {
 		if !strings.Contains(schema, expected) {
 			t.Fatalf("schema missing %s", expected)
@@ -119,7 +122,7 @@ func TestSchemaIncludesAnalyticsProjection(t *testing.T) {
 	}
 }
 
-func TestSchemaIncludesFleetAwareLinkColumns(t *testing.T) {
+func TestSchemaIncludesLinkColumns(t *testing.T) {
 	schema := strings.Join(Schema("beacon"), "\n")
 	for _, expected := range []string{
 		"linked_session_id String",
@@ -127,9 +130,9 @@ func TestSchemaIncludesFleetAwareLinkColumns(t *testing.T) {
 		"raw_linked_event_id String",
 		"link_scope LowCardinality(String)",
 		"resolution_status LowCardinality(String)",
-		"ORDER BY (collector_id, source_id, event_uid, link_type, raw_linked_session_id, raw_linked_event_id)",
-		"ORDER BY (session_id, collector_id, source_id, timestamp, event_uid)",
-		"ORDER BY (event_uid, collector_id, source_id)",
+		"ORDER BY (event_uid, link_type, raw_linked_session_id, raw_linked_event_id)",
+		"ORDER BY (session_id, source_name, timestamp, event_uid)",
+		"ORDER BY event_uid",
 	} {
 		if !strings.Contains(schema, expected) {
 			t.Fatalf("schema missing %s", expected)
@@ -177,38 +180,33 @@ func TestValidateSchemaStateRejectsUnsupportedSchemas(t *testing.T) {
 
 func TestNewRawRecordPreservesSourceMetadata(t *testing.T) {
 	event := models.Event{
-		EventUID:          "evt",
-		NodeID:            "node-a",
-		CollectorID:       "collector-a",
-		SourceID:          "source-a",
-		SourceName:        "custom-source",
-		Runtime:           "custom-runtime",
-		Provider:          "custom-provider",
-		Format:            "jsonl",
-		SourceFile:        "session.jsonl",
-		SourceLineNo:      12,
-		SourceOffset:      34,
-		SourceGeneration:  2,
-		SessionID:         "sess",
-		RawSessionID:      "raw-sess",
-		RawEventID:        "raw-event",
-		SourceEventIndex:  42,
-		BatchID:           "batch-a",
-		ControlPlaneEpoch: "1",
-		PayloadDigest:     "digest-a",
-		RedactionStatus:   "unredacted",
-		PayloadJSON:       `{"ok":true}`,
+		EventUID:         "evt",
+		SourceName:       "custom-source",
+		Runtime:          "custom-runtime",
+		Provider:         "custom-provider",
+		Format:           "jsonl",
+		SourceFile:       "session.jsonl",
+		SourceLineNo:     12,
+		SourceOffset:     34,
+		SourceGeneration: 2,
+		SessionID:        "sess",
+		RawSessionID:     "raw-sess",
+		RawEventID:       "raw-event",
+		SourceEventIndex: 42,
+		PayloadDigest:    "digest-a",
+		RedactionStatus:  "unredacted",
+		PayloadJSON:      `{"ok":true}`,
 	}
 
 	raw := NewRawRecord(event)
 	if raw.Runtime != event.Runtime || raw.Format != event.Format || raw.SourceGeneration != event.SourceGeneration {
 		t.Fatalf("raw source metadata = runtime %q format %q generation %d", raw.Runtime, raw.Format, raw.SourceGeneration)
 	}
-	if raw.EventUID != event.EventUID || raw.CollectorID != event.CollectorID || raw.SourceID != event.SourceID ||
+	if raw.EventUID != event.EventUID || raw.SourceName != event.SourceName ||
 		raw.RawSessionID != event.RawSessionID || raw.RawEventID != event.RawEventID ||
-		raw.SourceEventIndex != event.SourceEventIndex || raw.BatchID != event.BatchID ||
+		raw.SourceEventIndex != event.SourceEventIndex ||
 		raw.PayloadDigest != event.PayloadDigest || raw.RedactionStatus != event.RedactionStatus {
-		t.Fatalf("raw fleet identity not preserved: %#v", raw)
+		t.Fatalf("raw identity not preserved: %#v", raw)
 	}
 }
 

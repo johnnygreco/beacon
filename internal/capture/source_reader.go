@@ -531,9 +531,6 @@ func checkpointAfterRotation(src WatchSource, file string, fi os.FileInfo, cp *m
 		return cp
 	}
 	return &models.Checkpoint{
-		NodeID:           cp.NodeID,
-		CollectorID:      cp.CollectorID,
-		SourceID:         cp.SourceID,
 		SourceName:       src.Name,
 		SourceFile:       file,
 		SourceInode:      inode,

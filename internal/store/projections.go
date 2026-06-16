@@ -34,9 +34,6 @@ func sessionProjectionInsertSQL(placeholders string) string {
 	return fmt.Sprintf(`INSERT INTO session_projection
 		SELECT
 			session_id,
-			node_id,
-			collector_id,
-			source_id,
 			source_name,
 			runtime,
 			provider,
@@ -75,9 +72,6 @@ func sessionProjectionInsertSQL(placeholders string) string {
 		FROM (
 			SELECT
 				projected_session_id AS session_id,
-				argMaxIf(node_id, timestamp, node_id != '') AS node_id,
-				argMaxIf(collector_id, timestamp, collector_id != '') AS collector_id,
-				argMaxIf(source_id, timestamp, source_id != '') AS source_id,
 				argMax(source_name, timestamp) AS source_name,
 				argMax(runtime, timestamp) AS runtime,
 				argMax(provider, timestamp) AS provider,
@@ -105,9 +99,6 @@ func sessionProjectionInsertSQL(placeholders string) string {
 			FROM (
 				SELECT event_uid,
 				       argMax(session_id, captured_at) AS projected_session_id,
-				       argMax(node_id, captured_at) AS node_id,
-				       argMax(collector_id, captured_at) AS collector_id,
-				       argMax(source_id, captured_at) AS source_id,
 				       argMax(source_name, captured_at) AS source_name,
 				       argMax(runtime, captured_at) AS runtime,
 				       argMax(provider, captured_at) AS provider,
@@ -317,9 +308,6 @@ func analyticsProjectionInsertSQL(placeholders string) string {
 	return fmt.Sprintf(`INSERT INTO analytics_projection
 		SELECT
 			projected_session_id AS session_id,
-			node_id,
-			collector_id,
-			source_id,
 			source_name,
 			runtime,
 			format,
@@ -349,9 +337,6 @@ func analyticsProjectionInsertSQL(placeholders string) string {
 			FROM (
 				SELECT event_uid,
 				       argMax(session_id, captured_at) AS projected_session_id,
-				       argMax(node_id, captured_at) AS node_id,
-				       argMax(collector_id, captured_at) AS collector_id,
-				       argMax(source_id, captured_at) AS source_id,
 				       argMax(source_name, captured_at) AS source_name,
 				       argMax(runtime, captured_at) AS runtime,
 				       argMax(format, captured_at) AS format,
@@ -373,7 +358,7 @@ func analyticsProjectionInsertSQL(placeholders string) string {
 			) AS latest_events
 			LEFT JOIN `+sessionProjectFallbackSQL(placeholders)+` AS sp ON sp.session_id = latest_events.projected_session_id
 		)
-		GROUP BY projected_session_id, node_id, collector_id, source_id, source_name, runtime, format, project_key, project_path, minute, provider, model, tool_name, event_kind`, placeholders, projectKeySQL("project_path"))
+		GROUP BY projected_session_id, source_name, runtime, format, project_key, project_path, minute, provider, model, tool_name, event_kind`, placeholders, projectKeySQL("project_path"))
 }
 
 func projectKeySQL(pathExpr string) string {

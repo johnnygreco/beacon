@@ -9,12 +9,9 @@ import (
 )
 
 type APIScopeFilters struct {
-	NodeIDs      []string `json:"node_ids,omitempty"`
-	CollectorIDs []string `json:"collector_ids,omitempty"`
-	SourceIDs    []string `json:"source_ids,omitempty"`
-	SourceNames  []string `json:"source_names,omitempty"`
-	Runtimes     []string `json:"runtimes,omitempty"`
-	ProjectKeys  []string `json:"project_keys,omitempty"`
+	SourceNames []string `json:"source_names,omitempty"`
+	Runtimes    []string `json:"runtimes,omitempty"`
+	ProjectKeys []string `json:"project_keys,omitempty"`
 
 	denyAll bool
 }
@@ -25,12 +22,6 @@ type APIScopeMetadata struct {
 }
 
 var apiScopeParamNames = []string{
-	"node_id",
-	"node_ids",
-	"collector_id",
-	"collector_ids",
-	"source_id",
-	"source_ids",
 	"source_name",
 	"source_names",
 	"runtime",
@@ -41,12 +32,9 @@ var apiScopeParamNames = []string{
 
 func parseAPIScopeFilters(values url.Values) APIScopeFilters {
 	return normalizeAPIScopeFilters(APIScopeFilters{
-		NodeIDs:      parseAPIScopeValues(values, "node_id", "node_ids"),
-		CollectorIDs: parseAPIScopeValues(values, "collector_id", "collector_ids"),
-		SourceIDs:    parseAPIScopeValues(values, "source_id", "source_ids"),
-		SourceNames:  parseAPIScopeValues(values, "source_name", "source_names"),
-		Runtimes:     parseAPIScopeValues(values, "runtime", "runtimes"),
-		ProjectKeys:  parseAPIScopeValues(values, "project_key", "project_keys"),
+		SourceNames: parseAPIScopeValues(values, "source_name", "source_names"),
+		Runtimes:    parseAPIScopeValues(values, "runtime", "runtimes"),
+		ProjectKeys: parseAPIScopeValues(values, "project_key", "project_keys"),
 	})
 }
 
@@ -109,9 +97,6 @@ func scopeForRequest(ctx context.Context, requested APIScopeFilters) (APIScopeFi
 }
 
 func normalizeAPIScopeFilters(scope APIScopeFilters) APIScopeFilters {
-	scope.NodeIDs = compactScopeValues(scope.NodeIDs)
-	scope.CollectorIDs = compactScopeValues(scope.CollectorIDs)
-	scope.SourceIDs = compactScopeValues(scope.SourceIDs)
 	scope.SourceNames = compactScopeValues(scope.SourceNames)
 	scope.Runtimes = compactScopeValues(scope.Runtimes)
 	scope.ProjectKeys = compactScopeValues(scope.ProjectKeys)
@@ -124,12 +109,9 @@ func intersectAPIScopes(auth, requested APIScopeFilters) APIScopeFilters {
 	}
 	var denied bool
 	out := APIScopeFilters{
-		NodeIDs:      intersectAPIScopeDimension(auth.NodeIDs, requested.NodeIDs, &denied),
-		CollectorIDs: intersectAPIScopeDimension(auth.CollectorIDs, requested.CollectorIDs, &denied),
-		SourceIDs:    intersectAPIScopeDimension(auth.SourceIDs, requested.SourceIDs, &denied),
-		SourceNames:  intersectAPIScopeDimension(auth.SourceNames, requested.SourceNames, &denied),
-		Runtimes:     intersectAPIScopeDimension(auth.Runtimes, requested.Runtimes, &denied),
-		ProjectKeys:  intersectAPIScopeDimension(auth.ProjectKeys, requested.ProjectKeys, &denied),
+		SourceNames: intersectAPIScopeDimension(auth.SourceNames, requested.SourceNames, &denied),
+		Runtimes:    intersectAPIScopeDimension(auth.Runtimes, requested.Runtimes, &denied),
+		ProjectKeys: intersectAPIScopeDimension(auth.ProjectKeys, requested.ProjectKeys, &denied),
 	}
 	if denied {
 		return APIScopeFilters{denyAll: true}
@@ -167,23 +149,14 @@ func (s APIScopeFilters) withoutProjectKeys() APIScopeFilters {
 	return s
 }
 
-func (s APIScopeFilters) withoutProjectKeysAndRuntimes() APIScopeFilters {
-	s.ProjectKeys = nil
-	s.Runtimes = nil
-	return s
-}
-
 func (s APIScopeFilters) applyToSearchQuery(q *search.SearchQuery) {
 	if q == nil {
 		return
 	}
 	if s.denyAll {
-		q.NodeIDs = []string{apiScopeImpossibleValue}
+		q.SourceNames = []string{apiScopeImpossibleValue}
 		return
 	}
-	q.NodeIDs = compactScopeValues(append(q.NodeIDs, s.NodeIDs...))
-	q.CollectorIDs = compactScopeValues(append(q.CollectorIDs, s.CollectorIDs...))
-	q.SourceIDs = compactScopeValues(append(q.SourceIDs, s.SourceIDs...))
 	q.SourceNames = compactScopeValues(append(q.SourceNames, s.SourceNames...))
 	q.Runtimes = compactScopeValues(append(q.Runtimes, s.Runtimes...))
 	q.ProjectKeys = compactScopeValues(append(q.ProjectKeys, s.ProjectKeys...))
@@ -233,9 +206,6 @@ func (s APIScopeFilters) sqlPredicates(alias string) ([]string, []any) {
 	}
 	var predicates []string
 	var args []any
-	appendScopePredicate(&predicates, &args, nodeScopeExpr(prefix+"node_id"), s.NodeIDs)
-	appendScopePredicate(&predicates, &args, prefix+"collector_id", s.CollectorIDs)
-	appendScopePredicate(&predicates, &args, prefix+"source_id", s.SourceIDs)
 	appendScopePredicate(&predicates, &args, prefix+"source_name", s.SourceNames)
 	appendScopePredicate(&predicates, &args, prefix+"runtime", s.Runtimes)
 	appendScopePredicate(&predicates, &args, prefix+"project_key", s.ProjectKeys)
@@ -252,9 +222,6 @@ func (s APIScopeFilters) eventSQLPredicates(alias, cwdExpr string) ([]string, []
 	}
 	var predicates []string
 	var args []any
-	appendScopePredicate(&predicates, &args, nodeScopeExpr(prefix+"node_id"), s.NodeIDs)
-	appendScopePredicate(&predicates, &args, prefix+"collector_id", s.CollectorIDs)
-	appendScopePredicate(&predicates, &args, prefix+"source_id", s.SourceIDs)
 	appendScopePredicate(&predicates, &args, prefix+"source_name", s.SourceNames)
 	appendScopePredicate(&predicates, &args, prefix+"runtime", s.Runtimes)
 	projectExpr := strings.TrimSpace(cwdExpr)
@@ -276,14 +243,6 @@ func appendScopePredicate(predicates *[]string, args *[]any, column string, valu
 	for _, value := range values {
 		*args = append(*args, value)
 	}
-}
-
-func nodeScopeExpr(column string) string {
-	column = strings.TrimSpace(column)
-	if column == "" {
-		column = "node_id"
-	}
-	return "COALESCE(NULLIF(" + column + ", ''), 'local')"
 }
 
 func projectKeyExpr(pathExpr string) string {

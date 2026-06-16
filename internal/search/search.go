@@ -19,9 +19,6 @@ type SearchQuery struct {
 	MinScore       float64
 	SessionID      string
 	EventKinds     []string
-	NodeIDs        []string
-	CollectorIDs   []string
-	SourceIDs      []string
 	SourceNames    []string
 	Runtimes       []string
 	ProjectKeys    []string
@@ -35,9 +32,6 @@ type SearchQuery struct {
 type SearchResult struct {
 	EventUID    string    `json:"event_uid"`
 	SessionID   string    `json:"session_id"`
-	NodeID      string    `json:"node_id,omitempty"`
-	CollectorID string    `json:"collector_id,omitempty"`
-	SourceID    string    `json:"source_id,omitempty"`
 	SourceName  string    `json:"source_name,omitempty"`
 	Runtime     string    `json:"runtime,omitempty"`
 	ProjectKey  string    `json:"project_key,omitempty"`
@@ -190,9 +184,6 @@ func (s *Searcher) postingsSearch(ctx context.Context, q SearchQuery, tokens []s
 		SELECT
 			p.event_uid,
 			any(p.session_id) AS session_id,
-			any(p.node_id) AS node_id,
-			any(p.collector_id) AS collector_id,
-			any(p.source_id) AS source_id,
 			any(p.source_name) AS source_name,
 			any(p.runtime) AS runtime,
 			any(p.project_key) AS project_key,
@@ -287,8 +278,8 @@ func (s *Searcher) Browse(ctx context.Context, q SearchQuery) ([]SearchResult, e
 	filterSQL, args := buildDocumentFilters(q)
 
 	query := fmt.Sprintf(`
-		SELECT event_uid, session_id, node_id, collector_id, source_id, source_name,
-		       runtime, project_key, project_path, event_kind, text_preview, 0.0 AS score,
+		SELECT event_uid, session_id, source_name, runtime, project_key,
+		       project_path, event_kind, text_preview, 0.0 AS score,
 		       timestamp, tool_name, model, provider
 		FROM search_documents FINAL
 		WHERE 1 = 1 %s
@@ -348,9 +339,6 @@ func buildFilters(alias string, q SearchQuery) (string, []any) {
 			args = append(args, kind)
 		}
 	}
-	appendInFilter(&clauses, &args, nodeFilterExpr(prefix+"node_id"), q.NodeIDs)
-	appendInFilter(&clauses, &args, prefix+"collector_id", q.CollectorIDs)
-	appendInFilter(&clauses, &args, prefix+"source_id", q.SourceIDs)
 	appendInFilter(&clauses, &args, prefix+"source_name", q.SourceNames)
 	appendInFilter(&clauses, &args, prefix+"runtime", q.Runtimes)
 	appendInFilter(&clauses, &args, prefix+"project_key", q.ProjectKeys)
@@ -365,7 +353,7 @@ func buildFilters(alias string, q SearchQuery) (string, []any) {
 	}
 
 	if q.ExcludeMCPSelf {
-		clauses = append(clauses, "AND "+prefix+"tool_name NOT IN ('search_sessions', 'open', 'list_agents', 'list_sessions', 'usage_summary')")
+		clauses = append(clauses, "AND "+prefix+"tool_name NOT IN ('search_sessions', 'open', 'list_sessions', 'usage_summary')")
 		clauses = append(clauses, "AND positionCaseInsensitive("+prefix+"text_preview, 'beacon') = 0")
 	}
 
@@ -381,14 +369,6 @@ func appendInFilter(clauses *[]string, args *[]any, column string, values []stri
 	for _, value := range values {
 		*args = append(*args, value)
 	}
-}
-
-func nodeFilterExpr(column string) string {
-	column = strings.TrimSpace(column)
-	if column == "" {
-		column = "node_id"
-	}
-	return "COALESCE(NULLIF(" + column + ", ''), 'local')"
 }
 
 func searchSortOrder(sortBy string) string {
@@ -421,7 +401,7 @@ func scanResults(rows resultRows) ([]SearchResult, error) {
 	var results []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		if err := rows.Scan(&r.EventUID, &r.SessionID, &r.NodeID, &r.CollectorID, &r.SourceID, &r.SourceName, &r.Runtime, &r.ProjectKey, &r.ProjectPath, &r.EventKind, &r.TextPreview, &r.Score, &r.Timestamp, &r.ToolName, &r.Model, &r.Provider); err != nil {
+		if err := rows.Scan(&r.EventUID, &r.SessionID, &r.SourceName, &r.Runtime, &r.ProjectKey, &r.ProjectPath, &r.EventKind, &r.TextPreview, &r.Score, &r.Timestamp, &r.ToolName, &r.Model, &r.Provider); err != nil {
 			return results, fmt.Errorf("scan search result: %w", err)
 		}
 		results = append(results, r)

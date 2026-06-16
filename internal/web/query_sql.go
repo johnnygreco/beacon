@@ -10,9 +10,6 @@ func latestActivityEventsSubquery(where string) string {
 	return `(SELECT event_uid,
 	               argMax(session_id, captured_at) AS session_id,
 	               argMax(parent_session_id, captured_at) AS parent_session_id,
-	               argMax(node_id, captured_at) AS node_id,
-	               argMax(collector_id, captured_at) AS collector_id,
-	               argMax(source_id, captured_at) AS source_id,
 	               argMax(source_name, captured_at) AS source_name,
 	               argMax(runtime, captured_at) AS runtime,
 	               argMax(format, captured_at) AS format,
@@ -54,9 +51,6 @@ func recentActivityEventsJoinedSubquery(where, join, candidateWhere string) stri
 	}
 	return fmt.Sprintf(`(SELECT event_uid,
 	               session_id,
-	               node_id,
-	               collector_id,
-	               source_id,
 	               source_name,
 	               runtime,
 	               provider,
@@ -71,9 +65,6 @@ func recentActivityEventsJoinedSubquery(where, join, candidateWhere string) stri
 	        FROM (
 			SELECT event_uid,
 			       argMax(session_id, captured_at) AS session_id,
-			       argMax(node_id, captured_at) AS node_id,
-			       argMax(collector_id, captured_at) AS collector_id,
-			       argMax(source_id, captured_at) AS source_id,
 			       argMax(source_name, captured_at) AS source_name,
 			       argMax(runtime, captured_at) AS runtime,
 			       argMax(provider, captured_at) AS provider,
@@ -110,9 +101,6 @@ func sqlPlaceholders(n int) string {
 func sessionProjectionSubquery(where string) string {
 	return `(SELECT
 		session_id,
-		node_id,
-		collector_id,
-		source_id,
 		source_name,
 		runtime,
 		provider,
@@ -190,9 +178,6 @@ func sessionProjectionSubqueryForScopeWithPrefilter(where, eventSessionWhere str
 	return `(SELECT *
 	FROM (WITH scoped_activity AS (
 		SELECT e.session_id AS session_id,
-		       argMaxIf(e.node_id, e.timestamp, e.node_id != '') AS node_id,
-		       argMaxIf(e.collector_id, e.timestamp, e.collector_id != '') AS collector_id,
-		       argMaxIf(e.source_id, e.timestamp, e.source_id != '') AS source_id,
 		       argMaxIf(e.source_name, e.timestamp, e.source_name != '') AS source_name,
 		       argMaxIf(e.runtime, e.timestamp, e.runtime != '') AS runtime,
 		       argMaxIf(e.provider, e.timestamp, e.provider != '') AS provider,
@@ -223,9 +208,6 @@ func sessionProjectionSubqueryForScopeWithPrefilter(where, eventSessionWhere str
 	)
 	SELECT
 		sp.session_id AS session_id,
-		sa.node_id AS node_id,
-		sa.collector_id AS collector_id,
-		sa.source_id AS source_id,
 		sa.source_name AS source_name,
 		sa.runtime AS runtime,
 		sa.provider AS provider,
@@ -362,9 +344,6 @@ func analyticsProjectionSubqueryWithLatestWhere(where, latestWhere string) strin
 	}
 	return `(SELECT
 		session_id,
-		node_id,
-		collector_id,
-		source_id,
 		source_name,
 		runtime,
 		format,
@@ -388,9 +367,6 @@ func analyticsProjectionSubqueryWithLatestWhere(where, latestWhere string) strin
 		cost_usd_sum
 	FROM (
 		SELECT ap.session_id,
-		       ap.node_id,
-		       ap.collector_id,
-		       ap.source_id,
 		       ap.source_name,
 		       ap.runtime,
 		       ap.format,
@@ -427,7 +403,6 @@ func analyticsProjectionSubqueryWithLatestWhere(where, latestWhere string) strin
 
 // sessionSummaryColumns is the shared SELECT column list for session projection queries.
 const sessionSummaryColumns = `session_id,
-		COALESCE(node_id, ''), COALESCE(collector_id, ''), COALESCE(source_id, ''),
 		COALESCE(source_name, ''), COALESCE(runtime, ''), COALESCE(provider, ''),
 		COALESCE(format, ''), COALESCE(project_key, ''), COALESCE(project_path, ''),
 		started_at, ended_at,

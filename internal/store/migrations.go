@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 8
+	CurrentSchemaVersion = 9
 
 	schemaVersionTable = "schema_version"
 	schemaVersionRowID = 1
@@ -24,8 +24,6 @@ var dataTableNames = []string{
 	"tool_payloads",
 	"capture_errors",
 	"capture_checkpoints",
-	"capture_heartbeats",
-	"ingest_batches",
 	"session_projection",
 	"analytics_projection",
 	"search_documents",
@@ -45,39 +43,7 @@ func Migrate(ctx context.Context, db *sql.DB, database string) error {
 		return err
 	}
 	if state.hasVersionRow {
-		switch state.version {
-		case 2:
-			if err := migrateSchemaV2ToV6(ctx, db, database); err != nil {
-				return err
-			}
-		case 3:
-			if err := migrateSchemaV3ToV6(ctx, db, database); err != nil {
-				return err
-			}
-		case 4:
-			if err := migrateSchemaV4ToV6(ctx, db, database); err != nil {
-				return err
-			}
-		case 5:
-			if err := migrateSchemaV5ToV6(ctx, db, database); err != nil {
-				return err
-			}
-		case 6:
-			if err := migrateSchemaV6ToV7(ctx, db, database); err != nil {
-				return err
-			}
-			if err := migrateSchemaV7ToV8(ctx, db, database); err != nil {
-				return err
-			}
-		case 7:
-			if err := migrateSchemaV7ToV8(ctx, db, database); err != nil {
-				return err
-			}
-		}
-		state, err = inspectSchemaState(ctx, db, database)
-		if err != nil {
-			return err
-		}
+		return validateSchemaState(state, database, true)
 	}
 	if err := validateSchemaState(state, database, true); err != nil {
 		return err
@@ -232,103 +198,6 @@ func writeSchemaVersion(ctx context.Context, db *sql.DB, database string) error 
 	return err
 }
 
-func migrateSchemaV2ToV6(ctx context.Context, db *sql.DB, database string) error {
-	for _, stmt := range []string{
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_checkpoints`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_errors`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_heartbeats`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.ingest_batches`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.session_projection`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.analytics_projection`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_documents`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_postings`, database),
-		captureErrorsSchema(database),
-		captureCheckpointsSchema(database),
-		captureHeartbeatsSchema(database),
-		ingestBatchesSchema(database),
-	} {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("advance schema v2 to v6: %w", err)
-		}
-	}
-	return writeSchemaVersion(ctx, db, database)
-}
-
-func migrateSchemaV3ToV6(ctx context.Context, db *sql.DB, database string) error {
-	for _, stmt := range []string{
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_checkpoints`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_errors`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_heartbeats`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.ingest_batches`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.session_projection`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.analytics_projection`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_documents`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_postings`, database),
-		captureErrorsSchema(database),
-		captureCheckpointsSchema(database),
-		captureHeartbeatsSchema(database),
-		ingestBatchesSchema(database),
-	} {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("advance schema v3 to v6: %w", err)
-		}
-	}
-	return writeSchemaVersion(ctx, db, database)
-}
-
-func migrateSchemaV4ToV6(ctx context.Context, db *sql.DB, database string) error {
-	for _, stmt := range []string{
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_heartbeats`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.session_projection`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.analytics_projection`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_documents`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_postings`, database),
-		captureHeartbeatsSchema(database),
-	} {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("advance schema v4 to v6: %w", err)
-		}
-	}
-	return writeSchemaVersion(ctx, db, database)
-}
-
-func migrateSchemaV5ToV6(ctx context.Context, db *sql.DB, database string) error {
-	for _, stmt := range []string{
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.session_projection`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.analytics_projection`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_documents`, database),
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.search_postings`, database),
-	} {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("advance schema v5 to v6: %w", err)
-		}
-	}
-	return writeSchemaVersion(ctx, db, database)
-}
-
-func migrateSchemaV6ToV7(ctx context.Context, db *sql.DB, database string) error {
-	for _, stmt := range []string{
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.analytics_projection`, database),
-	} {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("advance schema v6 to v7: %w", err)
-		}
-	}
-	return writeSchemaVersion(ctx, db, database)
-}
-
-func migrateSchemaV7ToV8(ctx context.Context, db *sql.DB, database string) error {
-	for _, stmt := range []string{
-		fmt.Sprintf(`DROP TABLE IF EXISTS %s.capture_checkpoints`, database),
-		captureCheckpointsSchema(database),
-	} {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("advance schema v7 to v8: %w", err)
-		}
-	}
-	return writeSchemaVersion(ctx, db, database)
-}
-
 func Schema(database string) []string {
 	database = cleanIdent(database)
 	db := func(table string) string { return database + "." + table }
@@ -347,9 +216,6 @@ func Schema(database string) []string {
 		`CREATE TABLE IF NOT EXISTS ` + db("raw_records") + ` (
 			record_uid String,
 			event_uid String,
-			node_id String,
-			collector_id String,
-			source_id String,
 			source_name LowCardinality(String),
 			runtime LowCardinality(String),
 			provider LowCardinality(String),
@@ -362,8 +228,6 @@ func Schema(database string) []string {
 			raw_session_id String,
 			raw_event_id String,
 			source_event_index UInt64,
-			batch_id String,
-			control_plane_epoch String,
 			payload_digest String,
 			redaction_status LowCardinality(String),
 			redaction_version String,
@@ -371,7 +235,7 @@ func Schema(database string) []string {
 			captured_at DateTime64(3, 'UTC') DEFAULT now64(3)
 		)
 		ENGINE = ReplacingMergeTree(captured_at)
-		ORDER BY (collector_id, source_id, source_file, source_generation, source_event_index, record_uid)`,
+		ORDER BY (source_name, source_file, source_generation, source_event_index, record_uid)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("activity_events") + ` (
 			event_uid String,
@@ -379,9 +243,6 @@ func Schema(database string) []string {
 			raw_session_id String,
 			parent_session_id String,
 			raw_parent_session_id String,
-			node_id String,
-			collector_id String,
-			source_id String,
 			source_name LowCardinality(String),
 			runtime LowCardinality(String),
 			provider LowCardinality(String),
@@ -412,20 +273,16 @@ func Schema(database string) []string {
 			source_generation UInt32,
 			raw_event_id String,
 			source_event_index UInt64,
-			batch_id String,
-			control_plane_epoch String,
 			payload_digest String,
 			redaction_status LowCardinality(String),
 			redaction_version String,
 			captured_at DateTime64(3, 'UTC') DEFAULT now64(3),
 			INDEX idx_session session_id TYPE bloom_filter(0.01) GRANULARITY 2,
-			INDEX idx_collector collector_id TYPE bloom_filter(0.01) GRANULARITY 2,
-			INDEX idx_source source_id TYPE bloom_filter(0.01) GRANULARITY 2,
 			INDEX idx_tool tool_name TYPE set(256) GRANULARITY 4
 		)
 		ENGINE = ReplacingMergeTree(captured_at)
 		PARTITION BY toYYYYMM(timestamp)
-		ORDER BY (session_id, collector_id, source_id, timestamp, event_uid)`,
+		ORDER BY (session_id, source_name, timestamp, event_uid)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("event_links") + ` (
 			event_uid String,
@@ -438,48 +295,33 @@ func Schema(database string) []string {
 			linked_session_id String,
 			raw_linked_session_id String,
 			raw_linked_event_id String,
-			collector_id String,
-			source_id String,
-			batch_id String,
-			control_plane_epoch String,
 			captured_at DateTime64(3, 'UTC') DEFAULT now64(3)
 		)
 		ENGINE = ReplacingMergeTree(captured_at)
-		ORDER BY (collector_id, source_id, event_uid, link_type, raw_linked_session_id, raw_linked_event_id)`,
+		ORDER BY (event_uid, link_type, raw_linked_session_id, raw_linked_event_id)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("tool_payloads") + ` (
 			event_uid String,
-			collector_id String,
-			source_id String,
 			tool_name LowCardinality(String),
 			tool_phase LowCardinality(String),
 			input_json String CODEC(ZSTD(3)),
 			output_json String CODEC(ZSTD(3)),
 			input_preview String,
 			output_preview String,
-			batch_id String,
-			control_plane_epoch String,
 			payload_digest String,
 			redaction_status LowCardinality(String),
 			redaction_version String,
 			captured_at DateTime64(3, 'UTC') DEFAULT now64(3)
 		)
 		ENGINE = ReplacingMergeTree(captured_at)
-		ORDER BY (event_uid, collector_id, source_id)`,
+		ORDER BY event_uid`,
 
 		captureErrorsSchema(database),
 
 		captureCheckpointsSchema(database),
 
-		captureHeartbeatsSchema(database),
-
-		ingestBatchesSchema(database),
-
 		`CREATE TABLE IF NOT EXISTS ` + db("session_projection") + ` (
 			session_id String,
-			node_id String,
-			collector_id String,
-			source_id String,
 			source_name LowCardinality(String),
 			runtime LowCardinality(String),
 			provider LowCardinality(String),
@@ -517,9 +359,6 @@ func Schema(database string) []string {
 
 		`CREATE TABLE IF NOT EXISTS ` + db("analytics_projection") + ` (
 			session_id String,
-			node_id String,
-			collector_id String,
-			source_id String,
 			source_name LowCardinality(String),
 			runtime LowCardinality(String),
 			format LowCardinality(String),
@@ -546,14 +385,11 @@ func Schema(database string) []string {
 		)
 		ENGINE = ReplacingMergeTree(updated_at)
 		PARTITION BY toYYYYMM(minute)
-		ORDER BY (collector_id, source_id, project_key, project_path, session_id, node_id, source_name, runtime, format, minute, provider, model, tool_name, event_kind)`,
+		ORDER BY (project_key, project_path, session_id, source_name, runtime, format, minute, provider, model, tool_name, event_kind)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("search_documents") + ` (
 			event_uid String,
 			session_id String,
-			node_id String,
-			collector_id String,
-			source_id String,
 			source_name LowCardinality(String),
 			runtime LowCardinality(String),
 			format LowCardinality(String),
@@ -569,8 +405,6 @@ func Schema(database string) []string {
 			document_len UInt32,
 			updated_at DateTime64(3, 'UTC') DEFAULT now64(3),
 			INDEX idx_search_text searchable_text TYPE tokenbf_v1(8192, 3, 0) GRANULARITY 4,
-			INDEX idx_collector collector_id TYPE bloom_filter(0.01) GRANULARITY 2,
-			INDEX idx_source source_id TYPE bloom_filter(0.01) GRANULARITY 2,
 			INDEX idx_project project_key TYPE set(1024) GRANULARITY 4
 		)
 		ENGINE = ReplacingMergeTree(updated_at)
@@ -581,9 +415,6 @@ func Schema(database string) []string {
 			token String,
 			event_uid String,
 			session_id String,
-			node_id String,
-			collector_id String,
-			source_id String,
 			source_name LowCardinality(String),
 			runtime LowCardinality(String),
 			format LowCardinality(String),
@@ -600,7 +431,7 @@ func Schema(database string) []string {
 			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
 		)
 		ENGINE = ReplacingMergeTree(updated_at)
-		ORDER BY (token, collector_id, source_id, project_key, event_uid)`,
+		ORDER BY (token, project_key, source_name, event_uid)`,
 
 		`CREATE TABLE IF NOT EXISTS ` + db("search_query_log") + ` (
 			query String,
@@ -617,9 +448,6 @@ func Schema(database string) []string {
 func captureCheckpointsSchema(database string) string {
 	db := cleanIdent(database) + ".capture_checkpoints"
 	return `CREATE TABLE IF NOT EXISTS ` + db + ` (
-			node_id String,
-			collector_id String,
-			source_id String,
 			source_name LowCardinality(String),
 			source_file_key String,
 			source_file String,
@@ -631,76 +459,24 @@ func captureCheckpointsSchema(database string) string {
 			updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
 			)
 			ENGINE = ReplacingMergeTree(updated_at)
-			ORDER BY (collector_id, source_id, source_name, source_file_key)`
+			ORDER BY (source_name, source_file_key)`
 }
 
 func captureErrorsSchema(database string) string {
 	db := cleanIdent(database) + ".capture_errors"
 	return `CREATE TABLE IF NOT EXISTS ` + db + ` (
 				id String,
-				node_id String,
-				collector_id String,
-				source_id String,
 				source_name LowCardinality(String),
 				source_file String,
 				source_line_no UInt32,
 				source_offset UInt64,
-				batch_id String,
-				control_plane_epoch String,
 				error_class LowCardinality(String),
 				error_message String,
 				context_fragment String,
 				created_at DateTime64(3, 'UTC') DEFAULT now64(3)
 			)
 			ENGINE = ReplacingMergeTree(created_at)
-				ORDER BY (collector_id, batch_id, id)`
-}
-
-func captureHeartbeatsSchema(database string) string {
-	db := cleanIdent(database) + ".capture_heartbeats"
-	return `CREATE TABLE IF NOT EXISTS ` + db + ` (
-				node_id String,
-				collector_id String,
-				source_id String,
-				source_name LowCardinality(String),
-				control_plane_epoch String,
-				status LowCardinality(String),
-				queue_depth UInt32,
-				spool_bytes UInt64,
-				active_files UInt32,
-				error_count UInt64,
-				last_event_at Nullable(DateTime64(3, 'UTC')),
-				append_to_visible_ms UInt64,
-				created_at DateTime64(3, 'UTC') DEFAULT now64(3)
-			)
-			ENGINE = ReplacingMergeTree(created_at)
-			ORDER BY (collector_id, source_id, created_at)`
-}
-
-func ingestBatchesSchema(database string) string {
-	db := cleanIdent(database) + ".ingest_batches"
-	return `CREATE TABLE IF NOT EXISTS ` + db + ` (
-			collector_id String,
-			batch_id String,
-			node_id String,
-			sequence UInt64,
-			control_plane_epoch String,
-			payload_digest String,
-				redaction_version String,
-				created_at DateTime64(3, 'UTC'),
-				received_at DateTime64(3, 'UTC'),
-				state_version UInt64,
-				event_count UInt64,
-				raw_count UInt64,
-			tool_payload_count UInt64,
-			checkpoint_count UInt64,
-			status LowCardinality(String),
-			error_message String,
-				committed_at Nullable(DateTime64(3, 'UTC')),
-				updated_at DateTime64(3, 'UTC') DEFAULT now64(3)
-			)
-			ENGINE = MergeTree
-			ORDER BY (collector_id, batch_id, state_version)`
+				ORDER BY (source_name, id)`
 }
 
 func cleanIdent(v string) string {

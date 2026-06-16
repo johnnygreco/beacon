@@ -7,7 +7,7 @@ function sortCompletedTable(control, column, preserveDirection) {
 		if (sortColumn !== column) {
 			sortColumn = column;
 			// Default ascending for text, descending for numbers
-			sortAsc = ['name', 'node', 'runtime', 'model', 'project', 'id'].indexOf(column) >= 0;
+			sortAsc = ['name', 'runtime', 'model', 'project', 'id'].indexOf(column) >= 0;
 		} else if (!preserveDirection) {
 			sortAsc = !sortAsc;
 		}

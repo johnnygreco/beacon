@@ -97,9 +97,6 @@ func QueryRecentActivityFilteredByKindScoped(ctx context.Context, db *sql.DB, si
 		        e.event_kind,
 		        ` + activitySummaryExpr + ` AS summary,
 		        COALESCE(e.session_id, ''),
-		        COALESCE(e.node_id, ''),
-		        COALESCE(e.collector_id, ''),
-		        COALESCE(e.source_id, ''),
 		        COALESCE(e.source_name, ''),
 		        COALESCE(e.runtime, ''),
 		        COALESCE(e.provider, ''),
@@ -118,8 +115,7 @@ func QueryRecentActivityFilteredByKindScoped(ctx context.Context, db *sql.DB, si
 	var items []views.ActivityItem
 	for rows.Next() {
 		var item views.ActivityItem
-		if err := rows.Scan(&item.ID, &item.Type, &item.Summary, &item.SessionID, &item.NodeID,
-			&item.CollectorID, &item.SourceID, &item.SourceName, &item.Runtime, &item.Provider, &item.Timestamp); err != nil {
+		if err := rows.Scan(&item.ID, &item.Type, &item.Summary, &item.SessionID, &item.SourceName, &item.Runtime, &item.Provider, &item.Timestamp); err != nil {
 			logQueryScanError("recent activity", err)
 			continue
 		}

@@ -65,7 +65,6 @@ func NewRouter(
 			r.Get("/dashboard/search", apiHandlers.GetDashboardSearch)
 			r.Get("/dashboard/activity", apiHandlers.GetActivity)
 			r.Get("/dashboard/charts", apiHandlers.GetDashboardCharts)
-			r.Get("/dashboard/fleet", apiHandlers.GetDashboardFleet)
 			r.Get("/sessions/{id}", apiHandlers.GetSessionDetail)
 			r.Get("/sessions/{id}/subagents", apiHandlers.GetSessionSubagents)
 			r.Get("/sessions/{id}/events", apiHandlers.GetSessionEvents)

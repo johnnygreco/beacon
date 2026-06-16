@@ -79,132 +79,6 @@ func TestAPIScopeEventAndSessionProjectKeyUsesSingleProjectFallback(t *testing.T
 	}
 }
 
-func TestAPIScopeNodeIDNormalizesBlankLocalRows(t *testing.T) {
-	clause, args := APIScopeFilters{NodeIDs: []string{"local"}}.sqlAndClause("s")
-	for _, want := range []string{"COALESCE(NULLIF(s.node_id, ''), 'local')", "IN (?)"} {
-		if !strings.Contains(clause, want) {
-			t.Fatalf("node scope missing %q: %s", want, clause)
-		}
-	}
-	if fmt.Sprint(args) != "[local]" {
-		t.Fatalf("node scope args = %#v, want [local]", args)
-	}
-
-	eventClause, eventArgs := APIScopeFilters{NodeIDs: []string{"local"}}.eventSQLAndClause("e", "e.cwd")
-	if !strings.Contains(eventClause, "COALESCE(NULLIF(e.node_id, ''), 'local')") {
-		t.Fatalf("event node scope should normalize blank node IDs: %s", eventClause)
-	}
-	if fmt.Sprint(eventArgs) != "[local]" {
-		t.Fatalf("event node scope args = %#v, want [local]", eventArgs)
-	}
-}
-
-func TestFleetHeartbeatScopeAvoidsHeartbeatOnlyMissingColumns(t *testing.T) {
-	clause, args := fleetHeartbeatScopeClause(APIScopeFilters{
-		NodeIDs:     []string{"local"},
-		Runtimes:    []string{"runtime-a"},
-		ProjectKeys: []string{"project-a"},
-	})
-	for _, unexpected := range []string{"h.runtime", "h.project_key"} {
-		if strings.Contains(clause, unexpected) {
-			t.Fatalf("heartbeat scope should not reference %s: %s", unexpected, clause)
-		}
-	}
-	for _, want := range []string{
-		"COALESCE(NULLIF(h.node_id, ''), 'local') IN (?)",
-		"(h.collector_id, h.source_id) IN",
-		"FROM session_projection FINAL",
-		"runtime IN (?)",
-		"GROUP BY collector_id, source_id",
-	} {
-		if !strings.Contains(clause, want) {
-			t.Fatalf("heartbeat scope missing %q: %s", want, clause)
-		}
-	}
-	if got := strings.Count(clause, "?"); got != len(args) {
-		t.Fatalf("placeholder count = %d, arg count = %d: %s", got, len(args), clause)
-	}
-	argText := fmt.Sprint(args)
-	for _, want := range []string{"local", "runtime-a", "project-a"} {
-		if !strings.Contains(argText, want) {
-			t.Fatalf("heartbeat scope args missing %q: %#v", want, args)
-		}
-	}
-}
-
-func TestParseFleetSourceDetails(t *testing.T) {
-	got := parseFleetSourceDetails([]string{
-		"collector-a\tsource-a\tshared-source",
-		"collector-b\t\tname-only-source",
-		"collector-c\t\t",
-		"malformed",
-	})
-	if len(got) != 2 {
-		t.Fatalf("details = %#v, want two valid source details", got)
-	}
-	if got[0].CollectorID != "collector-a" || got[0].SourceID != "source-a" || got[0].SourceName != "shared-source" || got[0].Status != "missing" {
-		t.Fatalf("first detail = %#v, want collector/source/name/status", got[0])
-	}
-	if got[1].CollectorID != "collector-b" || got[1].SourceID != "" || got[1].SourceName != "name-only-source" || got[1].Status != "missing" {
-		t.Fatalf("second detail = %#v, want name-only fallback detail", got[1])
-	}
-}
-
-func TestFleetNodeStatusMarksActiveSessionOnlyNodes(t *testing.T) {
-	builder := &fleetNodeBuilder{
-		node: APIDashboardFleetNode{ActiveSessions: 1},
-	}
-	status := fleetNodeStatus(builder)
-	if status != "active" {
-		t.Fatalf("session-only active node status = %q, want active", status)
-	}
-	if collectorStatus := fleetCollectorStatus(builder, "collector-local"); collectorStatus != "missing" {
-		t.Fatalf("session-only collector health = %q, want missing", collectorStatus)
-	}
-}
-
-func TestFleetCollectorStatusSurfacesMixedSourceHealth(t *testing.T) {
-	builder := &fleetNodeBuilder{
-		node: APIDashboardFleetNode{},
-		collectors: map[string]struct{}{
-			"collector-1": {},
-			"collector-2": {},
-			"collector-3": {},
-		},
-		onlineCollectors: map[string]struct{}{
-			"collector-1": {},
-			"collector-3": {},
-		},
-		staleCollectors: map[string]struct{}{
-			"collector-2": {},
-		},
-		offlineCollectors: map[string]struct{}{
-			"collector-1": {},
-		},
-	}
-
-	if status := fleetCollectorStatus(builder, "collector-1"); status != "stale" {
-		t.Fatalf("mixed online/offline collector status = %q, want stale", status)
-	}
-	if status := fleetCollectorStatus(builder, "collector-2"); status != "stale" {
-		t.Fatalf("stale collector status = %q, want stale", status)
-	}
-	if status := fleetCollectorStatus(builder, "collector-3"); status != "online" {
-		t.Fatalf("online collector status = %q, want online", status)
-	}
-	if status := fleetNodeStatus(builder); status != "stale" {
-		t.Fatalf("mixed source node status = %q, want stale", status)
-	}
-	if status := mergeFleetCollectorStatus("online", "offline"); status != "stale" {
-		t.Fatalf("merged online/offline status = %q, want stale", status)
-	}
-
-	builder.collectors["collector-4"] = struct{}{}
-	if status := fleetNodeStatus(builder); status != "stale" {
-		t.Fatalf("online plus missing collector node status = %q, want stale", status)
-	}
-}
-
 func TestCompletedSessionSearchClause_MetadataOnly(t *testing.T) {
 	clause, args := completedSessionSearchClause("metadata", nil)
 	if strings.Contains(clause, "session_id IN") {
@@ -983,9 +857,6 @@ func TestScanSessionSummaryIncludesErrorCount(t *testing.T) {
 	end := now.Add(-6 * time.Minute)
 	scanner := stubScanner{values: []any{
 		"session-1",
-		"node-1",
-		"collector-1",
-		"source-1",
 		"source-a",
 		"runtime-a",
 		"provider-a",
@@ -1027,8 +898,8 @@ func TestScanSessionSummaryIncludesErrorCount(t *testing.T) {
 	if s.ActiveModel != "gpt-5.4" || s.Provider != "provider-a" || !s.HasSessionEnd {
 		t.Fatalf("summary fields shifted during scan: %#v", s)
 	}
-	if s.NodeID != "node-1" || s.CollectorID != "collector-1" || s.ProjectKey != "project-a" {
-		t.Fatalf("fleet fields shifted during scan: %#v", s)
+	if s.Actor != "source-a" || s.ProjectKey != "project-a" {
+		t.Fatalf("summary fields shifted during scan: %#v", s)
 	}
 	if s.TotalCostUSD != 0.42 || s.CostProvenance != "event_cost_usd" || s.AttentionScore != 150 {
 		t.Fatalf("cost/attention fields shifted during scan: %#v", s)
@@ -1041,9 +912,6 @@ func TestScanSessionSummaryIncludingReopenedClearsTerminalEnd(t *testing.T) {
 	end := now.Add(-30 * time.Second)
 	scanner := stubScanner{values: []any{
 		"session-reopened",
-		"node-1",
-		"collector-1",
-		"source-1",
 		"source-a",
 		"runtime-a",
 		"provider-a",

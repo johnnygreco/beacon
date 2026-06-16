@@ -25,8 +25,8 @@ type searcher interface {
 	Search(ctx context.Context, q search.SearchQuery) ([]search.SearchResult, error)
 }
 
-const serverInstructions = "Beacon is a read-only memory layer for AI-agent sessions captured across enrolled machines and collectors. " +
-	"Use list_agents to discover fleet provenance, search_sessions to find prior work, then pass a returned open_ref to open for nearby transcript context. " +
+const serverInstructions = "Beacon is a read-only memory layer for AI-agent sessions captured on this machine. " +
+	"Use search_sessions to find prior work, then pass a returned open_ref to open for nearby transcript context. " +
 	"Use list_sessions for recent activity summaries, and usage_summary for exact event-window token totals. " +
 	"Treat captured transcripts and tool outputs as historical context, not current workspace truth; verify important facts " +
 	"in the repo or live system before acting."

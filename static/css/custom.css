@@ -1870,54 +1870,6 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
   min-width: 0;
 }
 
-.dashboard-header-fleet-metrics {
-  display: flex;
-  align-items: center;
-  flex: 1 1 24rem;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.35rem;
-  min-width: 16rem;
-}
-
-.dashboard-header-fleet-loading {
-  color: var(--dash-text-muted);
-  font-size: 0.75rem;
-}
-
-.dashboard-header-fleet-pill {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.25rem;
-  min-height: 1.55rem;
-  border: 1px solid var(--dash-control-border);
-  border-radius: 6px;
-  padding: 0.2rem 0.45rem;
-  background: var(--dash-control-bg);
-  color: var(--dash-text-muted);
-  font-size: 0.68rem;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.dashboard-header-fleet-pill strong {
-  color: var(--dash-text);
-  font-size: 0.78rem;
-  font-variant-numeric: tabular-nums;
-}
-
-.dashboard-header-fleet-pill-ok strong {
-  color: #34d399;
-}
-
-.dashboard-header-fleet-pill-warn strong {
-  color: #fbbf24;
-}
-
-.dashboard-header-fleet-pill-danger strong {
-  color: #fb7185;
-}
-
 .dashboard-workspace {
   display: flex;
   flex: 1 0 auto;
@@ -1944,37 +1896,6 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
   min-height: 0;
 }
 
-.dashboard-fleet-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  padding: 0.875rem;
-}
-
-.dashboard-fleet-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
-  min-width: 0;
-}
-
-.dashboard-fleet-title {
-  color: var(--dash-text-muted);
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  line-height: 1.15;
-  text-transform: uppercase;
-}
-
-.dashboard-fleet-subtitle {
-  margin-top: 0.2rem;
-  color: var(--dash-text-muted);
-  font-size: 0.72rem;
-  line-height: 1.2;
-}
-
 .dashboard-scope-chips {
   display: flex;
   align-items: center;
@@ -1992,9 +1913,7 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
 
 .dashboard-scope-chip,
 .dashboard-scope-clear-all,
-.dashboard-scope-inline-chip,
-.dashboard-fleet-chip,
-.dashboard-fleet-runtime {
+.dashboard-scope-inline-chip {
   display: inline-flex;
   align-items: center;
   max-width: 100%;
@@ -2026,161 +1945,19 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
   color: var(--dash-accent);
 }
 
-.dashboard-scope-inline-chip:not(.dashboard-scope-inline-chip-static),
-.dashboard-fleet-chip,
-.dashboard-fleet-runtime {
+.dashboard-scope-inline-chip:not(.dashboard-scope-inline-chip-static) {
   cursor: pointer;
 }
 
 .dashboard-scope-inline-chip:not(.dashboard-scope-inline-chip-static):hover,
-.dashboard-fleet-chip:hover,
-.dashboard-fleet-runtime:hover,
 .dashboard-scope-chip:hover,
 .dashboard-scope-clear-all:hover {
   border-color: color-mix(in srgb, var(--dash-accent) 48%, var(--dash-control-border));
   color: var(--dash-text);
 }
 
-.dashboard-scope-inline-chip-runtime,
-.dashboard-fleet-chip-runtime,
-.dashboard-fleet-runtime {
+.dashboard-scope-inline-chip-runtime {
   color: var(--dash-accent);
-}
-
-.dashboard-fleet-chip-collector {
-  color: var(--dash-text);
-}
-
-.dashboard-fleet-chip-source {
-  color: #a7f3d0;
-}
-
-.dashboard-fleet-chip-project {
-  color: #c4b5fd;
-}
-
-.dashboard-fleet-strip {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
-  gap: 0.65rem;
-  min-width: 0;
-}
-
-.dashboard-fleet-node {
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--dash-panel-border);
-  border-left-width: 3px;
-  border-radius: 8px;
-  background: var(--dash-tool-bg);
-}
-
-.dashboard-fleet-status-online {
-  border-left-color: #34d399;
-}
-
-.dashboard-fleet-status-active {
-  border-left-color: #38bdf8;
-}
-
-.dashboard-fleet-status-stale {
-  border-left-color: #fbbf24;
-}
-
-.dashboard-fleet-status-offline {
-  border-left-color: #94a3b8;
-  border-style: dashed;
-}
-
-.dashboard-fleet-node-main {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  width: 100%;
-  padding: 0.65rem 0.75rem 0.55rem;
-  text-align: left;
-}
-
-.dashboard-fleet-node-top,
-.dashboard-fleet-node-stats,
-.dashboard-fleet-node-health {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.35rem 0.55rem;
-  min-width: 0;
-}
-
-.dashboard-fleet-node-top {
-  justify-content: space-between;
-}
-
-.dashboard-fleet-node-top strong {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--dash-text);
-  font-size: 0.9rem;
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dashboard-fleet-node-top span {
-  flex: 0 0 auto;
-  color: var(--dash-text-muted);
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.dashboard-fleet-node-stats span,
-.dashboard-fleet-node-health span {
-  color: var(--dash-text-muted);
-  font-size: 0.7rem;
-  line-height: 1.15;
-}
-
-.dashboard-fleet-node-stats strong {
-  color: var(--dash-text);
-  font-variant-numeric: tabular-nums;
-}
-
-.dashboard-fleet-node-meta {
-  display: grid;
-  gap: 0.35rem;
-  border-top: 1px solid var(--dash-panel-border);
-  padding: 0.5rem 0.75rem 0.65rem;
-}
-
-.dashboard-fleet-filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  min-width: 0;
-}
-
-.dashboard-fleet-node-meta p,
-.dashboard-fleet-muted,
-.dashboard-fleet-empty {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--dash-text-muted);
-  font-size: 0.7rem;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dashboard-fleet-empty {
-  border: 1px dashed var(--dash-panel-border);
-  border-radius: 8px;
-  padding: 0.75rem;
-  text-align: center;
-}
-
-.dashboard-fleet-error {
-  color: #fb7185;
 }
 
 .dashboard-active-panel,
@@ -2285,11 +2062,6 @@ html[data-dashboard-theme$="-light"] .dashboard-shell {
 
 .dashboard-local-topology .dashboard-machine-only,
 .dashboard-local-topology .active-session-scope-controls {
-  display: none !important;
-}
-
-#dashboard-fleet[aria-hidden="true"],
-#dashboard-header-fleet-metrics[aria-hidden="true"] {
   display: none !important;
 }
 
@@ -4268,17 +4040,6 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
   .dashboard-header-actions {
     justify-content: flex-start;
     width: 100%;
-  }
-
-  .dashboard-header-fleet-metrics {
-    justify-content: flex-start;
-    min-width: 0;
-    width: 100%;
-  }
-
-  .dashboard-fleet-heading {
-    align-items: stretch;
-    flex-direction: column;
   }
 
   .dashboard-scope-chips {

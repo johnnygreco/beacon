@@ -9,12 +9,10 @@ import (
 
 func (s *Store) insertRawRecords(ctx context.Context, records []models.RawRecord) error {
 	batch, err := s.native.PrepareBatch(ctx, `INSERT INTO raw_records (
-		record_uid, event_uid, node_id, collector_id, source_id,
-		source_name, runtime, provider, format, source_file,
+		record_uid, event_uid, source_name, runtime, provider, format, source_file,
 		source_line_no, source_offset, source_generation, session_id,
-		raw_session_id, raw_event_id, source_event_index, batch_id,
-		control_plane_epoch, payload_digest, redaction_status, redaction_version,
-		payload_json, captured_at
+		raw_session_id, raw_event_id, source_event_index, payload_digest,
+		redaction_status, redaction_version, payload_json, captured_at
 	)`)
 	if err != nil {
 		return err
@@ -26,9 +24,6 @@ func (s *Store) insertRawRecords(ctx context.Context, records []models.RawRecord
 		if err := batch.Append(
 			r.RecordUID,
 			r.EventUID,
-			r.NodeID,
-			r.CollectorID,
-			r.SourceID,
 			r.SourceName,
 			r.Runtime,
 			r.Provider,
@@ -41,8 +36,6 @@ func (s *Store) insertRawRecords(ctx context.Context, records []models.RawRecord
 			r.RawSessionID,
 			r.RawEventID,
 			r.SourceEventIndex,
-			r.BatchID,
-			r.ControlPlaneEpoch,
 			r.PayloadDigest,
 			r.RedactionStatus,
 			r.RedactionVersion,
@@ -58,14 +51,13 @@ func (s *Store) insertRawRecords(ctx context.Context, records []models.RawRecord
 func (s *Store) insertActivityEvents(ctx context.Context, events []models.Event) error {
 	batch, err := s.native.PrepareBatch(ctx, `INSERT INTO activity_events (
 		event_uid, session_id, raw_session_id, parent_session_id, raw_parent_session_id,
-		node_id, collector_id, source_id, source_name, runtime, provider,
-		format, event_kind, payload_type, actor_role, timestamp, text_content, text_preview,
+		source_name, runtime, provider, format, event_kind, payload_type, actor_role, timestamp, text_content, text_preview,
 		tool_name, tool_use_id, model, input_tokens, output_tokens,
 		cache_read_tokens, cache_create_tokens, duration_ms, cost_usd,
 		error_code, error_message, event_version, payload_json, cwd,
 		source_file, source_line_no, source_offset, source_generation,
-		raw_event_id, source_event_index, batch_id, control_plane_epoch,
-		payload_digest, redaction_status, redaction_version, captured_at
+		raw_event_id, source_event_index, payload_digest, redaction_status,
+		redaction_version, captured_at
 	)`)
 	if err != nil {
 		return err
@@ -79,9 +71,6 @@ func (s *Store) insertActivityEvents(ctx context.Context, events []models.Event)
 			e.RawSessionID,
 			e.ParentSessionID,
 			e.RawParentSessionID,
-			e.NodeID,
-			e.CollectorID,
-			e.SourceID,
 			e.SourceName,
 			firstNonEmpty(e.Runtime, runtimeForSource(e.SourceName)),
 			e.Provider,
@@ -112,8 +101,6 @@ func (s *Store) insertActivityEvents(ctx context.Context, events []models.Event)
 			uint32(nonNegativeInt(e.SourceGeneration)),
 			e.RawEventID,
 			e.SourceEventIndex,
-			e.BatchID,
-			e.ControlPlaneEpoch,
 			e.PayloadDigest,
 			e.RedactionStatus,
 			e.RedactionVersion,
@@ -129,8 +116,7 @@ func (s *Store) insertEventLinks(ctx context.Context, links []models.EventLink) 
 	batch, err := s.native.PrepareBatch(ctx, `INSERT INTO event_links (
 		event_uid, linked_event_uid, link_type, link_scope, resolution_status,
 		session_id, raw_session_id, linked_session_id, raw_linked_session_id,
-		raw_linked_event_id, collector_id, source_id, batch_id, control_plane_epoch,
-		captured_at
+		raw_linked_event_id, captured_at
 	)`)
 	if err != nil {
 		return err
@@ -149,10 +135,6 @@ func (s *Store) insertEventLinks(ctx context.Context, links []models.EventLink) 
 			link.LinkedSessionID,
 			link.RawLinkedSessionID,
 			link.RawLinkedEventID,
-			link.CollectorID,
-			link.SourceID,
-			link.BatchID,
-			link.ControlPlaneEpoch,
 			now,
 		); err != nil {
 			return err
@@ -163,9 +145,9 @@ func (s *Store) insertEventLinks(ctx context.Context, links []models.EventLink) 
 
 func (s *Store) insertToolPayloads(ctx context.Context, payloads []models.ToolPayload) error {
 	batch, err := s.native.PrepareBatch(ctx, `INSERT INTO tool_payloads (
-		event_uid, collector_id, source_id, tool_name, tool_phase, input_json, output_json,
-		input_preview, output_preview, batch_id, control_plane_epoch, payload_digest,
-		redaction_status, redaction_version, captured_at
+		event_uid, tool_name, tool_phase, input_json, output_json, input_preview,
+		output_preview, payload_digest, redaction_status, redaction_version,
+		captured_at
 	)`)
 	if err != nil {
 		return err
@@ -175,16 +157,12 @@ func (s *Store) insertToolPayloads(ctx context.Context, payloads []models.ToolPa
 	for _, p := range payloads {
 		if err := batch.Append(
 			p.EventUID,
-			p.CollectorID,
-			p.SourceID,
 			p.ToolName,
 			p.ToolPhase,
 			p.InputJSON,
 			p.OutputJSON,
 			p.InputPreview,
 			p.OutputPreview,
-			p.BatchID,
-			p.ControlPlaneEpoch,
 			p.PayloadDigest,
 			p.RedactionStatus,
 			p.RedactionVersion,
@@ -198,8 +176,7 @@ func (s *Store) insertToolPayloads(ctx context.Context, payloads []models.ToolPa
 
 func (s *Store) insertCaptureErrors(ctx context.Context, errors []models.CaptureError) error {
 	batch, err := s.native.PrepareBatch(ctx, `INSERT INTO capture_errors (
-			id, node_id, collector_id, source_id, source_name, source_file,
-			source_line_no, source_offset, batch_id, control_plane_epoch,
+			id, source_name, source_file, source_line_no, source_offset,
 			error_class, error_message, context_fragment, created_at
 		)`)
 	if err != nil {
@@ -210,15 +187,10 @@ func (s *Store) insertCaptureErrors(ctx context.Context, errors []models.Capture
 	for _, e := range errors {
 		if err := batch.Append(
 			e.ID,
-			e.NodeID,
-			e.CollectorID,
-			e.SourceID,
 			e.SourceName,
 			e.SourceFile,
 			uint32(nonNegativeInt(e.SourceLineNo)),
 			uint64(nonNegativeInt64(e.SourceOffset)),
-			e.BatchID,
-			e.ControlPlaneEpoch,
 			e.ErrorClass,
 			e.ErrorMessage,
 			e.ContextFragment,
@@ -232,10 +204,9 @@ func (s *Store) insertCaptureErrors(ctx context.Context, errors []models.Capture
 
 func (s *Store) insertSearchDocuments(ctx context.Context, docs []models.SearchDocument) error {
 	batch, err := s.native.PrepareBatch(ctx, `INSERT INTO search_documents (
-		event_uid, session_id, node_id, collector_id, source_id, source_name,
-		runtime, format, project_key, project_path, event_kind, timestamp,
-		text_preview, tool_name, model, provider, searchable_text, document_len,
-		updated_at
+		event_uid, session_id, source_name, runtime, format, project_key,
+		project_path, event_kind, timestamp, text_preview, tool_name, model,
+		provider, searchable_text, document_len, updated_at
 	)`)
 	if err != nil {
 		return err
@@ -246,9 +217,6 @@ func (s *Store) insertSearchDocuments(ctx context.Context, docs []models.SearchD
 		if err := batch.Append(
 			doc.EventUID,
 			doc.SessionID,
-			doc.NodeID,
-			doc.CollectorID,
-			doc.SourceID,
 			doc.SourceName,
 			doc.Runtime,
 			doc.Format,
@@ -272,10 +240,9 @@ func (s *Store) insertSearchDocuments(ctx context.Context, docs []models.SearchD
 
 func (s *Store) insertSearchPostings(ctx context.Context, postings []models.SearchPosting) error {
 	batch, err := s.native.PrepareBatch(ctx, `INSERT INTO search_postings (
-		token, event_uid, session_id, node_id, collector_id, source_id,
-		source_name, runtime, format, project_key, project_path, event_kind,
-		timestamp, term_frequency, document_len, text_preview, tool_name, model,
-		provider, updated_at
+		token, event_uid, session_id, source_name, runtime, format, project_key,
+		project_path, event_kind, timestamp, term_frequency, document_len,
+		text_preview, tool_name, model, provider, updated_at
 	)`)
 	if err != nil {
 		return err
@@ -287,9 +254,6 @@ func (s *Store) insertSearchPostings(ctx context.Context, postings []models.Sear
 			p.Token,
 			p.EventUID,
 			p.SessionID,
-			p.NodeID,
-			p.CollectorID,
-			p.SourceID,
 			p.SourceName,
 			p.Runtime,
 			p.Format,

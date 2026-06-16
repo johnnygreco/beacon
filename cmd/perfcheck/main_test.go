@@ -92,7 +92,7 @@ func TestRunFailsInvalidBaselineSchema(t *testing.T) {
 	}
 }
 
-func TestRunFailsSeededReportMissingFleetMetadata(t *testing.T) {
+func TestRunFailsSeededReportMissingStressMetadata(t *testing.T) {
 	report := passingReport()
 	report.Dataset.Seeded = true
 	report.Dataset.Sessions = 250
@@ -214,16 +214,13 @@ func passingReport() labReport {
 			Events:            1000,
 			Payloads:          100,
 			SearchPostings:    5000,
-			Nodes:             25,
-			Collectors:        25,
-			Sources:           125,
+			Sources:           5,
 			Runtimes:          5,
 			Projects:          25,
 			ActiveSessions:    25,
 			IdleSessions:      50,
-			CommonSearchToken: "fleetcommon",
-			ScopedCollectorID: "collector-perf-00",
-			ScopedSourceID:    "source-perf-00-claude-code",
+			CommonSearchToken: "commonsearch",
+			ScopedSourceName:  "claude",
 			ScopedProjectKey:  "project-000",
 		},
 		Browser: &browserReport{},

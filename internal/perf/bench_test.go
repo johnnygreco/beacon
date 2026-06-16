@@ -184,8 +184,7 @@ func BenchmarkSearchCommonTokenScoped(b *testing.B) {
 	q := search.SearchQuery{
 		Query:        profile.CommonSearchToken,
 		Limit:        25,
-		CollectorIDs: []string{profile.ScopedCollectorID},
-		SourceIDs:    []string{profile.ScopedSourceID},
+		SourceNames:  []string{profile.ScopedSourceName},
 		ProjectKeys:  []string{profile.ScopedProjectKey},
 		SkipQueryLog: true,
 	}
@@ -262,12 +261,12 @@ func TestConcurrentIngestReadSmoke(t *testing.T) {
 	const batches = 12
 	ingesting.Store(true)
 	for seq := uint64(1); seq <= batches; seq++ {
-		meta, rows := concurrentIngestRows(seq)
-		if _, err := ch.CommitIngestBatch(ctx, meta, rows); err != nil {
+		rows := concurrentIngestRows(seq)
+		if err := ch.Flush(ctx, rows); err != nil {
 			ingesting.Store(false)
 			close(done)
 			readers.Wait()
-			t.Fatalf("CommitIngestBatch sequence %d: %v", seq, err)
+			t.Fatalf("flush sequence %d: %v", seq, err)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -304,8 +303,7 @@ func runConcurrentRead(ctx context.Context, reader int, ch *store.Store, searche
 		results, err := searcher.Search(readCtx, search.SearchQuery{
 			Query:        profile.CommonSearchToken,
 			Limit:        10,
-			CollectorIDs: []string{profile.ScopedCollectorID},
-			SourceIDs:    []string{profile.ScopedSourceID},
+			SourceNames:  []string{profile.ScopedSourceName},
 			ProjectKeys:  []string{profile.ScopedProjectKey},
 			SkipQueryLog: true,
 		})
@@ -363,61 +361,42 @@ func validateDashboardData(data views.DashboardData) error {
 	return nil
 }
 
-func concurrentIngestRows(sequence uint64) (store.IngestBatchMeta, store.RowBatch) {
+func concurrentIngestRows(sequence uint64) store.RowBatch {
 	now := time.Now().UTC()
-	batchID := fmt.Sprintf("batch-perf-concurrent-%03d", sequence)
 	payloadDigest := fmt.Sprintf("sha256:perf-concurrent-%03d", sequence)
-	meta := store.IngestBatchMeta{
-		CollectorID:       "collector-perf-concurrent",
-		BatchID:           batchID,
-		NodeID:            "node-perf-concurrent",
-		Sequence:          sequence,
-		ControlPlaneEpoch: "1",
-		PayloadDigest:     payloadDigest,
-		RedactionVersion:  "redact-v1",
-		CreatedAt:         now,
-	}
 	event := models.Event{
-		EventUID:          fmt.Sprintf("event-perf-concurrent-%03d", sequence),
-		SessionID:         fmt.Sprintf("session-perf-concurrent-%03d", sequence%3),
-		RawSessionID:      fmt.Sprintf("native-perf-concurrent-%03d", sequence%3),
-		NodeID:            meta.NodeID,
-		CollectorID:       meta.CollectorID,
-		SourceID:          "source-perf-concurrent",
-		SourceName:        "concurrent-source",
-		Runtime:           models.RuntimeCodex,
-		Provider:          models.ProviderOpenAI,
-		Format:            models.FormatJSONL,
-		EventKind:         models.EventKindMessage,
-		ActorRole:         models.ActorRoleAssistant,
-		Timestamp:         now.Add(time.Duration(sequence) * time.Millisecond),
-		TextContent:       "fleetcommon concurrent ingest read dashboard search",
-		TextPreview:       "fleetcommon concurrent ingest read dashboard search",
-		Model:             "gpt-5.4-mini",
-		EventVersion:      1,
-		PayloadJSON:       `{"message":"fleetcommon concurrent ingest read dashboard search"}`,
-		CWD:               "/home/user/projects/project-000",
-		SourceFile:        "concurrent-session.jsonl",
-		SourceLineNo:      int(sequence),
-		RawEventID:        fmt.Sprintf("native-event-perf-concurrent-%03d", sequence),
-		SourceEventIndex:  sequence,
-		BatchID:           batchID,
-		ControlPlaneEpoch: meta.ControlPlaneEpoch,
-		PayloadDigest:     payloadDigest,
-		RedactionStatus:   "redacted",
-		RedactionVersion:  meta.RedactionVersion,
+		EventUID:         fmt.Sprintf("event-perf-concurrent-%03d", sequence),
+		SessionID:        fmt.Sprintf("session-perf-concurrent-%03d", sequence%3),
+		RawSessionID:     fmt.Sprintf("native-perf-concurrent-%03d", sequence%3),
+		SourceName:       "concurrent-source",
+		Runtime:          models.RuntimeCodex,
+		Provider:         models.ProviderOpenAI,
+		Format:           models.FormatJSONL,
+		EventKind:        models.EventKindMessage,
+		ActorRole:        models.ActorRoleAssistant,
+		Timestamp:        now.Add(time.Duration(sequence) * time.Millisecond),
+		TextContent:      "commonsearch concurrent ingest read dashboard search",
+		TextPreview:      "commonsearch concurrent ingest read dashboard search",
+		Model:            "gpt-5.4-mini",
+		EventVersion:     1,
+		PayloadJSON:      `{"message":"commonsearch concurrent ingest read dashboard search"}`,
+		CWD:              "/home/user/projects/project-000",
+		SourceFile:       "concurrent-session.jsonl",
+		SourceLineNo:     int(sequence),
+		RawEventID:       fmt.Sprintf("native-event-perf-concurrent-%03d", sequence),
+		SourceEventIndex: sequence,
+		PayloadDigest:    payloadDigest,
+		RedactionStatus:  "redacted",
+		RedactionVersion: "redact-v1",
 	}
-	return meta, store.RowBatch{
+	return store.RowBatch{
 		ActivityEvents: []models.Event{event},
 		RawRecords:     []models.RawRecord{store.NewRawRecord(event)},
 		Checkpoints: []models.Checkpoint{{
-			NodeID:      meta.NodeID,
-			CollectorID: meta.CollectorID,
-			SourceID:    event.SourceID,
-			SourceName:  event.SourceName,
-			SourceFile:  event.SourceFile,
-			LastOffset:  int64(sequence),
-			LastLineNo:  int(sequence),
+			SourceName: event.SourceName,
+			SourceFile: event.SourceFile,
+			LastOffset: int64(sequence),
+			LastLineNo: int(sequence),
 		}},
 	}
 }

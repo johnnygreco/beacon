@@ -8,12 +8,9 @@ import (
 )
 
 type ScopeFilters struct {
-	NodeIDs      []string `json:"node_ids,omitempty"`
-	CollectorIDs []string `json:"collector_ids,omitempty"`
-	SourceIDs    []string `json:"source_ids,omitempty"`
-	SourceNames  []string `json:"source_names,omitempty"`
-	Runtimes     []string `json:"runtimes,omitempty"`
-	ProjectKeys  []string `json:"project_keys,omitempty"`
+	SourceNames []string `json:"source_names,omitempty"`
+	Runtimes    []string `json:"runtimes,omitempty"`
+	ProjectKeys []string `json:"project_keys,omitempty"`
 
 	denyAll bool
 }
@@ -43,28 +40,19 @@ type authScopeContext struct {
 }
 
 type scopeArgs struct {
-	NodeID       string   `json:"node_id"`
-	NodeIDs      []string `json:"node_ids"`
-	CollectorID  string   `json:"collector_id"`
-	CollectorIDs []string `json:"collector_ids"`
-	SourceID     string   `json:"source_id"`
-	SourceIDs    []string `json:"source_ids"`
-	SourceName   string   `json:"source_name"`
-	SourceNames  []string `json:"source_names"`
-	Runtime      string   `json:"runtime"`
-	Runtimes     []string `json:"runtimes"`
-	ProjectKey   string   `json:"project_key"`
-	ProjectKeys  []string `json:"project_keys"`
+	SourceName  string   `json:"source_name"`
+	SourceNames []string `json:"source_names"`
+	Runtime     string   `json:"runtime"`
+	Runtimes    []string `json:"runtimes"`
+	ProjectKey  string   `json:"project_key"`
+	ProjectKeys []string `json:"project_keys"`
 }
 
 func (a scopeArgs) filters() ScopeFilters {
 	return normalizeScopeFilters(ScopeFilters{
-		NodeIDs:      append([]string{a.NodeID}, a.NodeIDs...),
-		CollectorIDs: append([]string{a.CollectorID}, a.CollectorIDs...),
-		SourceIDs:    append([]string{a.SourceID}, a.SourceIDs...),
-		SourceNames:  append([]string{a.SourceName}, a.SourceNames...),
-		Runtimes:     append([]string{a.Runtime}, a.Runtimes...),
-		ProjectKeys:  append([]string{a.ProjectKey}, a.ProjectKeys...),
+		SourceNames: append([]string{a.SourceName}, a.SourceNames...),
+		Runtimes:    append([]string{a.Runtime}, a.Runtimes...),
+		ProjectKeys: append([]string{a.ProjectKey}, a.ProjectKeys...),
 	})
 }
 
@@ -79,9 +67,6 @@ func (s *Server) effectiveScope(ctx context.Context, requested ScopeFilters) (Sc
 }
 
 func normalizeScopeFilters(scope ScopeFilters) ScopeFilters {
-	scope.NodeIDs = compactScopeValues(scope.NodeIDs)
-	scope.CollectorIDs = compactScopeValues(scope.CollectorIDs)
-	scope.SourceIDs = compactScopeValues(scope.SourceIDs)
 	scope.SourceNames = compactScopeValues(scope.SourceNames)
 	scope.Runtimes = compactScopeValues(scope.Runtimes)
 	scope.ProjectKeys = compactScopeValues(scope.ProjectKeys)
@@ -94,12 +79,9 @@ func intersectScopes(auth, requested ScopeFilters) ScopeFilters {
 	}
 	var denied bool
 	out := ScopeFilters{
-		NodeIDs:      intersectScopeDimension(auth.NodeIDs, requested.NodeIDs, &denied),
-		CollectorIDs: intersectScopeDimension(auth.CollectorIDs, requested.CollectorIDs, &denied),
-		SourceIDs:    intersectScopeDimension(auth.SourceIDs, requested.SourceIDs, &denied),
-		SourceNames:  intersectScopeDimension(auth.SourceNames, requested.SourceNames, &denied),
-		Runtimes:     intersectScopeDimension(auth.Runtimes, requested.Runtimes, &denied),
-		ProjectKeys:  intersectScopeDimension(auth.ProjectKeys, requested.ProjectKeys, &denied),
+		SourceNames: intersectScopeDimension(auth.SourceNames, requested.SourceNames, &denied),
+		Runtimes:    intersectScopeDimension(auth.Runtimes, requested.Runtimes, &denied),
+		ProjectKeys: intersectScopeDimension(auth.ProjectKeys, requested.ProjectKeys, &denied),
 	}
 	if denied {
 		return ScopeFilters{denyAll: true}
@@ -137,12 +119,9 @@ func (s ScopeFilters) applyToSearchQuery(q *search.SearchQuery) {
 		return
 	}
 	if s.denyAll {
-		q.NodeIDs = []string{scopeImpossibleValue}
+		q.SourceNames = []string{scopeImpossibleValue}
 		return
 	}
-	q.NodeIDs = compactScopeValues(append(q.NodeIDs, s.NodeIDs...))
-	q.CollectorIDs = compactScopeValues(append(q.CollectorIDs, s.CollectorIDs...))
-	q.SourceIDs = compactScopeValues(append(q.SourceIDs, s.SourceIDs...))
 	q.SourceNames = compactScopeValues(append(q.SourceNames, s.SourceNames...))
 	q.Runtimes = compactScopeValues(append(q.Runtimes, s.Runtimes...))
 	q.ProjectKeys = compactScopeValues(append(q.ProjectKeys, s.ProjectKeys...))
@@ -192,9 +171,6 @@ func (s ScopeFilters) sqlPredicates(alias string) ([]string, []any) {
 	}
 	var predicates []string
 	var args []any
-	appendScopePredicate(&predicates, &args, nodeScopeExpr(prefix+"node_id"), s.NodeIDs)
-	appendScopePredicate(&predicates, &args, prefix+"collector_id", s.CollectorIDs)
-	appendScopePredicate(&predicates, &args, prefix+"source_id", s.SourceIDs)
 	appendScopePredicate(&predicates, &args, prefix+"source_name", s.SourceNames)
 	appendScopePredicate(&predicates, &args, prefix+"runtime", s.Runtimes)
 	appendScopePredicate(&predicates, &args, prefix+"project_key", s.ProjectKeys)
@@ -211,9 +187,6 @@ func (s ScopeFilters) eventSQLPredicates(alias, cwdExpr string) ([]string, []any
 	}
 	var predicates []string
 	var args []any
-	appendScopePredicate(&predicates, &args, nodeScopeExpr(prefix+"node_id"), s.NodeIDs)
-	appendScopePredicate(&predicates, &args, prefix+"collector_id", s.CollectorIDs)
-	appendScopePredicate(&predicates, &args, prefix+"source_id", s.SourceIDs)
 	appendScopePredicate(&predicates, &args, prefix+"source_name", s.SourceNames)
 	appendScopePredicate(&predicates, &args, prefix+"runtime", s.Runtimes)
 	projectExpr := strings.TrimSpace(cwdExpr)
@@ -233,14 +206,6 @@ func appendScopePredicate(predicates *[]string, args *[]any, column string, valu
 	for _, value := range values {
 		*args = append(*args, value)
 	}
-}
-
-func nodeScopeExpr(column string) string {
-	column = strings.TrimSpace(column)
-	if column == "" {
-		column = "node_id"
-	}
-	return "COALESCE(NULLIF(" + column + ", ''), 'local')"
 }
 
 func projectKeyExpr(pathExpr string) string {
@@ -289,9 +254,6 @@ func sqlPlaceholders(n int) string {
 
 func hasScopeFilters(scope ScopeFilters) bool {
 	return scope.denyAll ||
-		len(scope.NodeIDs) > 0 ||
-		len(scope.CollectorIDs) > 0 ||
-		len(scope.SourceIDs) > 0 ||
 		len(scope.SourceNames) > 0 ||
 		len(scope.Runtimes) > 0 ||
 		len(scope.ProjectKeys) > 0

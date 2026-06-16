@@ -46,16 +46,16 @@ func TestSearchFilterBuildersCoverAllControls(t *testing.T) {
 		FromTime:       from,
 		ToTime:         to,
 		ExcludeMCPSelf: true,
-		NodeIDs:        []string{"local"},
+		SourceNames:    []string{"codex"},
 	})
 
 	for _, expected := range []string{
 		"AND startsWith(p.session_id, ?)",
 		"AND p.event_kind IN (?,?)",
-		"AND COALESCE(NULLIF(p.node_id, ''), 'local') IN (?)",
+		"AND p.source_name IN (?)",
 		"AND p.timestamp >= ?",
 		"AND p.timestamp <= ?",
-		"AND p.tool_name NOT IN ('search_sessions', 'open', 'list_agents', 'list_sessions', 'usage_summary')",
+		"AND p.tool_name NOT IN ('search_sessions', 'open', 'list_sessions', 'usage_summary')",
 		"positionCaseInsensitive(p.text_preview, 'beacon') = 0",
 	} {
 		if !strings.Contains(sql, expected) {
@@ -69,9 +69,9 @@ func TestSearchFilterBuildersCoverAllControls(t *testing.T) {
 
 func TestDocumentFilterBuilderOmitsAliases(t *testing.T) {
 	sql, args := buildDocumentFilters(SearchQuery{
-		SessionID:  "session-abc",
-		EventKinds: []string{"error"},
-		NodeIDs:    []string{"local"},
+		SessionID:   "session-abc",
+		EventKinds:  []string{"error"},
+		SourceNames: []string{"codex"},
 	})
 
 	if strings.Contains(sql, "p.") {
@@ -80,7 +80,7 @@ func TestDocumentFilterBuilderOmitsAliases(t *testing.T) {
 	for _, expected := range []string{
 		"startsWith(session_id, ?)",
 		"event_kind IN (?)",
-		"COALESCE(NULLIF(node_id, ''), 'local') IN (?)",
+		"source_name IN (?)",
 	} {
 		if !strings.Contains(sql, expected) {
 			t.Fatalf("document filters missing %q: %s", expected, sql)
@@ -148,7 +148,7 @@ func TestSearchBuildsPostingsQueryWithDeterministicRankingAndFilters(t *testing.
 				"AND p.event_kind IN (?,?)",
 				"AND p.timestamp >= ?",
 				"AND p.timestamp <= ?",
-				"AND p.tool_name NOT IN ('search_sessions', 'open', 'list_agents', 'list_sessions', 'usage_summary')",
+				"AND p.tool_name NOT IN ('search_sessions', 'open', 'list_sessions', 'usage_summary')",
 				"positionCaseInsensitive(p.text_preview, 'beacon') = 0",
 				"HAVING score >= ?",
 				"ORDER BY score DESC, timestamp DESC",
@@ -210,14 +210,13 @@ func TestSearchAppliesScopeFiltersInsidePostingsScan(t *testing.T) {
 				"FROM search_postings FINAL",
 				"WHERE p.token IN (?)",
 				"AND p.updated_at >= d.updated_at",
-				"AND p.collector_id IN (?)",
-				"AND p.source_id IN (?)",
+				"AND p.source_name IN (?)",
 				"AND p.project_key IN (?)",
 			)
 			if strings.Contains(query, "WHERE 1 = 1") {
 				t.Fatalf("scope filters should not be applied by an outer WHERE:\n%s", query)
 			}
-			filterIdx := strings.Index(query, "AND p.collector_id IN (?)")
+			filterIdx := strings.Index(query, "AND p.source_name IN (?)")
 			groupIdx := strings.Index(query, "GROUP BY p.event_uid")
 			if filterIdx < 0 || groupIdx < 0 || filterIdx > groupIdx {
 				t.Fatalf("scope filter must be inside postings scan before scoring/grouping:\n%s", query)
@@ -226,8 +225,7 @@ func TestSearchAppliesScopeFiltersInsidePostingsScan(t *testing.T) {
 				float64(10),
 				float64(12),
 				"common",
-				"collector-a",
-				"source-a",
+				"codex",
 				"beacon",
 				0.0,
 				5,
@@ -241,11 +239,10 @@ func TestSearchAppliesScopeFiltersInsidePostingsScan(t *testing.T) {
 	s := NewSearcher(db, discardLogger, 25, 0)
 	s.logSem = nil
 	if _, err := s.Search(context.Background(), SearchQuery{
-		Query:        "common",
-		Limit:        5,
-		CollectorIDs: []string{"collector-a"},
-		SourceIDs:    []string{"source-a"},
-		ProjectKeys:  []string{"beacon"},
+		Query:       "common",
+		Limit:       5,
+		SourceNames: []string{"codex"},
+		ProjectKeys: []string{"beacon"},
 	}); err != nil {
 		t.Fatalf("Search error = %v", err)
 	}
@@ -526,9 +523,6 @@ func (f *fakeResultRows) Scan(dest ...any) error {
 	values := []any{
 		row.EventUID,
 		row.SessionID,
-		row.NodeID,
-		row.CollectorID,
-		row.SourceID,
 		row.SourceName,
 		row.Runtime,
 		row.ProjectKey,
@@ -703,9 +697,6 @@ func searchResultDriverRows(results []SearchResult) *driverRows {
 		rows = append(rows, []driver.Value{
 			result.EventUID,
 			result.SessionID,
-			result.NodeID,
-			result.CollectorID,
-			result.SourceID,
 			result.SourceName,
 			result.Runtime,
 			result.ProjectKey,
@@ -720,7 +711,7 @@ func searchResultDriverRows(results []SearchResult) *driverRows {
 		})
 	}
 	return newDriverRows(
-		[]string{"event_uid", "session_id", "node_id", "collector_id", "source_id", "source_name", "runtime", "project_key", "project_path", "event_kind", "text_preview", "score", "timestamp", "tool_name", "model", "provider"},
+		[]string{"event_uid", "session_id", "source_name", "runtime", "project_key", "project_path", "event_kind", "text_preview", "score", "timestamp", "tool_name", "model", "provider"},
 		rows...,
 	)
 }

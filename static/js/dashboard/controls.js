@@ -171,8 +171,7 @@ document.addEventListener('click', function(evt) {
 	if (retryBtn) {
 		evt.preventDefault();
 		var retry = retryBtn.getAttribute('data-dashboard-retry') || '';
-		if (retry === 'fleet') loadDashboardFleet();
-		else if (retry === 'active') loadActiveSessions();
+		if (retry === 'active') loadActiveSessions();
 		else if (retry === 'search') loadDashboardSearch();
 		else if (retry === 'completed') loadCompletedSessions(currentCompletedOffset);
 		else if (retry === 'activity') loadActivity();
@@ -431,15 +430,12 @@ document.addEventListener('change', function(evt) {
 		};
 		dashboardEvents.addEventListener('active-sessions-update', function() {
 			loadActiveSessions();
-			loadDashboardFleet();
 		});
 		dashboardEvents.addEventListener('completed-sessions-update', function() {
 			loadCompletedSessions(currentCompletedOffset, {silent: true});
-			loadDashboardFleet();
 		});
 		dashboardEvents.addEventListener('activity-update', function() {
 			loadActivity();
-			loadDashboardFleet();
 		});
 		dashboardEvents.addEventListener('dashboard-charts-update', function() {
 			loadDashboardCharts();
@@ -460,7 +456,6 @@ document.addEventListener('change', function(evt) {
 	updateChartRangeCaption();
 	window.__beaconDashboardInitialLoadSettled = false;
 	var initialLoads = [
-		loadDashboardFleet(),
 		loadActiveSessions(),
 		loadCompletedSessions(currentCompletedOffset),
 		loadActivity(),

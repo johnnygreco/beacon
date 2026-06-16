@@ -65,7 +65,7 @@ perf-fast: ## Run fast non-ClickHouse backend benchmarks
 	go test -run '^$$' -bench=$$PERF_FAST_BENCH -benchtime=$$PERF_FAST_BENCHTIME -benchmem -count=$$PERF_FAST_COUNT -timeout=10m \
 		./internal/capture ./internal/store ./internal/textindex ./internal/mcp ./internal/web ./internal/views/pages ./internal/views/components
 
-perf-bench: ## Run perf benchmarks (PERF_SIZE=small|medium|large|fleet; fleet is heavy/manual)
+perf-bench: ## Run perf benchmarks (PERF_SIZE=small|medium|large|stress; stress is heavy/manual)
 	@PERF_SIZE=$${PERF_SIZE:-medium} && \
 	PERF_BENCH=$${PERF_BENCH:-.} && \
 	PERF_BENCHTIME=$${PERF_BENCHTIME:-1s} && \
@@ -101,10 +101,10 @@ perf-compare: ## Compare PERF_REPORT against PERF_BASELINE perf lab reports
 	go run ./cmd/perfcheck --report "$$PERF_REPORT" --baseline "$$PERF_BASELINE" $${PERF_CHECK_ARGS:-}
 
 fmt: ## Format tracked Go files
-	git ls-files '*.go' | xargs gofmt -w
+	git ls-files '*.go' | while read -r file; do [ -f "$$file" ] && printf '%s\n' "$$file"; done | xargs gofmt -w
 
 fmt-check: ## Check tracked Go files are gofmt formatted
-	@drift=$$(git ls-files '*.go' | xargs gofmt -l); \
+	@drift=$$(git ls-files '*.go' | while read -r file; do [ -f "$$file" ] && printf '%s\n' "$$file"; done | xargs gofmt -l); \
 	if [ -n "$$drift" ]; then \
 		echo "gofmt drift detected:"; \
 		echo "$$drift"; \

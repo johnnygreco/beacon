@@ -175,8 +175,8 @@ func TestDispatch_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected tools to be []map[string]any, got %T", result["tools"])
 	}
-	if len(tools) != 5 {
-		t.Fatalf("expected 5 tools, got %d", len(tools))
+	if len(tools) != 4 {
+		t.Fatalf("expected 4 tools, got %d", len(tools))
 	}
 
 	names := map[string]bool{}
@@ -184,7 +184,7 @@ func TestDispatch_ToolsList(t *testing.T) {
 		name, _ := tool["name"].(string)
 		names[name] = true
 	}
-	for _, expected := range []string{"search_sessions", "open", "list_agents", "list_sessions", "usage_summary"} {
+	for _, expected := range []string{"search_sessions", "open", "list_sessions", "usage_summary"} {
 		if !names[expected] {
 			t.Errorf("missing tool: %s", expected)
 		}
@@ -355,8 +355,8 @@ func TestFormatSessionList_WithSessions(t *testing.T) {
 
 func TestToolDefinitions(t *testing.T) {
 	defs := toolDefinitions()
-	if len(defs) != 5 {
-		t.Fatalf("expected 5 tool definitions, got %d", len(defs))
+	if len(defs) != 4 {
+		t.Fatalf("expected 4 tool definitions, got %d", len(defs))
 	}
 
 	names := map[string]bool{}
@@ -372,7 +372,7 @@ func TestToolDefinitions(t *testing.T) {
 		}
 	}
 
-	for _, expected := range []string{"search_sessions", "open", "list_agents", "list_sessions", "usage_summary"} {
+	for _, expected := range []string{"search_sessions", "open", "list_sessions", "usage_summary"} {
 		if !names[expected] {
 			t.Errorf("missing tool definition: %s", expected)
 		}

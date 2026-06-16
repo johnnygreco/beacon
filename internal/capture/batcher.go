@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log/slog"
-	"sort"
 	"time"
 
 	"github.com/johnnygreco/beacon/internal/models"
@@ -34,36 +33,17 @@ type Batcher struct {
 	flushInterval time.Duration
 	defaultInput  float64
 	defaultOutput float64
-	identity      FleetIdentity
 	redactor      *redaction.Policy
 	rawEventCache map[string]string
 	rawCacheOrder []string
 }
 
-type FleetIdentity struct {
-	NodeID            string
-	CollectorID       string
-	ControlPlaneEpoch string
-	Sources           map[string]FleetSourceIdentity
-}
-
-type FleetSourceIdentity struct {
-	SourceID string
-}
-
 type RowBatchMetadata struct {
-	BatchID          string
 	RedactionStatus  string
 	RedactionVersion string
 }
 
 type BatcherOption func(*Batcher)
-
-func WithFleetIdentity(identity FleetIdentity) BatcherOption {
-	return func(b *Batcher) {
-		b.identity = normalizeFleetIdentity(identity)
-	}
-}
 
 func WithRedactionPolicy(policy *redaction.Policy) BatcherOption {
 	return func(b *Batcher) {
@@ -87,7 +67,6 @@ func NewBatcher(ch *store.Store, batchSize int, flushInterval time.Duration, def
 		redactor:      redaction.DefaultPolicy(),
 		rawEventCache: make(map[string]string),
 	}
-	b.identity = normalizeFleetIdentity(FleetIdentity{})
 	for _, option := range options {
 		option(b)
 	}
@@ -173,7 +152,7 @@ func (b *Batcher) flushInserts(ctx context.Context, events []NormalizedEvent) []
 	start := time.Now()
 
 	redactedEvents := RedactNormalizedEvents(events, b.redactor)
-	batch, rawEvents := buildInsertRowBatchWithMetadata(redactedEvents, b.defaultInput, b.defaultOutput, b.identity, b.rawEventCache, RowBatchMetadata{
+	batch, rawEvents := buildInsertRowBatchWithMetadata(redactedEvents, b.defaultInput, b.defaultOutput, b.rawEventCache, RowBatchMetadata{
 		RedactionStatus:  "redacted",
 		RedactionVersion: redaction.Version,
 	})
@@ -217,27 +196,22 @@ func (b *Batcher) trimRawEventCache(maxEntries int) {
 	b.rawCacheOrder = append([]string(nil), b.rawCacheOrder[evictCount:]...)
 }
 
-func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput float64, identity FleetIdentity) store.RowBatch {
-	batch, _ := buildInsertRowBatchWithKnown(events, defaultInput, defaultOutput, identity, nil)
+func buildInsertRowBatch(events []NormalizedEvent, defaultInput, defaultOutput float64) store.RowBatch {
+	batch, _ := buildInsertRowBatchWithKnown(events, defaultInput, defaultOutput, nil)
 	return batch
 }
 
-func BuildRowBatch(events []NormalizedEvent, defaultInput, defaultOutput float64, identity FleetIdentity, metadata RowBatchMetadata) store.RowBatch {
-	batch, _ := buildInsertRowBatchWithMetadata(events, defaultInput, defaultOutput, identity, nil, metadata)
+func BuildRowBatch(events []NormalizedEvent, defaultInput, defaultOutput float64, metadata RowBatchMetadata) store.RowBatch {
+	batch, _ := buildInsertRowBatchWithMetadata(events, defaultInput, defaultOutput, nil, metadata)
 	return batch
 }
 
-func buildInsertRowBatchWithKnown(events []NormalizedEvent, defaultInput, defaultOutput float64, identity FleetIdentity, knownRawEvents map[string]string) (store.RowBatch, map[string]string) {
-	return buildInsertRowBatchWithMetadata(events, defaultInput, defaultOutput, identity, knownRawEvents, RowBatchMetadata{})
+func buildInsertRowBatchWithKnown(events []NormalizedEvent, defaultInput, defaultOutput float64, knownRawEvents map[string]string) (store.RowBatch, map[string]string) {
+	return buildInsertRowBatchWithMetadata(events, defaultInput, defaultOutput, knownRawEvents, RowBatchMetadata{})
 }
 
-func buildInsertRowBatchWithMetadata(events []NormalizedEvent, defaultInput, defaultOutput float64, identity FleetIdentity, knownRawEvents map[string]string, metadata RowBatchMetadata) (store.RowBatch, map[string]string) {
+func buildInsertRowBatchWithMetadata(events []NormalizedEvent, defaultInput, defaultOutput float64, knownRawEvents map[string]string, metadata RowBatchMetadata) (store.RowBatch, map[string]string) {
 	var batch store.RowBatch
-	identity = normalizeFleetIdentity(identity)
-	batchID := batchID(events, identity)
-	if metadata.BatchID != "" {
-		batchID = metadata.BatchID
-	}
 	redactionStatus := metadata.RedactionStatus
 	if redactionStatus == "" {
 		redactionStatus = "unredacted"
@@ -250,19 +224,19 @@ func buildInsertRowBatchWithMetadata(events []NormalizedEvent, defaultInput, def
 	batchRawEvents := make(map[string]string, len(events))
 
 	for _, evt := range events {
-		source := identity.source(evt.SourceName)
+		sourceName := evt.SourceName
 		rawSessionID := firstNonEmptyString(evt.RawSessionID, evt.SessionID)
 		rawParentSessionID := firstNonEmptyString(evt.RawParentSessionID, evt.ParentSessionID)
 		sourceEventIndex := normalizedSourceEventIndex(evt)
 		rawEventID := normalizedRawEventID(evt, sourceEventIndex)
 		payloadDigest := digestString(evt.RawPayload)
-		sessionID := globalID("session", identity.CollectorID, source.SourceID, rawSessionID)
+		sessionID := globalID("session", sourceName, rawSessionID)
 		parentSessionID := ""
 		if rawParentSessionID != "" {
-			parentSessionID = globalID("session", identity.CollectorID, source.SourceID, rawParentSessionID)
+			parentSessionID = globalID("session", sourceName, rawParentSessionID)
 		}
-		uid := globalID("event", identity.CollectorID, source.SourceID, rawSessionID, rawEventID, fmt.Sprint(sourceEventIndex))
-		key := rawEventKey(source.SourceID, rawSessionID, rawEventID)
+		uid := globalID("event", sourceName, rawSessionID, rawEventID, fmt.Sprint(sourceEventIndex))
+		key := rawEventKey(sourceName, rawSessionID, rawEventID)
 		if _, ok := resolvedRawEvents[key]; !ok {
 			resolvedRawEvents[key] = uid
 		}
@@ -271,7 +245,7 @@ func buildInsertRowBatchWithMetadata(events []NormalizedEvent, defaultInput, def
 		}
 		prepared = append(prepared, preparedEvent{
 			normalized:         evt,
-			source:             source,
+			sourceName:         sourceName,
 			rawSessionID:       rawSessionID,
 			rawParentSessionID: rawParentSessionID,
 			rawEventID:         rawEventID,
@@ -297,9 +271,6 @@ func buildInsertRowBatchWithMetadata(events []NormalizedEvent, defaultInput, def
 			RawSessionID:       item.rawSessionID,
 			ParentSessionID:    item.parentSessionID,
 			RawParentSessionID: item.rawParentSessionID,
-			NodeID:             identity.NodeID,
-			CollectorID:        identity.CollectorID,
-			SourceID:           item.source.SourceID,
 			SourceName:         evt.SourceName,
 			Runtime:            evt.Runtime,
 			Provider:           evt.Provider,
@@ -330,8 +301,6 @@ func buildInsertRowBatchWithMetadata(events []NormalizedEvent, defaultInput, def
 			SourceGeneration:   evt.SourceGeneration,
 			RawEventID:         item.rawEventID,
 			SourceEventIndex:   item.sourceEventIndex,
-			BatchID:            batchID,
-			ControlPlaneEpoch:  identity.ControlPlaneEpoch,
 			PayloadDigest:      item.payloadDigest,
 			RedactionStatus:    redactionStatus,
 			RedactionVersion:   metadata.RedactionVersion,
@@ -346,8 +315,8 @@ func buildInsertRowBatchWithMetadata(events []NormalizedEvent, defaultInput, def
 		rawLinkedEventID := firstNonEmptyString(evt.RawLinkedEventID, evt.ParentUUID)
 		if rawLinkedEventID != "" {
 			rawLinkedSessionID := firstNonEmptyString(evt.RawLinkedSessionID, item.rawSessionID)
-			linkedSessionID := globalID("session", identity.CollectorID, item.source.SourceID, rawLinkedSessionID)
-			linkedEventUID := resolvedRawEvents[rawEventKey(item.source.SourceID, rawLinkedSessionID, rawLinkedEventID)]
+			linkedSessionID := globalID("session", item.sourceName, rawLinkedSessionID)
+			linkedEventUID := resolvedRawEvents[rawEventKey(item.sourceName, rawLinkedSessionID, rawLinkedEventID)]
 			resolutionStatus := "resolved"
 			if linkedEventUID == "" {
 				resolutionStatus = "unresolved"
@@ -367,29 +336,21 @@ func buildInsertRowBatchWithMetadata(events []NormalizedEvent, defaultInput, def
 				LinkedSessionID:    linkedSessionID,
 				RawLinkedSessionID: rawLinkedSessionID,
 				RawLinkedEventID:   rawLinkedEventID,
-				CollectorID:        identity.CollectorID,
-				SourceID:           item.source.SourceID,
-				BatchID:            batchID,
-				ControlPlaneEpoch:  identity.ControlPlaneEpoch,
 			})
 		}
 
 		if evt.ToolPhase != "" && (evt.ToolInput != "" || evt.ToolOutput != "") {
 			payload := models.ToolPayload{
-				EventUID:          item.eventUID,
-				CollectorID:       identity.CollectorID,
-				SourceID:          item.source.SourceID,
-				ToolName:          evt.ToolName,
-				ToolPhase:         evt.ToolPhase,
-				InputJSON:         evt.ToolInput,
-				OutputJSON:        evt.ToolOutput,
-				InputPreview:      truncate(evt.ToolInput, previewMaxLen),
-				OutputPreview:     truncate(evt.ToolOutput, previewMaxLen),
-				BatchID:           batchID,
-				ControlPlaneEpoch: identity.ControlPlaneEpoch,
-				PayloadDigest:     digestString(evt.ToolInput + "\x00" + evt.ToolOutput),
-				RedactionStatus:   redactionStatus,
-				RedactionVersion:  metadata.RedactionVersion,
+				EventUID:         item.eventUID,
+				ToolName:         evt.ToolName,
+				ToolPhase:        evt.ToolPhase,
+				InputJSON:        evt.ToolInput,
+				OutputJSON:       evt.ToolOutput,
+				InputPreview:     truncate(evt.ToolInput, previewMaxLen),
+				OutputPreview:    truncate(evt.ToolOutput, previewMaxLen),
+				PayloadDigest:    digestString(evt.ToolInput + "\x00" + evt.ToolOutput),
+				RedactionStatus:  redactionStatus,
+				RedactionVersion: metadata.RedactionVersion,
 			}
 			batch.ToolPayloads = append(batch.ToolPayloads, payload)
 		}
@@ -399,7 +360,7 @@ func buildInsertRowBatchWithMetadata(events []NormalizedEvent, defaultInput, def
 
 type preparedEvent struct {
 	normalized         NormalizedEvent
-	source             FleetSourceIdentity
+	sourceName         string
 	rawSessionID       string
 	rawParentSessionID string
 	rawEventID         string
@@ -410,11 +371,6 @@ type preparedEvent struct {
 	eventUID           string
 }
 
-// eventUID generates a deterministic UID for idempotent replay.
-func eventUIDOrdinalKey(evt NormalizedEvent) string {
-	return fmt.Sprintf("%s|%d|%d|%d|%s", evt.SourceFile, evt.SourceLineNo, evt.SourceOffset, evt.SourceGeneration, evt.RawPayload)
-}
-
 func eventUID(sourceFile string, lineNo int, offset int64, generation int, contentHash string, ordinal int) string {
 	h := sha256.New()
 	fmt.Fprintf(h, "%s|%d|%d|%d|%s", sourceFile, lineNo, offset, generation, contentHash)
@@ -422,39 +378,6 @@ func eventUID(sourceFile string, lineNo int, offset int64, generation int, conte
 		fmt.Fprintf(h, "|%d", ordinal)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:32]
-}
-
-func normalizeFleetIdentity(identity FleetIdentity) FleetIdentity {
-	if identity.CollectorID == "" {
-		identity.CollectorID = "collector_local"
-	}
-	if identity.NodeID == "" {
-		identity.NodeID = "node_local"
-	}
-	if identity.ControlPlaneEpoch == "" {
-		identity.ControlPlaneEpoch = "1"
-	}
-	if identity.Sources == nil {
-		identity.Sources = map[string]FleetSourceIdentity{}
-	}
-	return identity
-}
-
-func (identity FleetIdentity) source(name string) FleetSourceIdentity {
-	if source, ok := identity.Sources[name]; ok && source.SourceID != "" {
-		return source
-	}
-	return FleetSourceIdentity{SourceID: globalID("source", identity.CollectorID, name)}
-}
-
-func batchID(events []NormalizedEvent, identity FleetIdentity) string {
-	parts := make([]string, 0, len(events)+3)
-	parts = append(parts, identity.CollectorID, identity.ControlPlaneEpoch)
-	for _, evt := range events {
-		parts = append(parts, eventUIDOrdinalKey(evt))
-	}
-	sort.Strings(parts[2:])
-	return globalID("batch", parts...)
 }
 
 func normalizedRawEventID(evt NormalizedEvent, sourceEventIndex uint64) string {
@@ -493,8 +416,8 @@ func normalizedSourceEventIndex(evt NormalizedEvent) uint64 {
 	return hashed
 }
 
-func rawEventKey(sourceID, rawSessionID, rawEventID string) string {
-	return sourceID + "\x00" + rawSessionID + "\x00" + rawEventID
+func rawEventKey(sourceName, rawSessionID, rawEventID string) string {
+	return sourceName + "\x00" + rawSessionID + "\x00" + rawEventID
 }
 
 func globalID(prefix string, parts ...string) string {

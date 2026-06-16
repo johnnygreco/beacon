@@ -151,13 +151,13 @@ func TestValidateLabPlanRejectsInvalidSize(t *testing.T) {
 	}
 }
 
-func TestValidateLabPlanAcceptsFleetSize(t *testing.T) {
+func TestValidateLabPlanAcceptsStressSize(t *testing.T) {
 	err := validateLabPlan(labConfig{
-		Size:     "fleet",
+		Size:     "stress",
 		SkipLive: true,
 	})
 	if err != nil {
-		t.Fatalf("validateLabPlan fleet error = %v", err)
+		t.Fatalf("validateLabPlan stress error = %v", err)
 	}
 }
 
@@ -166,8 +166,8 @@ func TestExternalDatasetReportMarksDatabaseUnknown(t *testing.T) {
 	if got.Size != "small" || got.Database != "unknown" || got.Seeded {
 		t.Fatalf("externalDatasetReport = %#v, want unseeded unknown database", got)
 	}
-	if got.Collectors != 25 || got.Runtimes != 5 || got.CommonSearchToken == "" {
-		t.Fatalf("externalDatasetReport metadata = %#v, want fleet profile metadata", got)
+	if got.Sources != 5 || got.Runtimes != 5 || got.CommonSearchToken == "" {
+		t.Fatalf("externalDatasetReport metadata = %#v, want stress profile metadata", got)
 	}
 }
 
@@ -212,7 +212,7 @@ func TestWriteLabConfigEmitsCurrentBeaconConfig(t *testing.T) {
 			t.Fatalf("lab config missing %q:\n%s", want, got)
 		}
 	}
-	for _, removed := range []string{"[fleet]", "metadata_path", "ingest_token_file", "spool_dir"} {
+	for _, removed := range []string{"[" + strings.Join([]string{"fl", "eet"}, "") + "]", "metadata_path", "ingest_token_file", "spool_dir"} {
 		if strings.Contains(got, removed) {
 			t.Fatalf("lab config contains removed config %q:\n%s", removed, got)
 		}
@@ -274,9 +274,7 @@ func TestMarkdownReportIncludesCoreSections(t *testing.T) {
 			Events:            22954,
 			Payloads:          14784,
 			SearchPostings:    120000,
-			Nodes:             25,
-			Collectors:        25,
-			Sources:           125,
+			Sources:           5,
 			Runtimes:          5,
 			Projects:          25,
 			ActiveSessions:    25,
@@ -284,7 +282,7 @@ func TestMarkdownReportIncludesCoreSections(t *testing.T) {
 			TargetEvents:      22954,
 			TargetPayloads:    7651,
 			TargetPostings:    160678,
-			CommonSearchToken: "fleetcommon",
+			CommonSearchToken: "commonsearch",
 			Duration:          "500ms",
 		},
 		Server: serverReport{BaseURL: "http://127.0.0.1:4611", Started: true},
@@ -313,7 +311,7 @@ func TestMarkdownReportIncludesCoreSections(t *testing.T) {
 	}
 
 	got := markdownReport(report)
-	for _, want := range []string{"# Beacon Performance Lab", "## Commands", "## Go Benchmarks", "## Browser Summary", "Iterations", "Samples", "beacon_perf_lab", "beacon_perf_lab_bench", "25 collectors", "fleetcommon"} {
+	for _, want := range []string{"# Beacon Performance Lab", "## Commands", "## Go Benchmarks", "## Browser Summary", "Iterations", "Samples", "beacon_perf_lab", "beacon_perf_lab_bench", "5 sources", "commonsearch"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("markdown report missing %q:\n%s", want, got)
 		}

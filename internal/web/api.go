@@ -368,9 +368,6 @@ func (a *APIHandlers) GetDashboardSearch(w http.ResponseWriter, r *http.Request)
 				ResultType:   "event",
 				EventUID:     result.EventUID,
 				SessionID:    result.SessionID,
-				NodeID:       result.NodeID,
-				CollectorID:  result.CollectorID,
-				SourceID:     result.SourceID,
 				SourceName:   result.SourceName,
 				Runtime:      result.Runtime,
 				ProjectKey:   result.ProjectKey,
@@ -507,9 +504,6 @@ func dashboardSearchSessionResult(session views.SessionSummary) APIDashboardSear
 	return APIDashboardSearchResult{
 		ResultType:   "session",
 		SessionID:    session.ID,
-		NodeID:       session.NodeID,
-		CollectorID:  session.CollectorID,
-		SourceID:     session.SourceID,
 		SourceName:   session.Actor,
 		Runtime:      session.Runtime,
 		ProjectKey:   session.ProjectKey,
@@ -619,9 +613,6 @@ func (a *APIHandlers) GetActivity(w http.ResponseWriter, r *http.Request) {
 			Type:         item.Type,
 			Summary:      item.Summary,
 			SessionID:    item.SessionID,
-			NodeID:       item.NodeID,
-			CollectorID:  item.CollectorID,
-			SourceID:     item.SourceID,
 			SourceName:   item.SourceName,
 			Runtime:      item.Runtime,
 			Provider:     item.Provider,
@@ -648,15 +639,6 @@ func (a *APIHandlers) GetDashboardCharts(w http.ResponseWriter, r *http.Request)
 		TokenCumulative: tokenCumulative,
 		ModelActivity:   modelActivity,
 	})
-}
-
-// GetDashboardFleet returns the fleet summary used by global dashboard scope controls.
-func (a *APIHandlers) GetDashboardFleet(w http.ResponseWriter, r *http.Request) {
-	if !a.requireDashboardDB(w, r, "failed to query dashboard fleet") {
-		return
-	}
-	scope, scopeMetadata := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
-	a.jsonResponse(w, QueryDashboardFleet(r.Context(), a.db, scope, scopeMetadata))
 }
 
 // GetSessionDetail returns detailed info for a single session.
@@ -773,9 +755,6 @@ func (a *APIHandlers) GetEvent(w http.ResponseWriter, r *http.Request) {
 		`WITH latest_event AS (
 			SELECT event_uid,
 			       argMax(session_id, captured_at) AS session_id,
-			       argMax(node_id, captured_at) AS node_id,
-			       argMax(collector_id, captured_at) AS collector_id,
-			       argMax(source_id, captured_at) AS source_id,
 			       argMax(source_name, captured_at) AS source_name,
 			       argMax(runtime, captured_at) AS runtime,
 			       argMax(event_kind, captured_at) AS event_kind,
@@ -835,9 +814,6 @@ func (a *APIHandlers) GetToolPayload(w http.ResponseWriter, r *http.Request) {
 		`WITH latest_event AS (
 			SELECT event_uid,
 			       argMax(session_id, captured_at) AS session_id,
-			       argMax(node_id, captured_at) AS node_id,
-			       argMax(collector_id, captured_at) AS collector_id,
-			       argMax(source_id, captured_at) AS source_id,
 			       argMax(source_name, captured_at) AS source_name,
 			       argMax(runtime, captured_at) AS runtime,
 			       argMax(cwd, captured_at) AS cwd
@@ -1048,9 +1024,6 @@ func apiSessionSummaryFromView(s views.SessionSummary) APISessionSummary {
 		ID:                s.ID,
 		Title:             views.SessionTitle(s, false),
 		Source:            s.Actor,
-		NodeID:            s.NodeID,
-		CollectorID:       s.CollectorID,
-		SourceID:          s.SourceID,
 		Runtime:           s.Runtime,
 		Format:            s.Format,
 		ProjectKey:        s.ProjectKey,

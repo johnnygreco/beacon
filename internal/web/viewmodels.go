@@ -45,9 +45,6 @@ type APISessionSummary struct {
 	ID                string              `json:"id"`
 	Title             string              `json:"title"`
 	Source            string              `json:"source"`
-	NodeID            string              `json:"node_id,omitempty"`
-	CollectorID       string              `json:"collector_id,omitempty"`
-	SourceID          string              `json:"source_id,omitempty"`
 	Runtime           string              `json:"runtime,omitempty"`
 	Format            string              `json:"format,omitempty"`
 	ProjectKey        string              `json:"project_key,omitempty"`
@@ -111,9 +108,6 @@ type APIDashboardSearchResult struct {
 	ResultType   string    `json:"result_type,omitempty"`
 	EventUID     string    `json:"event_uid"`
 	SessionID    string    `json:"session_id"`
-	NodeID       string    `json:"node_id,omitempty"`
-	CollectorID  string    `json:"collector_id,omitempty"`
-	SourceID     string    `json:"source_id,omitempty"`
 	SourceName   string    `json:"source_name,omitempty"`
 	Runtime      string    `json:"runtime,omitempty"`
 	ProjectKey   string    `json:"project_key,omitempty"`
@@ -135,9 +129,6 @@ type APIActivityItem struct {
 	Type         string    `json:"type"`
 	Summary      string    `json:"summary"`
 	SessionID    string    `json:"session_id"`
-	NodeID       string    `json:"node_id,omitempty"`
-	CollectorID  string    `json:"collector_id,omitempty"`
-	SourceID     string    `json:"source_id,omitempty"`
 	SourceName   string    `json:"source_name,omitempty"`
 	Runtime      string    `json:"runtime,omitempty"`
 	Provider     string    `json:"provider"`
@@ -150,67 +141,6 @@ type APIDashboardCharts struct {
 	Scope           APIScopeMetadata       `json:"scope"`
 	TokenCumulative views.ModelSeriesChart `json:"token_cumulative"`
 	ModelActivity   views.ModelMetricChart `json:"model_activity"`
-}
-
-type APIDashboardFleetResponse struct {
-	Scope  APIScopeMetadata        `json:"scope"`
-	Totals APIDashboardFleetTotals `json:"totals"`
-	Nodes  []APIDashboardFleetNode `json:"nodes"`
-}
-
-type APIDashboardFleetTotals struct {
-	NodeCount           int   `json:"node_count"`
-	CollectorCount      int   `json:"collector_count"`
-	OnlineCollectors    int   `json:"online_collectors"`
-	StaleCollectors     int   `json:"stale_collectors"`
-	OfflineCollectors   int   `json:"offline_collectors"`
-	MissingHeartbeats   int   `json:"missing_heartbeat_collectors"`
-	ActiveSessions      int64 `json:"active_sessions"`
-	AttentionSessions   int64 `json:"attention_sessions"`
-	TotalSessions       int64 `json:"total_sessions"`
-	TotalTokens         int64 `json:"total_tokens"`
-	QueueDepth          int64 `json:"queue_depth"`
-	SpoolBytes          int64 `json:"spool_bytes"`
-	HeartbeatErrorCount int64 `json:"heartbeat_error_count"`
-}
-
-type APIDashboardFleetNode struct {
-	NodeID              string                    `json:"node_id"`
-	Label               string                    `json:"label"`
-	Status              string                    `json:"status"`
-	CollectorCount      int                       `json:"collector_count"`
-	MissingHeartbeats   int                       `json:"missing_heartbeat_collectors"`
-	Collectors          []string                  `json:"collectors,omitempty"`
-	Sources             []string                  `json:"sources,omitempty"`
-	Runtimes            []string                  `json:"runtimes,omitempty"`
-	Projects            []string                  `json:"projects,omitempty"`
-	ActiveSessions      int64                     `json:"active_sessions"`
-	AttentionSessions   int64                     `json:"attention_sessions"`
-	TotalSessions       int64                     `json:"total_sessions"`
-	TotalTokens         int64                     `json:"total_tokens"`
-	ErrorCount          int64                     `json:"error_count"`
-	QueueDepth          int64                     `json:"queue_depth"`
-	SpoolBytes          int64                     `json:"spool_bytes"`
-	ActiveFiles         int64                     `json:"active_files"`
-	HeartbeatErrorCount int64                     `json:"heartbeat_error_count"`
-	LastEventAt         *time.Time                `json:"last_event_at,omitempty"`
-	LastHeartbeatAt     *time.Time                `json:"last_heartbeat_at,omitempty"`
-	LastSeenLabel       string                    `json:"last_seen_label,omitempty"`
-	HeartbeatStatus     string                    `json:"heartbeat_status,omitempty"`
-	SourcesDetail       []APIDashboardFleetSource `json:"sources_detail,omitempty"`
-}
-
-type APIDashboardFleetSource struct {
-	CollectorID     string     `json:"collector_id"`
-	SourceID        string     `json:"source_id,omitempty"`
-	SourceName      string     `json:"source_name,omitempty"`
-	Status          string     `json:"status"`
-	QueueDepth      int64      `json:"queue_depth"`
-	SpoolBytes      int64      `json:"spool_bytes"`
-	ActiveFiles     int64      `json:"active_files"`
-	ErrorCount      int64      `json:"error_count"`
-	LastEventAt     *time.Time `json:"last_event_at,omitempty"`
-	LastHeartbeatAt *time.Time `json:"last_heartbeat_at,omitempty"`
 }
 
 type APISessionDetail struct {

@@ -36,8 +36,6 @@ templ Dashboard(data views.DashboardData) {
 							</p>
 						</div>
 					</div>
-					<div id="dashboard-header-fleet-metrics" class="dashboard-header-fleet-metrics hidden" aria-label="Machine status summary" aria-hidden="true">
-					</div>
 					<div class="dashboard-header-actions" role="group" aria-label="Dashboard controls">
 						<div id="dashboard-theme-control" class="dashboard-theme-control" role="group" aria-label="Theme controls">
 							<span id="dashboard-theme-swatch" class="dashboard-theme-swatch" aria-hidden="true"></span>
@@ -99,19 +97,6 @@ templ Dashboard(data views.DashboardData) {
 				@templ.JSONScript("dashboard-token-cumulative-data", data.TokenCumulative)
 
 				<div class="dashboard-workspace">
-					<section id="dashboard-fleet" class="dashboard-panel dashboard-fleet-panel hidden" aria-labelledby="dashboard-fleet-title" aria-hidden="true">
-						<div class="dashboard-fleet-heading">
-							<div class="min-w-0">
-								<h2 id="dashboard-fleet-title" class="dashboard-fleet-title">Machines</h2>
-								<p id="dashboard-fleet-subtitle" class="dashboard-fleet-subtitle">Collectors and runtimes</p>
-							</div>
-							<div id="dashboard-scope-chips" class="dashboard-scope-chips" aria-label="Active dashboard scope"></div>
-						</div>
-						<div id="dashboard-fleet-strip" class="dashboard-fleet-strip" aria-live="polite">
-							<div class="dashboard-fleet-empty">Loading machine status...</div>
-						</div>
-					</section>
-
 					<section class="dashboard-overview-row" aria-label="Dashboard overview">
 						<section id="active-sessions" class="dashboard-panel dashboard-active-panel" aria-labelledby="active-sessions-title">
 							<div class="active-session-heading">
@@ -261,11 +246,6 @@ templ Dashboard(data views.DashboardData) {
 												Name <span class="sort-arrow" aria-hidden="true">▼</span>
 											</button>
 										</th>
-										<th scope="col" aria-sort="none" class="text-left py-2 px-3 font-medium select-none dashboard-machine-only" data-sort-key="node">
-											<button type="button" class="dashboard-sort-button" data-dashboard-sort="node">
-												Node <span class="sort-arrow" aria-hidden="true">▼</span>
-											</button>
-										</th>
 										<th scope="col" aria-sort="none" class="text-left py-2 px-3 font-medium select-none" data-sort-key="runtime">
 											<button type="button" class="dashboard-sort-button" data-dashboard-sort="runtime">
 												Runtime <span class="sort-arrow" aria-hidden="true">▼</span>
@@ -320,7 +300,7 @@ templ Dashboard(data views.DashboardData) {
 								</thead>
 								<tbody id="completed-sessions">
 									<tr>
-											<td colspan="12" class="text-center py-4">
+											<td colspan="11" class="text-center py-4">
 											<span class="text-sm text-gray-500">No completed sessions</span>
 										</td>
 									</tr>

@@ -136,13 +136,13 @@ func TestDashboardSearchPropagatesScopeFilters(t *testing.T) {
 	handlers := &APIHandlers{searcher: fake, logger: testLogger()}
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodGet, "/api/dashboard/search?q=dashboard&collector_id=collector-a&source_id=source-a&runtime=codex&project_key=beacon", nil)
+	r := httptest.NewRequest(http.MethodGet, "/api/dashboard/search?q=dashboard&source_name=source-a&runtime=codex&project_key=beacon", nil)
 	handlers.GetDashboardSearch(w, r)
 
 	if fake.searchCalls != 1 {
 		t.Fatalf("search calls = %d, want 1", fake.searchCalls)
 	}
-	if fmt.Sprint(fake.query.CollectorIDs) != "[collector-a]" || fmt.Sprint(fake.query.SourceIDs) != "[source-a]" ||
+	if fmt.Sprint(fake.query.SourceNames) != "[source-a]" ||
 		fmt.Sprint(fake.query.Runtimes) != "[codex]" || fmt.Sprint(fake.query.ProjectKeys) != "[beacon]" {
 		t.Fatalf("scope not propagated to search query: %#v", fake.query)
 	}
@@ -154,7 +154,7 @@ func TestDashboardSearchPropagatesScopeFilters(t *testing.T) {
 	if got.Scope.AuthScopeApplied {
 		t.Fatalf("auth scope should be false for query-param scope")
 	}
-	if fmt.Sprint(got.Scope.Filters.CollectorIDs) != "[collector-a]" || fmt.Sprint(got.Scope.Filters.ProjectKeys) != "[beacon]" {
+	if fmt.Sprint(got.Scope.Filters.SourceNames) != "[source-a]" || fmt.Sprint(got.Scope.Filters.ProjectKeys) != "[beacon]" {
 		t.Fatalf("response scope = %#v, want echoed filters", got.Scope)
 	}
 }
@@ -485,12 +485,6 @@ func TestDashboardDataEndpointsUnavailableDBReturnsError(t *testing.T) {
 			handler: handlers.GetDashboardCharts,
 			target:  "/api/dashboard/charts",
 			want:    "failed to query dashboard charts",
-		},
-		{
-			name:    "fleet",
-			handler: handlers.GetDashboardFleet,
-			target:  "/api/dashboard/fleet",
-			want:    "failed to query dashboard fleet",
 		},
 	}
 

@@ -101,7 +101,7 @@ func TestEventUIDUsesOrdinalForMultipleEventsFromOneJSONLLine(t *testing.T) {
 	}
 }
 
-func TestBuildInsertRowBatchGlobalIdentityUsesCollectorAndSource(t *testing.T) {
+func TestBuildInsertRowBatchGlobalIdentityUsesSourceName(t *testing.T) {
 	evt := NormalizedEvent{
 		SessionID:    "raw-session",
 		RawSessionID: "raw-session",
@@ -110,32 +110,20 @@ func TestBuildInsertRowBatchGlobalIdentityUsesCollectorAndSource(t *testing.T) {
 		EventKind:    "message",
 		RawPayload:   `{"id":"raw-event"}`,
 	}
-	left := buildInsertRowBatch([]NormalizedEvent{evt}, 0, 0, FleetIdentity{
-		NodeID:            "node-a",
-		CollectorID:       "collector-a",
-		ControlPlaneEpoch: "1",
-		Sources:           map[string]FleetSourceIdentity{"source-a": {SourceID: "source-a-left"}},
-	})
-	right := buildInsertRowBatch([]NormalizedEvent{evt}, 0, 0, FleetIdentity{
-		NodeID:            "node-b",
-		CollectorID:       "collector-b",
-		ControlPlaneEpoch: "1",
-		Sources:           map[string]FleetSourceIdentity{"source-a": {SourceID: "source-a-right"}},
-	})
+	left := buildInsertRowBatch([]NormalizedEvent{evt}, 0, 0)
+	evt.SourceName = "source-b"
+	right := buildInsertRowBatch([]NormalizedEvent{evt}, 0, 0)
 
 	leftEvent := left.ActivityEvents[0]
 	rightEvent := right.ActivityEvents[0]
 	if leftEvent.EventUID == rightEvent.EventUID {
-		t.Fatalf("event UID did not vary by collector/source: %q", leftEvent.EventUID)
+		t.Fatalf("event UID did not vary by source name: %q", leftEvent.EventUID)
 	}
 	if leftEvent.SessionID == rightEvent.SessionID {
-		t.Fatalf("session ID did not vary by collector/source: %q", leftEvent.SessionID)
+		t.Fatalf("session ID did not vary by source name: %q", leftEvent.SessionID)
 	}
 	if leftEvent.RawSessionID != "raw-session" || leftEvent.RawEventID != "raw-event" {
 		t.Fatalf("raw IDs not preserved: %#v", leftEvent)
-	}
-	if leftEvent.CollectorID != "collector-a" || leftEvent.SourceID != "source-a-left" || leftEvent.NodeID != "node-a" {
-		t.Fatalf("fleet identity not copied into event: %#v", leftEvent)
 	}
 	if left.RawRecords[0].EventUID != leftEvent.EventUID || left.RawRecords[0].PayloadDigest == "" {
 		t.Fatalf("raw record identity not populated: %#v", left.RawRecords[0])
@@ -160,10 +148,7 @@ func TestBuildInsertRowBatchSyntheticSourceEventIndexAndUnresolvedLink(t *testin
 		RawPayload:   `{"uuid":"child-uuid","parentUuid":"missing-parent"}`,
 		EventKind:    "message",
 	}
-	batch := buildInsertRowBatch([]NormalizedEvent{parent, child}, 0, 0, FleetIdentity{
-		CollectorID: "collector-a",
-		Sources:     map[string]FleetSourceIdentity{"claude": {SourceID: "source-claude-a"}},
-	})
+	batch := buildInsertRowBatch([]NormalizedEvent{parent, child}, 0, 0)
 
 	if got := batch.ActivityEvents[0].SourceEventIndex; got == 0 {
 		t.Fatal("source event index is empty, want deterministic synthetic index")
@@ -198,14 +183,9 @@ func TestBuildInsertRowBatchSubeventIdentityIsFlushIndependent(t *testing.T) {
 	tool.ToolName = "bash"
 	tool.ToolUseID = "tool-1"
 	tool.TextContent = "bash"
-	identity := FleetIdentity{
-		CollectorID: "collector-a",
-		Sources:     map[string]FleetSourceIdentity{"source-a": {SourceID: "source-a"}},
-	}
-
-	together := buildInsertRowBatch([]NormalizedEvent{message, tool}, 0, 0, identity)
-	messageOnly := buildInsertRowBatch([]NormalizedEvent{message}, 0, 0, identity)
-	toolOnly := buildInsertRowBatch([]NormalizedEvent{tool}, 0, 0, identity)
+	together := buildInsertRowBatch([]NormalizedEvent{message, tool}, 0, 0)
+	messageOnly := buildInsertRowBatch([]NormalizedEvent{message}, 0, 0)
+	toolOnly := buildInsertRowBatch([]NormalizedEvent{tool}, 0, 0)
 
 	if together.ActivityEvents[0].EventUID != messageOnly.ActivityEvents[0].EventUID {
 		t.Fatalf("message UID changed across flush shape: %q vs %q", together.ActivityEvents[0].EventUID, messageOnly.ActivityEvents[0].EventUID)
@@ -241,10 +221,7 @@ func TestBuildInsertRowBatchParentLinksResolveOutOfOrder(t *testing.T) {
 		SourceLineNo: 7,
 		RawPayload:   `{"uuid":"parent-raw"}`,
 	}
-	batch := buildInsertRowBatch([]NormalizedEvent{child, parent}, 0, 0, FleetIdentity{
-		CollectorID: "collector-a",
-		Sources:     map[string]FleetSourceIdentity{"claude": {SourceID: "source-claude-a"}},
-	})
+	batch := buildInsertRowBatch([]NormalizedEvent{child, parent}, 0, 0)
 
 	if len(batch.EventLinks) != 1 {
 		t.Fatalf("event links = %d, want one parent link", len(batch.EventLinks))
@@ -277,10 +254,7 @@ func TestBuildInsertRowBatchParentLinksDefaultToCurrentSession(t *testing.T) {
 		SourceLineNo:       10,
 		RawPayload:         `{"id":"child-event","parentId":"parent-event"}`,
 	}
-	batch := buildInsertRowBatch([]NormalizedEvent{parent, child}, 0, 0, FleetIdentity{
-		CollectorID: "collector-a",
-		Sources:     map[string]FleetSourceIdentity{"pi": {SourceID: "source-pi-a"}},
-	})
+	batch := buildInsertRowBatch([]NormalizedEvent{parent, child}, 0, 0)
 
 	if len(batch.EventLinks) != 1 {
 		t.Fatalf("event links = %d, want one parent link", len(batch.EventLinks))
@@ -293,10 +267,6 @@ func TestBuildInsertRowBatchParentLinksDefaultToCurrentSession(t *testing.T) {
 }
 
 func TestBuildInsertRowBatchResolvesKnownRawParent(t *testing.T) {
-	identity := FleetIdentity{
-		CollectorID: "collector-a",
-		Sources:     map[string]FleetSourceIdentity{"claude": {SourceID: "source-claude-a"}},
-	}
 	parent := NormalizedEvent{
 		SessionID:    "raw-session",
 		RawSessionID: "raw-session",
@@ -306,7 +276,7 @@ func TestBuildInsertRowBatchResolvesKnownRawParent(t *testing.T) {
 		SourceLineNo: 1,
 		RawPayload:   `{"uuid":"parent-raw"}`,
 	}
-	parentBatch, known := buildInsertRowBatchWithKnown([]NormalizedEvent{parent}, 0, 0, identity, nil)
+	parentBatch, known := buildInsertRowBatchWithKnown([]NormalizedEvent{parent}, 0, 0, nil)
 	child := NormalizedEvent{
 		SessionID:        "raw-session",
 		RawSessionID:     "raw-session",
@@ -317,7 +287,7 @@ func TestBuildInsertRowBatchResolvesKnownRawParent(t *testing.T) {
 		SourceLineNo:     2,
 		RawPayload:       `{"uuid":"child-raw","parentUuid":"parent-raw"}`,
 	}
-	childBatch, _ := buildInsertRowBatchWithKnown([]NormalizedEvent{child}, 0, 0, identity, known)
+	childBatch, _ := buildInsertRowBatchWithKnown([]NormalizedEvent{child}, 0, 0, known)
 
 	if len(childBatch.EventLinks) != 1 {
 		t.Fatalf("event links = %d, want one parent link", len(childBatch.EventLinks))
@@ -373,13 +343,8 @@ func TestBuildInsertRowBatchSourceEventIndexIgnoresMutableClassification(t *test
 	toolError.EventKind = "tool_error"
 	toolError.ErrorCode = "tool_execution_failed"
 	toolError.ToolOutput = "failed"
-	identity := FleetIdentity{
-		CollectorID: "collector-a",
-		Sources:     map[string]FleetSourceIdentity{"opencode": {SourceID: "source-opencode-a"}},
-	}
-
-	resultBatch := buildInsertRowBatch([]NormalizedEvent{result}, 0, 0, identity)
-	errorBatch := buildInsertRowBatch([]NormalizedEvent{toolError}, 0, 0, identity)
+	resultBatch := buildInsertRowBatch([]NormalizedEvent{result}, 0, 0)
+	errorBatch := buildInsertRowBatch([]NormalizedEvent{toolError}, 0, 0)
 
 	if resultBatch.ActivityEvents[0].SourceEventIndex != errorBatch.ActivityEvents[0].SourceEventIndex {
 		t.Fatalf("source indexes changed across mutable classification: %d vs %d",
