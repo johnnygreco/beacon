@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/johnnygreco/beacon/internal/controlplane"
 	"github.com/johnnygreco/beacon/internal/store"
 )
 
@@ -248,26 +247,7 @@ func TestRunStopUsesPidfileBeforeConfig(t *testing.T) {
 func TestRunStatusReportsClickHouseUnavailable(t *testing.T) {
 	resetConfigState(t)
 	cfgPath := filepath.Join(t.TempDir(), "beacon.toml")
-	metadataPath := filepath.Join(t.TempDir(), "control-plane.db")
-	control, err := controlplane.Open(metadataPath)
-	if err != nil {
-		t.Fatalf("Open control-plane: %v", err)
-	}
-	if _, err := control.EnsureLocal(context.Background(), controlplane.Bootstrap{
-		NodeID:      "node-status",
-		NodeName:    "Status",
-		CollectorID: "collector-status",
-		Sources:     []controlplane.SourceRegistration{{Name: "codex", Runtime: "codex", Provider: "openai", Format: "jsonl", WatchRoot: "/tmp/codex"}},
-	}); err != nil {
-		t.Fatalf("EnsureLocal: %v", err)
-	}
-	if _, err := control.BeginReset(context.Background()); err != nil {
-		t.Fatalf("BeginReset: %v", err)
-	}
-	if err := control.Close(); err != nil {
-		t.Fatalf("Close control-plane: %v", err)
-	}
-	config := "[server]\nhost = \"127.0.0.1\"\nport = 19001\n\n[database]\naddrs = [\"127.0.0.1:19000\"]\n\n[fleet]\nmetadata_path = \"" + metadataPath + "\"\n"
+	config := "[server]\nhost = \"127.0.0.1\"\nport = 19001\n\n[database]\naddrs = [\"127.0.0.1:19000\"]\n"
 	if err := os.WriteFile(cfgPath, []byte(config), 0644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -290,8 +270,6 @@ func TestRunStatusReportsClickHouseUnavailable(t *testing.T) {
 	for _, want := range []string{
 		"Beacon Status",
 		"Server:  not running",
-		"Control Plane: schema_epoch=1 reset_pending=true",
-		"Reset Pending: epoch=1",
 		"ClickHouse: unavailable at 127.0.0.1:19000 (offline)",
 	} {
 		if !strings.Contains(output, want) {

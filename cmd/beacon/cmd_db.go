@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -222,9 +221,6 @@ func runDBReset(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	if cfg.Fleet.Role == config.FleetRoleCollector {
-		return fmt.Errorf("fleet.role %q cannot reset control-plane ClickHouse data; run beacon db reset on the control-plane machine", config.FleetRoleCollector)
-	}
 	runLock, err := acquireBeaconRunLock()
 	if err != nil {
 		return fmt.Errorf("stop the running local Beacon capture process or reset before resetting captured data: %w. Run `beacon down`, then rerun `beacon db reset --force`", err)
@@ -234,17 +230,6 @@ func runDBReset(cmd *cobra.Command, args []string) error {
 	if pid := readPidFromFile(); pid > 0 {
 		return fmt.Errorf("stop the running local Beacon capture process before resetting captured data (pid %d). Run `beacon down`, then rerun `beacon db reset --force`", pid)
 	}
-	resetLock, err := acquireResetLock(cfg.Fleet.MetadataPath)
-	if err != nil {
-		return err
-	}
-	defer resetLock.Close()
-
-	controlStore, _, err := initializeControlPlane(context.Background(), cfg, nil)
-	if err != nil {
-		return fmt.Errorf("initializing control-plane metadata: %w", err)
-	}
-	defer controlStore.Close()
 
 	opts := storeOptionsFromConfig(cfg)
 	ch, err := dbResetOpenStore(context.Background(), opts)
@@ -253,62 +238,12 @@ func runDBReset(cmd *cobra.Command, args []string) error {
 	}
 	defer ch.Close()
 
-	pending, err := controlStore.BeginReset(context.Background())
-	if err != nil {
-		return fmt.Errorf("begin reset coordination: %w", err)
-	}
 	if err := dbResetStore(context.Background(), ch.DB, ch.Database()); err != nil {
-		return fmt.Errorf("reset failed; control-plane reset_pending remains active at schema_epoch %s: %w", pending.SchemaEpoch, err)
-	}
-	completed, err := controlStore.CompleteReset(context.Background())
-	if err != nil {
-		return fmt.Errorf("complete reset coordination failed; control-plane reset_pending may remain active. Rerun `beacon db reset --force` after resolving the error: %w", err)
+		return fmt.Errorf("reset failed: %w", err)
 	}
 
-	fmt.Printf("Database reset complete. Control-plane schema_epoch advanced from %s to %s.\n", pending.SchemaEpoch, completed.SchemaEpoch)
+	fmt.Println("Database reset complete.")
 	return nil
-}
-
-type resetLockFile struct {
-	file *os.File
-}
-
-func acquireResetLock(metadataPath string) (*resetLockFile, error) {
-	lockPath := strings.TrimSpace(metadataPath)
-	if lockPath == "" {
-		return nil, fmt.Errorf("control-plane metadata path is required for reset lock")
-	}
-	lockPath += ".reset.lock"
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0700); err != nil {
-		return nil, fmt.Errorf("create reset lock directory: %w", err)
-	}
-	file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
-	if err != nil {
-		return nil, fmt.Errorf("open reset lock: %w", err)
-	}
-	if err := syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = file.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN) {
-			return nil, fmt.Errorf("another beacon db reset is already running for %s", metadataPath)
-		}
-		return nil, fmt.Errorf("lock reset coordination: %w", err)
-	}
-	return &resetLockFile{file: file}, nil
-}
-
-func (l *resetLockFile) Close() error {
-	if l == nil || l.file == nil {
-		return nil
-	}
-	var err error
-	if flockErr := syscall.Flock(int(l.file.Fd()), syscall.LOCK_UN); flockErr != nil {
-		err = flockErr
-	}
-	if closeErr := l.file.Close(); err == nil {
-		err = closeErr
-	}
-	l.file = nil
-	return err
 }
 
 func storeOpenError(prefix string, err error) error {

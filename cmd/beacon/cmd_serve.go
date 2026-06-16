@@ -36,11 +36,8 @@ func runServe(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	if cfg.Fleet.Role == config.FleetRoleCollector {
-		return fmt.Errorf("fleet.role %q uses beacon collect, not beacon up", config.FleetRoleCollector)
-	}
-	if cfg.Fleet.Role == config.FleetRoleControlPlane {
-		cfg.Capture.Enabled = false
+	if !config.IsLoopbackURLHost(cfg.Server.Host) {
+		return fmt.Errorf("server.host %q is not loopback; Beacon now supports local dashboards only", cfg.Server.Host)
 	}
 
 	pidFile, err := acquirePIDFile()
@@ -56,19 +53,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return fmt.Errorf("capture source config: %w", err)
 		}
-	}
-
-	controlStore, controlSnapshot, err := initializeControlPlane(context.Background(), cfg, logger)
-	if err != nil {
-		return fmt.Errorf("initializing control-plane metadata: %w", err)
-	}
-	defer controlStore.Close()
-	if err := ensureNoResetPending(controlSnapshot); err != nil {
-		return err
-	}
-	authOptions, err := dashboardAuthOptions(context.Background(), cfg, controlStore)
-	if err != nil {
-		return fmt.Errorf("dashboard auth: %w", err)
 	}
 
 	storeOpts := storeOptionsFromConfig(cfg)
@@ -118,7 +102,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		cfg.Pricing.DefaultOutputCost,
 		updater.MarkDirty,
 		logger,
-		capture.WithFleetIdentity(captureFleetIdentity(controlSnapshot)),
 		capture.WithRedactionPolicy(redactionPolicy),
 	)
 
@@ -154,25 +137,19 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	// Web server
 	handlers := web.NewHandlers(ch.DB, searcher, logger, cfg.Dashboard.Name)
-	apiHandlers := web.NewAPIHandlers(ch.DB, searcher, logger, controlStore)
+	apiHandlers := web.NewAPIHandlers(ch.DB, searcher, logger, nil)
 	mcpHTTPServer := mcp.NewServer(ch.DB, searcher, logger)
 	mcpHTTPServer.SetDefaultContextWindow(cfg.MCP.ContextWindow)
-	ingestHandlers := web.NewIngestHandlers(
-		controlStore,
-		ch,
-		cfg.Pricing.DefaultInputCost,
-		cfg.Pricing.DefaultOutputCost,
-		updater.MarkDirty,
-		logger,
-		web.WithIngestRedactionPolicy(redactionPolicy),
-	)
 	staticFS, err := fs.Sub(beacon.StaticFS, "static")
 	if err != nil {
 		cancel()
 		_ = bg.Wait()
 		return fmt.Errorf("preparing static filesystem: %w", err)
 	}
-	routerOptions := append(authOptions, web.WithIngestHandlers(ingestHandlers), web.WithMCPHandler(mcpHTTPServer.HTTPHandler()))
+	routerOptions := []web.RouterOption{
+		web.WithGlobalMiddleware(web.LoopbackHostMiddleware(cfg.Server.Host)),
+		web.WithMCPHandler(mcpHTTPServer.HTTPHandler()),
+	}
 	router := web.NewRouter(staticFS, broker, handlers, apiHandlers, routerOptions...)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -220,21 +197,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 	})
 
 	logger.Info("server listening", "addr", addr)
-	if cfg.Server.PublicURL != "" && !config.IsLoopbackURL(cfg.Server.PublicURL) {
-		unsafePublicURL := unsafePublicURLFlag(cmd)
-		if err := runPublicURLChecks(ctx, cfg.Server.PublicURL, publicURLCheckOptions{Unsafe: unsafePublicURL}); err != nil {
-			cancel()
-			if bgErr := bg.Wait(); bgErr != nil {
-				return bgErr
-			}
-			return fmt.Errorf("public URL startup checks failed: %w; run `beacon doctor setup` for diagnostics", err)
-		}
-		if unsafePublicURL {
-			logger.Warn("public URL connectivity checks passed; protected dashboard/API/MCP route checks skipped", "url", cfg.Server.PublicURL)
-		} else {
-			logger.Info("public URL checks passed", "url", cfg.Server.PublicURL)
-		}
-	}
 
 	bgErr := bg.Wait()
 	if bgErr != nil {
@@ -243,18 +205,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 
 	logger.Info("server stopped")
 	return nil
-}
-
-func unsafePublicURLFlag(cmd *cobra.Command) bool {
-	if cmd == nil {
-		return false
-	}
-	flag := cmd.Flags().Lookup("unsafe-public-url")
-	if flag == nil {
-		return false
-	}
-	value, err := strconv.ParseBool(flag.Value.String())
-	return err == nil && value
 }
 
 // pidfilePath returns the path to the beacon pidfile.

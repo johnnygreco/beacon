@@ -4,10 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/johnnygreco/beacon/internal/config"
@@ -16,9 +14,6 @@ import (
 )
 
 var mcpClickHouseAddr string
-var mcpRemoteURL string
-var mcpReadTokenFile string
-var mcpReadTokenEnv string
 
 func newMCPCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -27,31 +22,12 @@ func newMCPCmd() *cobra.Command {
 		RunE:  runMCP,
 	}
 	cmd.Flags().StringVar(&mcpClickHouseAddr, "clickhouse", "", "ClickHouse address (overrides config)")
-	cmd.Flags().StringVar(&mcpRemoteURL, "remote-url", "", "Remote Beacon control-plane MCP URL (or BEACON_MCP_URL)")
-	cmd.Flags().StringVar(&mcpReadTokenFile, "read-token-file", "", "File containing a Beacon read token for --remote-url")
-	cmd.Flags().StringVar(&mcpReadTokenEnv, "read-token-env", "BEACON_READ_TOKEN", "Environment variable containing a Beacon read token for --remote-url")
 	return cmd
 }
 
 func runMCP(cmd *cobra.Command, args []string) error {
 	// All logging to stderr (stdout is the transport)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
-
-	remoteURL := firstNonEmptyString(mcpRemoteURL, os.Getenv("BEACON_MCP_URL"))
-	if remoteURL != "" {
-		endpoint, err := normalizeRemoteMCPEndpoint(remoteURL)
-		if err != nil {
-			return err
-		}
-		token, err := readMCPReadToken(mcpReadTokenEnv, mcpReadTokenFile)
-		if err != nil {
-			return err
-		}
-		proxy := mcp.NewRemoteProxy(endpoint, token)
-		return runMCPServerLifecycle(ctxWithSignals(logger, "shutting down remote mcp..."), func(ctx context.Context) error {
-			return proxy.Serve(ctx, os.Stdin, os.Stdout)
-		})
-	}
 
 	cfg, err := config.Load(cfgFile)
 	if err != nil {
@@ -100,58 +76,4 @@ func runMCPServerLifecycle(lifecycle mcpLifecycleContext, run func(context.Conte
 	lifecycle.cancel()
 	bgErr := lifecycle.bg.Wait()
 	return commandLifecycleError(err, bgErr)
-}
-
-func normalizeRemoteMCPEndpoint(raw string) (string, error) {
-	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return "", fmt.Errorf("remote MCP URL must be an absolute URL")
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", fmt.Errorf("remote MCP URL must use http or https")
-	}
-	if u.User != nil {
-		return "", fmt.Errorf("remote MCP URL must not include userinfo")
-	}
-	if err := config.ValidateURLAuthority(u, "remote MCP URL"); err != nil {
-		return "", err
-	}
-	if u.Scheme == "http" && !config.IsLoopbackURLHost(u.Host) {
-		return "", fmt.Errorf("remote MCP URL must use https for non-loopback hosts")
-	}
-	if strings.TrimRight(u.Path, "/") == "" {
-		u.Path = "/api/mcp"
-	}
-	return u.String(), nil
-}
-
-func readMCPReadToken(envName, filePath string) (string, error) {
-	envName = strings.TrimSpace(envName)
-	if envName == "" {
-		envName = "BEACON_READ_TOKEN"
-	}
-	if filePath != "" {
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			return "", fmt.Errorf("read MCP token file: %w", err)
-		}
-		if token := strings.TrimSpace(string(data)); token != "" {
-			return token, nil
-		}
-		return "", fmt.Errorf("MCP token file is empty")
-	}
-	if token := strings.TrimSpace(os.Getenv(envName)); token != "" {
-		return token, nil
-	}
-	return "", fmt.Errorf("remote MCP read token is required; set %s or pass --read-token-file", envName)
-}
-
-func firstNonEmptyString(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
 }
