@@ -762,6 +762,37 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('keeps the one-machine dashboard out of fleet mode by default', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await gotoDashboard(page);
+    await waitForCompletedRows(page, 30);
+
+    await expect(page.locator('#dashboard-wrap')).toHaveClass(/dashboard-local-topology/);
+    await expect(page.locator('#dashboard-fleet')).toBeHidden();
+    await expect(page.locator('#dashboard-header-fleet-metrics')).toBeHidden();
+    await expect(page.locator('#dashboard-wrap')).not.toContainText('Fleet');
+    await expect(page.locator('#dashboard-wrap')).not.toContainText('All fleet');
+    await expect(page.locator('#dashboard-wrap')).not.toContainText('Loading fleet');
+    await expect(page.locator('#dashboard-wrap')).not.toContainText('No fleet activity');
+    await expect(page.locator('#completed-table [data-sort-key="node"]')).toBeHidden();
+    await expect(page.locator('#active-sessions [data-dashboard-scope-field="node_id"]')).toBeHidden();
+    await expect(page.locator('#active-sessions')).toContainText('Realtime dashboard smoke run');
+    await expect(page.locator('.dashboard-analytics-panel')).toBeVisible();
+    await expect(page.locator('.completed-table-surface')).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator('#completed-sessions .mobile-session-meta').first()).toBeVisible();
+    await expect(page.locator('#completed-sessions .mobile-session-meta .dashboard-machine-only').first()).toBeHidden();
+    const compactRowMeta = await page.locator('#completed-sessions .mobile-session-meta').first().evaluate((element) => (element as HTMLElement).innerText);
+    expect(compactRowMeta).not.toContain('node-local');
+    await expectNoHorizontalOverflow(page);
+
+    await guards.expectClean();
+  });
+
   test('promotes active sessions with compact live stat trackers', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installDashboardFixtures(page);
@@ -799,7 +830,7 @@ test.describe('dashboard battle-tested workflows', () => {
     const activeCard = page.locator(`#active-sessions [data-active-session-id="${ACTIVE_SESSION_ID}"]`);
     const tracker = page.locator(`#active-sessions [href="/sessions/${ACTIVE_SESSION_ID}"] .active-session-tracker`);
     await expect(activeCard.getByRole('group', { name: 'Active session live stats' })).toBeVisible();
-    await expect(activeCard.getByRole('group', { name: 'Active session scope filters' })).toBeVisible();
+    await expect(activeCard.getByRole('group', { name: 'Active session scope filters' })).toBeHidden();
     await expect(activeCard.getByRole('group', { name: 'Active session row controls' })).toBeVisible();
     await expect(tracker).toContainText('Run');
     await expect(tracker).toContainText('Turns');

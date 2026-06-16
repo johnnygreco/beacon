@@ -66,6 +66,7 @@ test("completed session rows escape malicious payload fields", () => {
   const html = sandbox.completedRow({
     id: `session-${payload}`,
     title: payload,
+    node_id: payload,
     provider: payload,
     last_model: payload,
     total_tokens: payload,
@@ -82,6 +83,7 @@ test("completed session rows escape malicious payload fields", () => {
   assert.match(html, /data-sort-tokens="0"/);
   assert.match(html, /data-sort-turns="0"/);
   assert.match(html, /data-sort-tools="0"/);
+  assert.match(html, /mobile-session-meta hidden"><span class="dashboard-machine-only">/);
 });
 
 test("dashboard search rows escape snippets and metadata", () => {
@@ -272,6 +274,60 @@ test("dashboard fetches treat late failures from older panel requests as stale",
   const secondResult = await second;
   assert.equal(firstResult.stale, true);
   assert.equal(secondResult.data.items[0].id, "active-latest");
+});
+
+test("machine panel stays hidden for one healthy local collector", () => {
+  const sandbox = loadRenderSandbox();
+  sandbox.dashboardHasScopeFilters = () => false;
+
+  assert.equal(sandbox.dashboardShouldShowMachinePanel({
+    totals: {
+      node_count: 1,
+      collector_count: 1,
+      online_collectors: 1,
+      stale_collectors: 0,
+      offline_collectors: 0,
+      missing_heartbeat_collectors: 0,
+      queue_depth: 0,
+      spool_bytes: 0,
+      heartbeat_error_count: 0,
+    },
+    nodes: [{
+      node_id: "node-local",
+      status: "online",
+      collector_count: 1,
+      queue_depth: 0,
+      spool_bytes: 0,
+      heartbeat_error_count: 0,
+      sources_detail: [{ status: "online", queue_depth: 0, spool_bytes: 0, error_count: 0 }],
+    }],
+  }), false);
+});
+
+test("machine panel appears for advanced topology or active scope", () => {
+  const sandbox = loadRenderSandbox();
+  sandbox.dashboardHasScopeFilters = () => false;
+
+  assert.equal(sandbox.dashboardShouldShowMachinePanel({
+    totals: { node_count: 2, collector_count: 2 },
+    nodes: [{ node_id: "node-a" }, { node_id: "node-b" }],
+  }), true);
+
+  assert.equal(sandbox.dashboardShouldShowMachinePanel({
+    totals: { node_count: 1, collector_count: 1 },
+    nodes: [{ node_id: "node-local", status: "online", collector_count: 2 }],
+  }), true);
+
+  assert.equal(sandbox.dashboardShouldShowMachinePanel({
+    totals: { node_count: 1, collector_count: 1, stale_collectors: 1 },
+    nodes: [{ node_id: "node-local", status: "stale" }],
+  }), true);
+
+  sandbox.dashboardHasScopeFilters = () => true;
+  assert.equal(sandbox.dashboardShouldShowMachinePanel({
+    totals: { node_count: 1, collector_count: 1 },
+    nodes: [{ node_id: "node-local", status: "online" }],
+  }), true);
 });
 
 test("pinned active sessions render above sorted unpinned sessions", () => {
