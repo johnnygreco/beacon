@@ -1,8 +1,12 @@
-# Personal production guide
+# Advanced personal production guide
 
-Beacon's production target is one owner running a central dashboard for agent
-activity from arbitrary enrolled machines. Those machines can be a laptop, home
-server, Mac mini, Linux VM, cloud VM, or any other host that can reach the
+This guide is for the advanced setup where one Beacon dashboard host collects
+agent activity from additional machines. You do not need it for normal local use:
+install Beacon, run `beacon up`, and open `http://localhost:4600`.
+
+Beacon's personal-production target is one owner running a central dashboard for
+agent activity from arbitrary enrolled machines. Those machines can be a laptop,
+home server, Mac mini, Linux VM, cloud VM, or any other host that can reach the
 central Beacon server over HTTPS.
 
 This is not an enterprise deployment guide. Beacon does not provide multi-tenant
@@ -51,14 +55,16 @@ MCP client host:
 - searches the unified central dataset by default unless scoped by token or
   explicit node, collector, source, runtime, or project filters
 
-## Personal topologies
+## Advanced topologies
 
 Use whatever topology matches the machines you actually run. These are examples,
-not required personas or hardcoded source layouts.
+not required personas or hardcoded source layouts. For a single workstation, the
+default `beacon up` path already starts the dashboard and local collector
+together.
 
 | Topology | Control plane | Collectors | Notes |
 |----------|---------------|------------|-------|
-| Single workstation | same machine | same machine with `[fleet].role = "both"` | Best local development path. Loopback auth is enough while bound to `127.0.0.1`. |
+| Single workstation | same machine | same machine with `[fleet].role = "both"` | Default local path. Loopback auth is enough while bound to `127.0.0.1`. |
 | Home server dashboard | home server or Mac mini | laptop, desktop, home server, VMs | Use HTTPS reverse proxy and run each remote host as `[fleet].role = "collector"`. |
 | Cloud dashboard | cloud VM | laptops, home machines, cloud VMs | Keep ClickHouse private to the VM or a private network. Expose only HTTPS Beacon routes. |
 | Local dashboard plus remote readers | workstation | optional collectors | Agent MCP clients can use `beacon mcp --remote-url` from any trusted machine. |
@@ -753,13 +759,14 @@ write into the new epoch.
    network.
 5. Restart `beacon up` after config changes.
 
-## Manual-test handoff
+## Advanced-dashboard manual check
 
-Before marking the multi-machine dashboard goal ready for manual testing:
+When dashboard behavior changes for shared or multi-machine setups:
 
-1. Complete the implementation issues linked from the current guided setup
-   tracker.
-2. Run a final holistic review against the merged guided setup solution.
+1. Confirm the default one-machine `beacon up` dashboard still reads as a local
+   sessions dashboard.
+2. Verify a shared setup still exposes machine, collector, source, runtime, and
+   project filters when multiple machines or scoped URLs make them relevant.
 3. Run the broad validation listed in the active release checklist.
 4. Rebuild and install the local dev binary:
 
@@ -776,5 +783,5 @@ Before marking the multi-machine dashboard goal ready for manual testing:
    ```
 
 6. Hand off the review URL and validation evidence.
-7. Do not cut, tag, publish, or prepare a patch release until the owner manually
-   tests the build and explicitly asks for a release.
+7. Do not cut, tag, publish, or prepare a patch release until the owner asks for
+   a release.

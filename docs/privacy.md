@@ -4,8 +4,9 @@ Beacon is a local observability tool. It reads agent session files that already
 exist on the machine, normalizes them, and stores derived rows in ClickHouse so
 the dashboard, search UI, and MCP tools can query them quickly.
 
-For multi-machine personal-production setup and operator runbooks, see
-[Personal production guide](production.md).
+For the advanced multi-machine personal-production setup and operator runbooks,
+see [Advanced personal production guide](production.md). The default `beacon up`
+workflow keeps capture, storage, and the dashboard local.
 
 Beacon does not implement retention expiry. Beacon applies a best-effort
 destructive redaction policy before local capture writes, collector spool files,
@@ -88,7 +89,7 @@ Anyone who can reach the Beacon web server can inspect that data.
 The MCP server exposes the same local database through read-only tools:
 `search_sessions`, `open`, `list_agents`, `list_sessions`, and
 `usage_summary`. Those tools can return transcript context, session summaries,
-fleet node/collector/source/runtime/project rollups, token-usage aggregates,
+machine, collector, source, runtime, and project rollups, token-usage aggregates,
 working directories, and source/project metadata. MCP clients should be
 configured only for trusted agent environments, especially when pointing Beacon
 at a ClickHouse host or remote control plane reachable from another machine.

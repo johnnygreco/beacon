@@ -4,8 +4,10 @@ Beacon includes a read-only stdio MCP server for coding agents and other MCP
 clients. The MCP server lets agents search prior Beacon sessions while they stay
 inside their normal workflow.
 
-For the full personal-production control-plane and collector setup that remote
-MCP usually reads from, see [Personal production guide](production.md).
+For ordinary local MCP usage, run Beacon locally with `beacon up` and configure
+the MCP client to launch `beacon mcp`. For the advanced control-plane and
+collector setup that remote MCP reads from, see
+[Advanced personal production guide](production.md).
 
 ## How it works
 
@@ -33,7 +35,7 @@ verified against the current workspace before acting.
 
 ## Start Beacon
 
-Start Beacon on the machine that serves the central dashboard/control plane:
+For local usage, start Beacon on the same machine as your agent tools:
 
 ```bash
 beacon up
