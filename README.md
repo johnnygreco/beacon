@@ -122,15 +122,12 @@ For HTTPS, reverse proxy, service manager, recovery, and invite details, see the
 
 ## Configuration
 
-Beacon writes config to `~/.beacon/beacon.toml` by default. The guided setup
-flow creates the files you need:
+The default local run does not need a config file; `beacon up` can start the
+dashboard and local collector with built-in defaults. When you do want persistent
+settings, Beacon reads `~/.beacon/beacon.toml`.
 
-```bash
-beacon setup dashboard
-```
-
-Use the docs below when you need a custom deployment, storage backend, privacy
-policy, or integration surface.
+Use the docs below when you need a custom local setting, storage backend,
+privacy policy, integration surface, or advanced shared-dashboard deployment.
 
 ## Documentation
 
