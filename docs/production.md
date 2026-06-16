@@ -170,6 +170,13 @@ mode = "owner-token"
 allow_insecure_owner_http = false
 ```
 
+There is no built-in login form for owner-token mode. API and MCP clients should
+send `Authorization: Bearer <owner-or-read-token>`. Browser dashboard access
+requires setting the configured auth cookie, `beacon_owner_token` by default, to
+the owner token over the same HTTPS origin before loading the dashboard. If you
+want normal browser sign-in, session management, or centralized access control,
+put Beacon behind a TLS reverse proxy and use `auth.mode = "reverse-proxy"`.
+
 For non-loopback plain HTTP, Beacon refuses owner-token mode unless
 `allow_insecure_owner_http = true`. Use that opt-in only for a private tunnel or
 temporary debugging. Normal production browser access should terminate TLS at a
@@ -222,7 +229,9 @@ beacon setup dashboard --collector-url https://beacon.example.com
 For non-loopback collector URLs, the command writes `server.public_url`, sets
 `auth.mode = "owner-token"`, initializes control-plane metadata, and prints a
 new owner token if one does not already exist. `beacon up` then checks the
-configured public URL before completing startup.
+configured public URL before completing startup. Store that owner token securely;
+for browser dashboard access, set it as the configured owner-token cookie or put
+Beacon behind an authenticating reverse proxy.
 
 When a collector needs to enroll, create a one-use invite:
 
