@@ -4,10 +4,8 @@ This guide covers running Beacon as a single-machine service. Beacon captures
 local AI-agent activity, stores it in ClickHouse, serves the dashboard on the
 same host, and exposes read-only MCP over local stdio.
 
-Beacon does not currently provide remote collector enrollment, HTTP ingest,
-Beacon-managed bearer-token API auth, or remote MCP proxy mode. If you expose
-Beacon outside loopback, put it behind infrastructure you control and authenticate
-that external access before traffic reaches Beacon.
+If you expose Beacon outside loopback, put it behind infrastructure you control
+and authenticate that external access before traffic reaches Beacon.
 
 ## Install
 
