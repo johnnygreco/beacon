@@ -12,6 +12,8 @@ var absoluteTime = dashboardUtils.absoluteTime;
 var durationSeconds = dashboardUtils.durationSeconds;
 var requestURL = dashboardUtils.requestURL;
 var dashboardAdvancedTopology = false;
+var dashboardMachineTopologyKnown = false;
+var dashboardKnownAdvancedTopology = false;
 
 function modelChip(model) {
 	if (!model) return '';
@@ -831,11 +833,16 @@ function dashboardHasMachineAttention(response) {
 	});
 }
 
-function dashboardShouldShowMachinePanel(response) {
+function dashboardScopeFiltersActive() {
+	return typeof dashboardHasScopeFilters === 'function' && dashboardHasScopeFilters();
+}
+
+function dashboardShouldShowMachinePanel(response, includeScope) {
+	includeScope = includeScope !== false;
 	response = response || {};
 	var totals = response.totals || {};
 	var nodes = Array.isArray(response.nodes) ? response.nodes : [];
-	if (typeof dashboardHasScopeFilters === 'function' && dashboardHasScopeFilters()) return true;
+	if (includeScope && dashboardScopeFiltersActive()) return true;
 	if (nodes.length > 1) return true;
 	if (nonNegativeInt(totals.node_count) > 1) return true;
 	if (nonNegativeInt(totals.collector_count) > 1) return true;
@@ -1029,7 +1036,13 @@ function renderFleet(response) {
 	var nodes = Array.isArray(response.nodes) ? response.nodes : [];
 	var strip = document.getElementById('dashboard-fleet-strip');
 	var subtitle = document.getElementById('dashboard-fleet-subtitle');
-	var advanced = dashboardShouldShowMachinePanel(response);
+	var hasScope = dashboardScopeFiltersActive();
+	var knownAdvanced = dashboardShouldShowMachinePanel(response, false);
+	var advanced = knownAdvanced || hasScope;
+	if (!hasScope || knownAdvanced) {
+		dashboardMachineTopologyKnown = true;
+		dashboardKnownAdvancedTopology = knownAdvanced;
+	}
 	setDashboardTopologyMode(advanced);
 	rememberFleetSourceScopeLabels(nodes);
 	syncDashboardScopeControls();
@@ -1048,7 +1061,12 @@ function renderFleet(response) {
 }
 
 function renderFleetError() {
-	if (!dashboardAdvancedTopology && !(typeof dashboardHasScopeFilters === 'function' && dashboardHasScopeFilters())) return;
+	var hasScope = dashboardScopeFiltersActive();
+	if (dashboardMachineTopologyKnown && !dashboardKnownAdvancedTopology && !hasScope) {
+		setDashboardTopologyMode(false);
+		syncDashboardScopeControls();
+		return;
+	}
 	setDashboardTopologyMode(true);
 	syncDashboardScopeControls();
 	renderFleetHeader({});

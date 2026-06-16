@@ -47,13 +47,14 @@ make install-local INSTALL_DIR="$HOME/.local/bin"
 | Publish a release | `make publish VERSION=x.y.z` |
 | Remove generated artifacts | `make clean` |
 
-Most test commands keep Beacon user data intact. `make clean` removes generated
-artifacts such as `bin/`, `dist/`, coverage files, and template outputs.
+Most test commands keep Beacon user data intact. `make clean` removes build and
+test artifacts such as `bin/`, `dist/`, coverage files, Playwright reports, and
+test results.
 
 ## Generated Files
 
 Beacon embeds dashboard assets and configuration templates in the Go binary.
-Generated files are intentionally kept out of source control:
+Some generated files are intentionally kept out of source control:
 
 - `internal/web/static/`
 - `internal/config/templates/*.generated.go`
@@ -64,7 +65,9 @@ Regenerate them with:
 make generate
 ```
 
-`make build` and `make test` run generation automatically.
+`make build` and `make test` run generation automatically. Templ output is
+different: commit both the `.templ` source and matching `_templ.go` file, and
+use `make generate-check` before opening a PR to catch stale generated templates.
 
 ## Coverage Gates
 
