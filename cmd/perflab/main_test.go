@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/johnnygreco/beacon/internal/config"
 )
 
 func TestMain(m *testing.M) {
@@ -189,7 +191,7 @@ func TestLabServerEnvIsolatesHome(t *testing.T) {
 	}
 }
 
-func TestWriteLabConfigUsesAbsoluteFleetMetadataPath(t *testing.T) {
+func TestWriteLabConfigEmitsCurrentBeaconConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "beacon-perf-lab.toml")
 	if err := writeLabConfig(path, labConfig{
@@ -205,18 +207,18 @@ func TestWriteLabConfigUsesAbsoluteFleetMetadataPath(t *testing.T) {
 		t.Fatalf("read lab config: %v", err)
 	}
 	got := string(body)
-	for _, want := range []string{"[fleet]", `role = "control-plane"`, "metadata_path = ", "ingest_token_file = ", "spool_dir = "} {
+	for _, want := range []string{`host = "127.0.0.1"`, `port = 4611`, `addrs = ["127.0.0.1:9000"]`, `database = "beacon_perf_lab"`, `enabled = false`} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("lab config missing %q:\n%s", want, got)
 		}
 	}
-	for _, relative := range []string{`metadata_path = "~`, `metadata_path = "beacon-home`, `ingest_token_file = "~`, `ingest_token_file = "beacon-home`, `spool_dir = "~`, `spool_dir = "beacon-home`} {
-		if strings.Contains(got, relative) {
-			t.Fatalf("lab config contains relative fleet path %q:\n%s", relative, got)
+	for _, removed := range []string{"[fleet]", "metadata_path", "ingest_token_file", "spool_dir"} {
+		if strings.Contains(got, removed) {
+			t.Fatalf("lab config contains removed config %q:\n%s", removed, got)
 		}
 	}
-	if !strings.Contains(got, dir) {
-		t.Fatalf("lab config missing fleet metadata path:\n%s", got)
+	if _, err := config.Load(path); err != nil {
+		t.Fatalf("generated lab config does not load: %v\n%s", err, got)
 	}
 }
 

@@ -32,14 +32,8 @@ func newRootCmd() *cobra.Command {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: ~/.beacon/beacon.toml)")
 
 	rootCmd.AddCommand(
-		newSetupCmd(),
-		newInitCmd(),
-		newInviteCmd(),
-		newJoinCmd(),
-		newEnrollCmd(),
 		newUpCmd(),
 		newDownCmd(),
-		newCollectCmd(),
 		newWatchCmd(),
 		newMCPCmd(),
 		newUsageCmd(),
@@ -52,13 +46,11 @@ func newRootCmd() *cobra.Command {
 }
 
 func newUpCmd() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "up",
 		Short: "Start Beacon web and capture services",
 		RunE:  runServe,
 	}
-	cmd.Flags().Bool("unsafe-public-url", false, "start even when public URL checks show unauthenticated dashboard/API exposure")
-	return cmd
 }
 
 func newDownCmd() *cobra.Command {

@@ -608,13 +608,6 @@ func labServerEnv(base []string, homePath string) []string {
 }
 
 func writeLabConfig(path string, cfg labConfig) error {
-	homePath, err := filepath.Abs(filepath.Join(cfg.OutputDir, "beacon-home"))
-	if err != nil {
-		return fmt.Errorf("resolve lab home path: %w", err)
-	}
-	metadataPath := filepath.Join(homePath, ".beacon", "control-plane.db")
-	ingestTokenPath := filepath.Join(homePath, ".beacon", "ingest-token")
-	spoolDir := filepath.Join(homePath, ".beacon", "spool")
 	body := fmt.Sprintf(`[server]
 host = "127.0.0.1"
 port = %d
@@ -623,12 +616,6 @@ port = %d
 addrs = ["%s"]
 database = "%s"
 read_pool_size = 4
-
-[fleet]
-role = "control-plane"
-metadata_path = %s
-ingest_token_file = %s
-spool_dir = %s
 
 [capture]
 enabled = false
@@ -639,7 +626,7 @@ rebuild_interval = "1h"
 
 [dashboard]
 name = "Beacon Perf Lab"
-`, cfg.Port, cfg.ClickHouse, cfg.Database, strconv.Quote(metadataPath), strconv.Quote(ingestTokenPath), strconv.Quote(spoolDir))
+`, cfg.Port, cfg.ClickHouse, cfg.Database)
 	return os.WriteFile(path, []byte(body), 0644)
 }
 

@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"net"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/spf13/viper"
 )
@@ -27,15 +27,12 @@ type Config struct {
 	Pricing   PricingConfig
 	MCP       MCPConfig
 	Dashboard DashboardConfig
-	Fleet     FleetConfig
-	Auth      AuthConfig
 	Redaction RedactionConfig
 }
 
 type ServerConfig struct {
-	Host      string
-	Port      int
-	PublicURL string `mapstructure:"public_url"`
+	Host string
+	Port int
 }
 
 type DatabaseConfig struct {
@@ -91,45 +88,10 @@ type DashboardConfig struct {
 	Name string
 }
 
-const (
-	AuthModeLoopback     = "loopback"
-	AuthModeOwnerToken   = "owner-token"
-	AuthModeReverseProxy = "reverse-proxy"
-)
-
-type AuthConfig struct {
-	Mode                   string
-	CookieName             string `mapstructure:"cookie_name"`
-	AllowInsecureOwnerHTTP bool   `mapstructure:"allow_insecure_owner_http"`
-}
-
 type RedactionConfig struct {
 	PathMasks    []string `mapstructure:"path_masks"`
 	EnvMasks     []string `mapstructure:"env_masks"`
 	LiteralMasks []string `mapstructure:"literal_masks"`
-}
-
-const (
-	FleetRoleBoth         = "both"
-	FleetRoleControlPlane = "control-plane"
-	FleetRoleCollector    = "collector"
-)
-
-type FleetConfig struct {
-	Role              string
-	MetadataPath      string        `mapstructure:"metadata_path"`
-	ControlPlaneURL   string        `mapstructure:"control_plane_url"`
-	NodeID            string        `mapstructure:"node_id"`
-	NodeName          string        `mapstructure:"node_name"`
-	CollectorID       string        `mapstructure:"collector_id"`
-	IngestTokenFile   string        `mapstructure:"ingest_token_file"`
-	IngestTokenEnv    string        `mapstructure:"ingest_token_env"`
-	SpoolDir          string        `mapstructure:"spool_dir"`
-	SpoolMaxBytes     int64         `mapstructure:"spool_max_bytes"`
-	SpoolBatchSize    int           `mapstructure:"spool_batch_size"`
-	RetryMin          time.Duration `mapstructure:"retry_min"`
-	RetryMax          time.Duration `mapstructure:"retry_max"`
-	HeartbeatInterval time.Duration `mapstructure:"heartbeat_interval"`
 }
 
 func Load(cfgFile string) (*Config, error) {
@@ -156,20 +118,15 @@ func Load(cfgFile string) (*Config, error) {
 			return nil, err
 		}
 	}
-
 	var cfg Config
-	if err := v.Unmarshal(&cfg); err != nil {
+	if err := v.Unmarshal(&cfg, func(dc *mapstructure.DecoderConfig) {
+		dc.ErrorUnused = true
+	}); err != nil {
 		return nil, err
 	}
 
 	if len(cfg.Capture.Sources) == 0 {
 		cfg.Capture.Sources = DefaultCaptureSources()
-	}
-	if cfg.Fleet.MetadataPath != "" {
-		cfg.Fleet.MetadataPath = expandHomePath(cfg.Fleet.MetadataPath)
-	}
-	if cfg.Fleet.NodeName == "" {
-		cfg.Fleet.NodeName = defaultNodeName()
 	}
 	if err := Validate(&cfg); err != nil {
 		return nil, err
@@ -181,7 +138,6 @@ func Load(cfgFile string) (*Config, error) {
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.host", "127.0.0.1")
 	v.SetDefault("server.port", 4600)
-	v.SetDefault("server.public_url", "")
 	v.SetDefault("database.addrs", []string{"127.0.0.1:9000"})
 	v.SetDefault("database.database", "beacon")
 	v.SetDefault("database.username", "default")
@@ -201,16 +157,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("mcp.max_results", 25)
 	v.SetDefault("mcp.context_window", 3)
 	v.SetDefault("dashboard.name", "")
-	v.SetDefault("auth.mode", AuthModeLoopback)
-	v.SetDefault("auth.cookie_name", "beacon_owner_token")
-	v.SetDefault("auth.allow_insecure_owner_http", false)
 	v.SetDefault("redaction.path_masks", []string{})
 	v.SetDefault("redaction.env_masks", []string{
-		"BEACON_OWNER_TOKEN",
-		"BEACON_ENROLL_TOKEN",
-		"BEACON_INGEST_TOKEN",
-		"BEACON_READ_TOKEN",
-		"BEACON_ADMIN_TOKEN",
 		"OPENAI_API_KEY",
 		"ANTHROPIC_API_KEY",
 		"GITHUB_TOKEN",
@@ -220,20 +168,6 @@ func setDefaults(v *viper.Viper) {
 		"AWS_SESSION_TOKEN",
 	})
 	v.SetDefault("redaction.literal_masks", []string{})
-	v.SetDefault("fleet.role", FleetRoleBoth)
-	v.SetDefault("fleet.metadata_path", DefaultControlPlaneMetadataPath())
-	v.SetDefault("fleet.control_plane_url", "")
-	v.SetDefault("fleet.node_id", "")
-	v.SetDefault("fleet.node_name", "")
-	v.SetDefault("fleet.collector_id", "")
-	v.SetDefault("fleet.ingest_token_file", DefaultIngestTokenPath())
-	v.SetDefault("fleet.ingest_token_env", "BEACON_INGEST_TOKEN")
-	v.SetDefault("fleet.spool_dir", DefaultSpoolDir())
-	v.SetDefault("fleet.spool_max_bytes", int64(256*1024*1024))
-	v.SetDefault("fleet.spool_batch_size", 500)
-	v.SetDefault("fleet.retry_min", "1s")
-	v.SetDefault("fleet.retry_max", "1m")
-	v.SetDefault("fleet.heartbeat_interval", "30s")
 }
 
 func DefaultCaptureSources() []SourceConfig {
@@ -277,7 +211,6 @@ func SupportedSourceRuntimeFormatPairs() []string {
 }
 
 var databaseNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-var fleetIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
 
 func Validate(cfg *Config) error {
 	if cfg == nil {
@@ -288,16 +221,11 @@ func Validate(cfg *Config) error {
 	if cfg.Server.Host == "" {
 		return fmt.Errorf("server.host is required")
 	}
+	if !IsLoopbackURLHost(cfg.Server.Host) {
+		return fmt.Errorf("server.host %q is not loopback; Beacon supports local dashboards only", cfg.Server.Host)
+	}
 	if err := validatePort("server.port", cfg.Server.Port); err != nil {
 		return err
-	}
-	cfg.Server.PublicURL = strings.TrimSpace(cfg.Server.PublicURL)
-	if cfg.Server.PublicURL != "" {
-		normalized, err := NormalizeRootURL(cfg.Server.PublicURL, "server.public_url")
-		if err != nil {
-			return err
-		}
-		cfg.Server.PublicURL = normalized
 	}
 
 	if len(cfg.Database.Addrs) == 0 {
@@ -384,13 +312,7 @@ func Validate(cfg *Config) error {
 	if utf8.RuneCountInString(cfg.Dashboard.Name) > DashboardNameMaxLength {
 		return fmt.Errorf("dashboard.name must be <= %d characters", DashboardNameMaxLength)
 	}
-	if err := validateAuth(&cfg.Auth); err != nil {
-		return err
-	}
 	validateRedaction(&cfg.Redaction)
-	if err := validateFleet(&cfg.Fleet); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -411,27 +333,6 @@ func validateRedaction(redaction *RedactionConfig) {
 	for i := range redaction.LiteralMasks {
 		redaction.LiteralMasks[i] = strings.TrimSpace(redaction.LiteralMasks[i])
 	}
-}
-
-func DefaultControlPlaneMetadataPath() string {
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".beacon", "control-plane.db")
-	}
-	return filepath.Join("$HOME", ".beacon", "control-plane.db")
-}
-
-func DefaultIngestTokenPath() string {
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".beacon", "ingest-token")
-	}
-	return filepath.Join("$HOME", ".beacon", "ingest-token")
-}
-
-func DefaultSpoolDir() string {
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".beacon", "spool")
-	}
-	return filepath.Join("$HOME", ".beacon", "spool")
 }
 
 func normalizeDashboardName(value string) string {
@@ -494,108 +395,6 @@ func validateSources(sources []SourceConfig) error {
 	return nil
 }
 
-func validateFleet(fleet *FleetConfig) error {
-	fleet.Role = strings.TrimSpace(fleet.Role)
-	switch fleet.Role {
-	case FleetRoleBoth:
-	case FleetRoleControlPlane, FleetRoleCollector:
-	default:
-		return fmt.Errorf("fleet.role must be one of %q, %q, or %q", FleetRoleBoth, FleetRoleControlPlane, FleetRoleCollector)
-	}
-
-	fleet.MetadataPath = strings.TrimSpace(fleet.MetadataPath)
-	if fleet.MetadataPath == "" {
-		return fmt.Errorf("fleet.metadata_path is required")
-	}
-	if isSQLiteSpecialPath(fleet.MetadataPath) {
-		return fmt.Errorf("fleet.metadata_path must be a durable filesystem path, not a SQLite DSN")
-	}
-	if !filepath.IsAbs(fleet.MetadataPath) {
-		return fmt.Errorf("fleet.metadata_path must be absolute")
-	}
-	fleet.MetadataPath = filepath.Clean(fleet.MetadataPath)
-
-	fleet.ControlPlaneURL = strings.TrimSpace(fleet.ControlPlaneURL)
-	if fleet.ControlPlaneURL != "" {
-		normalized, err := NormalizeControlPlaneURL(fleet.ControlPlaneURL, "fleet.control_plane_url")
-		if err != nil {
-			return err
-		}
-		fleet.ControlPlaneURL = normalized
-	}
-
-	fleet.NodeID = strings.TrimSpace(fleet.NodeID)
-	if fleet.NodeID != "" && !fleetIDPattern.MatchString(fleet.NodeID) {
-		return fmt.Errorf("fleet.node_id %q must match %s", fleet.NodeID, fleetIDPattern.String())
-	}
-	fleet.NodeName = normalizeDashboardName(fleet.NodeName)
-	if fleet.NodeName == "" {
-		return fmt.Errorf("fleet.node_name is required")
-	}
-	fleet.CollectorID = strings.TrimSpace(fleet.CollectorID)
-	if fleet.CollectorID != "" && !fleetIDPattern.MatchString(fleet.CollectorID) {
-		return fmt.Errorf("fleet.collector_id %q must match %s", fleet.CollectorID, fleetIDPattern.String())
-	}
-	fleet.IngestTokenFile = strings.TrimSpace(fleet.IngestTokenFile)
-	if fleet.IngestTokenFile != "" {
-		fleet.IngestTokenFile = expandHomePath(fleet.IngestTokenFile)
-		if !filepath.IsAbs(fleet.IngestTokenFile) {
-			return fmt.Errorf("fleet.ingest_token_file must be absolute")
-		}
-		fleet.IngestTokenFile = filepath.Clean(fleet.IngestTokenFile)
-	}
-	fleet.IngestTokenEnv = strings.TrimSpace(fleet.IngestTokenEnv)
-	if fleet.IngestTokenEnv == "" {
-		return fmt.Errorf("fleet.ingest_token_env is required")
-	}
-	fleet.SpoolDir = expandHomePath(strings.TrimSpace(fleet.SpoolDir))
-	if fleet.SpoolDir == "" {
-		return fmt.Errorf("fleet.spool_dir is required")
-	}
-	if !filepath.IsAbs(fleet.SpoolDir) {
-		return fmt.Errorf("fleet.spool_dir must be absolute")
-	}
-	fleet.SpoolDir = filepath.Clean(fleet.SpoolDir)
-	if fleet.SpoolMaxBytes <= 0 {
-		return fmt.Errorf("fleet.spool_max_bytes must be positive")
-	}
-	if fleet.SpoolBatchSize <= 0 {
-		return fmt.Errorf("fleet.spool_batch_size must be positive")
-	}
-	if fleet.RetryMin <= 0 {
-		return fmt.Errorf("fleet.retry_min must be positive")
-	}
-	if fleet.RetryMax < fleet.RetryMin {
-		return fmt.Errorf("fleet.retry_max must be greater than or equal to fleet.retry_min")
-	}
-	if fleet.HeartbeatInterval <= 0 {
-		return fmt.Errorf("fleet.heartbeat_interval must be positive")
-	}
-	return nil
-}
-
-func validateAuth(auth *AuthConfig) error {
-	auth.Mode = strings.TrimSpace(auth.Mode)
-	switch auth.Mode {
-	case AuthModeLoopback, AuthModeOwnerToken, AuthModeReverseProxy:
-	default:
-		return fmt.Errorf("auth.mode must be one of %q, %q, or %q", AuthModeLoopback, AuthModeOwnerToken, AuthModeReverseProxy)
-	}
-	auth.CookieName = strings.TrimSpace(auth.CookieName)
-	if auth.CookieName == "" {
-		return fmt.Errorf("auth.cookie_name is required")
-	}
-	if strings.ContainsAny(auth.CookieName, " \t\r\n;,\x00") {
-		return fmt.Errorf("auth.cookie_name contains invalid characters")
-	}
-	return nil
-}
-
-func isSQLiteSpecialPath(path string) bool {
-	lower := strings.ToLower(strings.TrimSpace(path))
-	return lower == ":memory:" || strings.HasPrefix(lower, "file:") || strings.Contains(lower, "?")
-}
-
 func expandHomePath(path string) string {
 	path = strings.TrimSpace(path)
 	if path == "~" {
@@ -610,15 +409,6 @@ func expandHomePath(path string) string {
 		}
 	}
 	return path
-}
-
-func defaultNodeName() string {
-	if hostname, err := os.Hostname(); err == nil {
-		if normalized := normalizeDashboardName(hostname); normalized != "" {
-			return normalized
-		}
-	}
-	return "local"
 }
 
 func validatePort(field string, port int) error {
@@ -641,76 +431,6 @@ func validateHostPort(field, value string) error {
 		return fmt.Errorf("%s port must be numeric", field)
 	}
 	return validatePort(field+" port", port)
-}
-
-func NormalizeControlPlaneURL(raw, field string) (string, error) {
-	return NormalizeRootURL(raw, field)
-}
-
-func NormalizeRootURL(raw, field string) (string, error) {
-	field = strings.TrimSpace(field)
-	if field == "" {
-		field = "URL"
-	}
-	raw = strings.TrimSpace(raw)
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", fmt.Errorf("%s must be an absolute URL", field)
-	}
-	if parsed.User != nil {
-		return "", fmt.Errorf("%s must not include userinfo", field)
-	}
-	if err := ValidateURLAuthority(parsed, field); err != nil {
-		return "", err
-	}
-	if parsed.RawQuery != "" {
-		return "", fmt.Errorf("%s must not include a query string", field)
-	}
-	if parsed.Fragment != "" {
-		return "", fmt.Errorf("%s must not include a fragment", field)
-	}
-	path := parsed.EscapedPath()
-	if path != "" && path != "/" {
-		return "", fmt.Errorf("%s must be a root URL without a path", field)
-	}
-	scheme := strings.ToLower(parsed.Scheme)
-	if scheme != "http" && scheme != "https" {
-		return "", fmt.Errorf("%s must use http or https", field)
-	}
-	if scheme == "http" && !IsLoopbackURLHost(parsed.Host) {
-		return "", fmt.Errorf("%s must use https for non-loopback hosts", field)
-	}
-	return scheme + "://" + parsed.Host, nil
-}
-
-func ValidateURLAuthority(parsed *url.URL, field string) error {
-	field = strings.TrimSpace(field)
-	if field == "" {
-		field = "URL"
-	}
-	if parsed == nil {
-		return fmt.Errorf("%s must be an absolute URL", field)
-	}
-	if strings.TrimSpace(parsed.Hostname()) == "" {
-		return fmt.Errorf("%s host is required", field)
-	}
-	if parsed.Port() != "" {
-		port, err := strconv.Atoi(parsed.Port())
-		if err != nil {
-			return fmt.Errorf("%s port must be numeric", field)
-		}
-		if err := validatePort(field+" port", port); err != nil {
-			return err
-		}
-	} else if strings.HasSuffix(parsed.Host, ":") {
-		return fmt.Errorf("%s port must be numeric", field)
-	}
-	return nil
-}
-
-func IsLoopbackURL(raw string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	return err == nil && parsed.Host != "" && IsLoopbackURLHost(parsed.Host)
 }
 
 func IsLoopbackURLHost(hostport string) bool {

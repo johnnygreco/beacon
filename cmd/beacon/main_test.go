@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"io"
 	"os"
 	"slices"
 	"strings"
@@ -55,7 +54,7 @@ func TestRootCommandShowsVersion(t *testing.T) {
 
 func TestRootCommandExposesCanonicalSubcommands(t *testing.T) {
 	cmd := newRootCmd()
-	want := []string{"setup", "init", "invite", "join", "enroll", "up", "down", "collect", "watch", "mcp", "usage", "status", "doctor", "db"}
+	want := []string{"db", "doctor", "down", "mcp", "status", "up", "usage", "watch"}
 
 	var got []string
 	for _, sub := range cmd.Commands() {
@@ -65,49 +64,15 @@ func TestRootCommandExposesCanonicalSubcommands(t *testing.T) {
 		got = append(got, sub.Name())
 	}
 
-	for _, name := range want {
-		if !slices.Contains(got, name) {
-			t.Fatalf("missing canonical command %q; got %v", name, got)
-		}
-	}
-	for _, removed := range []string{"serve", "stop", "run"} {
-		if slices.Contains(got, removed) {
-			t.Fatalf("removed duplicate command %q is still exposed; got %v", removed, got)
-		}
+	if !slices.Equal(got, want) {
+		t.Fatalf("commands = %v, want %v", got, want)
 	}
 
-	if up := subcommandByName(cmd, "up"); up == nil || up.Flags().Lookup("unsafe-public-url") == nil {
-		t.Fatalf("up command is missing --unsafe-public-url")
-	}
-	if setup := subcommandByName(cmd, "setup"); setup == nil || subcommandByName(setup, "dashboard") == nil {
-		t.Fatalf("setup command is missing dashboard subcommand")
+	if up := subcommandByName(cmd, "up"); up == nil {
+		t.Fatalf("up command is missing")
 	}
 	if doctor := subcommandByName(cmd, "doctor"); doctor == nil || subcommandByName(doctor, "setup") == nil {
 		t.Fatalf("doctor command is missing setup subcommand")
-	}
-}
-
-func TestRemovedDuplicateCommandsReturnErrors(t *testing.T) {
-	tests := [][]string{
-		{"serve"},
-		{"stop"},
-		{"run"},
-		{"run", "web"},
-		{"run", "capture"},
-		{"run", "mcp"},
-	}
-
-	for _, args := range tests {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			cmd := newRootCmd()
-			cmd.SetOut(io.Discard)
-			cmd.SetErr(io.Discard)
-			cmd.SetArgs(args)
-
-			if err := cmd.Execute(); err == nil {
-				t.Fatalf("expected %q to be unavailable", strings.Join(args, " "))
-			}
-		})
 	}
 }
 
@@ -320,14 +285,14 @@ watch_root = "/tmp"
 	}
 }
 
-func TestRunWatchRejectsControlPlaneRoleBeforeClickHouse(t *testing.T) {
+func TestRunWatchRejectsUnknownConfigBeforeClickHouse(t *testing.T) {
 	cfgPath := t.TempDir() + "/beacon.toml"
 	if err := os.WriteFile(cfgPath, []byte(`
 [database]
 addrs = ["127.0.0.1:1"]
 
-[fleet]
-role = "control-plane"
+[unknown]
+value = true
 `), 0600); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -342,11 +307,11 @@ role = "control-plane"
 	if err == nil {
 		t.Fatal("runWatch returned nil error")
 	}
-	if !strings.Contains(err.Error(), `fleet.role "control-plane" uses beacon up`) {
-		t.Fatalf("runWatch error = %q, want control-plane role rejection", err.Error())
+	if !strings.Contains(err.Error(), "loading config") || !strings.Contains(err.Error(), "invalid keys") {
+		t.Fatalf("runWatch error = %q, want unknown config rejection", err.Error())
 	}
 	if strings.Contains(err.Error(), "clickhouse") {
-		t.Fatalf("runWatch error = %q, role rejection should happen before ClickHouse", err.Error())
+		t.Fatalf("runWatch error = %q, config rejection should happen before ClickHouse", err.Error())
 	}
 }
 
@@ -382,56 +347,28 @@ addrs = ["127.0.0.1:1"]
 	}
 }
 
-func TestRunServeRejectsResetPendingBeforeClickHouse(t *testing.T) {
+func TestRunServeRejectsNonLoopbackHostBeforeClickHouse(t *testing.T) {
 	resetConfigState(t)
-	metadataPath := t.TempDir() + "/control-plane.db"
-	prepareResetPendingControlPlane(t, metadataPath)
-	cfgPath := writeResetPendingServiceConfig(t, metadataPath)
+	cfgPath := t.TempDir() + "/beacon.toml"
+	if err := os.WriteFile(cfgPath, []byte(`
+[server]
+host = "0.0.0.0"
+
+[database]
+addrs = ["127.0.0.1:1"]
+`), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
 	cfgFile = cfgPath
 
 	err := runServe(newUpCmd(), nil)
 	if err == nil {
 		t.Fatal("runServe returned nil error")
 	}
-	if !strings.Contains(err.Error(), "control-plane reset pending") {
-		t.Fatalf("runServe error = %q, want reset-pending rejection", err.Error())
+	if !strings.Contains(err.Error(), "server.host") || !strings.Contains(err.Error(), "local dashboards only") {
+		t.Fatalf("runServe error = %q, want non-loopback host rejection", err.Error())
 	}
 	if strings.Contains(err.Error(), "clickhouse") {
-		t.Fatalf("runServe error = %q, reset-pending rejection should happen before ClickHouse", err.Error())
+		t.Fatalf("runServe error = %q, host rejection should happen before ClickHouse", err.Error())
 	}
-}
-
-func TestRunWatchRejectsResetPendingBeforeClickHouse(t *testing.T) {
-	resetConfigState(t)
-	metadataPath := t.TempDir() + "/control-plane.db"
-	prepareResetPendingControlPlane(t, metadataPath)
-	cfgPath := writeResetPendingServiceConfig(t, metadataPath)
-	cfgFile = cfgPath
-
-	err := runWatch(newWatchCmd(), nil)
-	if err == nil {
-		t.Fatal("runWatch returned nil error")
-	}
-	if !strings.Contains(err.Error(), "control-plane reset pending") {
-		t.Fatalf("runWatch error = %q, want reset-pending rejection", err.Error())
-	}
-	if strings.Contains(err.Error(), "clickhouse") {
-		t.Fatalf("runWatch error = %q, reset-pending rejection should happen before ClickHouse", err.Error())
-	}
-}
-
-func writeResetPendingServiceConfig(t *testing.T, metadataPath string) string {
-	t.Helper()
-	cfgPath := t.TempDir() + "/beacon.toml"
-	body := `
-[database]
-addrs = ["127.0.0.1:1"]
-
-[fleet]
-metadata_path = "` + metadataPath + `"
-`
-	if err := os.WriteFile(cfgPath, []byte(body), 0600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-	return cfgPath
 }

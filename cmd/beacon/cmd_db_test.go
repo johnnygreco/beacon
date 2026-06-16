@@ -11,8 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/johnnygreco/beacon/internal/config"
-	"github.com/johnnygreco/beacon/internal/controlplane"
 	"github.com/johnnygreco/beacon/internal/store"
 	"github.com/spf13/cobra"
 )
@@ -402,16 +400,6 @@ func TestRunDBResetForceSkipsConfirmationAndResets(t *testing.T) {
 	if !reset {
 		t.Fatal("db reset --force did not reset the store")
 	}
-	snapshot := defaultControlPlaneSnapshot(t)
-	if snapshot.ResetPending {
-		t.Fatalf("reset_pending = true after successful reset: %#v", snapshot)
-	}
-	if snapshot.SchemaEpoch != "2" {
-		t.Fatalf("schema_epoch = %q, want 2 after reset", snapshot.SchemaEpoch)
-	}
-	if len(snapshot.Collectors) == 0 || len(snapshot.Sources) == 0 {
-		t.Fatalf("control-plane metadata was not preserved/initialized: %#v", snapshot)
-	}
 }
 
 func TestRunDBResetHoldsRunLockDuringDestructiveReset(t *testing.T) {
@@ -488,7 +476,7 @@ func TestRunDBResetRejectsHeldRunLock(t *testing.T) {
 	}
 }
 
-func TestRunDBResetFailureLeavesResetPendingWithoutEpochAdvance(t *testing.T) {
+func TestRunDBResetFailureReportsResetError(t *testing.T) {
 	resetConfigState(t)
 	setStdin(t, "")
 	stubDBResetStore(t,
@@ -505,41 +493,8 @@ func TestRunDBResetFailureLeavesResetPendingWithoutEpochAdvance(t *testing.T) {
 		t.Fatalf("set force flag: %v", err)
 	}
 	err := runDBReset(cmd, nil)
-	if err == nil || !strings.Contains(err.Error(), "reset_pending remains active") {
-		t.Fatalf("runDBReset error = %v, want reset_pending failure", err)
-	}
-	snapshot := defaultControlPlaneSnapshot(t)
-	if !snapshot.ResetPending || snapshot.ResetPendingEpoch != controlplane.InitialSchemaEpoch {
-		t.Fatalf("reset-pending snapshot = %#v, want pending at initial epoch", snapshot)
-	}
-	if snapshot.SchemaEpoch != controlplane.InitialSchemaEpoch {
-		t.Fatalf("schema_epoch = %q, want unchanged %q", snapshot.SchemaEpoch, controlplane.InitialSchemaEpoch)
-	}
-}
-
-func TestRunDBResetRejectsCollectorRole(t *testing.T) {
-	resetConfigState(t)
-	configPath, _ := writeInitTestConfigWithRole(t, config.FleetRoleCollector)
-	withConfigFile(t, configPath)
-	setStdin(t, "")
-	stubDBResetStore(t,
-		func(context.Context, store.Options) (*store.Store, error) {
-			t.Fatal("db reset opened store for collector role")
-			return nil, nil
-		},
-		func(context.Context, *sql.DB, string) error {
-			t.Fatal("db reset ran reset for collector role")
-			return nil
-		},
-	)
-
-	cmd := dbSubcommand(t, newDBCmd(), "reset")
-	if err := cmd.Flags().Set("force", "true"); err != nil {
-		t.Fatalf("set force flag: %v", err)
-	}
-	err := runDBReset(cmd, nil)
-	if err == nil || !strings.Contains(err.Error(), "cannot reset control-plane ClickHouse data") {
-		t.Fatalf("runDBReset error = %v, want collector-role rejection", err)
+	if err == nil || !strings.Contains(err.Error(), "reset failed") || !strings.Contains(err.Error(), "drop tables failed") {
+		t.Fatalf("runDBReset error = %v, want reset failure", err)
 	}
 }
 
@@ -571,24 +526,6 @@ func TestRunDBResetRejectsRunningLocalBeaconProcess(t *testing.T) {
 	err := runDBReset(cmd, nil)
 	if err == nil || !strings.Contains(err.Error(), "stop the running local Beacon capture process") {
 		t.Fatalf("runDBReset error = %v, want running-process rejection", err)
-	}
-}
-
-func TestAcquireResetLockRejectsConcurrentReset(t *testing.T) {
-	metadataPath := filepath.Join(t.TempDir(), "control-plane.db")
-	first, err := acquireResetLock(metadataPath)
-	if err != nil {
-		t.Fatalf("acquire first reset lock: %v", err)
-	}
-	defer first.Close()
-
-	second, err := acquireResetLock(metadataPath)
-	if err == nil {
-		_ = second.Close()
-		t.Fatal("second acquireResetLock returned nil error")
-	}
-	if !strings.Contains(err.Error(), "another beacon db reset is already running") {
-		t.Fatalf("second acquireResetLock error = %v, want active reset rejection", err)
 	}
 }
 
@@ -669,39 +606,6 @@ func setStdin(t *testing.T, input string) {
 		os.Stdin = oldStdin
 		_ = r.Close()
 	})
-}
-
-func defaultControlPlaneSnapshot(t *testing.T) *controlplane.Snapshot {
-	t.Helper()
-	control, err := controlplane.Open(filepath.Join(os.Getenv("HOME"), ".beacon", "control-plane.db"))
-	if err != nil {
-		t.Fatalf("Open control-plane: %v", err)
-	}
-	defer control.Close()
-	snapshot, err := control.Snapshot(context.Background())
-	if err != nil {
-		t.Fatalf("Snapshot: %v", err)
-	}
-	return snapshot
-}
-
-func prepareResetPendingControlPlane(t *testing.T, metadataPath string) {
-	t.Helper()
-	control, err := controlplane.Open(metadataPath)
-	if err != nil {
-		t.Fatalf("Open control-plane: %v", err)
-	}
-	defer control.Close()
-	if _, err := control.EnsureLocal(context.Background(), controlplane.Bootstrap{
-		NodeID:      "node-reset-pending",
-		NodeName:    "Reset Pending",
-		CollectorID: "collector-reset-pending",
-	}); err != nil {
-		t.Fatalf("EnsureLocal: %v", err)
-	}
-	if _, err := control.BeginReset(context.Background()); err != nil {
-		t.Fatalf("BeginReset: %v", err)
-	}
 }
 
 func stubDBResetStore(

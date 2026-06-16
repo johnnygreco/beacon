@@ -30,12 +30,6 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	if cfg.Fleet.Role == config.FleetRoleCollector {
-		return fmt.Errorf("fleet.role %q uses beacon collect, not beacon watch", config.FleetRoleCollector)
-	}
-	if cfg.Fleet.Role == config.FleetRoleControlPlane {
-		return fmt.Errorf("fleet.role %q uses beacon up for the control-plane service; use fleet.role %q for local capture", config.FleetRoleControlPlane, config.FleetRoleBoth)
-	}
 
 	pidFile, err := acquirePIDFile()
 	if err != nil {
@@ -47,15 +41,6 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	sources, err := buildSources(cfg)
 	if err != nil {
 		return fmt.Errorf("capture source config: %w", err)
-	}
-
-	controlStore, controlSnapshot, err := initializeControlPlane(context.Background(), cfg, logger)
-	if err != nil {
-		return fmt.Errorf("initializing control-plane metadata: %w", err)
-	}
-	defer controlStore.Close()
-	if err := ensureNoResetPending(controlSnapshot); err != nil {
-		return err
 	}
 
 	storeOpts := storeOptionsFromConfig(cfg)
@@ -75,7 +60,6 @@ func runWatch(cmd *cobra.Command, args []string) error {
 		cfg.Pricing.DefaultInputCost, cfg.Pricing.DefaultOutputCost,
 		nil, // no SSE notify
 		logger,
-		capture.WithFleetIdentity(captureFleetIdentity(controlSnapshot)),
 		capture.WithRedactionPolicy(redactionPolicy),
 	)
 
