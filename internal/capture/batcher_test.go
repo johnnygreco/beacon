@@ -32,7 +32,7 @@ func TestRedactNormalizedEventsCoversStoredEventFields(t *testing.T) {
 		LiteralMasks: []string{"literal-fixture-secret"},
 	})
 	events := RedactNormalizedEvents([]NormalizedEvent{{
-		TextContent:  "token bcn_owner_fixture_0123456789abcdef literal-fixture-secret",
+		TextContent:  "access_token=text-secret literal-fixture-secret",
 		ToolInput:    `{"api_key":"tool-secret"}`,
 		ToolOutput:   "Authorization: Bearer bearer-secret-value",
 		ErrorMessage: "password=error-secret",
@@ -49,12 +49,12 @@ func TestRedactNormalizedEventsCoversStoredEventFields(t *testing.T) {
 		events[0].CWD,
 		events[0].SourceFile,
 	}, "\n")
-	for _, leaked := range []string{"0123456789abcdef", "literal-fixture-secret", "tool-secret", "bearer-secret-value", "error-secret", "raw-secret", "/Users/example/private"} {
+	for _, leaked := range []string{"text-secret", "literal-fixture-secret", "tool-secret", "bearer-secret-value", "error-secret", "raw-secret", "/Users/example/private"} {
 		if strings.Contains(got, leaked) {
 			t.Fatalf("redacted event leaked %q: %s", leaked, got)
 		}
 	}
-	for _, marker := range []string{redaction.TokenMarker, redaction.SecretMarker, redaction.PathMarker, redaction.LiteralMarker} {
+	for _, marker := range []string{redaction.SecretMarker, redaction.PathMarker, redaction.LiteralMarker} {
 		if !strings.Contains(got, marker) {
 			t.Fatalf("redacted event missing marker %q: %s", marker, got)
 		}

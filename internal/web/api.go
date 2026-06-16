@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/johnnygreco/beacon/internal/controlplane"
 	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/search"
 	"github.com/johnnygreco/beacon/internal/views"
@@ -25,25 +24,20 @@ type apiSearcher interface {
 	Browse(ctx context.Context, q search.SearchQuery) ([]search.SearchResult, error)
 }
 
-type controlPlaneSnapshotter interface {
-	Snapshot(ctx context.Context) (*controlplane.Snapshot, error)
-}
-
 // APIHandlers serves JSON API endpoints.
 type APIHandlers struct {
-	db           *sql.DB
-	searcher     apiSearcher
-	controlPlane controlPlaneSnapshotter
-	logger       *slog.Logger
+	db       *sql.DB
+	searcher apiSearcher
+	logger   *slog.Logger
 }
 
 // NewAPIHandlers creates API handlers.
-func NewAPIHandlers(db *sql.DB, searcher *search.Searcher, logger *slog.Logger, controlPlane controlPlaneSnapshotter) *APIHandlers {
+func NewAPIHandlers(db *sql.DB, searcher *search.Searcher, logger *slog.Logger) *APIHandlers {
 	var backend apiSearcher
 	if searcher != nil {
 		backend = searcher
 	}
-	return &APIHandlers{db: db, searcher: backend, controlPlane: controlPlane, logger: logger}
+	return &APIHandlers{db: db, searcher: backend, logger: logger}
 }
 
 type apiErrorResponse struct {
@@ -97,18 +91,6 @@ func (a *APIHandlers) requireDashboardDB(w http.ResponseWriter, r *http.Request,
 		return false
 	}
 	return true
-}
-
-func (a *APIHandlers) dashboardFleetSnapshot(ctx context.Context) *controlplane.Snapshot {
-	if a == nil || a.controlPlane == nil {
-		return nil
-	}
-	snapshot, err := a.controlPlane.Snapshot(ctx)
-	if err != nil {
-		a.log().Warn("dashboard fleet control-plane snapshot unavailable", "error", err)
-		return nil
-	}
-	return snapshot
 }
 
 // GetMetrics returns current dashboard metrics.
@@ -674,7 +656,7 @@ func (a *APIHandlers) GetDashboardFleet(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	scope, scopeMetadata := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
-	a.jsonResponse(w, QueryDashboardFleet(r.Context(), a.db, scope, a.dashboardFleetSnapshot(r.Context()), scopeMetadata))
+	a.jsonResponse(w, QueryDashboardFleet(r.Context(), a.db, scope, scopeMetadata))
 }
 
 // GetSessionDetail returns detailed info for a single session.

@@ -23,7 +23,7 @@ func main() {
 	}
 
 	handlers := web.NewHandlersForE2E(nil, logger)
-	apiHandlers := web.NewAPIHandlers(nil, nil, logger, nil)
+	apiHandlers := web.NewAPIHandlers(nil, nil, logger)
 	router := web.NewRouter(staticFS, sse.NewBroker(16, logger), handlers, apiHandlers)
 
 	addr := os.Getenv("BEACON_E2E_ADDR")

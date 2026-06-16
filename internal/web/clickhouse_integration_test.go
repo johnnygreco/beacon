@@ -43,7 +43,7 @@ func setupLiveWebStore(t *testing.T) *store.Store {
 func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 	ch := setupLiveWebStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	api := NewAPIHandlers(ch.DB, nil, logger, nil)
+	api := NewAPIHandlers(ch.DB, nil, logger)
 
 	now := time.Now().UTC()
 	sessionID := "api-lazy-session"
@@ -177,7 +177,7 @@ func TestAPIEventsUsePreviewsAndPayloadEndpointLoadsFullJSON(t *testing.T) {
 func TestAPISessionEventsTailReturnsLatestBoundedSliceChronologically(t *testing.T) {
 	ch := setupLiveWebStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	api := NewAPIHandlers(ch.DB, nil, logger, nil)
+	api := NewAPIHandlers(ch.DB, nil, logger)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	sessionID := "api-tail-session"
@@ -227,7 +227,7 @@ func TestAPISessionEventsTailReturnsLatestBoundedSliceChronologically(t *testing
 func TestSessionEventsAndTranscriptUseEventProjectBeforeSessionFallback(t *testing.T) {
 	ch := setupLiveWebStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	api := NewAPIHandlers(ch.DB, nil, logger, nil)
+	api := NewAPIHandlers(ch.DB, nil, logger)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	sessionID := "mixed-project-session"
@@ -345,7 +345,7 @@ func TestSessionEventsAndTranscriptUseEventProjectBeforeSessionFallback(t *testi
 func TestProjectScopedSessionSummariesUseMatchingEventRows(t *testing.T) {
 	ch := setupLiveWebStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	api := NewAPIHandlers(ch.DB, nil, logger, nil)
+	api := NewAPIHandlers(ch.DB, nil, logger)
 
 	now := time.Now().UTC().Add(-10 * time.Minute).Truncate(time.Second)
 	sessionID := "mixed-project-summary"
@@ -413,7 +413,7 @@ func TestProjectScopedSessionSummariesUseMatchingEventRows(t *testing.T) {
 func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T) {
 	ch := setupLiveWebStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	api := NewAPIHandlers(ch.DB, nil, logger, nil)
+	api := NewAPIHandlers(ch.DB, nil, logger)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	activeID := "dashboard-live-active"
@@ -543,7 +543,7 @@ func TestDashboardJSONAndAnalyticsAPIsUseProjectionRowsAfterReplay(t *testing.T)
 func TestDashboardAnalyticsAPIsUseGuardedProjectFallback(t *testing.T) {
 	ch := setupLiveWebStore(t)
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
-	api := NewAPIHandlers(ch.DB, nil, logger, nil)
+	api := NewAPIHandlers(ch.DB, nil, logger)
 
 	now := time.Now().UTC().Truncate(time.Second)
 	mixedSessionID := "dashboard-analytics-mixed-project"
@@ -921,7 +921,7 @@ func TestDashboardFleetScopesHeartbeatsByRuntimeAndProject(t *testing.T) {
 		t.Fatalf("insert fleet heartbeats: %v", err)
 	}
 
-	fleet := QueryDashboardFleet(ctx, ch.DB, APIScopeFilters{Runtimes: []string{"runtime-a"}, ProjectKeys: []string{"project-alpha"}}, nil)
+	fleet := QueryDashboardFleet(ctx, ch.DB, APIScopeFilters{Runtimes: []string{"runtime-a"}, ProjectKeys: []string{"project-alpha"}})
 	if fleet.Totals.NodeCount != 1 || fleet.Totals.CollectorCount != 1 || fleet.Totals.OnlineCollectors != 1 {
 		t.Fatalf("fleet totals = %#v, want one scoped online collector", fleet.Totals)
 	}

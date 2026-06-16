@@ -4,16 +4,13 @@ Beacon includes a read-only stdio MCP server for coding agents and other MCP
 clients. The MCP server lets agents search prior Beacon sessions while they stay
 inside their normal workflow.
 
-For ordinary local MCP usage, run Beacon locally with `beacon up` and configure
-the MCP client to launch `beacon mcp`. For the advanced control-plane and
-collector setup that remote MCP reads from, see
-[Advanced personal production guide](production.md).
+Run Beacon locally with `beacon up` and configure the MCP client to launch
+`beacon mcp`.
 
 ## How it works
 
-`beacon mcp` is launched by the MCP client over stdin/stdout JSON-RPC. It can run
-locally against ClickHouse or proxy to a central Beacon control plane over
-HTTP(S). In remote mode the agent machine does not need ClickHouse credentials.
+`beacon mcp` is launched by the MCP client over stdin/stdout JSON-RPC. It opens
+Beacon's configured ClickHouse database read-only.
 
 Beacon exposes five tools:
 
@@ -47,49 +44,6 @@ machine where the MCP client runs.
 If an MCP client starts first, the connection should still initialize. In local
 ClickHouse mode, data-backed tool calls report that Beacon's database is
 unavailable and suggest starting Beacon with `beacon up`.
-
-## Remote Control-Plane MCP
-
-Use remote mode when the agent process runs on a laptop, home server, VM, cloud
-host, or any other machine separate from the central Beacon server. Remote mode
-forwards each MCP JSON-RPC request to the dashboard API and never opens
-ClickHouse from the agent machine.
-
-```bash
-BEACON_MCP_URL=https://beacon.example.com/api/mcp \
-BEACON_READ_TOKEN="$BEACON_READ_TOKEN" \
-beacon mcp
-```
-
-Equivalent flags:
-
-```bash
-beacon mcp \
-  --remote-url https://beacon.example.com/api/mcp \
-  --read-token-file ~/.beacon/read-token
-```
-
-The token file can contain the same owner, admin, or read-scoped token you would
-otherwise put in `BEACON_READ_TOKEN`. If the URL has no path, Beacon appends
-`/api/mcp`. Use any Beacon token that carries read scope. The owner token shown
-by `beacon init` works for a full personal dataset; admin tokens do too. Bound
-read tokens, when minted by token tooling and enforced by Beacon MCP auth,
-silently scope results to their configured node, collector, or source bindings.
-Runtime and project are explicit tool filters and can also be carried forward by
-returned `open_ref` values. Returned payloads include
-`scope.auth_scope_applied` and the effective filters.
-
-In the loopback reverse-proxy production layout, Beacon trusts the proxy
-boundary for `/api/mcp`; the proxy must authenticate that route and Beacon does
-not apply read-token scoping there. Beacon-enforced MCP bearer tokens and
-read-token scopes are active in owner-token mode, or in reverse-proxy mode bound
-to a non-loopback private interface that only the trusted proxy can reach.
-
-Remote MCP URLs must use HTTPS for non-loopback hosts; plain HTTP is accepted
-only for loopback development.
-
-Remote `open` calls that target data outside the effective scope return
-`forbidden` without revealing whether the event or session exists.
 
 ## Claude Code
 
@@ -141,8 +95,7 @@ tool_timeout_sec = 60
 
 The default `beacon mcp` mode opens ClickHouse read-only from the same machine
 where the MCP client runs. Use this for local development or trusted
-administrative debugging. For normal cross-machine agents, prefer remote
-control-plane MCP.
+administrative debugging.
 
 Local/direct layouts:
 
@@ -183,7 +136,7 @@ tool_timeout_sec = 60
 Use port `9440` for ClickHouse native TCP over TLS. Use port `9000` only for
 plaintext native TCP on a private network or through an SSH tunnel. Require
 ClickHouse authentication when exposing the database beyond the local machine.
-Do not use direct ClickHouse credentials for normal remote agent MCP workflows.
+Do not distribute direct ClickHouse credentials beyond machines you trust.
 
 If you want the MCP entry to select a specific address while still using the
 default config file for the database name, credentials, and TLS, pass the address
@@ -229,22 +182,6 @@ With an address override:
 }
 ```
 
-Remote control-plane mode:
-
-```json
-{
-  "mcpServers": {
-    "beacon": {
-      "command": "beacon",
-      "args": ["mcp", "--remote-url", "https://beacon.example.com/api/mcp"],
-      "env": {
-        "BEACON_READ_TOKEN": "..."
-      }
-    }
-  }
-}
-```
-
 ## Troubleshooting
 
 If a client reports an MCP startup or handshake warning, first verify that the
@@ -262,15 +199,6 @@ reachable for tool execution. Start the local Beacon services:
 
 ```bash
 beacon up
-```
-
-For remote control-plane mode, verify the URL and token:
-
-```bash
-printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"ping"}' | \
-  env BEACON_MCP_URL=https://beacon.example.com/api/mcp \
-      BEACON_READ_TOKEN="$BEACON_READ_TOKEN" \
-      beacon mcp
 ```
 
 ## Tool arguments
