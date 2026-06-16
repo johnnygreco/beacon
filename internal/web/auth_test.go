@@ -245,6 +245,36 @@ func TestLoopbackHostMiddlewareRejectsDNSRebindingHosts(t *testing.T) {
 	}
 }
 
+func TestLoopbackHostMiddlewareAllowsConfiguredPublicHost(t *testing.T) {
+	middleware := LoopbackHostMiddleware("127.0.0.1", "https://beacon.example:8443")
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	tests := []struct {
+		host string
+		want int
+	}{
+		{host: "beacon.example:8443", want: http.StatusNoContent},
+		{host: "BEACON.example:8443", want: http.StatusNoContent},
+		{host: "other.example:8443", want: http.StatusForbidden},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.Host = tt.host
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tt.want {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.want)
+			}
+		})
+	}
+}
+
 func TestRouterGlobalMiddlewareProtectsHealthAndStatic(t *testing.T) {
 	router := NewRouter(
 		fstest.MapFS{"app.js": &fstest.MapFile{Data: []byte("ok")}},

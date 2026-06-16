@@ -144,9 +144,10 @@ mode = "reverse-proxy"
 ```
 
 The reverse proxy is responsible for authenticating you before traffic reaches
-Beacon. Because Beacon is still bound to `127.0.0.1`, configure the proxy's
-upstream request `Host` as `127.0.0.1:4600` or `localhost:4600`; Beacon's
-loopback guard rejects forwarded public hosts such as `beacon.example.com`.
+Beacon. When `server.public_url` is set to the external HTTPS origin, Beacon's
+loopback guard accepts that public `Host` while still rejecting unrelated
+hosts. If `server.public_url` is unset, configure the proxy's upstream request
+`Host` as `127.0.0.1:4600` or `localhost:4600`.
 
 In this loopback reverse-proxy layout, the dashboard, JSON API, and `/api/mcp`
 trust the proxy boundary. The proxy must authenticate externally reachable

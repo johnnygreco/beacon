@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -31,10 +32,10 @@ const HostGuardRejectedHeader = "X-Beacon-Host-Guard"
 const IngestRouteHeader = "X-Beacon-Ingest-Route"
 const IngestRouteEnroll = "enroll"
 
-func LoopbackHostMiddleware(configuredHost string) func(http.Handler) http.Handler {
+func LoopbackHostMiddleware(configuredHost string, allowedHosts ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if !isAllowedLoopbackHost(r.Host, configuredHost) {
+			if !isAllowedLoopbackHost(r.Host, configuredHost, allowedHosts...) {
 				w.Header().Set(HostGuardRejectedHeader, "rejected")
 				w.WriteHeader(http.StatusForbidden)
 				_, _ = w.Write([]byte("beacon host guard rejected\n"))
@@ -77,7 +78,7 @@ func bearerToken(header string) string {
 	return value
 }
 
-func isAllowedLoopbackHost(hostHeader, configuredHost string) bool {
+func isAllowedLoopbackHost(hostHeader, configuredHost string, allowedHosts ...string) bool {
 	host := normalizeHostOnly(hostHeader)
 	if host == "" {
 		return false
@@ -89,13 +90,28 @@ func isAllowedLoopbackHost(hostHeader, configuredHost string) bool {
 	if strings.EqualFold(host, "localhost") {
 		return true
 	}
-	return isLoopbackLiteral(host)
+	if isLoopbackLiteral(host) {
+		return true
+	}
+	for _, allowedHost := range allowedHosts {
+		allowed := normalizeHostOnly(allowedHost)
+		if allowed != "" && strings.EqualFold(host, allowed) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeHostOnly(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return ""
+	}
+	if strings.Contains(value, "://") {
+		parsed, err := url.Parse(value)
+		if err == nil && parsed.Host != "" {
+			value = parsed.Host
+		}
 	}
 	if strings.HasPrefix(value, "[") {
 		if end := strings.Index(value, "]"); end > 0 {

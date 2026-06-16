@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/controlplane"
@@ -76,6 +79,46 @@ func TestDashboardAuthOptionsLoopbackAllowsLocalMode(t *testing.T) {
 	}
 	if len(options) != 1 {
 		t.Fatalf("loopback options = %d, want host guard middleware option", len(options))
+	}
+}
+
+func TestDashboardAuthOptionsLoopbackAllowsConfiguredPublicURLHost(t *testing.T) {
+	store, err := controlplane.Open(filepath.Join(t.TempDir(), "control-plane.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer store.Close()
+
+	cfg := testAuthConfig()
+	cfg.Server.Host = "127.0.0.1"
+	cfg.Server.PublicURL = "https://beacon.example"
+	cfg.Auth.Mode = config.AuthModeLoopback
+	options, err := dashboardAuthOptions(context.Background(), cfg, store)
+	if err != nil {
+		t.Fatalf("dashboardAuthOptions loopback: %v", err)
+	}
+	router := web.NewRouter(
+		fstest.MapFS{},
+		nil,
+		web.NewHandlers(nil, nil, slog.New(slog.NewTextHandler(io.Discard, nil)), ""),
+		nil,
+		options...,
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "beacon.example"
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("configured public host status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Host = "other.example"
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("unconfigured public host status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
 }
 

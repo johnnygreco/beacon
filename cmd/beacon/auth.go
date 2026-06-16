@@ -19,7 +19,7 @@ func dashboardAuthOptions(ctx context.Context, cfg *config.Config, store *contro
 	}
 	options := []web.RouterOption{}
 	if isLoopbackHost(cfg.Server.Host) {
-		options = append(options, web.WithGlobalMiddleware(web.LoopbackHostMiddleware(cfg.Server.Host)))
+		options = append(options, web.WithGlobalMiddleware(web.LoopbackHostMiddleware(cfg.Server.Host, cfg.Server.PublicURL)))
 	}
 	if !isLoopbackHost(cfg.Server.Host) {
 		switch cfg.Auth.Mode {

@@ -137,7 +137,7 @@ func runDashboardSetupDoctor(ctx context.Context, report *doctorReport, cfg *con
 	if err := runPublicURLChecks(ctx, publicURL, publicURLCheckOptions{}); err != nil {
 		report.line("FAIL", "public URL checks", err.Error())
 		report.remediation("Verify `/health` and `/api/ingest/v1/enroll` reach Beacon with `Authorization` preserved.")
-		report.remediation("If Beacon rejects the proxy Host while loopback-bound, configure the upstream Host as `127.0.0.1:4600` or `localhost:4600`.")
+		report.remediation("If Beacon rejects the proxy Host while loopback-bound, set `server.public_url` to the external HTTPS origin or configure the upstream Host as `127.0.0.1:4600` or `localhost:4600`.")
 		report.remediation("If dashboard/API/MCP are intentionally public, rerun startup/invite commands with `--unsafe-public-url` for that invocation.")
 		return
 	}
