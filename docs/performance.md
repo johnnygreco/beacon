@@ -54,7 +54,7 @@ Useful lab controls:
 
 | Variable / argument | Default | Purpose |
 | --- | --- | --- |
-| `PERF_LAB_SIZE`, `--size` | `small` | Synthetic dataset size for the served lab app and live benchmarks: `small`, `medium`, `large`, or heavy opt-in `fleet`. |
+| `PERF_LAB_SIZE`, `--size` | `small` | Synthetic dataset size for the served lab app and live benchmarks: `small`, `medium`, `large`, or heavy opt-in `stress`. |
 | `PERF_LAB_CLICKHOUSE`, `--clickhouse` | `127.0.0.1:9000` | ClickHouse address used for seeding and live benchmarks. |
 | `PERF_LAB_DATABASE`, `--database` | `beacon_perf_lab` | Disposable ClickHouse database for the served lab app. |
 | `PERF_LAB_LIVE_DATABASE`, `--live-database` | `<database>_bench` | Disposable ClickHouse database reset by live benchmarks. Must use a `beacon_perf*` name. |
@@ -65,30 +65,29 @@ Useful lab controls:
 | `--fast-benchtime`, `--live-benchtime` | smoke target: `100ms` | Go benchmark duration knobs. |
 | `--browser-repeats` | smoke target: `1` | Browser repeats per viewport. |
 
-## Fleet validation profiles
+## Stress Validation Profiles
 
-The perf seed uses generic multi-machine fleet metadata rather than a required
-host or agent topology. Every profile spreads sessions across 25 collectors, 25
-nodes, five runtime adapters, one source per collector/runtime pair, mixed
-projects, active sessions, idle sessions, tool payloads, and a high-frequency
-common search token (`fleetcommon`) that is always exercised with collector,
-source, and project filters. Specific adapter names in the fixtures are sample
-source data, not product requirements.
+The perf seed uses generic local source metadata rather than a required host or
+agent topology. Every profile spreads sessions across five runtime adapters,
+mixed projects, active sessions, idle sessions, tool payloads, and a
+high-frequency common search token (`commonsearch`) that is exercised with
+source-name and project filters. Specific adapter names in the fixtures are
+sample source data, not product requirements.
 
 | Size | Intended use | Sessions | Active | Idle | Target events | Notes |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
 | `small` | CI/local smoke | 250 | 25 | 50 | ~25k | Default for `make perf-lab-smoke`. |
 | `medium` | PR query review | 2,500 | 250 | 500 | ~250k | Use for ClickHouse query-shape changes. |
 | `large` | Manual preflight | 10,000 | 750 | 1,500 | ~900k | Use before manual production testing when query paths changed materially. |
-| `fleet` | Heavy opt-in lab | 100,000 | 2,500 | 2,500 | ~15M | Approximates the target personal-production fleet profile, including ~1M payloads and at least 100M search postings. Do not run by default in CI. |
+| `stress` | Heavy opt-in lab | 100,000 | 2,500 | 2,500 | ~15M | Approximates the target personal-production stress profile, including ~1M payloads and at least 100M search postings. Do not run by default in CI. |
 
-Perf reports record the machine/runtime metadata, git revision, seeded counts,
-target profile dimensions, common search token, and scoped collector/source/
-project IDs used by the common-token search benchmark. Actual seeded counts are
-the source of truth for a run; fleet search postings are validated as a minimum
-floor because tokenizer and payload-shape changes can legitimately push the
-actual count above the 100M target. These are local validation gates, not public
-benchmark claims or SLA evidence.
+Perf reports record runtime metadata, git revision, seeded counts, target
+profile dimensions, common search token, and scoped source/project values used
+by the common-token search benchmark. Actual seeded counts are the source of
+truth for a run; search postings are validated as a minimum floor because
+tokenizer and payload-shape changes can legitimately push the actual count above
+the 100M target. These are local validation gates, not public benchmark claims or
+SLA evidence.
 
 To compare branches, run the same command with different output directories:
 
@@ -196,17 +195,17 @@ BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 PERF_SIZE=medium make perf-explain
 
 `make perf-explain` prints plans and asserts that dashboard paths stay on
 projection tables, scoped common-token search stays on the search index with
-collector/source/project filters, and MCP/open transcript paths use the expected
+source-name/project filters, and MCP/open transcript paths use the expected
 tables. Set `BEACON_PERF_EXPLAIN_ASSERT=0` only when capturing diagnostic plans
 from an incompatible ClickHouse version; do not use that override as PR
 validation.
 
 For `make perf-bench` and `make perf-explain`, use
-`PERF_SIZE=small|medium|large|fleet` for fixture scale. For PRs that touch
+`PERF_SIZE=small|medium|large|stress` for fixture scale. For PRs that touch
 `internal/web/queries.go`, `internal/search/search.go`, `internal/mcp/tools.go`,
 or ClickHouse schema/projection code, run at least `medium`; run `large` when
 the change alters query shape, table order keys, projections, or search index
-paths. Use `fleet` only as a manual heavy preflight on a machine that can absorb
+paths. Use `stress` only as a manual heavy preflight on a machine that can absorb
 the ClickHouse seed. For noisy comparisons, prefer:
 
 ```bash
@@ -214,15 +213,13 @@ BEACON_TEST_CLICKHOUSE=127.0.0.1:9000 PERF_SIZE=medium PERF_BENCHTIME=3s PERF_CO
 ```
 
 The live perf package also includes a concurrent ingest/read smoke test. When
-`BEACON_TEST_CLICKHOUSE` is set, it commits batches through
-`Store.CommitIngestBatch` while dashboard data, active-session APIs, scoped
-common-token search, and JSON API reads run concurrently. Normal `make test`
-skips this test unless a ClickHouse perf database is configured.
+`BEACON_TEST_CLICKHOUSE` is set, it flushes ordinary row batches while dashboard
+data, active-session APIs, scoped common-token search, and JSON API reads run
+concurrently. Normal `make test` skips this test unless a ClickHouse perf
+database is configured.
 
-Collector failure harness coverage lives with the collector package tests:
-spool-full rollback, corrupt spool quarantine, partial write artifacts, terminal
-send blocks, retryable outage replay, retry backoff capping during retry storms,
-reset-pending pause/resume, epoch mismatch blocking, old-epoch spool discard,
+Capture failure harness coverage lives with the capture package tests:
+rotation rollback, corrupt source handling, partial write artifacts,
 and checkpoint advancement only after committed acknowledgements.
 
 Compare the same benchmark names against `main` on the same machine and
@@ -283,7 +280,7 @@ Captured on 2026-05-22 with:
 - ClickHouse: 24.12.6.70
 - Benchmark settings: `PERF_BENCHTIME=1s`, `PERF_COUNT=1`
 
-Historical fixture seed counts from the pre-fleet `internal/perf` baseline:
+Historical fixture seed counts from the earlier `internal/perf` baseline:
 
 | Size | Sessions | Events | Tool payloads | Seed time |
 | --- | ---: | ---: | ---: | ---: |
@@ -294,7 +291,7 @@ Historical fixture seed counts from the pre-fleet `internal/perf` baseline:
 ## Timing baseline
 
 Values are historical `ms/op` from `make perf-bench`. Current perf lab reports
-record the exact seeded counts and fleet profile metadata for each run.
+record the exact seeded counts and stress profile metadata for each run.
 
 | Benchmark | Small | Medium | Large |
 | --- | ---: | ---: | ---: |

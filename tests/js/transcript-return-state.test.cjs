@@ -54,8 +54,8 @@ function loadTranscriptSandbox({ currentSearch, transcriptPath }) {
 
 test("transcript dashboard return state requires matching scope search params", () => {
   const matching = loadTranscriptSandbox({
-    currentSearch: "?source_id=remote&project_key=beacon",
-    transcriptPath: "/sessions/session-1?project_key=beacon&source_id=remote#event-1",
+    currentSearch: "?source_name=remote&project_key=beacon",
+    transcriptPath: "/sessions/session-1?project_key=beacon&source_name=remote#event-1",
   });
   assert.equal(matching.attributes.href, "/?q=scoped&project_key=beacon");
 

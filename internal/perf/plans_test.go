@@ -94,14 +94,13 @@ func TestExplainWorkloadGuardsMatchProductionQueries(t *testing.T) {
 				_, _ = searcher.Search(ctx, search.SearchQuery{
 					Query:        profile.CommonSearchToken,
 					Limit:        25,
-					CollectorIDs: []string{profile.ScopedCollectorID},
-					SourceIDs:    []string{profile.ScopedSourceID},
+					SourceNames:  []string{profile.ScopedSourceName},
 					ProjectKeys:  []string{profile.ScopedProjectKey},
 					SkipQueryLog: true,
 				})
 			},
 			match:    []string{"from (select * from search_postings final) as p", "p.project_key in"},
-			required: []string{"p.collector_id in", "p.source_id in", "p.project_key in", "where p.token in"},
+			required: []string{"p.source_name in", "p.project_key in", "where p.token in"},
 		},
 	}
 
@@ -541,7 +540,7 @@ func explainWorkloads() []explainWorkload {
 			name:            "search-common-token-scoped",
 			expectedTables:  []string{"search_postings", "search_documents"},
 			forbiddenTables: []string{"activity_events"},
-			requiredSQL:     []string{"p.collector_id in", "p.source_id in", "p.project_key in", "where p.token in"},
+			requiredSQL:     []string{"p.source_name in", "p.project_key in", "where p.token in"},
 			query: `WITH toFloat64(100000) AS total_docs,
 			       toFloat64(96) AS avg_doc_len
 			SELECT p.event_uid,
@@ -560,10 +559,9 @@ func explainWorkloads() []explainWorkload {
 			              toFloat64(count() OVER (PARTITION BY p.token)) AS doc_freq
 			       FROM (SELECT * FROM search_postings FINAL) AS p
 			       INNER JOIN (SELECT event_uid, updated_at FROM search_documents FINAL) AS d ON d.event_uid = p.event_uid
-			       WHERE p.token IN ('fleetcommon')
+			       WHERE p.token IN ('commonsearch')
 			         AND p.updated_at >= d.updated_at
-			         AND p.collector_id IN ('collector-perf-00')
-			         AND p.source_id IN ('source-perf-00-claude-code')
+			         AND p.source_name IN ('claude')
 			         AND p.project_key IN ('project-000')
 			) p
 			GROUP BY p.event_uid

@@ -31,16 +31,16 @@ test("dashboard URL helper preserves empty range but omits empty filters", () =>
 test("dashboard URL helper preserves current scope filters", () => {
   const previousLocation = global.location;
   global.location = {
-    search: "?q=ignored&node_ids=node-a,node-b&source_id=remote&source_id=cloud&project_key=beacon",
+    search: "?q=ignored&source_name=remote&source_name=cloud&project_key=beacon",
   };
   try {
     assert.equal(
       utils.requestURL("/api/dashboard/activity", { event_kind: "message" }),
-      "/api/dashboard/activity?node_ids=node-a%2Cnode-b&source_id=remote&source_id=cloud&project_key=beacon&event_kind=message",
+      "/api/dashboard/activity?source_name=remote&source_name=cloud&project_key=beacon&event_kind=message",
     );
     assert.equal(
       utils.requestURL("/sessions/session-1#event-1", {}),
-      "/sessions/session-1?node_ids=node-a%2Cnode-b&source_id=remote&source_id=cloud&project_key=beacon#event-1",
+      "/sessions/session-1?source_name=remote&source_name=cloud&project_key=beacon#event-1",
     );
   } finally {
     if (previousLocation === undefined) {

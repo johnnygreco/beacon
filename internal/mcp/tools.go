@@ -23,27 +23,21 @@ func toolDefinitions() []map[string]any {
 	return []map[string]any{
 		{
 			"name":        "search_sessions",
-			"description": "Search Beacon's unified fleet activity index. Returns structured session/event IDs, fleet provenance, and open_ref values.",
+			"description": "Search Beacon activity. Returns structured session/event IDs and open_ref values.",
 			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"query":         map[string]any{"type": "string", "description": "Search query text"},
-					"limit":         nullableType("integer", "Max results (default 25, max 100)"),
-					"session_id":    nullableType("string", "Filter to a Beacon session ID"),
-					"event_kinds":   map[string]any{"type": []string{"array", "null"}, "items": map[string]any{"type": "string"}, "description": "Filter by event kinds"},
-					"node_id":       nullableType("string", "Filter by collector node ID"),
-					"node_ids":      nullableArrayType("string", "Filter by collector node IDs"),
-					"collector_id":  nullableType("string", "Filter by collector ID"),
-					"collector_ids": nullableArrayType("string", "Filter by collector IDs"),
-					"source_id":     nullableType("string", "Filter by source ID"),
-					"source_ids":    nullableArrayType("string", "Filter by source IDs"),
-					"source_name":   nullableType("string", "Filter by source name"),
-					"source_names":  nullableArrayType("string", "Filter by source names"),
-					"runtime":       nullableType("string", "Filter by agent runtime"),
-					"runtimes":      nullableArrayType("string", "Filter by agent runtimes"),
-					"project_key":   nullableType("string", "Filter by project key"),
-					"project_keys":  nullableArrayType("string", "Filter by project keys"),
+					"query":        map[string]any{"type": "string", "description": "Search query text"},
+					"limit":        nullableType("integer", "Max results (default 25, max 100)"),
+					"session_id":   nullableType("string", "Filter to a Beacon session ID"),
+					"event_kinds":  map[string]any{"type": []string{"array", "null"}, "items": map[string]any{"type": "string"}, "description": "Filter by event kinds"},
+					"source_name":  nullableType("string", "Filter by source name"),
+					"source_names": nullableArrayType("string", "Filter by source names"),
+					"runtime":      nullableType("string", "Filter by agent runtime"),
+					"runtimes":     nullableArrayType("string", "Filter by agent runtimes"),
+					"project_key":  nullableType("string", "Filter by project key"),
+					"project_keys": nullableArrayType("string", "Filter by project keys"),
 				},
 				"required":             append([]string{"query", "limit", "session_id", "event_kinds"}, scopeRequiredProperties()...),
 				"additionalProperties": false,
@@ -68,21 +62,8 @@ func toolDefinitions() []map[string]any {
 			},
 		},
 		{
-			"name":        "list_agents",
-			"description": "List fleet agent/source rollups across enrolled collectors, nodes, runtimes, and projects.",
-			"annotations": readOnlyToolAnnotations(),
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": mergeSchemaProperties(map[string]any{
-					"limit": nullableType("integer", "Max grouped agents (default 50, max 200)"),
-				}, scopeSchemaProperties()),
-				"required":             append([]string{"limit"}, scopeRequiredProperties()...),
-				"additionalProperties": false,
-			},
-		},
-		{
 			"name":        "list_sessions",
-			"description": "List recent AI agent sessions across the unified fleet with summary statistics and open_ref values.",
+			"description": "List recent AI agent sessions with summary statistics and open_ref values.",
 			"annotations": readOnlyToolAnnotations(),
 			"inputSchema": map[string]any{
 				"type": "object",
@@ -115,7 +96,7 @@ func toolDefinitions() []map[string]any {
 					"model":       nullableType("string", "Filter by model"),
 					"provider":    nullableType("string", "Filter by provider"),
 					"working_dir": nullableType("string", "Filter by working directory"),
-					"group_by":    map[string]any{"type": []string{"array", "null"}, "items": map[string]any{"type": "string"}, "description": "Group results by source_name, provider, model, session_id, working_dir, node_id, collector_id, source_id, runtime, or project_key"},
+					"group_by":    map[string]any{"type": []string{"array", "null"}, "items": map[string]any{"type": "string"}, "description": "Group results by source_name, provider, model, session_id, working_dir, runtime, or project_key"},
 					"limit":       nullableType("integer", "Max grouped results (default 10, max 100)"),
 				}, scopeSchemaProperties()),
 				"required":             append([]string{"since", "until", "window_mode", "token_mode", "model", "provider", "working_dir", "group_by", "limit"}, scopeRequiredProperties()...),
@@ -135,18 +116,12 @@ func nullableArrayType(itemType, description string) map[string]any {
 
 func scopeSchemaProperties() map[string]any {
 	return map[string]any{
-		"node_id":       nullableType("string", "Filter by collector node ID"),
-		"node_ids":      nullableArrayType("string", "Filter by collector node IDs"),
-		"collector_id":  nullableType("string", "Filter by collector ID"),
-		"collector_ids": nullableArrayType("string", "Filter by collector IDs"),
-		"source_id":     nullableType("string", "Filter by source ID"),
-		"source_ids":    nullableArrayType("string", "Filter by source IDs"),
-		"source_name":   nullableType("string", "Filter by source name"),
-		"source_names":  nullableArrayType("string", "Filter by source names"),
-		"runtime":       nullableType("string", "Filter by agent runtime"),
-		"runtimes":      nullableArrayType("string", "Filter by agent runtimes"),
-		"project_key":   nullableType("string", "Filter by project key"),
-		"project_keys":  nullableArrayType("string", "Filter by project keys"),
+		"source_name":  nullableType("string", "Filter by source name"),
+		"source_names": nullableArrayType("string", "Filter by source names"),
+		"runtime":      nullableType("string", "Filter by agent runtime"),
+		"runtimes":     nullableArrayType("string", "Filter by agent runtimes"),
+		"project_key":  nullableType("string", "Filter by project key"),
+		"project_keys": nullableArrayType("string", "Filter by project keys"),
 	}
 }
 
@@ -162,7 +137,7 @@ func mergeSchemaProperties(base, extra map[string]any) map[string]any {
 }
 
 func scopeRequiredProperties() []string {
-	return []string{"node_id", "node_ids", "collector_id", "collector_ids", "source_id", "source_ids", "source_name", "source_names", "runtime", "runtimes", "project_key", "project_keys"}
+	return []string{"source_name", "source_names", "runtime", "runtimes", "project_key", "project_keys"}
 }
 
 func readOnlyToolAnnotations() map[string]any {
@@ -180,8 +155,6 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		return s.toolSearch(ctx, args)
 	case "open":
 		return s.toolOpen(ctx, args)
-	case "list_agents":
-		return s.toolListAgents(ctx, args)
 	case "list_sessions":
 		return s.toolListSessions(ctx, args)
 	case "usage_summary":
@@ -302,9 +275,6 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 		 session_events AS (
 		    SELECT event_uid,
 		           argMax(ae.session_id, captured_at) AS event_session_id,
-		           argMax(ae.node_id, captured_at) AS node_id,
-		           argMax(ae.collector_id, captured_at) AS collector_id,
-		           argMax(ae.source_id, captured_at) AS source_id,
 		           argMax(ae.source_name, captured_at) AS source_name,
 		           argMax(ae.runtime, captured_at) AS runtime,
 		           argMax(event_kind, captured_at) AS event_kind,
@@ -320,10 +290,7 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 		    GROUP BY event_uid
 		 ),
 		 numbered AS (
-		    SELECT e.event_uid, e.event_session_id, COALESCE(e.node_id, '') AS node_id,
-		           COALESCE(e.collector_id, '') AS collector_id,
-		           COALESCE(e.source_id, '') AS source_id,
-		           COALESCE(e.source_name, '') AS source_name,
+		    SELECT e.event_uid, e.event_session_id, COALESCE(e.source_name, '') AS source_name,
 		           COALESCE(e.runtime, '') AS runtime,
 		           `+projectKeyExpr("e.cwd")+` AS project_key,
 		           COALESCE(e.cwd, '') AS project_path,
@@ -335,7 +302,7 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 		    FROM session_events e, target t
 		    WHERE e.event_session_id = t.target_session_id
 		 )
-		 SELECT n.event_uid, n.event_session_id, n.node_id, n.collector_id, n.source_id,
+		 SELECT n.event_uid, n.event_session_id,
 		        n.source_name, n.runtime, n.project_key, n.project_path, n.event_kind,
 		        n.actor_role, n.text_preview, n.tool_name, n.model, n.tokens, n.timestamp,
 		        if(n.event_uid IN (SELECT event_uid FROM target), 1, 0) AS target
@@ -353,7 +320,7 @@ func (s *Server) toolOpen(ctx context.Context, args json.RawMessage) (string, er
 	for rows.Next() {
 		var e contextEvent
 		var target uint8
-		if err := rows.Scan(&e.EventUID, &e.SessionID, &e.NodeID, &e.CollectorID, &e.SourceID, &e.SourceName, &e.Runtime, &e.ProjectKey, &e.ProjectPath, &e.EventKind, &e.ActorRole, &e.TextPreview, &e.ToolName, &e.Model, &e.Tokens, &e.Timestamp, &target); err != nil {
+		if err := rows.Scan(&e.EventUID, &e.SessionID, &e.SourceName, &e.Runtime, &e.ProjectKey, &e.ProjectPath, &e.EventKind, &e.ActorRole, &e.TextPreview, &e.ToolName, &e.Model, &e.Tokens, &e.Timestamp, &target); err != nil {
 			return "", internalToolError("failed to open event context", fmt.Errorf("scan context event: %w", err))
 		}
 		if target != 0 {
@@ -403,90 +370,6 @@ func clampOpenContextWindow(events int) int {
 		return maxOpenContextWindow
 	}
 	return events
-}
-
-func (s *Server) toolListAgents(ctx context.Context, args json.RawMessage) (string, error) {
-	var params struct {
-		Limit int `json:"limit"`
-		scopeArgs
-	}
-	if len(args) > 0 {
-		if err := json.Unmarshal(args, &params); err != nil {
-			return "", userToolError("invalid arguments")
-		}
-	}
-	if params.Limit <= 0 {
-		params.Limit = 50
-	}
-	if params.Limit > 200 {
-		params.Limit = 200
-	}
-
-	backend, err := s.toolBackend(ctx)
-	if err != nil {
-		return "", err
-	}
-	if backend.DB == nil {
-		return "", internalToolError("database unavailable", fmt.Errorf("database backend is not configured"))
-	}
-
-	scope, metadata := s.effectiveScope(ctx, params.scopeArgs.filters())
-	sessionSource, sourceArgs := mcpSessionProjectionSource(scope)
-	scopeClause, scopeArgs := scope.sqlAndClause("")
-	groupSource := `(
-		SELECT COALESCE(NULLIF(node_id, ''), 'local') AS node_id,
-		       COALESCE(collector_id, '') AS collector_id,
-		       COALESCE(source_id, '') AS source_id,
-		       COALESCE(source_name, '') AS source_name,
-		       COALESCE(runtime, '') AS runtime,
-		       COALESCE(project_key, '') AS project_key,
-		       COALESCE(project_path, '') AS project_path,
-		       count() AS session_count,
-		       sum(event_count) AS event_count,
-		       sum(total_tokens) AS total_tokens,
-		       max(started_at) AS last_started_at,
-		       max(ended_at) AS last_ended_at,
-		       argMax(session_id, greatest(started_at, ended_at)) AS latest_session_id
-		FROM ` + sessionSource + `
-		WHERE 1 = 1` + scopeClause + `
-		GROUP BY node_id, collector_id, source_id, source_name, runtime, project_key, project_path
-	)`
-	groupArgs := append(append([]any{}, sourceArgs...), scopeArgs...)
-	var totalMatching int64
-	if err := backend.DB.QueryRowContext(ctx, `SELECT count() FROM `+groupSource, groupArgs...).Scan(&totalMatching); err != nil {
-		return "", internalToolError("failed to list agents", fmt.Errorf("count agents: %w", err))
-	}
-	queryArgs := append(append([]any{}, groupArgs...), params.Limit)
-	rows, err := backend.DB.QueryContext(ctx,
-		`SELECT node_id, collector_id, source_id, source_name, runtime, project_key, project_path,
-		        session_count, event_count, total_tokens, last_started_at, last_ended_at, latest_session_id
-		 FROM `+groupSource+`
-		 ORDER BY last_ended_at DESC, last_started_at DESC, node_id, collector_id, source_id, project_key
-		 LIMIT ?`,
-		queryArgs...)
-	if err != nil {
-		return "", internalToolError("failed to list agents", err)
-	}
-	defer rows.Close()
-
-	var agents []agentInfo
-	for rows.Next() {
-		var a agentInfo
-		if err := rows.Scan(&a.NodeID, &a.CollectorID, &a.SourceID, &a.SourceName, &a.Runtime, &a.ProjectKey, &a.ProjectPath, &a.SessionCount, &a.EventCount, &a.TotalTokens, &a.LastStartedAt, &a.LastEndedAt, &a.LatestSessionID); err != nil {
-			return "", internalToolError("failed to list agents", fmt.Errorf("scan agent: %w", err))
-		}
-		agents = append(agents, a)
-	}
-	if err := rows.Err(); err != nil {
-		return "", internalToolError("failed to list agents", fmt.Errorf("reading agents: %w", err))
-	}
-	return FormatAgentList(agents, sessionListMetadata{
-		ResultCount:        len(agents),
-		TotalMatchingCount: totalMatching,
-		Limit:              params.Limit,
-		ResultComplete:     int64(len(agents)) >= totalMatching,
-		NextCursor:         "",
-	}, metadata), nil
 }
 
 func resolveOpenTarget(eventID, sessionID, anchor string, ref *openRef) (string, string, string, ScopeFilters, error) {
@@ -581,8 +464,7 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 
 	queryArgs := append(append([]any{}, queryFilterArgs...), params.Limit, offset)
 	rows, err := backend.DB.QueryContext(ctx,
-		`SELECT session_id, COALESCE(node_id, ''), COALESCE(collector_id, ''), COALESCE(source_id, ''),
-		        COALESCE(source_name, ''), COALESCE(runtime, ''), COALESCE(project_key, ''), COALESCE(project_path, ''),
+		`SELECT session_id, COALESCE(source_name, ''), COALESCE(runtime, ''), COALESCE(project_key, ''), COALESCE(project_path, ''),
 		        COALESCE(provider, ''), started_at, ended_at,
 		        event_count, turn_count, total_tokens, tool_call_count, mcp_call_count, error_count,
 		        COALESCE(last_model, ''), COALESCE(working_dir, '')
@@ -597,7 +479,7 @@ func (s *Server) toolListSessions(ctx context.Context, args json.RawMessage) (st
 	var sessions []sessionInfo
 	for rows.Next() {
 		var s sessionInfo
-		if err := rows.Scan(&s.SessionID, &s.NodeID, &s.CollectorID, &s.SourceID, &s.SourceName, &s.Runtime, &s.ProjectKey, &s.ProjectPath, &s.Provider, &s.StartedAt, &s.EndedAt,
+		if err := rows.Scan(&s.SessionID, &s.SourceName, &s.Runtime, &s.ProjectKey, &s.ProjectPath, &s.Provider, &s.StartedAt, &s.EndedAt,
 			&s.EventCount, &s.TurnCount, &s.TotalTokens, &s.ToolCallCount, &s.MCPCallCount, &s.ErrorCount, &s.LastModel, &s.WorkingDir); err != nil {
 			return "", internalToolError("failed to list sessions", fmt.Errorf("scan session: %w", err))
 		}
@@ -651,26 +533,23 @@ func (s *Server) toolUsageSummary(ctx context.Context, args json.RawMessage) (st
 	}
 	scope, metadata := s.effectiveScope(ctx, params.scopeArgs.filters())
 	if scope.denyAll {
-		scope.NodeIDs = []string{scopeImpossibleValue}
+		scope.SourceNames = []string{scopeImpossibleValue}
 		scope.denyAll = false
 	}
 
 	result, err := usage.Summarize(ctx, backend.DB, usage.Request{
-		Since:        params.Since,
-		Until:        params.Until,
-		WindowMode:   params.WindowMode,
-		TokenMode:    params.TokenMode,
-		SourceNames:  scope.SourceNames,
-		NodeIDs:      scope.NodeIDs,
-		CollectorIDs: scope.CollectorIDs,
-		SourceIDs:    scope.SourceIDs,
-		Runtimes:     scope.Runtimes,
-		ProjectKeys:  scope.ProjectKeys,
-		Model:        params.Model,
-		Provider:     params.Provider,
-		WorkingDir:   params.WorkingDir,
-		GroupBy:      params.GroupBy,
-		Limit:        params.Limit,
+		Since:       params.Since,
+		Until:       params.Until,
+		WindowMode:  params.WindowMode,
+		TokenMode:   params.TokenMode,
+		SourceNames: scope.SourceNames,
+		Runtimes:    scope.Runtimes,
+		ProjectKeys: scope.ProjectKeys,
+		Model:       params.Model,
+		Provider:    params.Provider,
+		WorkingDir:  params.WorkingDir,
+		GroupBy:     params.GroupBy,
+		Limit:       params.Limit,
 	}, time.Now())
 	if err != nil {
 		if usage.IsUserError(err) {
@@ -689,9 +568,6 @@ func mcpSessionProjectionSubquery(where string) string {
 	}
 	return `(SELECT
 		sp.session_id AS session_id,
-		argMax(sp.node_id, sp.updated_at) AS node_id,
-		argMax(sp.collector_id, sp.updated_at) AS collector_id,
-		argMax(sp.source_id, sp.updated_at) AS source_id,
 		argMax(sp.source_name, sp.updated_at) AS source_name,
 		argMax(sp.runtime, sp.updated_at) AS runtime,
 		argMax(sp.project_key, sp.updated_at) AS project_key,
@@ -721,9 +597,6 @@ func mcpSQLWhereClause(where string) string {
 func mcpLatestActivityEventsSubquery(where string) string {
 	return `(SELECT event_uid,
 	               argMax(session_id, captured_at) AS session_id,
-	               argMax(node_id, captured_at) AS node_id,
-	               argMax(collector_id, captured_at) AS collector_id,
-	               argMax(source_id, captured_at) AS source_id,
 	               argMax(source_name, captured_at) AS source_name,
 	               argMax(runtime, captured_at) AS runtime,
 	               argMax(provider, captured_at) AS provider,
@@ -775,9 +648,6 @@ func mcpSessionProjectionSource(scope ScopeFilters) (string, []any) {
 	scopedProjectExpr := "COALESCE(NULLIF(" + eventProjectExpr + ", ''), if(COALESCE(s.project_count, 0) <= 1, NULLIF(s.project_key, ''), ''))"
 	return `(SELECT
 		e.session_id AS session_id,
-		argMaxIf(e.node_id, e.timestamp, e.node_id != '') AS node_id,
-		argMaxIf(e.collector_id, e.timestamp, e.collector_id != '') AS collector_id,
-		argMaxIf(e.source_id, e.timestamp, e.source_id != '') AS source_id,
 		argMaxIf(e.source_name, e.timestamp, e.source_name != '') AS source_name,
 		argMaxIf(e.runtime, e.timestamp, e.runtime != '') AS runtime,
 		argMaxIf(` + scopedProjectExpr + `, e.timestamp, ` + scopedProjectExpr + ` != '') AS project_key,

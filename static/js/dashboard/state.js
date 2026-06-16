@@ -36,12 +36,9 @@ var dashboardChartMetrics = ['total_tokens', 'input_tokens', 'output_tokens', 'c
 var dashboardActiveSorts = ['recent', 'longest', 'tokens', 'tools', 'errors'];
 var dashboardSearchEventKinds = ['session', 'event', 'message', 'tool_call', 'tool_result', 'reasoning', 'error'];
 var dashboardSearchSorts = ['relevance', 'newest', 'oldest'];
-var dashboardSortColumns = ['name', 'node', 'runtime', 'model', 'tokens', 'turns', 'tools', 'errors', 'duration', 'project', 'ended', 'id'];
+var dashboardSortColumns = ['name', 'runtime', 'model', 'tokens', 'turns', 'tools', 'errors', 'duration', 'project', 'ended', 'id'];
 var dashboardActivityFilters = ['all', 'message', 'tool_call', 'error'];
 var dashboardScopeFields = {
-	node_id: ['node_id', 'node_ids'],
-	collector_id: ['collector_id', 'collector_ids'],
-	source_id: ['source_id', 'source_ids'],
 	source_name: ['source_name', 'source_names'],
 	runtime: ['runtime', 'runtimes'],
 	project_key: ['project_key', 'project_keys']
@@ -356,7 +353,6 @@ function removeDashboardScopeValue(url, field, value) {
 
 function refreshDashboardForScopeChange() {
 	if (typeof syncDashboardScopeControls === 'function') syncDashboardScopeControls();
-	if (typeof loadDashboardFleet === 'function') loadDashboardFleet();
 	if (typeof loadActiveSessions === 'function') loadActiveSessions();
 	if (typeof loadCompletedSessions === 'function') loadCompletedSessions(0);
 	if (typeof loadActivity === 'function') loadActivity();

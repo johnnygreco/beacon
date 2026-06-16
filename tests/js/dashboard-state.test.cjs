@@ -57,23 +57,23 @@ function loadStateSandbox(search) {
 }
 
 test("dashboard scope chips clear only their own value", () => {
-  const sandbox = loadStateSandbox("?node_ids=node-a,node-b&node_id=node-c&runtime=runtime-a");
+  const sandbox = loadStateSandbox("?source_names=source-a,source-b&source_name=source-c&runtime=runtime-a");
 
-  sandbox.clearDashboardScope("node_id", "node-a");
+  sandbox.clearDashboardScope("source_name", "source-a");
 
   const params = new URLSearchParams(sandbox.window.location.search);
-  assert.deepEqual(params.getAll("node_ids"), ["node-b"]);
-  assert.deepEqual(params.getAll("node_id"), ["node-c"]);
+  assert.deepEqual(params.getAll("source_names"), ["source-b"]);
+  assert.deepEqual(params.getAll("source_name"), ["source-c"]);
   assert.equal(params.get("runtime"), "runtime-a");
 });
 
 test("dashboard scope clear all still clears every scope field", () => {
-  const sandbox = loadStateSandbox("?node_ids=node-a,node-b&runtime=runtime-a&project_key=project-a");
+  const sandbox = loadStateSandbox("?source_names=source-a,source-b&runtime=runtime-a&project_key=project-a");
 
   sandbox.clearDashboardScope("");
 
   const params = new URLSearchParams(sandbox.window.location.search);
-  assert.equal(params.has("node_ids"), false);
+  assert.equal(params.has("source_names"), false);
   assert.equal(params.has("runtime"), false);
   assert.equal(params.has("project_key"), false);
 });

@@ -178,7 +178,7 @@ func parseDashboardSearchAPIRequest(values url.Values) (dashboardSearchAPIReques
 }
 
 func (r dashboardSearchAPIRequest) active() bool {
-	return r.Query != "" || r.Range != "" || r.EventKind != "" || r.SessionID != "" || len(r.Scope.NodeIDs) > 0 || len(r.Scope.CollectorIDs) > 0 || len(r.Scope.SourceIDs) > 0 || len(r.Scope.SourceNames) > 0 || len(r.Scope.Runtimes) > 0 || len(r.Scope.ProjectKeys) > 0
+	return r.Query != "" || r.Range != "" || r.EventKind != "" || r.SessionID != "" || len(r.Scope.SourceNames) > 0 || len(r.Scope.Runtimes) > 0 || len(r.Scope.ProjectKeys) > 0
 }
 
 type activityAPIRequest struct {

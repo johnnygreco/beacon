@@ -24,9 +24,6 @@
       "subagent_count": "integer"
     },
     "optional": {
-      "node_id": "string",
-      "collector_id": "string",
-      "source_id": "string",
       "runtime": "string",
       "format": "string",
       "project_key": "string",
@@ -69,9 +66,6 @@
     },
     "optional": {
       "result_type": "string",
-      "node_id": "string",
-      "collector_id": "string",
-      "source_id": "string",
       "source_name": "string",
       "runtime": "string",
       "project_key": "string",
@@ -110,9 +104,6 @@
   "APIScopeFilters": {
     "required": {},
     "optional": {
-      "node_ids": "string[]",
-      "collector_ids": "string[]",
-      "source_ids": "string[]",
       "source_names": "string[]",
       "runtimes": "string[]",
       "project_keys": "string[]"
@@ -129,9 +120,6 @@
       "relative_time": "string"
     },
     "optional": {
-      "node_id": "string",
-      "collector_id": "string",
-      "source_id": "string",
       "source_name": "string",
       "runtime": "string"
     }
@@ -144,77 +132,6 @@
       "model_activity": "ModelMetricChart"
     },
     "optional": {}
-  },
-  "APIDashboardFleetResponse": {
-    "required": {
-      "scope": "APIScopeMetadata",
-      "totals": "APIDashboardFleetTotals",
-      "nodes": "APIDashboardFleetNode[]"
-    },
-    "optional": {}
-  },
-  "APIDashboardFleetTotals": {
-    "required": {
-      "node_count": "integer",
-      "collector_count": "integer",
-      "online_collectors": "integer",
-      "stale_collectors": "integer",
-      "offline_collectors": "integer",
-      "missing_heartbeat_collectors": "integer",
-      "active_sessions": "integer",
-      "attention_sessions": "integer",
-      "total_sessions": "integer",
-      "total_tokens": "integer",
-      "queue_depth": "integer",
-      "spool_bytes": "integer",
-      "heartbeat_error_count": "integer"
-    },
-    "optional": {}
-  },
-  "APIDashboardFleetNode": {
-    "required": {
-      "node_id": "string",
-      "label": "string",
-      "status": "string",
-      "collector_count": "integer",
-      "missing_heartbeat_collectors": "integer",
-      "active_sessions": "integer",
-      "attention_sessions": "integer",
-      "total_sessions": "integer",
-      "total_tokens": "integer",
-      "error_count": "integer",
-      "queue_depth": "integer",
-      "spool_bytes": "integer",
-      "active_files": "integer",
-      "heartbeat_error_count": "integer"
-    },
-    "optional": {
-      "collectors": "string[]",
-      "sources": "string[]",
-      "runtimes": "string[]",
-      "projects": "string[]",
-      "last_event_at": "string",
-      "last_heartbeat_at": "string",
-      "last_seen_label": "string",
-      "heartbeat_status": "string",
-      "sources_detail": "APIDashboardFleetSource[]"
-    }
-  },
-  "APIDashboardFleetSource": {
-    "required": {
-      "collector_id": "string",
-      "status": "string",
-      "queue_depth": "integer",
-      "spool_bytes": "integer",
-      "active_files": "integer",
-      "error_count": "integer"
-    },
-    "optional": {
-      "source_id": "string",
-      "source_name": "string",
-      "last_event_at": "string",
-      "last_heartbeat_at": "string"
-    }
   },
   "ModelSeriesChart": {
     "required": {

@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	size := flag.String("size", "small", "Dataset size: small, medium, large, fleet (fleet is heavy/manual)")
+	size := flag.String("size", "small", "Dataset size: small, medium, large, stress (stress is heavy/manual)")
 	addr := flag.String("clickhouse", "127.0.0.1:9000", "ClickHouse address")
 	database := flag.String("database", "beacon", "ClickHouse database")
 	reset := flag.Bool("reset", true, "Reset schema before seeding")

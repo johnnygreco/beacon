@@ -115,7 +115,6 @@ func TestProjectionInsertSQLUsesDedupedActivityEvents(t *testing.T) {
 			want: []string{
 				"SELECT event_uid",
 				"argMax(session_id, captured_at) AS projected_session_id",
-				"argMax(collector_id, captured_at) AS collector_id",
 				"WHERE session_id IN (?,?)",
 				"GROUP BY event_uid",
 				"GROUP BY projected_session_id",
@@ -135,7 +134,7 @@ func TestProjectionInsertSQLUsesDedupedActivityEvents(t *testing.T) {
 				"toUInt8(uniqExactIf(project_key, project_key != '') = 1) AS single_project",
 				"if(cwd != '', cwd, COALESCE(NULLIF(sp.project_path, ''), '')) AS project_path",
 				"GROUP BY event_uid",
-				"GROUP BY projected_session_id, node_id, collector_id, source_id, source_name, runtime, format, project_key, project_path, minute, provider, model, tool_name, event_kind",
+				"GROUP BY projected_session_id, source_name, runtime, format, project_key, project_path, minute, provider, model, tool_name, event_kind",
 			},
 		},
 	}
@@ -271,18 +270,17 @@ func TestBuildSearchRowsSkipsEmptyDocuments(t *testing.T) {
 	}
 }
 
-func TestRecordUIDChangesWithFleetRawIdentityAndPayload(t *testing.T) {
-	base := recordUID("collector-a", "source-a", "raw-session", "raw-event", 42, "digest-one")
+func TestRecordUIDChangesWithSourceRawIdentityAndPayload(t *testing.T) {
+	base := recordUID("source-a", "raw-session", "raw-event", 42, "digest-one")
 	tests := []struct {
 		name string
 		uid  string
 	}{
-		{name: "same inputs", uid: recordUID("collector-a", "source-a", "raw-session", "raw-event", 42, "digest-one")},
-		{name: "different collector", uid: recordUID("collector-b", "source-a", "raw-session", "raw-event", 42, "digest-one")},
-		{name: "different source", uid: recordUID("collector-a", "source-b", "raw-session", "raw-event", 42, "digest-one")},
-		{name: "different raw event", uid: recordUID("collector-a", "source-a", "raw-session", "raw-event-2", 42, "digest-one")},
-		{name: "different source index", uid: recordUID("collector-a", "source-a", "raw-session", "raw-event", 43, "digest-one")},
-		{name: "different payload", uid: recordUID("collector-a", "source-a", "raw-session", "raw-event", 42, "digest-two")},
+		{name: "same inputs", uid: recordUID("source-a", "raw-session", "raw-event", 42, "digest-one")},
+		{name: "different source", uid: recordUID("source-b", "raw-session", "raw-event", 42, "digest-one")},
+		{name: "different raw event", uid: recordUID("source-a", "raw-session", "raw-event-2", 42, "digest-one")},
+		{name: "different source index", uid: recordUID("source-a", "raw-session", "raw-event", 43, "digest-one")},
+		{name: "different payload", uid: recordUID("source-a", "raw-session", "raw-event", 42, "digest-two")},
 	}
 
 	if len(base) != 32 {

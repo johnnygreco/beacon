@@ -48,28 +48,6 @@ type DashboardScrollRecorderReport = {
 };
 
 const fixedNow = '2026-05-09T18:00:00.000Z';
-const localNodeID = 'node-local';
-const localCollectorID = 'collector-local';
-
-function advancedMachineScenario(scenario: Scenario): boolean {
-  return scenario === 'error-heavy' || scenario === 'many-active' || scenario === 'long-active';
-}
-
-function localizeMachineIdentity<T extends Record<string, unknown>>(item: T): T {
-  const localized = {
-    ...item,
-    node_id: localNodeID,
-    collector_id: localCollectorID,
-  } as T;
-  if (Array.isArray(localized.child_sessions)) {
-    localized.child_sessions = (localized.child_sessions as Array<Record<string, unknown>>).map(localizeMachineIdentity);
-  }
-  return localized;
-}
-
-function topologyItems<T extends Record<string, unknown>>(items: T[], scenario: Scenario): T[] {
-  return advancedMachineScenario(scenario) ? items : items.map(localizeMachineIdentity);
-}
 
 function iso(daysAgo: number, hours = 0): string {
   const d = new Date(fixedNow);
@@ -84,9 +62,6 @@ const baseCompletedSessions = Array.from({ length: 31 }, (_, i) => {
       id: TEST_SESSION_ID,
       title: 'Legacy migration replay',
       source: 'source-a',
-      node_id: 'node-a',
-      collector_id: 'collector-a',
-      source_id: 'source-a',
       runtime: 'runtime-a',
       project_key: 'beacon',
       project_path: '/Users/example/projects/beacon/very/long/dashboard/migration/worktree',
@@ -120,9 +95,6 @@ const baseCompletedSessions = Array.from({ length: 31 }, (_, i) => {
     id: `session-completed-${String(i).padStart(3, '0')}`,
     title: i % 3 === 0 ? 'Dashboard fixture validation' : `Completed agent run ${i}`,
     source: i % 2 === 0 ? 'source-b' : 'source-a',
-    node_id: i % 2 === 0 ? 'node-b' : 'node-a',
-    collector_id: i % 2 === 0 ? 'collector-b' : 'collector-a',
-    source_id: i % 2 === 0 ? 'source-b' : 'source-a',
     runtime: i % 2 === 0 ? 'runtime-b' : 'runtime-a',
     project_key: i % 2 === 0 ? 'beacon' : 'dashboard',
     project_path: i % 2 === 0 ? '/Users/example/projects/beacon' : '/Users/example/projects/beacon/subsystems/dashboard',
@@ -179,9 +151,6 @@ const activeSessions = [
     id: ACTIVE_SESSION_ID,
     title: 'Realtime dashboard smoke run',
     source: 'source-a',
-    node_id: 'node-a',
-    collector_id: 'collector-a',
-    source_id: 'source-a',
     runtime: 'runtime-a',
     project_key: 'beacon',
     project_path: '/Users/example/projects/beacon',
@@ -214,9 +183,6 @@ const activeSessions = [
         id: 'active-child-001',
         title: 'Live child worker',
         source: 'source-a',
-        node_id: 'node-a',
-        collector_id: 'collector-a',
-        source_id: 'source-a',
         runtime: 'runtime-a',
         project_key: 'beacon',
         project_path: '/Users/example/projects/beacon',
@@ -288,9 +254,6 @@ function manyActiveSessions() {
       id: `active-parent-${String(i + 1).padStart(3, '0')}`,
       title: `Live queue item ${i + 1}`,
       source: i % 3 === 0 ? 'source-b' : (modelCase.provider === 'provider-b' ? 'source-b' : 'source-a'),
-      node_id: i % 3 === 0 ? 'node-c' : (modelCase.provider === 'provider-b' ? 'node-b' : 'node-a'),
-      collector_id: i % 3 === 0 ? 'collector-c' : (modelCase.provider === 'provider-b' ? 'collector-b' : 'collector-a'),
-      source_id: i % 3 === 0 ? 'source-c' : (modelCase.provider === 'provider-b' ? 'source-b' : 'source-a'),
       runtime: i % 3 === 0 ? 'runtime-c' : (modelCase.provider === 'provider-b' ? 'runtime-b' : 'runtime-a'),
       project_key: i % 3 === 0 ? 'project-c' : 'beacon',
       project_path: i % 3 === 0 ? '/srv/agents/work/project-c' : '/Users/example/projects/beacon',
@@ -363,9 +326,6 @@ function scopeValues(url: URL | undefined, singular: string, plural: string) {
 function scopeMetadata(url?: URL) {
 	const filters: Record<string, string[]> = {};
 	const entries: Array<[string, string, string]> = [
-		['node_ids', 'node_id', 'node_ids'],
-		['collector_ids', 'collector_id', 'collector_ids'],
-		['source_ids', 'source_id', 'source_ids'],
 		['source_names', 'source_name', 'source_names'],
 		['runtimes', 'runtime', 'runtimes'],
 		['project_keys', 'project_key', 'project_keys'],
@@ -386,53 +346,19 @@ function sessionMatchesScope(session: Record<string, unknown>, url?: URL) {
   const sourceName = Object.prototype.hasOwnProperty.call(session, 'source')
     ? session.source
     : session.source_name;
-  return matchesScopeValue(session.node_id, scopeValues(url, 'node_id', 'node_ids')) &&
-    matchesScopeValue(session.collector_id, scopeValues(url, 'collector_id', 'collector_ids')) &&
-    matchesScopeValue(session.source_id, scopeValues(url, 'source_id', 'source_ids')) &&
-    matchesScopeValue(sourceName, scopeValues(url, 'source_name', 'source_names')) &&
+  return matchesScopeValue(sourceName, scopeValues(url, 'source_name', 'source_names')) &&
     matchesScopeValue(session.runtime, scopeValues(url, 'runtime', 'runtimes')) &&
     matchesScopeValue(session.project_key, scopeValues(url, 'project_key', 'project_keys'));
 }
 
 function searchResultMatchesScope(result: Record<string, unknown>, url?: URL) {
-  return matchesScopeValue(result.node_id, scopeValues(url, 'node_id', 'node_ids')) &&
-    matchesScopeValue(result.collector_id, scopeValues(url, 'collector_id', 'collector_ids')) &&
-    matchesScopeValue(result.source_id, scopeValues(url, 'source_id', 'source_ids')) &&
-    matchesScopeValue(result.source_name, scopeValues(url, 'source_name', 'source_names')) &&
+  return matchesScopeValue(result.source_name, scopeValues(url, 'source_name', 'source_names')) &&
     matchesScopeValue(result.runtime, scopeValues(url, 'runtime', 'runtimes')) &&
     matchesScopeValue(result.project_key, scopeValues(url, 'project_key', 'project_keys'));
 }
 
 function filterSessionsByScope<T extends Record<string, unknown>>(items: T[], url?: URL) {
   return items.filter((item) => sessionMatchesScope(item, url));
-}
-
-function matchesAnyScopeValue(values: unknown[], selected: string[]) {
-  if (selected.length === 0) return true;
-  const normalized = new Set(values.map((value) => String(value || '').trim()).filter(Boolean));
-  return selected.some((value) => normalized.has(value));
-}
-
-function fleetNodeMatchesScope(node: {
-  node_id?: string;
-  collectors?: string[];
-  runtimes?: string[];
-  projects?: string[];
-  sources?: string[];
-  sources_detail?: Array<{ source_id?: string; source_name?: string }>;
-}, url?: URL) {
-  const sourceDetails = node.sources_detail || [];
-  const sourceIDs = sourceDetails.map((source) => source.source_id || '');
-  const sourceNames = [
-    ...(node.sources || []),
-    ...sourceDetails.map((source) => source.source_name || ''),
-  ];
-  return matchesScopeValue(node.node_id, scopeValues(url, 'node_id', 'node_ids')) &&
-    matchesAnyScopeValue(node.collectors || [], scopeValues(url, 'collector_id', 'collector_ids')) &&
-    matchesAnyScopeValue(sourceIDs, scopeValues(url, 'source_id', 'source_ids')) &&
-    matchesAnyScopeValue(sourceNames, scopeValues(url, 'source_name', 'source_names')) &&
-    matchesAnyScopeValue(node.runtimes || [], scopeValues(url, 'runtime', 'runtimes')) &&
-    matchesAnyScopeValue(node.projects || [], scopeValues(url, 'project_key', 'project_keys'));
 }
 
 function chartPayload(scenario: Scenario, range = '24h', url?: URL) {
@@ -565,9 +491,6 @@ function activityItems(scenario: Scenario, range = '24h') {
       type: 'tool_call',
       summary: rangeLabel ? `${rangeLabel}: Read dashboard fixture payload` : 'Read dashboard fixture payload',
       session_id: TEST_SESSION_ID,
-      node_id: 'node-a',
-      collector_id: 'collector-a',
-      source_id: 'source-a',
       source_name: 'source-a',
       runtime: 'runtime-a',
       provider: 'provider-a',
@@ -579,9 +502,6 @@ function activityItems(scenario: Scenario, range = '24h') {
       type: 'message',
       summary: 'Agent summarized the dashboard state',
       session_id: 'session-completed-001',
-      node_id: 'node-b',
-      collector_id: 'collector-b',
-      source_id: 'source-b',
       source_name: 'source-b',
       runtime: 'runtime-b',
       provider: 'provider-b',
@@ -593,9 +513,6 @@ function activityItems(scenario: Scenario, range = '24h') {
       type: 'error',
       summary: 'Model request returned a recoverable error',
       session_id: 'session-completed-011',
-      node_id: 'node-a',
-      collector_id: 'collector-a',
-      source_id: 'source-a',
       source_name: 'source-a',
       runtime: 'runtime-a',
       provider: 'provider-a',
@@ -607,9 +524,6 @@ function activityItems(scenario: Scenario, range = '24h') {
       type: 'tool_error',
       summary: 'Shell command exited non-zero',
       session_id: 'session-completed-022',
-      node_id: 'node-b',
-      collector_id: 'collector-b',
-      source_id: 'source-b',
       source_name: 'source-b',
       runtime: 'runtime-b',
       provider: 'provider-b',
@@ -623,9 +537,6 @@ function activityItems(scenario: Scenario, range = '24h') {
       type: i % 2 === 0 ? 'error' : 'tool_error',
       summary: `Repeated error burst ${i + 1}`,
       session_id: `session-completed-${String(i + 1).padStart(3, '0')}`,
-      node_id: i % 2 === 0 ? 'node-a' : 'node-b',
-      collector_id: i % 2 === 0 ? 'collector-a' : 'collector-b',
-      source_id: i % 2 === 0 ? 'source-a' : 'source-b',
       source_name: i % 2 === 0 ? 'source-a' : 'source-b',
       runtime: i % 2 === 0 ? 'runtime-a' : 'runtime-b',
       provider: i % 2 === 0 ? 'provider-a' : 'provider-b',
@@ -633,193 +544,7 @@ function activityItems(scenario: Scenario, range = '24h') {
       relative_time: `${5 + i}h ago`,
     }))]
     : base;
-  return topologyItems(items, scenario);
-}
-
-function fleetPayload(scenario: Scenario, url?: URL) {
-  const empty = scenario === 'empty';
-  const nodes = empty ? [] : (advancedMachineScenario(scenario) ? [
-    {
-      node_id: 'node-a',
-      label: 'Node A',
-	      status: 'online',
-	      collector_count: 1,
-	      missing_heartbeat_collectors: 0,
-	      collectors: ['collector-a'],
-      sources: ['source-a'],
-      runtimes: ['runtime-a'],
-      projects: ['beacon', 'dashboard'],
-      active_sessions: scenario === 'many-active' ? 3 : 1,
-      attention_sessions: scenario === 'error-heavy' ? 2 : 1,
-      total_sessions: 18,
-      total_tokens: 240000,
-      error_count: scenario === 'error-heavy' ? 7 : 1,
-      queue_depth: 0,
-      spool_bytes: 0,
-      active_files: 2,
-      heartbeat_error_count: 0,
-      last_seen_label: 'just now',
-      heartbeat_status: 'online',
-      sources_detail: [
-        {
-          collector_id: 'collector-a',
-          source_id: 'source-a',
-          source_name: 'source-a',
-          status: 'online',
-          queue_depth: 0,
-          spool_bytes: 0,
-          active_files: 2,
-          error_count: 0,
-        },
-      ],
-    },
-    {
-      node_id: 'node-b',
-      label: 'Node B',
-	      status: scenario === 'error-heavy' ? 'stale' : 'online',
-	      collector_count: 1,
-	      missing_heartbeat_collectors: 0,
-	      collectors: ['collector-b'],
-      sources: ['source-b'],
-      runtimes: ['runtime-b'],
-      projects: ['beacon'],
-      active_sessions: scenario === 'many-active' ? 3 : 0,
-      attention_sessions: scenario === 'error-heavy' ? 4 : 0,
-      total_sessions: 22,
-      total_tokens: 310000,
-      error_count: scenario === 'error-heavy' ? 9 : 1,
-      queue_depth: scenario === 'error-heavy' ? 9 : 1,
-      spool_bytes: scenario === 'error-heavy' ? 65536 : 2048,
-      active_files: 5,
-      heartbeat_error_count: scenario === 'error-heavy' ? 2 : 0,
-      last_seen_label: scenario === 'error-heavy' ? '4m ago' : '35s ago',
-      heartbeat_status: scenario === 'error-heavy' ? 'stale' : 'online',
-      sources_detail: [
-        {
-          collector_id: 'collector-b',
-          source_id: 'source-b',
-          source_name: 'source-b',
-          status: scenario === 'error-heavy' ? 'stale' : 'online',
-          queue_depth: scenario === 'error-heavy' ? 9 : 1,
-          spool_bytes: scenario === 'error-heavy' ? 65536 : 2048,
-          active_files: 5,
-          error_count: scenario === 'error-heavy' ? 2 : 0,
-        },
-      ],
-    },
-    {
-      node_id: 'node-c',
-      label: 'Node C',
-	      status: 'offline',
-	      collector_count: 1,
-	      missing_heartbeat_collectors: 0,
-	      collectors: ['collector-c'],
-      sources: ['source-b'],
-      runtimes: ['runtime-c'],
-      projects: ['project-c'],
-      active_sessions: scenario === 'many-active' ? 2 : 0,
-      attention_sessions: scenario === 'many-active' ? 1 : 0,
-      total_sessions: 6,
-      total_tokens: 92000,
-      error_count: 0,
-      queue_depth: 0,
-      spool_bytes: 0,
-      active_files: 0,
-      heartbeat_error_count: 0,
-      last_seen_label: '18m ago',
-      heartbeat_status: 'offline',
-      sources_detail: [
-        {
-          collector_id: 'collector-c',
-          source_id: 'source-c',
-          source_name: 'source-b',
-          status: 'missing',
-          queue_depth: 0,
-          spool_bytes: 0,
-          active_files: 0,
-          error_count: 0,
-        },
-      ],
-    },
-  ] : [
-    {
-      node_id: localNodeID,
-      label: 'Local machine',
-      status: 'online',
-      collector_count: 1,
-      missing_heartbeat_collectors: 0,
-      collectors: [localCollectorID],
-      sources: ['source-a', 'source-b'],
-      runtimes: ['runtime-a', 'runtime-b'],
-      projects: ['beacon', 'dashboard'],
-      active_sessions: 1,
-      attention_sessions: 1,
-      total_sessions: 40,
-      total_tokens: 550000,
-      error_count: 2,
-      queue_depth: 0,
-      spool_bytes: 0,
-      active_files: 7,
-      heartbeat_error_count: 0,
-      last_seen_label: 'just now',
-      heartbeat_status: 'online',
-      sources_detail: [
-        {
-          collector_id: localCollectorID,
-          source_id: 'source-a',
-          source_name: 'source-a',
-          status: 'online',
-          queue_depth: 0,
-          spool_bytes: 0,
-          active_files: 3,
-          error_count: 0,
-        },
-        {
-          collector_id: localCollectorID,
-          source_id: 'source-b',
-          source_name: 'source-b',
-          status: 'online',
-          queue_depth: 0,
-          spool_bytes: 0,
-          active_files: 4,
-          error_count: 0,
-        },
-      ],
-    },
-  ]);
-	  const filtered = nodes.filter((node) => fleetNodeMatchesScope(node, url));
-	  const totals = filtered.reduce((acc, node) => {
-	    acc.node_count += 1;
-	    acc.collector_count += node.collector_count;
-	    acc.missing_heartbeat_collectors += node.missing_heartbeat_collectors;
-	    const healthCollectors = Math.max(0, node.collector_count - node.missing_heartbeat_collectors);
-	    if (node.status === 'online') acc.online_collectors += healthCollectors;
-	    else if (node.status === 'stale') acc.stale_collectors += healthCollectors;
-	    else if (node.status !== 'active') acc.offline_collectors += healthCollectors;
-	    acc.active_sessions += node.active_sessions;
-    acc.attention_sessions += node.attention_sessions;
-    acc.total_sessions += node.total_sessions;
-    acc.total_tokens += node.total_tokens;
-    acc.queue_depth += node.queue_depth;
-    acc.spool_bytes += node.spool_bytes;
-    acc.heartbeat_error_count += node.heartbeat_error_count;
-    return acc;
-  }, {
-    node_count: 0,
-    collector_count: 0,
-    online_collectors: 0,
-    stale_collectors: 0,
-	    offline_collectors: 0,
-	    missing_heartbeat_collectors: 0,
-	    active_sessions: 0,
-    attention_sessions: 0,
-    total_sessions: 0,
-    total_tokens: 0,
-    queue_depth: 0,
-    spool_bytes: 0,
-    heartbeat_error_count: 0,
-  });
-  return { scope: scopeMetadata(url), totals, nodes: filtered };
+  return items;
 }
 
 function dashboardSearchBaseResults() {
@@ -832,9 +557,6 @@ function dashboardSearchBaseResults() {
       snippet: 'Dashboard payload search surfaced the exact migration note inside the assistant response.',
       provider: 'provider-a',
       model: 'generic-model-a',
-      node_id: 'node-a',
-      collector_id: 'collector-a',
-      source_id: 'source-a',
       source_name: 'source-a',
       runtime: 'runtime-a',
       project_key: 'beacon',
@@ -854,9 +576,6 @@ function dashboardSearchBaseResults() {
       tool_name: 'Read',
       provider: 'provider-b',
       model: 'generic-model-b',
-      node_id: 'node-b',
-      collector_id: 'collector-b',
-      source_id: 'source-b',
       source_name: 'source-b',
       runtime: 'runtime-b',
       project_key: 'beacon',
@@ -875,9 +594,6 @@ function dashboardSearchBaseResults() {
       snippet: 'Recoverable search timeout while loading a large result set.',
       provider: 'provider-b',
       model: 'generic-model-b',
-      node_id: 'node-c',
-      collector_id: 'collector-c',
-      source_id: 'source-c',
       source_name: 'source-b',
       runtime: 'runtime-c',
       project_key: 'project-c',
@@ -938,9 +654,9 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
     return { state: 'ready', query, range, event_kind: eventKind, session_id: sessionID, sort, limit, scope, has_more: false, items: [] };
   }
   const denseSearchFixture = scenario === 'search-many';
-  const source = topologyItems(denseSearchFixture || query.toLowerCase() === 'many'
+  const source = denseSearchFixture || query.toLowerCase() === 'many'
     ? dashboardSearchManyResults(range)
-    : dashboardSearchBaseResults(), scenario);
+    : dashboardSearchBaseResults();
   const acceptedKinds = eventKind === 'error'
     ? new Set(['error', 'tool_error'])
     : new Set(eventKind && eventKind !== 'event' && eventKind !== 'session' ? [eventKind] : []);
@@ -959,7 +675,7 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
   const seenSessions = new Set(sortedEvents.map((result) => result.session_id));
   const includeSessionResults = eventKind === 'session' || (query && !eventKind);
   const sessionResults = includeSessionResults
-    ? topologyItems(baseCompletedSessions, scenario)
+    ? baseCompletedSessions
       .filter((session) => {
         if (seenSessions.has(session.id)) return false;
         if (!sessionMatchesScope(session, url)) return false;
@@ -975,9 +691,6 @@ function dashboardSearchForRequest(url: URL, scenario: Scenario) {
         result_type: 'session',
         event_uid: '',
         session_id: session.id,
-        node_id: session.node_id,
-        collector_id: session.collector_id,
-        source_id: session.source_id,
         source_name: session.source,
         runtime: session.runtime,
         project_key: session.project_key,
@@ -1023,7 +736,7 @@ function completedForRequest(url: URL, scenario: Scenario) {
   const range = panelRange(url, ['completed_range', 'range', 'search_range']);
   const offset = Number(url.searchParams.get('offset') || 0);
   const limit = Number(url.searchParams.get('limit') || 30);
-  const sessions = topologyItems(baseCompletedSessions, scenario);
+  const sessions = baseCompletedSessions;
   let source = filterSessionsByScope(query
     ? sessions.filter((s) => {
       const metadata = [s.id, s.title, s.last_model, s.working_dir, s.provider].join(' ').toLowerCase();
@@ -1036,7 +749,7 @@ function completedForRequest(url: URL, scenario: Scenario) {
   if (rangeLabel && !query && offset === 0) {
     source = [
       {
-        ...topologyItems([baseCompletedSessions[1]], scenario)[0],
+        ...baseCompletedSessions[1],
         id: `session-range-${range || 'all'}`,
         title: `${rangeLabel} completed session`,
         ended_at: iso(0, 2),
@@ -1051,7 +764,6 @@ function completedForRequest(url: URL, scenario: Scenario) {
     const value = (s: typeof baseCompletedSessions[number]) => {
       switch (sort) {
         case 'name': return s.title;
-        case 'node': return s.node_id;
         case 'runtime': return s.runtime;
         case 'model': return s.last_model;
         case 'tokens': return s.total_tokens;
@@ -1117,7 +829,7 @@ function activeForScenario(scenario: Scenario, url?: URL) {
   if (scenario === 'empty') return [];
   if (scenario === 'many-active') return filterSessionsByScope(manyActiveSessions(), url);
   if (scenario === 'long-active') return filterSessionsByScope(longActiveSessions(), url);
-  return filterSessionsByScope(topologyItems(activeSessions, scenario), url);
+  return filterSessionsByScope(activeSessions, url);
 }
 
 function initialStorageForScenario(scenario: Scenario): Record<string, string> {
@@ -1371,11 +1083,6 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
 		return fulfillJSON(route, chartPayload(scenario, range, url), 200, 'APIDashboardCharts');
 	});
 
-  await page.route('**/api/dashboard/fleet**', async (route) => {
-    const url = new URL(route.request().url());
-    return fulfillJSON(route, fleetPayload(scenario, url), 200, 'APIDashboardFleetResponse');
-  });
-
   await page.route('**/api/dashboard/activity**', async (route) => {
     if (failures.delete('activity')) return fulfillJSON(route, { error: 'fixture failure' }, 500);
     const url = new URL(route.request().url());
@@ -1387,11 +1094,11 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
   });
 
   await page.route('**/api/sessions?**', async (route) => {
-    return fulfillJSON(route, [...topologyItems(baseCompletedSessions, scenario), ...activeForScenario(scenario)], 200, 'APISessionSummary[]');
+    return fulfillJSON(route, [...baseCompletedSessions, ...activeForScenario(scenario)], 200, 'APISessionSummary[]');
   });
 
   await page.route('**/api/sessions/*/subagents', async (route) => {
-    return fulfillJSON(route, topologyItems(childSessions, scenario), 200, 'APISessionSummary[]');
+    return fulfillJSON(route, childSessions, 200, 'APISessionSummary[]');
   });
 
   await page.route('**/api/sessions/*/events**', async (route) => {
@@ -1401,7 +1108,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
   await page.route('**/api/sessions/*', async (route) => {
     const url = new URL(route.request().url());
     const id = decodeURIComponent(url.pathname.split('/').pop() || '');
-    const session = [...topologyItems(baseCompletedSessions, scenario), ...activeForScenario(scenario), ...topologyItems(childSessions, scenario)].find((s) => s.id === id) || topologyItems([baseCompletedSessions[0]], scenario)[0];
+    const session = [...baseCompletedSessions, ...activeForScenario(scenario), ...childSessions].find((s) => s.id === id) || baseCompletedSessions[0];
     return fulfillJSON(route, { session }, 200, 'APISessionDetail');
   });
 

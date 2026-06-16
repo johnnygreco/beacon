@@ -2,56 +2,51 @@ package perf
 
 import "testing"
 
-func TestProfileForFleetMatchesIssueShape(t *testing.T) {
-	profile := ProfileFor(SizeFleet)
+func TestProfileForStressMatchesIssueShape(t *testing.T) {
+	profile := ProfileFor(SizeStress)
 	if !profile.Heavy {
-		t.Fatal("fleet profile should be marked heavy")
+		t.Fatal("stress profile should be marked heavy")
 	}
-	if profile.Collectors != 25 || profile.Runtimes != 5 || profile.Sessions != 100000 {
-		t.Fatalf("fleet profile dimensions = collectors %d runtimes %d sessions %d, want 25/5/100000", profile.Collectors, profile.Runtimes, profile.Sessions)
+	if profile.Sources != 5 || profile.Runtimes != 5 || profile.Sessions != 100000 {
+		t.Fatalf("stress profile dimensions = sources %d runtimes %d sessions %d, want 5/5/100000", profile.Sources, profile.Runtimes, profile.Sessions)
 	}
 	if profile.ActiveSessions != 2500 || profile.IdleSessions != 2500 {
-		t.Fatalf("fleet active/idle = %d/%d, want 2500/2500", profile.ActiveSessions, profile.IdleSessions)
+		t.Fatalf("stress active/idle = %d/%d, want 2500/2500", profile.ActiveSessions, profile.IdleSessions)
 	}
 	if profile.TargetEvents < 14000000 || profile.TargetEvents > 16000000 {
-		t.Fatalf("fleet target events = %d, want approximately 15M", profile.TargetEvents)
+		t.Fatalf("stress target events = %d, want approximately 15M", profile.TargetEvents)
 	}
 	if profile.TargetSearchPostings < 90000000 {
-		t.Fatalf("fleet target search postings = %d, want approximately 100M", profile.TargetSearchPostings)
+		t.Fatalf("stress target search postings = %d, want approximately 100M", profile.TargetSearchPostings)
 	}
 	if profile.TargetPayloads < 900000 || profile.TargetPayloads > 1100000 {
-		t.Fatalf("fleet target payloads = %d, want approximately 1M", profile.TargetPayloads)
+		t.Fatalf("stress target payloads = %d, want approximately 1M", profile.TargetPayloads)
 	}
-	if profile.CommonSearchToken == "" || profile.ScopedCollectorID == "" || profile.ScopedSourceID == "" || profile.ScopedProjectKey == "" {
-		t.Fatalf("fleet scoped search metadata incomplete: %#v", profile)
+	if profile.CommonSearchToken == "" || profile.ScopedSourceName == "" || profile.ScopedProjectKey == "" {
+		t.Fatalf("stress scoped search metadata incomplete: %#v", profile)
 	}
 }
 
-func TestParseSeedSizeAcceptsFleetProfile(t *testing.T) {
-	if got := ParseSeedSize(" FLEET "); got != SizeFleet {
-		t.Fatalf("ParseSeedSize fleet = %q, want %q", got, SizeFleet)
+func TestParseSeedSizeAcceptsStressProfile(t *testing.T) {
+	if got := ParseSeedSize(" STRESS "); got != SizeStress {
+		t.Fatalf("ParseSeedSize stress = %q, want %q", got, SizeStress)
 	}
 	if got := ParseSeedSize("unknown"); got != SizeSmall {
 		t.Fatalf("ParseSeedSize unknown = %q, want %q", got, SizeSmall)
 	}
 }
 
-func TestSeedSourceForSessionFansOutAcrossCollectorsAndRuntimes(t *testing.T) {
-	cfg := configFor(SizeFleet)
+func TestSeedSourceForSessionFansOutAcrossRuntimes(t *testing.T) {
+	cfg := configFor(SizeStress)
 	seenSources := map[string]struct{}{}
-	seenCollectors := map[int]struct{}{}
 	seenRuntimes := map[string]struct{}{}
-	for session := 0; session < cfg.collectorCount*len(seedRuntimeProfiles); session++ {
+	for session := 0; session < len(seedRuntimeProfiles); session++ {
 		source := seedSourceForSession(session, cfg)
-		seenSources[source.sourceID] = struct{}{}
-		seenCollectors[source.collectorIndex] = struct{}{}
+		seenSources[source.profile.SourceName] = struct{}{}
 		seenRuntimes[source.profile.Runtime] = struct{}{}
 	}
-	if len(seenSources) != cfg.collectorCount*len(seedRuntimeProfiles) {
-		t.Fatalf("sources = %d, want %d", len(seenSources), cfg.collectorCount*len(seedRuntimeProfiles))
-	}
-	if len(seenCollectors) != cfg.collectorCount {
-		t.Fatalf("collectors = %d, want %d", len(seenCollectors), cfg.collectorCount)
+	if len(seenSources) != len(seedRuntimeProfiles) {
+		t.Fatalf("sources = %d, want %d", len(seenSources), len(seedRuntimeProfiles))
 	}
 	if len(seenRuntimes) != len(seedRuntimeProfiles) {
 		t.Fatalf("runtimes = %d, want %d", len(seenRuntimes), len(seedRuntimeProfiles))
@@ -77,19 +72,19 @@ func TestSeedSessionRangesReserveActiveAndIdleAtEnd(t *testing.T) {
 	}
 }
 
-func TestFleetToolPayloadsAreDownsampled(t *testing.T) {
-	fleet := configFor(SizeFleet)
+func TestStressToolPayloadsAreDownsampled(t *testing.T) {
+	stress := configFor(SizeStress)
 	if !shouldSeedToolPayload(seedConfig{}, 0, 1) {
 		t.Fatal("default profile should keep tool payloads")
 	}
 	kept := 0
 	for event := 0; event < 900; event++ {
-		if shouldSeedToolPayload(fleet, 0, event) {
+		if shouldSeedToolPayload(stress, 0, event) {
 			kept++
 		}
 	}
 	if kept < 95 || kept > 105 {
-		t.Fatalf("fleet kept %d/900 payload slots, want approximately 100", kept)
+		t.Fatalf("stress kept %d/900 payload slots, want approximately 100", kept)
 	}
 }
 

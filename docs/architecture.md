@@ -56,7 +56,7 @@ offset, line number, and parser state. The watcher detects rotation by inode and
 size, advances `source_generation` to keep event IDs unique, replays a small
 prefix window when needed to preserve parser context, and then emits only new
 rows. Parse failures are stored in `capture_errors` with source coordinates,
-fleet/batch identity when available, and a context fragment.
+and a context fragment.
 
 ### 2. Normalization
 
@@ -85,12 +85,11 @@ or the flush interval fires. A final flush also runs on context cancellation.
 On flush, the batcher:
 
 - computes deterministic `event_uid` values from source coordinates,
-  source-native IDs, source event indexes, collector/source identity, and an
-  ordinal for duplicate source coordinates
-- maps raw source session IDs into global session IDs using durable
-  collector/source assignments from the control-plane metadata store
-- attaches `batch_id`, `collector_id`, `source_id`, `control_plane_epoch`,
-  `payload_digest`, and redaction placeholders to primary ingest rows
+  source-native IDs, source event indexes, source names, and an ordinal for
+  duplicate source coordinates
+- maps raw source session IDs into global session IDs using source-local
+  metadata
+- attaches `payload_digest` and redaction placeholders to primary ingest rows
 - calculates token cost when the parser did not provide one
 - builds short text previews
 - creates `models.Event` rows for `activity_events`
@@ -110,20 +109,16 @@ inserts, ingest-time derived rows, and projection refreshes.
 Core write tables:
 
 - `raw_records` stores the original payload, source coordinates, raw/global
-  identity, fleet identity, batch metadata, and payload digest for audit and
-  replay debugging.
+  identity, and payload digest for audit and replay debugging.
 - `activity_events` is the canonical normalized event stream. Most read paths
   use this table directly or through projections.
 - `event_links` records event-to-event relationships such as parser parent
   links, raw linked IDs, cross-session scope, and unresolved-link status.
 - `tool_payloads` stores structured tool call/result input and output payloads
   apart from the event row.
-- `capture_errors` stores parser and capture failures with source, fleet, and
-  batch identity.
+- `capture_errors` stores parser and capture failures with source coordinates.
 - `capture_checkpoints` stores per-source, per-file replay state keyed by source
-  name as well as fleet source identity.
-- `capture_heartbeats` stores fleet-aware collector/source health samples from
-  remote ingest heartbeats and future local capture health telemetry.
+  name and file key.
 
 Search tables are built during ingest, not by a separate external indexer:
 

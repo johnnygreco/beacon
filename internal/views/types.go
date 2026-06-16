@@ -130,9 +130,6 @@ type SessionSummary struct {
 	ID                string
 	ScopeQuery        string
 	Actor             string
-	NodeID            string
-	CollectorID       string
-	SourceID          string
 	Runtime           string
 	Format            string
 	ProjectKey        string
@@ -377,17 +374,14 @@ type SearchResult struct {
 }
 
 type ActivityItem struct {
-	ID          string
-	Type        string // event_kind: "message", "tool_call", "tool_result", "error"
-	Summary     string
-	SessionID   string
-	NodeID      string
-	CollectorID string
-	SourceID    string
-	SourceName  string
-	Runtime     string
-	Provider    string // "anthropic", "openai", etc.
-	Timestamp   time.Time
+	ID         string
+	Type       string // event_kind: "message", "tool_call", "tool_result", "error"
+	Summary    string
+	SessionID  string
+	SourceName string
+	Runtime    string
+	Provider   string // "anthropic", "openai", etc.
+	Timestamp  time.Time
 }
 
 type EventSummary struct {

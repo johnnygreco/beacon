@@ -5,6 +5,9 @@ const test = require("node:test");
 const vm = require("node:vm");
 
 const utils = require("../../static/js/dashboard/utils.js");
+const stateScript = fs.readFileSync(path.join(__dirname, "../../static/js/dashboard/state.js"), "utf8");
+const renderScript = fs.readFileSync(path.join(__dirname, "../../static/js/dashboard/render.js"), "utf8");
+const css = fs.readFileSync(path.join(__dirname, "../../static/css/custom.css"), "utf8");
 
 function loadRenderSandbox() {
   const sandbox = {
@@ -12,8 +15,10 @@ function loadRenderSandbox() {
       BeaconDashboard: { utils },
       dashboardSessionIndex: {},
       AbortController: globalThis.AbortController,
+      location: { search: "" },
     },
     AbortController: globalThis.AbortController,
+    URLSearchParams,
     document: {
       getElementById() {
         return null;
@@ -45,8 +50,7 @@ function loadRenderSandbox() {
     loadCompletedSessions() {},
   };
   vm.createContext(sandbox);
-  const renderPath = path.join(__dirname, "../../static/js/dashboard/render.js");
-  vm.runInContext(fs.readFileSync(renderPath, "utf8"), sandbox, { filename: renderPath });
+  vm.runInContext(renderScript, sandbox, { filename: "render.js" });
   return sandbox;
 }
 
@@ -87,51 +91,52 @@ function dashboardElementStub() {
   };
 }
 
-function healthyLocalFleetPayload() {
-  return {
-    totals: {
-      node_count: 1,
-      collector_count: 1,
-      online_collectors: 1,
-      stale_collectors: 0,
-      offline_collectors: 0,
-      missing_heartbeat_collectors: 0,
-      queue_depth: 0,
-      spool_bytes: 0,
-      heartbeat_error_count: 0,
-    },
-    nodes: [{
-      node_id: "node-local",
-      status: "online",
-      collector_count: 1,
-      queue_depth: 0,
-      spool_bytes: 0,
-      heartbeat_error_count: 0,
-      sources_detail: [{ status: "online", queue_depth: 0, spool_bytes: 0, error_count: 0 }],
-    }],
-  };
-}
+test("dashboard scope controls render clearable local filters", () => {
+  const sandbox = loadRenderSandbox();
+  const chips = dashboardElementStub();
+  sandbox.document.getElementById = (id) => (id === "dashboard-scope-chips" ? chips : null);
+  sandbox.window.location.search = "?source_names=source-a,source-b&runtime=runtime-a&project_key=beacon";
 
-function advancedFleetPayload() {
-  return {
-    totals: {
-      node_count: 2,
-      collector_count: 2,
-      online_collectors: 2,
-      stale_collectors: 0,
-      offline_collectors: 0,
-      missing_heartbeat_collectors: 0,
-      queue_depth: 0,
-      spool_bytes: 0,
-      heartbeat_error_count: 0,
-      active_sessions: 3,
-    },
-    nodes: [
-      { node_id: "node-a", status: "online", collector_count: 1, sources_detail: [] },
-      { node_id: "node-b", status: "online", collector_count: 1, sources_detail: [] },
-    ],
-  };
-}
+  sandbox.syncDashboardScopeControls();
+
+  assert.equal(chips.attributes["aria-hidden"], "false");
+  assert.equal(chips.classList.contains("hidden"), false);
+  assert.match(chips.innerHTML, /data-dashboard-scope-clear="source_name"/);
+  assert.match(chips.innerHTML, /data-dashboard-scope-value="source-a"/);
+  assert.match(chips.innerHTML, /data-dashboard-scope-value="source-b"/);
+  assert.match(chips.innerHTML, /data-dashboard-scope-clear="runtime"/);
+  assert.match(chips.innerHTML, /data-dashboard-scope-value="runtime-a"/);
+  assert.match(chips.innerHTML, /data-dashboard-scope-clear="project_key"/);
+  assert.match(chips.innerHTML, /data-dashboard-scope-value="beacon"/);
+  assert.match(chips.innerHTML, /data-dashboard-scope-clear="all"/);
+
+  sandbox.window.location.search = "";
+  sandbox.syncDashboardScopeControls();
+
+  assert.equal(chips.attributes["aria-hidden"], "true");
+  assert.equal(chips.classList.contains("hidden"), true);
+  assert.equal(chips.innerHTML, "");
+});
+
+test("dashboard scope controls stay hidden when empty", () => {
+  assert.match(css, /\.dashboard-scope-chips\.hidden\s*\{[^}]*display:\s*none\s*!important;/s);
+});
+
+test("render scope helpers do not shadow state scope helpers", () => {
+  const sandbox = loadRenderSandbox();
+  sandbox.window.location.search = "?runtime=runtime-a";
+  sandbox.location = sandbox.window.location;
+  sandbox.window.history = { replaceState() {} };
+  sandbox.window.sessionStorage = { getItem() { return null; }, setItem() {}, removeItem() {} };
+  sandbox.window.localStorage = { getItem() { return null; }, setItem() {}, removeItem() {} };
+  sandbox.window.requestAnimationFrame = (callback) => callback();
+  sandbox.document.addEventListener = () => {};
+  vm.runInContext(stateScript, sandbox, { filename: "state.js" });
+	vm.runInContext(renderScript, sandbox, { filename: "render.js" });
+
+	assert.equal(sandbox.dashboardHasScopeFilters(), true);
+	assert.deepEqual([...sandbox.dashboardScopeValues("runtime")], ["runtime-a"]);
+});
 
 test("completed session rows escape malicious payload fields", () => {
   const sandbox = loadRenderSandbox();
@@ -139,7 +144,6 @@ test("completed session rows escape malicious payload fields", () => {
   const html = sandbox.completedRow({
     id: `session-${payload}`,
     title: payload,
-    node_id: payload,
     provider: payload,
     last_model: payload,
     total_tokens: payload,
@@ -156,7 +160,7 @@ test("completed session rows escape malicious payload fields", () => {
   assert.match(html, /data-sort-tokens="0"/);
   assert.match(html, /data-sort-turns="0"/);
   assert.match(html, /data-sort-tools="0"/);
-  assert.match(html, /mobile-session-meta hidden"><span class="dashboard-machine-only">/);
+  assert.doesNotMatch(html, /dashboard-machine-only/);
 });
 
 test("dashboard search rows escape snippets and metadata", () => {
@@ -347,186 +351,6 @@ test("dashboard fetches treat late failures from older panel requests as stale",
   const secondResult = await second;
   assert.equal(firstResult.stale, true);
   assert.equal(secondResult.data.items[0].id, "active-latest");
-});
-
-test("machine panel stays hidden for one healthy local collector", () => {
-  const sandbox = loadRenderSandbox();
-  sandbox.dashboardHasScopeFilters = () => false;
-
-  assert.equal(sandbox.dashboardShouldShowMachinePanel({
-    totals: {
-      node_count: 1,
-      collector_count: 1,
-      online_collectors: 1,
-      stale_collectors: 0,
-      offline_collectors: 0,
-      missing_heartbeat_collectors: 0,
-      queue_depth: 0,
-      spool_bytes: 0,
-      heartbeat_error_count: 0,
-    },
-    nodes: [{
-      node_id: "node-local",
-      status: "online",
-      collector_count: 1,
-      queue_depth: 0,
-      spool_bytes: 0,
-      heartbeat_error_count: 0,
-      sources_detail: [{ status: "online", queue_depth: 0, spool_bytes: 0, error_count: 0 }],
-    }],
-  }), false);
-});
-
-test("machine panel appears for advanced topology or active scope", () => {
-  const sandbox = loadRenderSandbox();
-  sandbox.dashboardHasScopeFilters = () => false;
-
-  assert.equal(sandbox.dashboardShouldShowMachinePanel({
-    totals: { node_count: 2, collector_count: 2 },
-    nodes: [{ node_id: "node-a" }, { node_id: "node-b" }],
-  }), true);
-
-  assert.equal(sandbox.dashboardShouldShowMachinePanel({
-    totals: { node_count: 1, collector_count: 1 },
-    nodes: [{ node_id: "node-local", status: "online", collector_count: 2 }],
-  }), true);
-
-  assert.equal(sandbox.dashboardShouldShowMachinePanel({
-    totals: { node_count: 1, collector_count: 1, stale_collectors: 1 },
-    nodes: [{ node_id: "node-local", status: "stale" }],
-  }), true);
-
-  sandbox.dashboardHasScopeFilters = () => true;
-  assert.equal(sandbox.dashboardShouldShowMachinePanel({
-    totals: { node_count: 1, collector_count: 1 },
-    nodes: [{ node_id: "node-local", status: "online" }],
-  }), true);
-});
-
-test("machine panel initial failure shows retry until local topology is known", () => {
-  const sandbox = loadRenderSandbox();
-  const wrap = dashboardElementStub();
-  const panel = dashboardElementStub();
-  const header = dashboardElementStub();
-  const subtitle = dashboardElementStub();
-  const strip = dashboardElementStub();
-  const scope = dashboardElementStub();
-  const elements = {
-    "dashboard-wrap": wrap,
-    "dashboard-fleet": panel,
-    "dashboard-header-fleet-metrics": header,
-    "dashboard-fleet-subtitle": subtitle,
-    "dashboard-fleet-strip": strip,
-    "dashboard-scope-chips": scope,
-  };
-  sandbox.document.getElementById = (id) => elements[id] || null;
-  sandbox.dashboardHasScopeFilters = () => false;
-
-  sandbox.renderFleetError();
-
-  assert.equal(panel.classList.contains("hidden"), false);
-  assert.equal(panel.attributes["aria-hidden"], "false");
-  assert.equal(subtitle.textContent, "Machine status unavailable");
-  assert.match(strip.innerHTML, /Unable to load machine status/);
-  assert.match(strip.innerHTML, /data-dashboard-retry="fleet"/);
-
-  sandbox.renderFleet(healthyLocalFleetPayload());
-  assert.equal(panel.classList.contains("hidden"), true);
-  assert.equal(panel.attributes["aria-hidden"], "true");
-
-  strip.innerHTML = "";
-  strip.__beaconRenderSignature = "";
-  sandbox.renderFleetError();
-
-  assert.equal(panel.classList.contains("hidden"), true);
-  assert.equal(strip.innerHTML, "");
-
-  sandbox.dashboardHasScopeFilters = () => true;
-  sandbox.renderFleetError();
-
-  assert.equal(panel.classList.contains("hidden"), false);
-  assert.match(strip.innerHTML, /Unable to load machine status/);
-
-  sandbox.dashboardHasScopeFilters = () => false;
-  strip.innerHTML = "";
-  strip.__beaconRenderSignature = "";
-  sandbox.renderFleetError();
-
-  assert.equal(panel.classList.contains("hidden"), true);
-  assert.equal(strip.innerHTML, "");
-});
-
-test("machine panel keeps scoped local success from proving local topology", () => {
-  const sandbox = loadRenderSandbox();
-  const panel = dashboardElementStub();
-  const header = dashboardElementStub();
-  const strip = dashboardElementStub();
-  const scope = dashboardElementStub();
-  const elements = {
-    "dashboard-wrap": dashboardElementStub(),
-    "dashboard-fleet": panel,
-    "dashboard-header-fleet-metrics": header,
-    "dashboard-fleet-subtitle": dashboardElementStub(),
-    "dashboard-fleet-strip": strip,
-    "dashboard-scope-chips": scope,
-  };
-  sandbox.document.getElementById = (id) => elements[id] || null;
-  sandbox.dashboardScopeValues = () => ["node-local"];
-  sandbox.dashboardHasScopeFilters = () => true;
-
-  sandbox.renderFleet(healthyLocalFleetPayload());
-
-  assert.equal(panel.classList.contains("hidden"), false);
-  assert.equal(panel.attributes["aria-hidden"], "false");
-
-  sandbox.dashboardHasScopeFilters = () => false;
-  sandbox.dashboardScopeValues = () => [];
-  strip.innerHTML = "";
-  strip.__beaconRenderSignature = "";
-  sandbox.renderFleetError();
-
-  assert.equal(panel.classList.contains("hidden"), false);
-  assert.equal(panel.attributes["aria-hidden"], "false");
-  assert.match(strip.innerHTML, /Unable to load machine status/);
-});
-
-test("machine panel preserves unscoped advanced topology through scoped local success", () => {
-  const sandbox = loadRenderSandbox();
-  const panel = dashboardElementStub();
-  const strip = dashboardElementStub();
-  const elements = {
-    "dashboard-wrap": dashboardElementStub(),
-    "dashboard-fleet": panel,
-    "dashboard-header-fleet-metrics": dashboardElementStub(),
-    "dashboard-fleet-subtitle": dashboardElementStub(),
-    "dashboard-fleet-strip": strip,
-    "dashboard-scope-chips": dashboardElementStub(),
-  };
-  sandbox.document.getElementById = (id) => elements[id] || null;
-  sandbox.dashboardScopeValues = () => [];
-  sandbox.dashboardHasScopeFilters = () => false;
-
-  sandbox.renderFleet(advancedFleetPayload());
-
-  assert.equal(panel.classList.contains("hidden"), false);
-  assert.equal(panel.attributes["aria-hidden"], "false");
-
-  sandbox.dashboardHasScopeFilters = () => true;
-  sandbox.dashboardScopeValues = () => ["node-a"];
-  sandbox.renderFleet(healthyLocalFleetPayload());
-
-  assert.equal(panel.classList.contains("hidden"), false);
-  assert.equal(panel.attributes["aria-hidden"], "false");
-
-  sandbox.dashboardHasScopeFilters = () => false;
-  sandbox.dashboardScopeValues = () => [];
-  strip.innerHTML = "";
-  strip.__beaconRenderSignature = "";
-  sandbox.renderFleetError();
-
-  assert.equal(panel.classList.contains("hidden"), false);
-  assert.equal(panel.attributes["aria-hidden"], "false");
-  assert.match(strip.innerHTML, /Unable to load machine status/);
 });
 
 test("pinned active sessions render above sorted unpinned sessions", () => {

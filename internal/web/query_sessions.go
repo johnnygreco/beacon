@@ -298,8 +298,6 @@ func completedSessionsOrderBy(sortKey string, asc bool) string {
 	switch sortKey {
 	case "name":
 		expr = "lower(COALESCE(NULLIF(replaceRegexpOne(if(position(COALESCE(working_dir, ''), '/.claude/worktrees/') > 0, substring(COALESCE(working_dir, ''), 1, position(COALESCE(working_dir, ''), '/.claude/worktrees/') - 1), replaceRegexpOne(COALESCE(working_dir, ''), '/+$', '')), '^.*/', ''), ''), NULLIF(source_name, ''), session_id))"
-	case "node":
-		expr = "lower(COALESCE(node_id, ''))"
 	case "provider":
 		expr = "lower(COALESCE(provider, ''))"
 	case "runtime":
@@ -477,7 +475,7 @@ func scanSessionSummaryBase(scanner interface{ Scan(dest ...any) error }, now ti
 	var startedAt, endedAt time.Time
 	var hasSessionEnd int
 	var attentionScore int
-	dest := []any{&s.ID, &s.NodeID, &s.CollectorID, &s.SourceID, &source, &s.Runtime, &s.Provider,
+	dest := []any{&s.ID, &source, &s.Runtime, &s.Provider,
 		&s.Format, &s.ProjectKey, &s.ProjectPath, &startedAt, &endedAt,
 		&s.TurnCount, &s.TotalTokens, &s.InputTokens, &s.OutputTokens,
 		&s.CacheReadTokens, &s.CacheCreateTokens,

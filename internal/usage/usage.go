@@ -23,22 +23,19 @@ const (
 )
 
 type Request struct {
-	Since        string
-	Until        string
-	WindowMode   string
-	TokenMode    string
-	SourceName   string
-	SourceNames  []string
-	NodeIDs      []string
-	CollectorIDs []string
-	SourceIDs    []string
-	Runtimes     []string
-	ProjectKeys  []string
-	Model        string
-	Provider     string
-	WorkingDir   string
-	GroupBy      []string
-	Limit        int
+	Since       string
+	Until       string
+	WindowMode  string
+	TokenMode   string
+	SourceName  string
+	SourceNames []string
+	Runtimes    []string
+	ProjectKeys []string
+	Model       string
+	Provider    string
+	WorkingDir  string
+	GroupBy     []string
+	Limit       int
 }
 
 type Result struct {
@@ -60,16 +57,13 @@ type Window struct {
 }
 
 type Filters struct {
-	SourceName   string   `json:"source_name,omitempty"`
-	SourceNames  []string `json:"source_names,omitempty"`
-	NodeIDs      []string `json:"node_ids,omitempty"`
-	CollectorIDs []string `json:"collector_ids,omitempty"`
-	SourceIDs    []string `json:"source_ids,omitempty"`
-	Runtimes     []string `json:"runtimes,omitempty"`
-	ProjectKeys  []string `json:"project_keys,omitempty"`
-	Model        string   `json:"model,omitempty"`
-	Provider     string   `json:"provider,omitempty"`
-	WorkingDir   string   `json:"working_dir,omitempty"`
+	SourceName  string   `json:"source_name,omitempty"`
+	SourceNames []string `json:"source_names,omitempty"`
+	Runtimes    []string `json:"runtimes,omitempty"`
+	ProjectKeys []string `json:"project_keys,omitempty"`
+	Model       string   `json:"model,omitempty"`
+	Provider    string   `json:"provider,omitempty"`
+	WorkingDir  string   `json:"working_dir,omitempty"`
 }
 
 type Totals struct {
@@ -263,16 +257,13 @@ func parseTimeExpr(raw string, now time.Time) (time.Time, error) {
 
 func normalizeFilters(req Request) Filters {
 	return Filters{
-		SourceName:   strings.TrimSpace(req.SourceName),
-		SourceNames:  compactStrings(req.SourceNames),
-		NodeIDs:      compactStrings(req.NodeIDs),
-		CollectorIDs: compactStrings(req.CollectorIDs),
-		SourceIDs:    compactStrings(req.SourceIDs),
-		Runtimes:     compactStrings(req.Runtimes),
-		ProjectKeys:  compactStrings(req.ProjectKeys),
-		Model:        strings.TrimSpace(req.Model),
-		Provider:     strings.TrimSpace(req.Provider),
-		WorkingDir:   strings.TrimSpace(req.WorkingDir),
+		SourceName:  strings.TrimSpace(req.SourceName),
+		SourceNames: compactStrings(req.SourceNames),
+		Runtimes:    compactStrings(req.Runtimes),
+		ProjectKeys: compactStrings(req.ProjectKeys),
+		Model:       strings.TrimSpace(req.Model),
+		Provider:    strings.TrimSpace(req.Provider),
+		WorkingDir:  strings.TrimSpace(req.WorkingDir),
 	}
 }
 
@@ -423,9 +414,6 @@ func usageWhereSQL(req normalizedRequest) (string, []any) {
 		clauses = append(clauses, "e.source_name = ?")
 		args = append(args, req.Filters.SourceName)
 	}
-	appendInFilter(&clauses, &args, "COALESCE(NULLIF(e.node_id, ''), 'local')", req.Filters.NodeIDs)
-	appendInFilter(&clauses, &args, "e.collector_id", req.Filters.CollectorIDs)
-	appendInFilter(&clauses, &args, "e.source_id", req.Filters.SourceIDs)
 	appendInFilter(&clauses, &args, "e.source_name", req.Filters.SourceNames)
 	appendInFilter(&clauses, &args, "e.runtime", req.Filters.Runtimes)
 	appendInFilter(&clauses, &args, "e.project_key", req.Filters.ProjectKeys)
@@ -449,9 +437,6 @@ func usageSourceSQL() string {
 			SELECT
 				event_uid,
 				argMax(session_id, captured_at) AS session_id,
-				argMax(node_id, captured_at) AS node_id,
-				argMax(collector_id, captured_at) AS collector_id,
-				argMax(source_id, captured_at) AS source_id,
 				argMax(source_name, captured_at) AS source_name,
 				argMax(runtime, captured_at) AS runtime,
 				argMax(provider, captured_at) AS provider,
@@ -510,16 +495,13 @@ func selectedTotalDefinition(tokenMode string) string {
 }
 
 var groupBySQL = map[string]string{
-	"source_name":  "COALESCE(NULLIF(e.source_name, ''), 'unknown')",
-	"provider":     "COALESCE(NULLIF(e.provider, ''), 'unknown')",
-	"model":        "COALESCE(NULLIF(e.model, ''), 'unknown')",
-	"session_id":   "e.session_id",
-	"working_dir":  "COALESCE(NULLIF(e.session_working_dir, ''), 'unknown')",
-	"node_id":      "COALESCE(NULLIF(e.node_id, ''), 'local')",
-	"collector_id": "COALESCE(NULLIF(e.collector_id, ''), 'unknown')",
-	"source_id":    "COALESCE(NULLIF(e.source_id, ''), 'unknown')",
-	"runtime":      "COALESCE(NULLIF(e.runtime, ''), 'unknown')",
-	"project_key":  "COALESCE(NULLIF(e.project_key, ''), 'unknown')",
+	"source_name": "COALESCE(NULLIF(e.source_name, ''), 'unknown')",
+	"provider":    "COALESCE(NULLIF(e.provider, ''), 'unknown')",
+	"model":       "COALESCE(NULLIF(e.model, ''), 'unknown')",
+	"session_id":  "e.session_id",
+	"working_dir": "COALESCE(NULLIF(e.session_working_dir, ''), 'unknown')",
+	"runtime":     "COALESCE(NULLIF(e.runtime, ''), 'unknown')",
+	"project_key": "COALESCE(NULLIF(e.project_key, ''), 'unknown')",
 }
 
 func appendInFilter(clauses *[]string, args *[]any, column string, values []string) {

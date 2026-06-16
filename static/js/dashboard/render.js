@@ -11,9 +11,6 @@ var formatTokens = dashboardUtils.formatTokens;
 var absoluteTime = dashboardUtils.absoluteTime;
 var durationSeconds = dashboardUtils.durationSeconds;
 var requestURL = dashboardUtils.requestURL;
-var dashboardAdvancedTopology = false;
-var dashboardMachineTopologyKnown = false;
-var dashboardKnownAdvancedTopology = false;
 
 function modelChip(model) {
 	if (!model) return '';
@@ -39,19 +36,6 @@ function runtimeLabel(value, fallback) {
 	if (value === 'codex') return 'Codex';
 	if (value === 'hermes-agent') return 'Hermes';
 	return value.replace(/[-_]+/g, ' ');
-}
-
-function nodeLabel(value) {
-	value = String(value || '').trim();
-	if (!value || value === 'local') return 'Local';
-	return value;
-}
-
-function nodeBadge(value, interactive) {
-	var raw = String(value || '').trim();
-	var label = nodeLabel(raw);
-	if (interactive === false || !raw) return '<span class="dashboard-machine-only dashboard-scope-inline-chip dashboard-scope-inline-chip-static">' + escapeHTML(label) + '</span>';
-	return '<button type="button" class="dashboard-machine-only dashboard-scope-inline-chip" data-dashboard-scope-field="node_id" data-dashboard-scope-value="' + escapeAttr(raw) + '" aria-label="Filter dashboard to node ' + escapeAttr(label) + '" title="Filter dashboard to node ' + escapeAttr(label) + '">' + escapeHTML(label) + '</button>';
 }
 
 function runtimeBadge(value, fallback, interactive) {
@@ -306,13 +290,11 @@ function completedRow(session, isSubagent, parentID) {
 	var errorCount = nonNegativeInt(session.error_count);
 	var endedTime = new Date(session.ended_at || 0).getTime();
 	var endedSort = Number.isFinite(endedTime) ? Math.floor(endedTime / 1000) : 0;
-	var node = nodeLabel(session.node_id);
 	var runtime = runtimeLabel(session.runtime, session.source || session.provider);
 	var rowClass = isSubagent ? 'border-b border-gray-800/50 cursor-pointer transition-colors bg-gray-800/20' : 'border-b border-gray-800/50 cursor-pointer transition-colors';
 	var nameCellClass = isSubagent ? 'py-1.5 px-3 text-sm text-gray-400 whitespace-nowrap pl-10' : 'py-2 px-3 text-sm text-gray-300 whitespace-nowrap';
 	var endedLabel = absoluteTime(session.ended_at);
-	var mobileNodeMeta = '<span class="dashboard-machine-only">' + escapeHTML(node) + ' · </span>';
-	var mobileMeta = mobileNodeMeta + escapeHTML(runtime + ' · ' + formatTokens(totalTokens) + ' tok · ' + toolCount + ' tools · ' + errorCount + ' err · ' + (session.duration || endedLabel));
+	var mobileMeta = escapeHTML(runtime + ' · ' + formatTokens(totalTokens) + ' tok · ' + toolCount + ' tools · ' + errorCount + ' err · ' + (session.duration || endedLabel));
 	var toggle = '';
 	if (!isSubagent && subagentCount > 0) {
 		toggle = '<button type="button" class="json-subagent-toggle text-gray-500 hover:text-gray-300 transition-colors flex-shrink-0" data-session-id="' + escapeAttr(session.id) + '" title="' + subagentCount + ' subagents" aria-label="Toggle ' + subagentCount + ' subagents for ' + escapeAttr(sessionTitle(session)) + '" aria-expanded="false"><svg class="w-3.5 h-3.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg></button>';
@@ -325,7 +307,6 @@ function completedRow(session, isSubagent, parentID) {
 	var rowActionAttrs = ' data-session-link="' + escapedSessionURL + '"';
 	var attrs = isSubagent ? ' data-parent="' + escapeAttr(parentID) + '"' : ' id="session-row-' + escapeAttr(session.id) + '"' +
 		' data-sort-name="' + escapeAttr(sessionTitle(session)) + '"' +
-		' data-sort-node="' + escapeAttr(node) + '"' +
 		' data-sort-runtime="' + escapeAttr(runtime) + '"' +
 		' data-sort-model="' + escapeAttr(session.last_model || '') + '"' +
 		' data-sort-tokens="' + totalTokens + '"' +
@@ -338,7 +319,6 @@ function completedRow(session, isSubagent, parentID) {
 		' data-sort-id="' + escapeAttr(session.id) + '"';
 	return '<tr' + attrs + rowActionAttrs + ' class="' + rowClass + '">' +
 		'<td class="' + nameCellClass + '"><span class="inline-flex items-center gap-1.5">' + toggle + subPrefix + titleButton + subCount + '</span><span class="mobile-session-meta hidden">' + mobileMeta + '</span></td>' +
-		'<td class="py-2 px-3 text-xs whitespace-nowrap dashboard-machine-only">' + (isSubagent ? '' : nodeBadge(session.node_id)) + '</td>' +
 		'<td class="py-2 px-3 text-xs whitespace-nowrap">' + (isSubagent ? '' : runtimeBadge(session.runtime, session.source || session.provider)) + '</td>' +
 		'<td class="py-2 px-3 text-xs text-gray-400 max-w-[160px] truncate" title="' + escapeAttr(session.last_model || '') + '">' + escapeHTML(shortModel(session.last_model || '')) + '</td>' +
 		'<td class="py-2 px-3 text-right text-xs text-gray-400 tabular-nums">' + formatTokens(totalTokens) + '</td>' +
@@ -680,7 +660,7 @@ function activeSessionActions(session, context) {
 }
 
 function activeSessionScopeControls(session) {
-	var controls = nodeBadge(session.node_id, true) + runtimeBadge(session.runtime, session.source || session.provider, true);
+	var controls = runtimeBadge(session.runtime, session.source || session.provider, true);
 	if (!controls) return '';
 	return '<div class="active-session-scope-controls" role="group" aria-label="Active session scope filters">' + controls + '</div>';
 }
@@ -693,7 +673,7 @@ function activeSessionLinkContent(session, statusDot, live, sub, turnCount, tool
 		: '<span class="font-mono">' + escapeHTML(shortID(session.id)) + '</span><span>' + escapeHTML(session.status || '') + '</span>';
 	var path = session.working_dir ? '<span class="active-session-path" title="' + escapeAttr(session.working_dir) + '">' + escapeHTML(session.working_dir) + '</span>' : '';
 	var project = session.project_key ? '<span class="active-session-project" title="' + escapeAttr(session.project_path || session.working_dir || session.project_key) + '">' + escapeHTML(session.project_key) + '</span>' : '';
-	var meta = nodeBadge(session.node_id, false) + runtimeBadge(session.runtime, session.source || session.provider, false) + modelChip(session.last_model || '') + providerBadge(session.provider) + attentionBadge(session) + costLabel(session) + '<span class="active-session-status ' + statusClass + '">' + statusLabel + '</span><span class="active-session-kicker">' + kicker + '</span>' + project + path;
+	var meta = runtimeBadge(session.runtime, session.source || session.provider, false) + modelChip(session.last_model || '') + providerBadge(session.provider) + attentionBadge(session) + costLabel(session) + '<span class="active-session-status ' + statusClass + '">' + statusLabel + '</span><span class="active-session-kicker">' + kicker + '</span>' + project + path;
 	return '<div class="active-session-card-header">' +
 			'<div class="active-session-title-row">' + statusDot + '<div class="active-session-title">' + escapeHTML(sessionTitle(session)) + '</div></div>' +
 			activeSessionTracker(session, turnCount, toolCount, errorCount) +
@@ -768,312 +748,69 @@ function renderActivity(items) {
 	setHTMLIfChanged(feed, '<div class="activity-bar-list"><div class="activity-bar-rail" aria-hidden="true"></div>' + items.map(function(item) {
 		var url = requestURL('/sessions/' + encodeURIComponent(item.session_id || '') + '#' + encodeURIComponent(item.id || ''), {});
 		var provider = item.provider ? '<span class="px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 ' + providerBadgeClasses(item.provider) + '">' + escapeHTML(providerShort(item.provider)) + '</span>' : '';
-		var node = item.node_id ? '<span class="dashboard-machine-only px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 bg-gray-700/70 text-gray-300">' + escapeHTML(nodeLabel(item.node_id)) + '</span>' : '';
 		var runtime = item.runtime ? '<span class="px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 bg-blue-500/10 text-blue-300">' + escapeHTML(runtimeLabel(item.runtime)) + '</span>' : '';
 		var sid = item.session_id ? '<span class="text-xs text-gray-600 font-mono flex-shrink-0">' + escapeHTML(shortID(item.session_id)) + '</span>' : '';
 		return '<a href="' + escapeAttr(url) + '" data-type="' + escapeAttr(item.type) + '" data-transcript-link="true" class="activity-bar-item group">' +
 			'<div class="activity-bar-dot ' + activityDotColor(item.type) + '"></div>' +
 			'<p class="activity-bar-summary">' + escapeHTML(item.summary) + '</p>' +
-			'<div class="activity-bar-meta"><span class="px-1.5 py-0.5 rounded text-xs flex-shrink-0 ' + activityBadgeStyle(item.type) + '">' + escapeHTML(activityLabel(item.type)) + '</span>' + node + runtime + provider + sid + '</div>' +
+			'<div class="activity-bar-meta"><span class="px-1.5 py-0.5 rounded text-xs flex-shrink-0 ' + activityBadgeStyle(item.type) + '">' + escapeHTML(activityLabel(item.type)) + '</span>' + runtime + provider + sid + '</div>' +
 			'</a>';
 	}).join('') + '</div>');
 }
 
-function formatBytes(value) {
-	value = numericValue(value, 0);
-	if (value >= 1024 * 1024 * 1024) return (value / (1024 * 1024 * 1024)).toFixed(1) + ' GiB';
-	if (value >= 1024 * 1024) return (value / (1024 * 1024)).toFixed(1) + ' MiB';
-	if (value >= 1024) return (value / 1024).toFixed(1) + ' KiB';
-	return String(Math.round(value)) + ' B';
+var dashboardScopeChipConfig = [
+	{field: 'source_name', label: 'Source', params: ['source_name', 'source_names']},
+	{field: 'runtime', label: 'Runtime', params: ['runtime', 'runtimes']},
+	{field: 'project_key', label: 'Project', params: ['project_key', 'project_keys']}
+];
+
+function dashboardCurrentScopeParams() {
+	var search = '';
+	if (typeof window !== 'undefined' && window.location) search = window.location.search || '';
+	else if (typeof location !== 'undefined') search = location.search || '';
+	return new URLSearchParams(search);
 }
 
-function fleetStatusLabel(status) {
-	if (status === 'online') return 'Online';
-	if (status === 'active') return 'Active';
-	if (status === 'stale') return 'Stale';
-	return 'Offline';
-}
-
-function fleetStatusClass(status) {
-	if (status === 'online') return 'dashboard-fleet-status-online';
-	if (status === 'active') return 'dashboard-fleet-status-active';
-	if (status === 'stale') return 'dashboard-fleet-status-stale';
-	return 'dashboard-fleet-status-offline';
-}
-
-function headerMetric(label, value, tone) {
-	return '<span class="dashboard-header-fleet-pill' + (tone ? ' dashboard-header-fleet-pill-' + escapeAttr(tone) : '') + '"><strong>' + escapeHTML(value) + '</strong><span>' + escapeHTML(label) + '</span></span>';
-}
-
-function dashboardHasMachineAttention(response) {
-	response = response || {};
-	var totals = response.totals || {};
-	if (nonNegativeInt(totals.stale_collectors) > 0) return true;
-	if (nonNegativeInt(totals.offline_collectors) > 0) return true;
-	if (nonNegativeInt(totals.missing_heartbeat_collectors) > 0) return true;
-	if (nonNegativeInt(totals.queue_depth) > 0) return true;
-	if (nonNegativeInt(totals.spool_bytes) > 0) return true;
-	if (nonNegativeInt(totals.heartbeat_error_count) > 0) return true;
-	return (Array.isArray(response.nodes) ? response.nodes : []).some(function(node) {
-		if (!node) return false;
-		var status = String(node.status || node.heartbeat_status || '').trim();
-		if (status && status !== 'online' && status !== 'active') return true;
-		if (nonNegativeInt(node.missing_heartbeat_collectors) > 0) return true;
-		if (nonNegativeInt(node.queue_depth) > 0) return true;
-		if (nonNegativeInt(node.spool_bytes) > 0) return true;
-		if (nonNegativeInt(node.heartbeat_error_count) > 0) return true;
-		return (Array.isArray(node.sources_detail) ? node.sources_detail : []).some(function(source) {
-			if (!source) return false;
-			var sourceStatus = String(source.status || '').trim();
-			return (sourceStatus && sourceStatus !== 'online' && sourceStatus !== 'active') ||
-				nonNegativeInt(source.queue_depth) > 0 ||
-				nonNegativeInt(source.spool_bytes) > 0 ||
-				nonNegativeInt(source.error_count) > 0;
+function dashboardScopeChipValues(config, params) {
+	var seen = {};
+	var values = [];
+	config.params.forEach(function(name) {
+		params.getAll(name).forEach(function(raw) {
+			String(raw || '').split(',').forEach(function(part) {
+				var value = part.trim();
+				if (!value || seen[value]) return;
+				seen[value] = true;
+				values.push(value);
+			});
 		});
 	});
+	return values;
 }
 
-function dashboardScopeFiltersActive() {
-	return typeof dashboardHasScopeFilters === 'function' && dashboardHasScopeFilters();
-}
-
-function dashboardShouldShowMachinePanel(response, includeScope) {
-	includeScope = includeScope !== false;
-	response = response || {};
-	var totals = response.totals || {};
-	var nodes = Array.isArray(response.nodes) ? response.nodes : [];
-	if (includeScope && dashboardScopeFiltersActive()) return true;
-	if (nodes.length > 1) return true;
-	if (nonNegativeInt(totals.node_count) > 1) return true;
-	if (nonNegativeInt(totals.collector_count) > 1) return true;
-	if (nodes.some(function(node) { return nonNegativeInt(node && node.collector_count) > 1; })) return true;
-	return dashboardHasMachineAttention(response);
-}
-
-function setDashboardTopologyMode(advanced) {
-	advanced = !!advanced;
-	var changed = dashboardAdvancedTopology !== advanced;
-	dashboardAdvancedTopology = advanced;
-	var wrap = document.getElementById('dashboard-wrap');
-	if (wrap) {
-		wrap.classList.toggle('dashboard-advanced-topology', advanced);
-		wrap.classList.toggle('dashboard-local-topology', !advanced);
-	}
-	var panel = document.getElementById('dashboard-fleet');
-	if (panel) {
-		panel.classList.toggle('hidden', !advanced);
-		panel.setAttribute('aria-hidden', advanced ? 'false' : 'true');
-	}
-	var header = document.getElementById('dashboard-header-fleet-metrics');
-	if (header) {
-		header.classList.toggle('hidden', !advanced);
-		header.setAttribute('aria-hidden', advanced ? 'false' : 'true');
-		if (!advanced) setHTMLIfChanged(header, '');
-	}
-	return changed;
-}
-
-function renderFleetHeader(totals) {
-	var wrap = document.getElementById('dashboard-header-fleet-metrics');
-	if (!wrap) return;
-	totals = totals || {};
-	var offline = nonNegativeInt(totals.offline_collectors) + nonNegativeInt(totals.stale_collectors);
-	var metrics = [
-		headerMetric('active', String(nonNegativeInt(totals.active_sessions)), ''),
-		headerMetric('online', String(nonNegativeInt(totals.online_collectors)), 'ok'),
-		headerMetric('stale/offline', String(offline), offline > 0 ? 'warn' : ''),
-		headerMetric('tokens', formatTokens(totals.total_tokens), ''),
-		headerMetric('attention', String(nonNegativeInt(totals.attention_sessions)), nonNegativeInt(totals.attention_sessions) > 0 ? 'danger' : '')
-	];
-	if (nonNegativeInt(totals.missing_heartbeat_collectors) > 0) {
-		metrics.splice(3, 0, headerMetric('missing heartbeat', String(nonNegativeInt(totals.missing_heartbeat_collectors)), 'warn'));
-	}
-	setHTMLIfChanged(wrap, metrics.join(''));
-}
-
-function fleetScopeChip(field, value, label, display, kind, accessibleDisplay) {
-	value = String(value || '').trim();
-	if (!value) return '';
-	display = String(display || value).trim() || value;
-	accessibleDisplay = String(accessibleDisplay || display).trim() || display;
-	kind = String(kind || field || '').trim();
-	return '<button type="button" class="dashboard-fleet-chip dashboard-fleet-chip-' + escapeAttr(kind) + (kind === 'runtime' ? ' dashboard-fleet-runtime' : '') + '" data-dashboard-scope-field="' + escapeAttr(field) + '" data-dashboard-scope-value="' + escapeAttr(value) + '" aria-label="Filter dashboard to ' + escapeAttr(label) + ' ' + escapeAttr(accessibleDisplay) + '" title="Filter dashboard to ' + escapeAttr(label) + ' ' + escapeAttr(accessibleDisplay) + '">' + escapeHTML(display) + '</button>';
-}
-
-function fleetScopeChips(field, values, label, kind, formatter, limit) {
-	var seen = {};
-	return (Array.isArray(values) ? values : []).map(function(value) {
-		value = String(value || '').trim();
-		if (!value || seen[value]) return '';
-		seen[value] = true;
-		return fleetScopeChip(field, value, label, formatter ? formatter(value) : value, kind);
-	}).filter(function(html) { return !!html; }).slice(0, limit || 5).join('');
-}
-
-function fleetMetaRow(chips, emptyText) {
-	if (chips) return '<div class="dashboard-fleet-filter-row">' + chips + '</div>';
-	return '<div class="dashboard-fleet-filter-row"><span class="dashboard-fleet-muted">' + escapeHTML(emptyText) + '</span></div>';
-}
-
-var dashboardSourceScopeLabels = {};
-
-function rememberFleetSourceScopeLabels(nodes) {
-	(Array.isArray(nodes) ? nodes : []).forEach(function(node) {
-		(Array.isArray(node && node.sources_detail) ? node.sources_detail : []).forEach(function(source) {
-			var sourceID = String(source && source.source_id || '').trim();
-			var sourceName = String(source && source.source_name || '').trim();
-			if (sourceID && sourceName) dashboardSourceScopeLabels[sourceID] = sourceName;
-		});
-	});
-}
-
-function fleetSourceChips(node) {
-	var seen = {};
-	var details = Array.isArray(node.sources_detail) ? node.sources_detail : [];
-	var chips = details.map(function(source) {
-		source = source || {};
-		var sourceID = String(source.source_id || '').trim();
-		var sourceName = String(source.source_name || '').trim();
-		var value = sourceID || sourceName;
-		var field = sourceID ? 'source_id' : 'source_name';
-		var key = field + '\x00' + value;
-		if (!value || seen[key]) return '';
-		seen[key] = true;
-		if (sourceID && sourceName) dashboardSourceScopeLabels[sourceID] = sourceName;
-		return fleetScopeChip(field, value, 'source', sourceName || sourceID, 'source', sourceID && sourceName && sourceID !== sourceName ? sourceName + ' (' + sourceID + ')' : '');
-	}).filter(function(html) { return !!html; });
-	if (chips.length > 0) return chips.slice(0, 4).join('');
-	return fleetScopeChips('source_name', node.sources || [], 'source', 'source', null, 4);
-}
-
-function activeScopeChip(field, value, label) {
-	var display = field === 'source_id' && dashboardSourceScopeLabels[value] ? dashboardSourceScopeLabels[value] : value;
-	var visible = display === value ? display : display + ' (' + value + ')';
-	var title = display === value ? 'Clear ' + label + ' filter ' + value : 'Clear ' + label + ' filter ' + display + ' (' + value + ')';
-	return '<button type="button" class="dashboard-scope-chip" data-dashboard-scope-clear="' + escapeAttr(field) + '" data-dashboard-scope-value="' + escapeAttr(value) + '" aria-label="' + escapeAttr(title) + '" title="' + escapeAttr(title) + '"><span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(visible) + '</strong></button>';
+function dashboardScopeChip(config, value) {
+	var label = config.label;
+	var labelLower = label.toLowerCase();
+	return '<button type="button" class="dashboard-scope-chip" data-dashboard-scope-clear="' + escapeAttr(config.field) + '" data-dashboard-scope-value="' + escapeAttr(value) + '" aria-label="Clear ' + escapeAttr(labelLower) + ' filter ' + escapeAttr(value) + '" title="Clear ' + escapeAttr(labelLower) + ' filter ' + escapeAttr(value) + '">' +
+		'<span>' + escapeHTML(label) + '</span><strong>' + escapeHTML(value) + '</strong><span aria-hidden="true">x</span>' +
+		'</button>';
 }
 
 function syncDashboardScopeControls() {
-	var wrap = document.getElementById('dashboard-scope-chips');
-	if (!wrap) return;
+	var host = document.getElementById('dashboard-scope-chips');
+	if (!host) return;
+	var params = dashboardCurrentScopeParams();
 	var chips = [];
-	[
-		['node_id', 'Node'],
-		['collector_id', 'Collector'],
-		['source_id', 'Source'],
-		['source_name', 'Source'],
-		['runtime', 'Runtime'],
-		['project_key', 'Project']
-	].forEach(function(entry) {
-		var field = entry[0];
-		var label = entry[1];
-		var values = typeof dashboardScopeValues === 'function' ? dashboardScopeValues(field) : [];
-		values.forEach(function(value) {
-			chips.push(activeScopeChip(field, value, label));
+	dashboardScopeChipConfig.forEach(function(config) {
+		dashboardScopeChipValues(config, params).forEach(function(value) {
+			chips.push(dashboardScopeChip(config, value));
 		});
 	});
 	if (chips.length > 0) {
-		chips.push('<button type="button" class="dashboard-scope-clear-all" data-dashboard-scope-clear="all" aria-label="Clear all dashboard filters">Clear all</button>');
-		setHTMLIfChanged(wrap, chips.join(''));
-	} else {
-		setHTMLIfChanged(wrap, '<span class="dashboard-scope-empty">All machines</span>');
+		chips.push('<button type="button" class="dashboard-scope-clear-all" data-dashboard-scope-clear="all" aria-label="Clear all dashboard filters" title="Clear all dashboard filters">Clear all</button>');
 	}
-}
-
-function fleetNodeCard(node) {
-	node = node || {};
-	var nodeID = node.node_id || 'local';
-	var status = node.status || 'offline';
-	var runtimes = (node.runtimes || []).slice(0, 5);
-	var collectors = (node.collectors || []).slice(0, 4);
-	var projects = (node.projects || []).slice(0, 3);
-	var collectorChips = fleetScopeChips('collector_id', collectors, 'collector', 'collector', null, 4);
-	var runtimeChips = fleetScopeChips('runtime', runtimes, 'runtime', 'runtime', runtimeLabel, 5);
-	var sourceChips = fleetSourceChips(node);
-	var projectChips = fleetScopeChips('project_key', projects, 'project', 'project', null, 3);
-	var missing = nonNegativeInt(node.missing_heartbeat_collectors);
-	var missingHealth = missing > 0 ? '<span><strong>' + missing + '</strong> missing heartbeat</span>' : '';
-	var nodeName = node.label || nodeLabel(nodeID);
-	var healthLabel = [
-		'Filter dashboard to node ' + nodeName,
-		fleetStatusLabel(status),
-		nonNegativeInt(node.active_sessions) + ' active sessions',
-		nonNegativeInt(node.attention_sessions) + ' attention sessions',
-		formatTokens(node.total_tokens) + ' tokens',
-		nonNegativeInt(node.collector_count) + ' collectors',
-		formatBytes(node.spool_bytes) + ' spool',
-		nonNegativeInt(node.queue_depth) + ' queued',
-		missing > 0 ? missing + ' missing heartbeat collectors' : '',
-		node.last_seen_label || 'not seen'
-	].filter(function(part) { return !!part; }).join('; ');
-	return '<article class="dashboard-fleet-node ' + fleetStatusClass(status) + '">' +
-		'<button type="button" class="dashboard-fleet-node-main" data-dashboard-scope-field="node_id" data-dashboard-scope-value="' + escapeAttr(nodeID) + '" aria-label="' + escapeAttr(healthLabel) + '">' +
-			'<span class="dashboard-fleet-node-top"><strong>' + escapeHTML(nodeName) + '</strong><span>' + escapeHTML(fleetStatusLabel(status)) + '</span></span>' +
-			'<span class="dashboard-fleet-node-stats">' +
-				'<span><strong>' + nonNegativeInt(node.active_sessions) + '</strong> active</span>' +
-				'<span><strong>' + nonNegativeInt(node.attention_sessions) + '</strong> attention</span>' +
-				'<span><strong>' + formatTokens(node.total_tokens) + '</strong> tokens</span>' +
-				'</span>' +
-				'<span class="dashboard-fleet-node-health">' +
-					'<span>' + nonNegativeInt(node.collector_count) + ' collectors</span>' +
-					'<span>' + formatBytes(node.spool_bytes) + ' spool</span>' +
-					'<span>' + nonNegativeInt(node.queue_depth) + ' queued</span>' +
-					missingHealth +
-					'<span>' + escapeHTML(node.last_seen_label || 'not seen') + '</span>' +
-				'</span>' +
-			'</button>' +
-			'<div class="dashboard-fleet-node-meta">' +
-				fleetMetaRow(collectorChips, 'No collectors yet') +
-				fleetMetaRow(runtimeChips, 'No runtimes yet') +
-				fleetMetaRow(sourceChips, 'No source heartbeat yet') +
-				fleetMetaRow(projectChips, 'All projects') +
-			'</div>' +
-		'</article>';
-}
-
-function renderFleet(response) {
-	response = response || {};
-	var nodes = Array.isArray(response.nodes) ? response.nodes : [];
-	var strip = document.getElementById('dashboard-fleet-strip');
-	var subtitle = document.getElementById('dashboard-fleet-subtitle');
-	var hasScope = dashboardScopeFiltersActive();
-	var knownAdvanced = dashboardShouldShowMachinePanel(response, false);
-	var advanced = knownAdvanced || hasScope;
-	if (!hasScope || knownAdvanced) {
-		dashboardMachineTopologyKnown = true;
-		dashboardKnownAdvancedTopology = knownAdvanced;
-	}
-	setDashboardTopologyMode(advanced);
-	rememberFleetSourceScopeLabels(nodes);
-	syncDashboardScopeControls();
-	if (!advanced) return;
-	renderFleetHeader(response.totals || {});
-	if (subtitle) {
-		var totals = response.totals || {};
-		subtitle.textContent = nonNegativeInt(totals.node_count) + ' nodes · ' + nonNegativeInt(totals.collector_count) + ' collectors · ' + nonNegativeInt(totals.active_sessions) + ' active sessions';
-	}
-	if (!strip) return;
-	if (nodes.length === 0) {
-		setHTMLIfChanged(strip, '<div class="dashboard-fleet-empty">No machine activity yet</div>');
-		return;
-	}
-	setHTMLIfChanged(strip, nodes.map(fleetNodeCard).join(''));
-}
-
-function renderFleetError() {
-	var hasScope = dashboardScopeFiltersActive();
-	if (dashboardMachineTopologyKnown && !dashboardKnownAdvancedTopology && !hasScope) {
-		setDashboardTopologyMode(false);
-		syncDashboardScopeControls();
-		return;
-	}
-	setDashboardTopologyMode(true);
-	syncDashboardScopeControls();
-	renderFleetHeader({});
-	var subtitle = document.getElementById('dashboard-fleet-subtitle');
-	if (subtitle) subtitle.textContent = 'Machine status unavailable';
-	var strip = document.getElementById('dashboard-fleet-strip');
-	if (strip) setHTMLIfChanged(strip, '<div class="dashboard-fleet-empty dashboard-fleet-error">Unable to load machine status. <button type="button" data-dashboard-retry="fleet">Retry</button></div>');
+	host.classList.toggle('hidden', chips.length === 0);
+	host.setAttribute('aria-hidden', chips.length === 0 ? 'true' : 'false');
+	setHTMLIfChanged(host, chips.join(''));
 }
 
 function rangeLabel(value) {
@@ -1337,16 +1074,6 @@ async function loadDashboardCharts() {
 		return;
 	}
 	updateDashboardCharts(result.data);
-}
-
-async function loadDashboardFleet() {
-	var result = await fetchDashboardJSON('fleet', requestURL('/api/dashboard/fleet', {}));
-	if (!result || result.stale) return;
-	if (result.error) {
-		renderFleetError();
-		return;
-	}
-	renderFleet(result.data);
 }
 
 async function loadActiveSessions() {

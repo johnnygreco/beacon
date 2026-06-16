@@ -41,8 +41,6 @@ type datasetReport struct {
 	Events            int    `json:"events,omitempty"`
 	Payloads          int    `json:"payloads,omitempty"`
 	SearchPostings    int    `json:"search_postings,omitempty"`
-	Nodes             int    `json:"nodes,omitempty"`
-	Collectors        int    `json:"collectors,omitempty"`
 	Sources           int    `json:"sources,omitempty"`
 	Runtimes          int    `json:"runtimes,omitempty"`
 	Projects          int    `json:"projects,omitempty"`
@@ -52,8 +50,7 @@ type datasetReport struct {
 	TargetPayloads    int    `json:"target_payloads,omitempty"`
 	TargetPostings    int    `json:"target_search_postings,omitempty"`
 	CommonSearchToken string `json:"common_search_token,omitempty"`
-	ScopedCollectorID string `json:"scoped_collector_id,omitempty"`
-	ScopedSourceID    string `json:"scoped_source_id,omitempty"`
+	ScopedSourceName  string `json:"scoped_source_name,omitempty"`
 	ScopedProjectKey  string `json:"scoped_project_key,omitempty"`
 	Seeded            bool   `json:"seeded"`
 }
@@ -184,8 +181,6 @@ func validateSeededDataset(label string, dataset datasetReport) []checkResult {
 		{"events", dataset.Events},
 		{"payloads", dataset.Payloads},
 		{"search_postings", dataset.SearchPostings},
-		{"nodes", dataset.Nodes},
-		{"collectors", dataset.Collectors},
 		{"sources", dataset.Sources},
 		{"runtimes", dataset.Runtimes},
 		{"projects", dataset.Projects},
@@ -199,7 +194,7 @@ func validateSeededDataset(label string, dataset datasetReport) []checkResult {
 	if strings.TrimSpace(dataset.CommonSearchToken) == "" {
 		results = append(results, failf("%s seeded dataset common_search_token is missing", label))
 	}
-	if strings.TrimSpace(dataset.ScopedCollectorID) == "" || strings.TrimSpace(dataset.ScopedSourceID) == "" || strings.TrimSpace(dataset.ScopedProjectKey) == "" {
+	if strings.TrimSpace(dataset.ScopedSourceName) == "" || strings.TrimSpace(dataset.ScopedProjectKey) == "" {
 		results = append(results, failf("%s seeded dataset scoped search identifiers are missing", label))
 	}
 	return results

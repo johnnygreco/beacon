@@ -62,9 +62,6 @@ func FormatSearchResults(results []search.SearchResult, metadataOpt ...ScopeMeta
 	type result struct {
 		EventID     string    `json:"event_id"`
 		SessionID   string    `json:"session_id"`
-		NodeID      string    `json:"node_id,omitempty"`
-		CollectorID string    `json:"collector_id,omitempty"`
-		SourceID    string    `json:"source_id,omitempty"`
 		SourceName  string    `json:"source_name,omitempty"`
 		Runtime     string    `json:"runtime,omitempty"`
 		ProjectKey  string    `json:"project_key,omitempty"`
@@ -103,9 +100,6 @@ func FormatSearchResults(results []search.SearchResult, metadataOpt ...ScopeMeta
 		payload.Results = append(payload.Results, result{
 			EventID:     beaconEventID(r.EventUID),
 			SessionID:   beaconSessionID(r.SessionID),
-			NodeID:      r.NodeID,
-			CollectorID: r.CollectorID,
-			SourceID:    r.SourceID,
 			SourceName:  r.SourceName,
 			Runtime:     r.Runtime,
 			ProjectKey:  r.ProjectKey,
@@ -133,9 +127,6 @@ type contextEvent struct {
 	Model       string
 	Tokens      int64
 	Timestamp   time.Time
-	NodeID      string
-	CollectorID string
-	SourceID    string
 	SourceName  string
 	Runtime     string
 	ProjectKey  string
@@ -146,9 +137,6 @@ func FormatOpenContext(events []contextEvent, targetIdx int, metadataOpt ...Scop
 	type event struct {
 		EventID     string    `json:"event_id"`
 		SessionID   string    `json:"session_id,omitempty"`
-		NodeID      string    `json:"node_id,omitempty"`
-		CollectorID string    `json:"collector_id,omitempty"`
-		SourceID    string    `json:"source_id,omitempty"`
 		SourceName  string    `json:"source_name,omitempty"`
 		Runtime     string    `json:"runtime,omitempty"`
 		ProjectKey  string    `json:"project_key,omitempty"`
@@ -184,9 +172,6 @@ func FormatOpenContext(events []contextEvent, targetIdx int, metadataOpt ...Scop
 		payload.Events = append(payload.Events, event{
 			EventID:     beaconEventID(e.EventUID),
 			SessionID:   beaconSessionID(e.SessionID),
-			NodeID:      e.NodeID,
-			CollectorID: e.CollectorID,
-			SourceID:    e.SourceID,
 			SourceName:  e.SourceName,
 			Runtime:     e.Runtime,
 			ProjectKey:  e.ProjectKey,
@@ -207,9 +192,6 @@ func FormatOpenContext(events []contextEvent, targetIdx int, metadataOpt ...Scop
 
 type sessionInfo struct {
 	SessionID     string
-	NodeID        string
-	CollectorID   string
-	SourceID      string
 	SourceName    string
 	Runtime       string
 	ProjectKey    string
@@ -225,83 +207,6 @@ type sessionInfo struct {
 	ErrorCount    int64
 	LastModel     string
 	WorkingDir    string
-}
-
-type agentInfo struct {
-	NodeID          string
-	CollectorID     string
-	SourceID        string
-	SourceName      string
-	Runtime         string
-	ProjectKey      string
-	ProjectPath     string
-	SessionCount    int64
-	EventCount      int64
-	TotalTokens     int64
-	LastStartedAt   time.Time
-	LastEndedAt     time.Time
-	LatestSessionID string
-}
-
-func FormatAgentList(agents []agentInfo, metadata sessionListMetadata, scope ScopeMetadata) string {
-	type agent struct {
-		NodeID          string    `json:"node_id,omitempty"`
-		CollectorID     string    `json:"collector_id,omitempty"`
-		SourceID        string    `json:"source_id,omitempty"`
-		SourceName      string    `json:"source_name,omitempty"`
-		Runtime         string    `json:"runtime,omitempty"`
-		ProjectKey      string    `json:"project_key,omitempty"`
-		ProjectPath     string    `json:"project_path,omitempty"`
-		SessionCount    int64     `json:"session_count"`
-		EventCount      int64     `json:"event_count"`
-		TotalTokens     int64     `json:"total_tokens"`
-		LastStartedAt   time.Time `json:"last_started_at"`
-		LastEndedAt     time.Time `json:"last_ended_at"`
-		LatestSessionID string    `json:"latest_session_id,omitempty"`
-		OpenRef         openRef   `json:"open_ref"`
-	}
-	type metadataPayload struct {
-		ResultCount        int    `json:"result_count"`
-		TotalMatchingCount int64  `json:"total_matching_count"`
-		Limit              int    `json:"limit"`
-		Cursor             string `json:"cursor,omitempty"`
-		ResultComplete     bool   `json:"result_complete"`
-		NextCursor         string `json:"next_cursor"`
-	}
-	payload := struct {
-		Schema   string          `json:"schema"`
-		Tool     string          `json:"tool"`
-		Scope    ScopeMetadata   `json:"scope"`
-		Results  []agent         `json:"results"`
-		Metadata metadataPayload `json:"metadata"`
-		Warnings []string        `json:"warnings"`
-	}{
-		Schema:   "beacon.mcp.list_agents.v1",
-		Tool:     "list_agents",
-		Scope:    scope,
-		Results:  []agent{},
-		Metadata: metadataPayload(metadata),
-		Warnings: []string{},
-	}
-	for _, a := range agents {
-		payload.Results = append(payload.Results, agent{
-			NodeID:          a.NodeID,
-			CollectorID:     a.CollectorID,
-			SourceID:        a.SourceID,
-			SourceName:      a.SourceName,
-			Runtime:         a.Runtime,
-			ProjectKey:      a.ProjectKey,
-			ProjectPath:     a.ProjectPath,
-			SessionCount:    a.SessionCount,
-			EventCount:      a.EventCount,
-			TotalTokens:     a.TotalTokens,
-			LastStartedAt:   a.LastStartedAt,
-			LastEndedAt:     a.LastEndedAt,
-			LatestSessionID: beaconSessionID(a.LatestSessionID),
-			OpenRef:         scopedSessionLatestOpenRef(a.LatestSessionID, scope),
-		})
-	}
-	return mustJSON(payload)
 }
 
 type sessionListMetadata struct {
@@ -331,9 +236,6 @@ func FormatSessionList(sessions []sessionInfo, options ...any) string {
 	}
 	type session struct {
 		SessionID     string    `json:"session_id"`
-		NodeID        string    `json:"node_id,omitempty"`
-		CollectorID   string    `json:"collector_id,omitempty"`
-		SourceID      string    `json:"source_id,omitempty"`
 		SourceName    string    `json:"source_name"`
 		Runtime       string    `json:"runtime,omitempty"`
 		ProjectKey    string    `json:"project_key,omitempty"`
@@ -377,9 +279,6 @@ func FormatSessionList(sessions []sessionInfo, options ...any) string {
 	for _, s := range sessions {
 		payload.Results = append(payload.Results, session{
 			SessionID:     beaconSessionID(s.SessionID),
-			NodeID:        s.NodeID,
-			CollectorID:   s.CollectorID,
-			SourceID:      s.SourceID,
 			SourceName:    s.SourceName,
 			Runtime:       s.Runtime,
 			ProjectKey:    s.ProjectKey,

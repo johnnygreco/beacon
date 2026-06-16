@@ -88,12 +88,6 @@
 	}
 
 	var dashboardScopeParams = [
-		'node_id',
-		'node_ids',
-		'collector_id',
-		'collector_ids',
-		'source_id',
-		'source_ids',
 		'source_name',
 		'source_names',
 		'runtime',
