@@ -362,7 +362,7 @@ test.describe('dashboard battle-tested workflows', () => {
         </body>
       </html>
     `);
-    await page.evaluate(await readFile('static/js/dashboard/name.js', 'utf8'));
+    await page.evaluate(await readFile('internal/assets/static/js/dashboard/name.js', 'utf8'));
 
     await expect(page).toHaveTitle('Configured Station | Beacon');
     await expect(page.locator('#dashboard-title')).toHaveText('Configured Station');

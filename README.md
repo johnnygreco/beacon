@@ -23,6 +23,17 @@ needed:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
+You can also install only the Beacon CLI with Go:
+
+```bash
+go install github.com/johnnygreco/beacon@latest
+```
+
+The Go install path does not install the managed ClickHouse binary. Use the
+shell installer above, install `clickhouse` on `PATH`, set
+`BEACON_CLICKHOUSE_BIN`, or run Beacon against Docker/another ClickHouse
+endpoint when local native ClickHouse is needed.
+
 ## Run On One Machine
 
 Start Beacon:

@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const tableScript = fs.readFileSync(path.join(__dirname, "../../static/js/dashboard/table.js"), "utf8");
+const tableScript = fs.readFileSync(path.join(__dirname, "../../internal/assets/static/js/dashboard/table.js"), "utf8");
 
 class FakeRow {
   constructor(id, attrs = {}) {

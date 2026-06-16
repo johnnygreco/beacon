@@ -1,4 +1,4 @@
-package main
+package beaconcli
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 	"syscall"
 	"time"
 
-	beacon "github.com/johnnygreco/beacon"
+	"github.com/johnnygreco/beacon/internal/assets"
 	"github.com/johnnygreco/beacon/internal/capture"
 	"github.com/johnnygreco/beacon/internal/config"
 	"github.com/johnnygreco/beacon/internal/mcp"
@@ -136,7 +136,7 @@ func runServe(cmd *cobra.Command, args []string) error {
 	apiHandlers := web.NewAPIHandlers(ch.DB, searcher, logger)
 	mcpHTTPServer := mcp.NewServer(ch.DB, searcher, logger)
 	mcpHTTPServer.SetDefaultContextWindow(cfg.MCP.ContextWindow)
-	staticFS, err := fs.Sub(beacon.StaticFS, "static")
+	staticFS, err := fs.Sub(assets.StaticFS, "static")
 	if err != nil {
 		cancel()
 		_ = bg.Wait()

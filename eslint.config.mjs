@@ -2,13 +2,13 @@ export default [
   {
     ignores: [
       "node_modules/**",
-      "static/js/vendor/**",
+      "internal/assets/static/js/vendor/**",
       "playwright-report/**",
       "test-results/**",
     ],
   },
   {
-    files: ["static/js/**/*.js"],
+    files: ["internal/assets/static/js/**/*.js"],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "script",

@@ -3,10 +3,10 @@ import { copyFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import path from 'node:path';
 
 const root = process.cwd();
-const manifestPath = 'static/vendor-manifest.json';
+const manifestPath = 'internal/assets/static/vendor-manifest.json';
 const noticePath = 'THIRD_PARTY_NOTICES.md';
 const checkOnly = process.argv.includes('--check');
-const vendorDirectories = ['static/js/vendor', 'static/css/vendor'];
+const vendorDirectories = ['internal/assets/static/js/vendor', 'internal/assets/static/css/vendor'];
 
 const packages = {
   '@highlightjs/cdn-assets': {
@@ -40,32 +40,32 @@ const packages = {
 const assets = [
   {
     source: 'node_modules/htmx.org/dist/htmx.min.js',
-    destination: 'static/js/vendor/htmx.min.js',
+    destination: 'internal/assets/static/js/vendor/htmx.min.js',
     packages: ['htmx.org'],
   },
   {
     source: 'node_modules/htmx-ext-sse/dist/sse.min.js',
-    destination: 'static/js/vendor/htmx-ext-sse.js',
+    destination: 'internal/assets/static/js/vendor/htmx-ext-sse.js',
     packages: ['htmx-ext-sse'],
   },
   {
     source: 'node_modules/chart.js/dist/chart.umd.min.js',
-    destination: 'static/js/vendor/chart.umd.min.js',
+    destination: 'internal/assets/static/js/vendor/chart.umd.min.js',
     packages: ['chart.js'],
   },
   {
     source: 'node_modules/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js',
-    destination: 'static/js/vendor/chartjs-adapter-date-fns.bundle.min.js',
+    destination: 'internal/assets/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js',
     packages: ['chartjs-adapter-date-fns', 'date-fns'],
   },
   {
     source: 'node_modules/@highlightjs/cdn-assets/highlight.min.js',
-    destination: 'static/js/vendor/highlight.min.js',
+    destination: 'internal/assets/static/js/vendor/highlight.min.js',
     packages: ['@highlightjs/cdn-assets'],
   },
   {
     source: 'node_modules/@highlightjs/cdn-assets/styles/github-dark.min.css',
-    destination: 'static/css/vendor/github-dark.min.css',
+    destination: 'internal/assets/static/css/vendor/github-dark.min.css',
     packages: ['@highlightjs/cdn-assets'],
   },
 ];
@@ -145,7 +145,7 @@ async function checkVendoredAssets(expectedManifest) {
     for (const problem of problems) {
       console.error(`- ${problem}`);
     }
-    console.error('Run `npm run vendor` and review static/vendor-manifest.json plus THIRD_PARTY_NOTICES.md.');
+    console.error('Run `npm run vendor` and review internal/assets/static/vendor-manifest.json plus THIRD_PARTY_NOTICES.md.');
     process.exit(1);
   }
 

@@ -6,10 +6,10 @@ before:
 
 builds:
   - id: beacon-darwin
-    main: ./cmd/beacon
+    main: .
     binary: beacon
     ldflags:
-      - -s -w -X main.version={{ .Version }}
+      - -s -w -X github.com/johnnygreco/beacon/internal/buildinfo.version={{ .Version }}
     env:
       - CGO_ENABLED=1
     goos:
@@ -18,10 +18,10 @@ builds:
       - amd64
       - arm64
   - id: beacon-linux-amd64
-    main: ./cmd/beacon
+    main: .
     binary: beacon
     ldflags:
-      - -s -w -X main.version={{ .Version }}
+      - -s -w -X github.com/johnnygreco/beacon/internal/buildinfo.version={{ .Version }}
     env:
       - CGO_ENABLED=1
       - CC=zig cc -target x86_64-linux-gnu
@@ -30,10 +30,10 @@ builds:
     goarch:
       - amd64
   - id: beacon-linux-arm64
-    main: ./cmd/beacon
+    main: .
     binary: beacon
     ldflags:
-      - -s -w -X main.version={{ .Version }}
+      - -s -w -X github.com/johnnygreco/beacon/internal/buildinfo.version={{ .Version }}
     env:
       - CGO_ENABLED=1
       - CC=zig cc -target aarch64-linux-gnu

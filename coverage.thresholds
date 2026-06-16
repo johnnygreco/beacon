@@ -4,7 +4,7 @@
 # These targets are intentionally conservative. They are regression floors, not
 # aspirational coverage goals.
 total 28.0
-${MODULE}/cmd/beacon 17.5
+${MODULE}/internal/beaconcli 17.5
 ${MODULE}/internal/capture 60.0
 ${MODULE}/internal/config 90.0
 ${MODULE}/internal/mcp 20.0

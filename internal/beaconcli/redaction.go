@@ -1,4 +1,4 @@
-package main
+package beaconcli
 
 import (
 	"github.com/johnnygreco/beacon/internal/config"

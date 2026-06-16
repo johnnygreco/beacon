@@ -1,32 +1,33 @@
 # Third-Party Notices
 
-Beacon vendors browser JavaScript and CSS assets into `static/` so the
-dashboard can run locally without loading CDN resources. These files are copied
-from npm packages by `npm run vendor`. `static/vendor-manifest.json` records
-the exact package versions, licenses, upstream URLs, source paths, and SHA-256
-hashes used for the current vendored files.
+Beacon vendors browser JavaScript and CSS assets into
+`internal/assets/static/` so the dashboard can run locally without loading CDN
+resources. These files are copied from npm packages by `npm run vendor`.
+`internal/assets/static/vendor-manifest.json` records the exact package
+versions, licenses, upstream URLs, source paths, and SHA-256 hashes used for
+the current vendored files.
 
 | Vendored file | Source package | Version | License | Upstream |
 | --- | --- | --- | --- | --- |
-| `static/js/vendor/htmx.min.js` | `htmx.org` | 2.0.10 | 0BSD | <https://github.com/bigskysoftware/htmx> |
-| `static/js/vendor/htmx-ext-sse.js` | `htmx-ext-sse` | 2.2.4 | 0BSD | <https://github.com/bigskysoftware/htmx-extensions> |
-| `static/js/vendor/chart.umd.min.js` | `chart.js` | 4.5.1 | MIT | <https://github.com/chartjs/Chart.js> |
-| `static/js/vendor/chartjs-adapter-date-fns.bundle.min.js` | `chartjs-adapter-date-fns` | 3.0.0 | MIT | <https://github.com/chartjs/chartjs-adapter-date-fns> |
-| `static/js/vendor/chartjs-adapter-date-fns.bundle.min.js` | `date-fns` | 4.1.0 | MIT | <https://github.com/date-fns/date-fns> |
-| `static/js/vendor/highlight.min.js` | `@highlightjs/cdn-assets` | 11.11.1 | BSD-3-Clause | <https://github.com/highlightjs/highlight.js> |
-| `static/css/vendor/github-dark.min.css` | `@highlightjs/cdn-assets` | 11.11.1 | BSD-3-Clause | <https://github.com/highlightjs/highlight.js> |
+| `internal/assets/static/js/vendor/htmx.min.js` | `htmx.org` | 2.0.10 | 0BSD | <https://github.com/bigskysoftware/htmx> |
+| `internal/assets/static/js/vendor/htmx-ext-sse.js` | `htmx-ext-sse` | 2.2.4 | 0BSD | <https://github.com/bigskysoftware/htmx-extensions> |
+| `internal/assets/static/js/vendor/chart.umd.min.js` | `chart.js` | 4.5.1 | MIT | <https://github.com/chartjs/Chart.js> |
+| `internal/assets/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js` | `chartjs-adapter-date-fns` | 3.0.0 | MIT | <https://github.com/chartjs/chartjs-adapter-date-fns> |
+| `internal/assets/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js` | `date-fns` | 4.1.0 | MIT | <https://github.com/date-fns/date-fns> |
+| `internal/assets/static/js/vendor/highlight.min.js` | `@highlightjs/cdn-assets` | 11.11.1 | BSD-3-Clause | <https://github.com/highlightjs/highlight.js> |
+| `internal/assets/static/css/vendor/github-dark.min.css` | `@highlightjs/cdn-assets` | 11.11.1 | BSD-3-Clause | <https://github.com/highlightjs/highlight.js> |
 
 Release archives include this notice file and Beacon's repository license.
 When vendored assets are refreshed, run `npm run vendor`, review
-`static/vendor-manifest.json`, and update this table from `package-lock.json`
-and the package license metadata in `node_modules`. Run `npm run vendor:check`
-before opening the PR; CI uses the same check to catch stale assets, manifest
-metadata, notice entries, and unconfigured files left in the vendor
-directories.
+`internal/assets/static/vendor-manifest.json`, and update this table from
+`package-lock.json` and the package license metadata in `node_modules`. Run
+`npm run vendor:check` before opening the PR; CI uses the same check to catch
+stale assets, manifest metadata, notice entries, and unconfigured files left in
+the vendor directories.
 
 ## htmx.org
 
-Vendored file: `static/js/vendor/htmx.min.js`
+Vendored file: `internal/assets/static/js/vendor/htmx.min.js`
 
 Source package: `htmx.org` 2.0.10
 
@@ -51,7 +52,7 @@ OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ## htmx-ext-sse
 
-Vendored file: `static/js/vendor/htmx-ext-sse.js`
+Vendored file: `internal/assets/static/js/vendor/htmx-ext-sse.js`
 
 Source package: `htmx-ext-sse` 2.2.4
 
@@ -78,7 +79,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ## Chart.js
 
-Vendored file: `static/js/vendor/chart.umd.min.js`
+Vendored file: `internal/assets/static/js/vendor/chart.umd.min.js`
 
 Source package: `chart.js` 4.5.1
 
@@ -112,7 +113,7 @@ SOFTWARE.
 
 ## chartjs-adapter-date-fns
 
-Vendored file: `static/js/vendor/chartjs-adapter-date-fns.bundle.min.js`
+Vendored file: `internal/assets/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js`
 
 Source package: `chartjs-adapter-date-fns` 3.0.0
 
@@ -146,7 +147,7 @@ SOFTWARE.
 
 ## date-fns
 
-Vendored file: `static/js/vendor/chartjs-adapter-date-fns.bundle.min.js`
+Vendored file: `internal/assets/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js`
 
 Source package: `date-fns` 4.1.0
 
@@ -183,8 +184,8 @@ SOFTWARE.
 
 Vendored files:
 
-- `static/js/vendor/highlight.min.js`
-- `static/css/vendor/github-dark.min.css`
+- `internal/assets/static/js/vendor/highlight.min.js`
+- `internal/assets/static/css/vendor/github-dark.min.css`
 
 Source package: `@highlightjs/cdn-assets` 11.11.1
 

@@ -2,7 +2,7 @@
   "generatedBy": "npm run vendor",
   "assets": [
     {
-      "file": "static/js/vendor/htmx.min.js",
+      "file": "internal/assets/static/js/vendor/htmx.min.js",
       "sha256": "71ea67185bfa8c98c39d31717c6fce5d852370fcdfd129db4543774d3145c0de",
       "source": "node_modules/htmx.org/dist/htmx.min.js",
       "packages": [
@@ -15,7 +15,7 @@
       ]
     },
     {
-      "file": "static/js/vendor/htmx-ext-sse.js",
+      "file": "internal/assets/static/js/vendor/htmx-ext-sse.js",
       "sha256": "98a46496de0c3605fbffdce9167ba427bdd9553184f83f149c261891a92c0136",
       "source": "node_modules/htmx-ext-sse/dist/sse.min.js",
       "packages": [
@@ -29,7 +29,7 @@
       ]
     },
     {
-      "file": "static/js/vendor/chart.umd.min.js",
+      "file": "internal/assets/static/js/vendor/chart.umd.min.js",
       "sha256": "48444a82d4edcb5bec0f1965faacdde18d9c17db3063d042abada2f705c9f54a",
       "source": "node_modules/chart.js/dist/chart.umd.min.js",
       "packages": [
@@ -42,7 +42,7 @@
       ]
     },
     {
-      "file": "static/js/vendor/chartjs-adapter-date-fns.bundle.min.js",
+      "file": "internal/assets/static/js/vendor/chartjs-adapter-date-fns.bundle.min.js",
       "sha256": "ea7ab30d26c38dcf1f2d26bb43e73a94537b58f1906f55e1a546dd09321b5615",
       "source": "node_modules/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js",
       "packages": [
@@ -61,7 +61,7 @@
       ]
     },
     {
-      "file": "static/js/vendor/highlight.min.js",
+      "file": "internal/assets/static/js/vendor/highlight.min.js",
       "sha256": "c4a399dd6f488bc97a3546e3476747b3e714c99c57b9473154c6fb8d259b9381",
       "source": "node_modules/@highlightjs/cdn-assets/highlight.min.js",
       "packages": [
@@ -74,7 +74,7 @@
       ]
     },
     {
-      "file": "static/css/vendor/github-dark.min.css",
+      "file": "internal/assets/static/css/vendor/github-dark.min.css",
       "sha256": "9f208d022102b1d0c7aebfecd8e42ca7997d5de636649d2b31ea63093d809019",
       "source": "node_modules/@highlightjs/cdn-assets/styles/github-dark.min.css",
       "packages": [

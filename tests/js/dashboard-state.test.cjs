@@ -4,7 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
-const stateScript = fs.readFileSync(path.join(__dirname, "../../static/js/dashboard/state.js"), "utf8");
+const stateScript = fs.readFileSync(path.join(__dirname, "../../internal/assets/static/js/dashboard/state.js"), "utf8");
 
 function loadStateSandbox(search) {
   const location = {

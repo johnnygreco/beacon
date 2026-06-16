@@ -3,7 +3,7 @@
 Beacon is a local capture, storage, dashboard, search, and MCP service for AI
 coding-agent sessions. The runtime shape is intentionally simple:
 
-1. `cmd/beacon` loads configuration, opens ClickHouse, migrates the schema, and
+1. `internal/beaconcli` loads configuration, opens ClickHouse, migrates the schema, and
    wires the capture, search, SSE, web, and MCP services.
 2. `internal/capture` watches configured session sources and normalizes each
    source format into `NormalizedEvent` values.
@@ -34,7 +34,7 @@ Configured source files
 
 ### 1. Source discovery and watching
 
-`cmd/beacon` builds capture sources from `internal/config.Config`. Default
+`internal/beaconcli` builds capture sources from `internal/config.Config`. Default
 sources cover Claude Code JSONL, Codex JSONL, Hermes SQLite, OpenCode SQLite,
 and Pi coding-agent JSONL. Each source provides:
 
@@ -242,7 +242,7 @@ surface remains read-only.
 
 ### `cmd/`
 
-- `cmd/beacon` is the product CLI and composition root. It owns command-line
+- `internal/beaconcli` is the product CLI and composition root shared by the root and `cmd/beacon` entrypoints. It owns command-line
   UX, config loading, ClickHouse startup/migration orchestration, service
   wiring, signal handling, and process lifecycle. It should not own event
   parsing, storage SQL, rendering logic, or search ranking.
@@ -257,7 +257,7 @@ surface remains read-only.
   replay/rotation handling, parser normalization, token/model cleanup, batching,
   and conversion from `NormalizedEvent` into storage row batches.
 - `internal/config` owns the typed Beacon configuration, defaults, and config
-  file loading. Runtime-specific wiring happens in `cmd/beacon`.
+  file loading. Runtime-specific wiring happens in `internal/beaconcli`.
 - `internal/mcp` owns the MCP JSON-RPC protocol surface, tool definitions, tool
   argument parsing, and read queries needed by MCP responses.
 - `internal/models` owns shared data structs used across capture, storage,

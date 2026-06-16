@@ -66,6 +66,8 @@ make fmt-check
 make generate-check
 make test-cover
 make lint
+tmpbin=$(mktemp -d); GOBIN="$tmpbin" go install .; "$tmpbin/beacon" --version; rm -rf "$tmpbin"
+tmpbin=$(mktemp -d); GOBIN="$tmpbin" go install ./cmd/beacon; "$tmpbin/beacon" --version; rm -rf "$tmpbin"
 GOTOOLCHAIN=go1.26.4 make vulncheck
 npm ci
 npm audit --audit-level=moderate
@@ -94,6 +96,8 @@ Before publishing, verify:
 - the version uses `x.y.z` format and the `vX.Y.Z` tag does not already exist
 - `goreleaser`, `zig`, and authenticated `gh` are available on `PATH`
 - `go version` reports a patched toolchain suitable for a clean `govulncheck`
+- `go install .` and `go install ./cmd/beacon` both produce a working `beacon`
+  binary
 - the hosted installer still matches `install.sh` if the installer changed
 
 ## Publishing
@@ -137,4 +141,11 @@ scripts/publish.sh --rollback-plan x.y.z
 After publishing, verify that the GitHub Release contains all four platform
 archives plus `checksums.txt`, smoke-install the release with
 `VERSION=x.y.z INSTALL_CLICKHOUSE=0`, and confirm `beacon --version` reports the
-published version.
+published version. Also verify a module install from outside the repository:
+
+```bash
+tmpbin=$(mktemp -d)
+GOBIN="$tmpbin" go install github.com/johnnygreco/beacon@vX.Y.Z
+"$tmpbin/beacon" --version
+rm -rf "$tmpbin"
+```
