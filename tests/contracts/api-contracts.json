@@ -216,6 +216,39 @@
       "output_preview": "string"
     }
   },
+  "APITraceAnnotation": {
+    "required": {
+      "annotation_id": "string",
+      "target_type": "string",
+      "session_id": "string",
+      "author_type": "string",
+      "source": "string",
+      "needs_followup": "boolean",
+      "labels": "string[]",
+      "note": "string",
+      "status": "string",
+      "schema_version": "integer",
+      "created_at": "string",
+      "updated_at": "string"
+    },
+    "optional": {
+      "event_uid": "string",
+      "author_id": "string",
+      "author_name": "string",
+      "category": "string",
+      "outcome": "string",
+      "quality_score": "integer",
+      "confidence": "integer",
+      "metadata_json": "string",
+      "deleted_at": "string"
+    }
+  },
+  "APITraceAnnotationListResponse": {
+    "required": {
+      "items": "APITraceAnnotation[]"
+    },
+    "optional": {}
+  },
   "APIToolPayload": {
     "required": {
       "event_uid": "string",
