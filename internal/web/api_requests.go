@@ -17,6 +17,8 @@ const (
 	maxSearchEventsAPILimit      = 240
 	maxDashboardSessionsAPILimit = 200
 	maxDashboardSearchAPILimit   = 240
+	defaultAnnotationsAPILimit   = 200
+	maxAnnotationsAPILimit       = 500
 )
 
 type apiIntParam struct {
@@ -253,4 +255,43 @@ func parseSearchEventsAPIRequest(values url.Values) (searchEventsAPIRequest, err
 		return searchEventsAPIRequest{}, err
 	}
 	return searchEventsAPIRequest{Query: query, Limit: limit, Scope: parseAPIScopeFilters(values)}, nil
+}
+
+type annotationsAPIRequest struct {
+	TargetType     string
+	SessionID      string
+	EventUID       string
+	AnnotationID   string
+	IncludeDeleted bool
+	Limit          int
+	Offset         int
+	Scope          APIScopeFilters
+}
+
+func parseAnnotationsAPIRequest(values url.Values) (annotationsAPIRequest, error) {
+	limit, err := parseAPIIntParam(values, apiIntParam{
+		Name:    "limit",
+		Default: defaultAnnotationsAPILimit,
+		Min:     1,
+		Max:     maxAnnotationsAPILimit,
+	})
+	if err != nil {
+		return annotationsAPIRequest{}, err
+	}
+	offset, err := parseAPIIntParam(values, apiIntParam{Name: "offset", Default: 0, Min: 0})
+	if err != nil {
+		return annotationsAPIRequest{}, err
+	}
+	includeDeletedValue := values.Get("include_deleted")
+	includeDeleted := includeDeletedValue == "1" || strings.EqualFold(includeDeletedValue, "true")
+	return annotationsAPIRequest{
+		TargetType:     strings.TrimSpace(values.Get("target_type")),
+		SessionID:      strings.TrimSpace(values.Get("session_id")),
+		EventUID:       strings.TrimSpace(values.Get("event_uid")),
+		AnnotationID:   strings.TrimSpace(values.Get("annotation_id")),
+		IncludeDeleted: includeDeleted,
+		Limit:          limit,
+		Offset:         offset,
+		Scope:          parseAPIScopeFilters(values),
+	}, nil
 }

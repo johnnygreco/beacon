@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	CurrentSchemaVersion = 9
+	CurrentSchemaVersion = 10
 
 	schemaVersionTable = "schema_version"
 	schemaVersionRowID = 1
@@ -29,6 +29,7 @@ var dataTableNames = []string{
 	"search_documents",
 	"search_postings",
 	"search_query_log",
+	"trace_annotations",
 }
 
 var legacyTableNames = []string{
@@ -464,6 +465,34 @@ func Schema(database string) []string {
 		)
 		ENGINE = MergeTree
 		ORDER BY created_at`,
+
+		`CREATE TABLE IF NOT EXISTS ` + db("trace_annotations") + ` (
+			annotation_id String,
+			target_type LowCardinality(String),
+			session_id String,
+			event_uid String,
+			author_type LowCardinality(String),
+			author_id String,
+			author_name String,
+			source LowCardinality(String),
+			category LowCardinality(String),
+			outcome LowCardinality(String),
+			quality_score Int16,
+			confidence UInt8,
+			needs_followup UInt8,
+			labels Array(String),
+			note String CODEC(ZSTD(3)),
+			metadata_json String CODEC(ZSTD(3)),
+			status LowCardinality(String),
+			schema_version UInt16,
+			created_at DateTime64(3, 'UTC'),
+			updated_at DateTime64(3, 'UTC') DEFAULT now64(3),
+			deleted_at DateTime64(3, 'UTC'),
+			INDEX idx_annotation_session session_id TYPE bloom_filter(0.01) GRANULARITY 2,
+			INDEX idx_annotation_event event_uid TYPE bloom_filter(0.01) GRANULARITY 2
+		)
+		ENGINE = ReplacingMergeTree(updated_at)
+		ORDER BY (session_id, target_type, event_uid, annotation_id)`,
 	}
 }
 

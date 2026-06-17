@@ -173,3 +173,31 @@ type APIToolPayload struct {
 	InputPreview  string `json:"input_preview"`
 	OutputPreview string `json:"output_preview"`
 }
+
+type APITraceAnnotation struct {
+	AnnotationID  string     `json:"annotation_id"`
+	TargetType    string     `json:"target_type"`
+	SessionID     string     `json:"session_id"`
+	EventUID      string     `json:"event_uid,omitempty"`
+	AuthorType    string     `json:"author_type"`
+	AuthorID      string     `json:"author_id,omitempty"`
+	AuthorName    string     `json:"author_name,omitempty"`
+	Source        string     `json:"source"`
+	Category      string     `json:"category,omitempty"`
+	Outcome       string     `json:"outcome,omitempty"`
+	QualityScore  int        `json:"quality_score,omitempty"`
+	Confidence    int        `json:"confidence,omitempty"`
+	NeedsFollowup bool       `json:"needs_followup"`
+	Labels        []string   `json:"labels"`
+	Note          string     `json:"note"`
+	MetadataJSON  string     `json:"metadata_json,omitempty"`
+	Status        string     `json:"status"`
+	SchemaVersion int        `json:"schema_version"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
+}
+
+type APITraceAnnotationListResponse struct {
+	Items []APITraceAnnotation `json:"items"`
+}
