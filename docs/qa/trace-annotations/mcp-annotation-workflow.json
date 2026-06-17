@@ -3,13 +3,26 @@
     "tool": "create_annotation",
     "arguments": {
       "target_type": "message",
+      "session_id": null,
       "message_id": "message:msg-1",
+      "event_id": null,
+      "open_ref": null,
       "author_id": "agent-1",
       "author_name": "Reviewer Agent",
       "category": "quality",
+      "outcome": null,
+      "quality_score": null,
+      "confidence": null,
+      "needs_followup": null,
       "labels": ["dataset:eval"],
       "note": "message note",
-      "metadata_json": "{\"rubric\":\"qa\"}"
+      "metadata_json": "{\"rubric\":\"qa\"}",
+      "source_name": null,
+      "source_names": null,
+      "runtime": null,
+      "runtimes": null,
+      "project_key": null,
+      "project_keys": null
     }
   },
   "create_response_excerpt": {
@@ -26,7 +39,6 @@
       "open_ref": {
         "type": "message",
         "session_id": "session:session-1",
-        "event_id": "event:msg-1",
         "message_id": "message:msg-1"
       }
     }
@@ -34,15 +46,24 @@
   "list_request": {
     "tool": "list_annotations",
     "arguments": {
+      "target_type": null,
+      "session_id": null,
+      "message_id": null,
+      "event_id": null,
       "open_ref": {
         "type": "message",
         "session_id": "session:session-1",
-        "event_id": "event:msg-1",
         "message_id": "message:msg-1"
       },
       "include_deleted": false,
       "limit": 50,
-      "offset": 0
+      "offset": 0,
+      "source_name": null,
+      "source_names": null,
+      "runtime": null,
+      "runtimes": null,
+      "project_key": null,
+      "project_keys": null
     }
   },
   "list_response_excerpt": {
@@ -62,6 +83,7 @@
       }
     ]
   },
+  "update_delete_excerpt_note": "The update and delete excerpts are independent targeted contract-test examples, not one sequential mutation history.",
   "update_response_excerpt": {
     "schema": "beacon.mcp.update_annotation.v1",
     "annotation": {

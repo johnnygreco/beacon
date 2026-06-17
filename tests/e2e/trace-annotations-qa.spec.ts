@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
   TEST_EVENT_ID,
@@ -9,6 +9,10 @@ import {
 } from './fixtures/dashboard';
 
 const imageDir = path.join(process.cwd(), 'docs/qa/trace-annotations/images');
+const qaSessionID = 'session-annotation-qa';
+const qaSessionTitle = 'Trace annotation QA review';
+const qaMessageEventID = 'event-annotation-message-001';
+const qaToolResultEventID = 'event-annotation-tool-result-001';
 
 async function capture(page: Page, name: string, fullPage = true) {
   await page.screenshot({
@@ -22,6 +26,25 @@ function qaScope() {
   return { auth_scope_applied: false, filters: { source_names: ['source-a'], project_keys: ['beacon'] } };
 }
 
+async function brandQASession(page: Page) {
+  await page.evaluate(({ originalSessionID, sessionID, title }) => {
+    const wrap = document.getElementById('transcript-wrap');
+    wrap?.querySelector('h1')?.replaceChildren(title);
+    const sessionIDElement = Array.from(wrap?.querySelectorAll('p') || []).find((element) => element.textContent?.includes(originalSessionID));
+    sessionIDElement?.replaceChildren(sessionID);
+    document.title = `${title} | Beacon`;
+  }, { originalSessionID: TEST_SESSION_ID, sessionID: qaSessionID, title: qaSessionTitle });
+}
+
+async function brandAnnotationTarget(page: Page, label: string) {
+  await page.locator('[data-annotation-target-label]').evaluate((element, value) => {
+    element.replaceChildren(value);
+  }, label);
+  await page.locator('#annotation-drawer-title').evaluate((element, value) => {
+    element.replaceChildren(value);
+  }, label);
+}
+
 function annotatedTraceIndexResponse() {
   return {
     schema: 'beacon.annotated_traces.index.v1',
@@ -33,8 +56,8 @@ function annotatedTraceIndexResponse() {
     items: [
       {
         session: {
-          id: TEST_SESSION_ID,
-          title: 'Legacy migration replay',
+          id: qaSessionID,
+          title: qaSessionTitle,
           source: 'source-a',
           runtime: 'runtime-a',
           project_key: 'beacon',
@@ -82,14 +105,14 @@ function annotatedTraceIndexResponse() {
           },
           {
             target_type: 'message',
-            event_uid: TEST_EVENT_ID,
+            event_uid: qaMessageEventID,
             annotation_count: 1,
             first_annotation_at: '2026-05-09T18:01:00.000Z',
             last_annotation_at: '2026-05-09T18:01:00.000Z',
           },
           {
             target_type: 'event',
-            event_uid: `${TEST_EVENT_ID}-result`,
+            event_uid: qaToolResultEventID,
             annotation_count: 1,
             first_annotation_at: '2026-05-09T18:02:00.000Z',
             last_annotation_at: '2026-05-09T18:02:00.000Z',
@@ -118,7 +141,7 @@ function annotatedTraceExportResponse() {
           {
             annotation_id: 'annotation-session-qa',
             target_type: 'session',
-            session_id: TEST_SESSION_ID,
+            session_id: qaSessionID,
             author_type: 'human',
             source: 'ui',
             category: 'quality',
@@ -136,8 +159,8 @@ function annotatedTraceExportResponse() {
           {
             annotation_id: 'annotation-message-qa',
             target_type: 'message',
-            session_id: TEST_SESSION_ID,
-            event_uid: TEST_EVENT_ID,
+            session_id: qaSessionID,
+            event_uid: qaMessageEventID,
             author_type: 'agent',
             author_id: 'qa-agent',
             author_name: 'QA Agent',
@@ -147,7 +170,7 @@ function annotatedTraceExportResponse() {
             quality_score: 4,
             confidence: 88,
             needs_followup: true,
-            labels: ['dataset:train'],
+            labels: ['dataset:eval', 'dataset:train'],
             note: 'Message-level MCP annotation.',
             metadata_json: '{"rubric_version":"2026-06"}',
             status: 'active',
@@ -155,11 +178,30 @@ function annotatedTraceExportResponse() {
             created_at: '2026-05-09T18:01:00.000Z',
             updated_at: '2026-05-09T18:01:00.000Z',
           },
+          {
+            annotation_id: 'annotation-event-qa',
+            target_type: 'event',
+            session_id: qaSessionID,
+            event_uid: qaToolResultEventID,
+            author_type: 'human',
+            source: 'ui',
+            category: 'timeline',
+            outcome: 'kept',
+            quality_score: 4,
+            confidence: 82,
+            needs_followup: false,
+            labels: ['dataset:eval', 'event:timeline'],
+            note: 'Event-level timeline annotation.',
+            status: 'active',
+            schema_version: 1,
+            created_at: '2026-05-09T18:02:00.000Z',
+            updated_at: '2026-05-09T18:02:00.000Z',
+          },
         ],
         events: [
           {
-            event_uid: TEST_EVENT_ID,
-            session_id: TEST_SESSION_ID,
+            event_uid: qaMessageEventID,
+            session_id: qaSessionID,
             event_kind: 'message',
             payload_type: 'message',
             actor_role: 'user',
@@ -172,8 +214,8 @@ function annotatedTraceExportResponse() {
             duration_ms: 0,
           },
           {
-            event_uid: `${TEST_EVENT_ID}-result`,
-            session_id: TEST_SESSION_ID,
+            event_uid: qaToolResultEventID,
+            session_id: qaSessionID,
             event_kind: 'tool_result',
             payload_type: 'tool_result',
             actor_role: 'tool',
@@ -197,8 +239,9 @@ function annotatedTraceExportResponse() {
 test.describe.configure({ mode: 'serial' });
 
 test.describe('trace annotation QA screenshots', () => {
+  test.skip(process.env.BEACON_QA_CAPTURE !== '1', 'Set BEACON_QA_CAPTURE=1 to regenerate committed QA screenshots.');
+
   test.beforeAll(async () => {
-    await rm(imageDir, { recursive: true, force: true });
     await mkdir(imageDir, { recursive: true });
   });
 
@@ -206,6 +249,7 @@ test.describe('trace annotation QA screenshots', () => {
     await installDashboardFixtures(page);
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await brandQASession(page);
     await expect(page.locator('#transcript-wrap')).toBeVisible();
     await expect(page.locator('[data-annotation-summary-count]')).toContainText('0 annotations');
     await capture(page, '01-desktop-transcript-empty-annotations.png');
@@ -231,14 +275,17 @@ test.describe('trace annotation QA screenshots', () => {
     await form.locator('textarea[name="note"]').fill('Message-level annotation retained for training.');
     await form.locator('input[name="needs_followup"]').check();
     await form.locator('[data-annotation-save]').click();
+    await brandAnnotationTarget(page, `Message ${qaMessageEventID}`);
     await expect(drawer).toContainText('Message-level annotation retained for training.');
     await capture(page, '03-desktop-message-annotation-drawer.png');
 
     await drawer.getByRole('button', { name: 'Edit' }).click();
+    await brandAnnotationTarget(page, `Message ${qaMessageEventID}`);
     await expect(form.locator('textarea[name="note"]')).toHaveValue('Message-level annotation retained for training.');
     await capture(page, '04-desktop-message-edit-state.png');
 
     await drawer.getByRole('button', { name: 'Delete' }).click();
+    await brandAnnotationTarget(page, `Message ${qaMessageEventID}`);
     await expect(drawer).toContainText('No annotations yet');
     await capture(page, '05-desktop-message-deleted-empty-state.png');
 
@@ -250,6 +297,7 @@ test.describe('trace annotation QA screenshots', () => {
     await form.locator('input[name="labels"]').fill('dataset:eval, event:timeline');
     await form.locator('textarea[name="note"]').fill('Event-level annotation from the timeline view.');
     await form.locator('[data-annotation-save]').click();
+    await brandAnnotationTarget(page, `Event ${qaToolResultEventID}`);
     await expect(drawer).toContainText('Event-level annotation from the timeline view.');
     await expectNoHorizontalOverflow(page);
     await capture(page, '06-desktop-timeline-event-annotation.png');
@@ -259,6 +307,7 @@ test.describe('trace annotation QA screenshots', () => {
     await page.setViewportSize({ width: 390, height: 760 });
     await installDashboardFixtures(page, { annotationsUnavailable: true });
     await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await brandQASession(page);
     await page.getByRole('button', { name: 'Annotate session' }).click();
     await expect(page.locator('[data-annotation-list]')).toContainText('Unable to load annotations');
     await expectNoHorizontalOverflow(page);

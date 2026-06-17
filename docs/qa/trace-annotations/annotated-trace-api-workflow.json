@@ -19,8 +19,8 @@
     "items": [
       {
         "session": {
-          "id": "session-older-001",
-          "title": "Legacy migration replay",
+          "id": "session-annotation-qa",
+          "title": "Trace annotation QA review",
           "source": "source-a",
           "runtime": "runtime-a",
           "project_key": "beacon"
@@ -39,12 +39,12 @@
           },
           {
             "target_type": "message",
-            "event_uid": "event-older-001",
+            "event_uid": "event-annotation-message-001",
             "annotation_count": 1
           },
           {
             "target_type": "event",
-            "event_uid": "event-older-001-result",
+            "event_uid": "event-annotation-tool-result-001",
             "annotation_count": 1
           }
         ]
@@ -64,8 +64,8 @@
     "traces": [
       {
         "session": {
-          "id": "session-older-001",
-          "title": "Legacy migration replay"
+          "id": "session-annotation-qa",
+          "title": "Trace annotation QA review"
         },
         "annotations": [
           {
@@ -78,23 +78,32 @@
           {
             "annotation_id": "annotation-message-qa",
             "target_type": "message",
-            "event_uid": "event-older-001",
+            "event_uid": "event-annotation-message-001",
             "source": "mcp",
             "author_type": "agent",
-            "labels": ["dataset:train"],
+            "labels": ["dataset:eval", "dataset:train"],
             "metadata_json": "{\"rubric_version\":\"2026-06\"}",
             "note": "Message-level MCP annotation."
+          },
+          {
+            "annotation_id": "annotation-event-qa",
+            "target_type": "event",
+            "event_uid": "event-annotation-tool-result-001",
+            "source": "ui",
+            "author_type": "human",
+            "labels": ["dataset:eval", "event:timeline"],
+            "note": "Event-level timeline annotation."
           }
         ],
         "events": [
           {
-            "event_uid": "event-older-001",
+            "event_uid": "event-annotation-message-001",
             "event_kind": "message",
             "actor_role": "user",
             "text_preview": "Read dashboard fixture payload"
           },
           {
-            "event_uid": "event-older-001-result",
+            "event_uid": "event-annotation-tool-result-001",
             "event_kind": "tool_result",
             "actor_role": "tool",
             "text_preview": "Payload loaded."

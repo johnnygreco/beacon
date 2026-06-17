@@ -227,7 +227,7 @@ summary from a shell; see [usage summaries](usage.md).
 `open` accepts `event_id`, returned `open_ref` objects, or `session_id` with
 `anchor: "latest"`. Returned `open_ref` values carry the effective scope from
 the tool result that produced them; `open` intersects that scope with any
-explicit scope filters and the token's auth scope. Do not pass legacy `id` or
+explicit scope filters and the token's auth scope. Do not pass `id` or
 `event_uid` arguments.
 
 ## Annotation Tools
@@ -303,7 +303,7 @@ is recorded with `author_type: "agent"` and `source: "mcp"`.
 
 ```json
 {
-  "target_type": "session",
+  "target_type": null,
   "session_id": "session:abc123",
   "message_id": null,
   "event_id": null,
@@ -320,8 +320,10 @@ is recorded with `author_type: "agent"` and `source: "mcp"`.
 }
 ```
 
-For a session target with no explicit `target_type`, Beacon lists all visible
+For a session ID with no explicit `target_type`, Beacon lists all visible
 annotations in that session, including session, message, and event annotations.
+Use `"target_type": "session"` only when you want session-level annotations and
+not message or event annotations.
 Responses use schema `beacon.mcp.list_annotations.v1` with `metadata.limit`,
 `metadata.offset`, `metadata.result_count`, and `metadata.result_complete`.
 

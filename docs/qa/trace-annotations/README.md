@@ -32,8 +32,11 @@ This QA pass covers the complete trace annotation workflow:
 Screenshots are reproducible with:
 
 ```bash
-npx playwright test tests/e2e/trace-annotations-qa.spec.ts --reporter=line
+BEACON_QA_CAPTURE=1 npx playwright test tests/e2e/trace-annotations-qa.spec.ts --reporter=line
 ```
+
+The capture spec is skipped unless `BEACON_QA_CAPTURE=1` is set so broad
+Playwright runs do not rewrite tracked QA artifacts by accident.
 
 ## MCP Evidence
 
@@ -70,7 +73,7 @@ Focused validation completed while producing this report:
 | --- | --- |
 | `npx playwright test tests/e2e/dashboard.spec.ts --grep "transcript annotation\|timeline event annotations"` | Passed |
 | `npx playwright test tests/e2e/a11y.spec.ts --grep "annotation"` | Passed |
-| `npx playwright test tests/e2e/trace-annotations-qa.spec.ts --reporter=line` | Passed |
+| `BEACON_QA_CAPTURE=1 npx playwright test tests/e2e/trace-annotations-qa.spec.ts --reporter=line` | Passed |
 
 Full validation required by #306:
 
@@ -108,8 +111,7 @@ server listening addr=127.0.0.1:4600
 Manual browser checks against the served build:
 
 - dashboard rendered at `http://localhost:4600/`;
-- a real local transcript rendered from
-  `session_1f4b481c206dc8098a3eb53c99a03236`;
+- a real local transcript rendered from the local development database;
 - the transcript showed the session annotation strip and inline message
   annotation controls.
 
@@ -119,12 +121,17 @@ Manual browser checks against the served build:
   E2E test that asserts `target_type: "event"` and the expected `event_uid`.
 - Annotation drawer accessibility was only covered indirectly. Added axe checks
   for the open drawer and mobile annotation failure state.
+- The QA screenshot generator could rewrite tracked PNGs during a broad
+  Playwright run. It now skips unless `BEACON_QA_CAPTURE=1` is set and no
+  longer deletes the image directory before capture.
 - The mobile annotation panel used the general card background, which let
   underlying transcript content bleed through in QA screenshots. The drawer
   panel now uses the opaque dashboard background.
 
 ## Remaining Risk
 
-No blocking risk is known. The committed screenshots use deterministic E2E
-fixtures; final local-server smoke validation verifies the installed binary and
+No blocking risk is known. The committed UI screenshots use deterministic E2E
+fixtures. The API screenshots render fixture JSON for durable browser evidence;
+the Go tests named in `annotated-trace-api-workflow.json` cover the real
+handlers. Final local-server smoke validation verifies the installed binary and
 served dashboard separately.
