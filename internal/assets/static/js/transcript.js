@@ -173,6 +173,11 @@
     error: '',
     items: [],
     activeTarget: null,
+    opener: null,
+    loadPromise: null,
+    loadRequestID: 0,
+    mutationVersion: 0,
+    reloadAfterLoad: false,
   };
 
   function escapeHTML(value) {
@@ -283,6 +288,19 @@
     }
     button.dataset.annotationHasItems = count > 0 ? 'true' : 'false';
     button.disabled = annotationState.loading && !annotationState.loaded;
+    updateAnnotationButtonLabel(button, target, count);
+  }
+
+  function updateAnnotationButtonLabel(button, target, count) {
+    var labelEl = button.querySelector('.annotation-button-label');
+    var label = String(button.dataset.annotationLabel || (labelEl ? labelEl.textContent : '') || 'Annotate').trim();
+    if (!label) label = 'Annotate';
+    if (target && target.target_type === 'event') {
+      label += ' event ' + target.event_uid.slice(0, 12);
+    } else if (!/\bsession\b/i.test(label)) {
+      label += ' session';
+    }
+    button.setAttribute('aria-label', label + ', ' + annotationCountText(count));
   }
 
   function updateAnnotationSummary(summary) {
@@ -318,25 +336,41 @@
     });
   }
 
-  function loadAnnotations() {
+  function loadAnnotations(options) {
+    options = options || {};
     var sessionID = currentSessionID();
-    if (!sessionID || annotationState.loading) return Promise.resolve();
+    if (!sessionID) return Promise.resolve();
+    if (annotationState.loading) {
+      if (options.force) annotationState.reloadAfterLoad = true;
+      return annotationState.loadPromise || Promise.resolve();
+    }
+    var requestID = annotationState.loadRequestID + 1;
+    var mutationVersion = annotationState.mutationVersion;
+    annotationState.loadRequestID = requestID;
     annotationState.loading = true;
     annotationState.error = '';
     refreshAnnotationControls();
-    return fetchJSON(scopedPath('/api/sessions/' + encodeURIComponent(sessionID) + '/annotations', { limit: 500 }), {
+    annotationState.loadPromise = fetchJSON(scopedPath('/api/sessions/' + encodeURIComponent(sessionID) + '/annotations', { limit: 500 }), {
       headers: { Accept: 'application/json' },
     }).then(function(data) {
+      if (requestID !== annotationState.loadRequestID || mutationVersion !== annotationState.mutationVersion) return;
       annotationState.items = (data.items || []).map(normalizeAnnotation);
       annotationState.loaded = true;
       annotationState.error = '';
     }).catch(function() {
+      if (requestID !== annotationState.loadRequestID || mutationVersion !== annotationState.mutationVersion) return;
       annotationState.error = 'Unable to load annotations';
     }).finally(function() {
+      if (requestID !== annotationState.loadRequestID) return;
       annotationState.loading = false;
+      var shouldReload = annotationState.reloadAfterLoad;
+      annotationState.reloadAfterLoad = false;
+      annotationState.loadPromise = null;
       refreshAnnotationControls();
       renderAnnotationDrawer();
+      if (shouldReload) return loadAnnotations({ force: true });
     });
+    return annotationState.loadPromise;
   }
 
   function drawerEl() {
@@ -415,10 +449,51 @@
     return 'Session';
   }
 
-  function openAnnotationDrawer(target) {
+  function annotationDrawerOpen() {
+    var drawer = drawerEl();
+    return Boolean(drawer && !drawer.classList.contains('hidden'));
+  }
+
+  function annotationFocusableElements(drawer) {
+    var panel = drawer ? drawer.querySelector('.annotation-panel') : null;
+    if (!panel) return [];
+    return Array.prototype.slice.call(panel.querySelectorAll(
+      'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )).filter(function(el) {
+      if (el.disabled || el.getAttribute('aria-hidden') === 'true') return false;
+      return el.type !== 'hidden' && !el.closest('[hidden], .hidden');
+    });
+  }
+
+  function trapAnnotationFocus(evt) {
+    var drawer = drawerEl();
+    if (!drawer || drawer.classList.contains('hidden')) return;
+    var focusable = annotationFocusableElements(drawer);
+    if (focusable.length === 0) {
+      evt.preventDefault();
+      return;
+    }
+    var first = focusable[0];
+    var last = focusable[focusable.length - 1];
+    if (!drawer.contains(document.activeElement)) {
+      evt.preventDefault();
+      first.focus();
+      return;
+    }
+    if (evt.shiftKey && document.activeElement === first) {
+      evt.preventDefault();
+      last.focus();
+    } else if (!evt.shiftKey && document.activeElement === last) {
+      evt.preventDefault();
+      first.focus();
+    }
+  }
+
+  function openAnnotationDrawer(target, opener) {
     var drawer = drawerEl();
     if (!drawer || !target) return;
     annotationState.activeTarget = target;
+    annotationState.opener = opener && typeof opener.focus === 'function' ? opener : document.activeElement;
     drawer.classList.remove('hidden');
     drawer.setAttribute('aria-hidden', 'false');
     var kicker = drawer.querySelector('[data-annotation-target-label]');
@@ -436,11 +511,18 @@
 
   function closeAnnotationDrawer() {
     var drawer = drawerEl();
-    if (!drawer) return;
+    if (!drawer || drawer.classList.contains('hidden')) return;
+    var opener = annotationState.opener;
     drawer.classList.add('hidden');
     drawer.setAttribute('aria-hidden', 'true');
     annotationState.activeTarget = null;
+    annotationState.opener = null;
     resetAnnotationForm();
+    if (opener && document.contains(opener) && typeof opener.focus === 'function') {
+      window.requestAnimationFrame(function() {
+        opener.focus();
+      });
+    }
   }
 
   function annotationChips(annotation) {
@@ -516,9 +598,10 @@
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     }).then(function() {
+      annotationState.mutationVersion += 1;
       resetAnnotationForm();
       setAnnotationMessage(id ? 'Annotation updated' : 'Annotation saved', '');
-      return loadAnnotations();
+      return loadAnnotations({ force: true });
     }).catch(function(err) {
       setAnnotationMessage(err && err.message ? err.message : 'Unable to save annotation', 'error');
     }).finally(function() {
@@ -552,7 +635,8 @@
       method: 'DELETE',
       headers: { Accept: 'application/json' },
     }).then(function() {
-      return loadAnnotations();
+      annotationState.mutationVersion += 1;
+      return loadAnnotations({ force: true });
     }).catch(function(err) {
       setAnnotationMessage(err && err.message ? err.message : 'Unable to delete annotation', 'error');
     });
@@ -702,7 +786,7 @@
     if (annotationButton) {
       evt.preventDefault();
       evt.stopPropagation();
-      openAnnotationDrawer(annotationTargetFromElement(annotationButton));
+      openAnnotationDrawer(annotationTargetFromElement(annotationButton), annotationButton);
       return;
     }
     var annotationClose = evt.target.closest && evt.target.closest('[data-annotation-close]');
@@ -738,7 +822,12 @@
   });
 
   document.addEventListener('keydown', function(evt) {
-    if (evt.key === 'Escape') closeAnnotationDrawer();
+    if (evt.key === 'Escape' && annotationDrawerOpen()) {
+      evt.preventDefault();
+      closeAnnotationDrawer();
+    } else if (evt.key === 'Tab') {
+      trapAnnotationFocus(evt);
+    }
   });
 
   // --- Init highlighting ---

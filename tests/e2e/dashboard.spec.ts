@@ -1977,32 +1977,53 @@ test.describe('dashboard battle-tested workflows', () => {
     const drawer = page.locator('#annotation-drawer');
     const form = drawer.locator('[data-annotation-form]');
     await expect(drawer).toBeVisible();
+    await expect(form.locator('textarea[name="note"]')).toBeFocused();
+    await drawer.getByRole('button', { name: 'Close annotations' }).focus();
+    await page.keyboard.press('Shift+Tab');
+    await expect(form.locator('[data-annotation-save]')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(drawer.getByRole('button', { name: 'Close annotations' })).toBeFocused();
     await form.locator('input[name="category"]').fill('review');
     await form.locator('input[name="labels"]').fill('quality:good, dataset:train');
     await form.locator('textarea[name="note"]').fill('Session note for dataset review.');
     await form.locator('input[name="needs_followup"]').check();
     await form.locator('[data-annotation-save]').click();
     await expect(page.locator('[data-annotation-summary-count]')).toContainText('1 annotation');
+    await expect(page.locator('[data-annotation-summary] [data-annotation-button]')).toHaveAttribute('aria-label', /1 annotation/);
     await expect(drawer).toContainText('Session note for dataset review.');
     await drawer.getByRole('button', { name: 'Close annotations' }).click();
+    await expect(page.locator('[data-annotation-summary] [data-annotation-button]')).toBeFocused();
 
     await page.locator(`#${TEST_EVENT_ID} [data-annotation-button]`).first().click();
     await expect(drawer).toBeVisible();
     await form.locator('textarea[name="note"]').fill('Event-level correction.');
     await form.locator('select[name="quality_score"]').selectOption('4');
+    const eventCreateRequest = page.waitForRequest((request) => {
+      if (request.method() !== 'POST') return false;
+      if (new URL(request.url()).pathname !== '/api/annotations') return false;
+      const body = JSON.parse(request.postData() || '{}') as Record<string, unknown>;
+      return body.target_type === 'event';
+    });
     await form.locator('[data-annotation-save]').click();
+    const eventCreateBody = JSON.parse((await eventCreateRequest).postData() || '{}') as Record<string, unknown>;
+    expect(eventCreateBody).toMatchObject({
+      target_type: 'event',
+      session_id: TEST_SESSION_ID,
+      event_uid: TEST_EVENT_ID,
+    });
     await expect(drawer).toContainText('Event-level correction.');
     await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('1');
+    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-button]`).first()).toHaveAttribute('aria-label', /1 annotation/);
 
-    await page.evaluate(({ eventID, sessionID }) => {
+    await page.evaluate(({ eventID }) => {
       const container = document.getElementById('conversation-container');
-      if (!container) return;
+      if (!container) throw new Error('missing conversation container');
       container.innerHTML = `
         <div id="chat-view" class="transcript-chat-view">
           <details id="${eventID}" open>
             <summary>Reloaded event</summary>
             <div class="annotation-inline-row">
-              <button type="button" class="annotation-button" data-annotation-button data-annotation-target="event" data-annotation-session-id="${sessionID}" data-annotation-event-uid="${eventID}" aria-label="Annotate">
+              <button type="button" class="annotation-button" data-annotation-button data-annotation-target="event" data-annotation-session-id="" data-annotation-event-uid="${eventID}" data-annotation-label="Annotate" aria-label="Annotate">
                 <span class="annotation-button-label">Annotate</span>
                 <span class="annotation-count hidden" data-annotation-count>0</span>
               </button>
@@ -2011,7 +2032,7 @@ test.describe('dashboard battle-tested workflows', () => {
         </div>
         <div id="timeline-view" class="transcript-timeline-view hidden"></div>
       `;
-    }, { eventID: TEST_EVENT_ID, sessionID: TEST_SESSION_ID });
+    }, { eventID: TEST_EVENT_ID });
     await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('1');
 
     await drawer.getByRole('button', { name: 'Edit' }).click();

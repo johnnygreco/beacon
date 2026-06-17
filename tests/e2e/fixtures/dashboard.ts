@@ -905,6 +905,7 @@ function annotationButtonHTML(target: 'session' | 'event', sessionID: string, ev
       data-annotation-target="${target}"
       data-annotation-session-id="${sessionID}"
       data-annotation-event-uid="${eventUID}"
+      data-annotation-label="${label}"
       aria-label="${label}">
       <span class="annotation-button-icon" aria-hidden="true">+</span>
       <span class="annotation-button-label">${label}</span>
@@ -968,7 +969,7 @@ function conversationFixtureHTML(sessionID = TEST_SESSION_ID) {
     <div id="chat-view" class="transcript-chat-view space-y-3">
       <details id="${eventID}" open class="rounded border border-gray-700 p-3 bg-gray-800/30">
         <summary class="cursor-pointer">Read dashboard fixture payload</summary>
-        <div class="annotation-inline-row mt-2">${annotationButtonHTML('event', sessionID, eventID)}</div>
+        <div class="annotation-inline-row mt-2">${annotationButtonHTML('event', '', eventID)}</div>
         <div class="code-container relative mt-3">
           <pre><code>{"file_path":"internal/views/pages/dashboard.templ"}</code></pre>
           <button type="button" onclick="copyToClipboard(this)" title="Copy to clipboard" aria-label="Copy to clipboard">
@@ -976,12 +977,12 @@ function conversationFixtureHTML(sessionID = TEST_SESSION_ID) {
           </button>
         </div>
       </details>
-      <details id="${eventID}-assistant" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Assistant summary</summary><div class="annotation-inline-row mt-2">${annotationButtonHTML('event', sessionID, `${eventID}-assistant`)}</div><p>Dashboard state summarized.</p></details>
-      <details id="${eventID}-result" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Tool result</summary><div class="annotation-inline-row mt-2">${annotationButtonHTML('event', sessionID, `${eventID}-result`)}</div><p>Payload loaded.</p></details>
+      <details id="${eventID}-assistant" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Assistant summary</summary><div class="annotation-inline-row mt-2">${annotationButtonHTML('event', '', `${eventID}-assistant`)}</div><p>Dashboard state summarized.</p></details>
+      <details id="${eventID}-result" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Tool result</summary><div class="annotation-inline-row mt-2">${annotationButtonHTML('event', '', `${eventID}-result`)}</div><p>Payload loaded.</p></details>
     </div>
     <div id="timeline-view" class="transcript-timeline-view hidden rounded border border-gray-700 p-3">
       <a href="#${eventID}" class="text-blue-400">Read dashboard fixture payload</a>
-      ${annotationButtonHTML('event', sessionID, eventID)}
+      ${annotationButtonHTML('event', '', eventID)}
     </div>
   `;
 }
@@ -1045,7 +1046,9 @@ function transcriptFixtureHTML(sessionID = TEST_SESSION_ID) {
               <button type="button" onclick="switchView('timeline', this)" aria-pressed="false" class="px-3 py-1.5 text-sm rounded-md font-medium border bg-gray-800 text-gray-500 border-gray-700">Timeline</button>
             </div>
           </div>
-          ${conversationFixtureHTML(sessionID)}
+          <div id="conversation-container" hx-get="/sessions/${sessionID}/conversation" hx-trigger="load, sse:conversation-update" hx-swap="innerHTML">
+            ${conversationFixtureHTML(sessionID)}
+          </div>
         </section>
         ${annotationDrawerHTML()}
       </div>
