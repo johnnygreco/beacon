@@ -28,6 +28,7 @@ type DashboardFixtureOptions = {
   chartDelayMs?: number;
   disableEventSource?: boolean;
   mockEventSource?: boolean;
+  annotationsUnavailable?: boolean;
 };
 
 type DashboardSearchURLPredicate = (url: URL) => boolean;
@@ -45,6 +46,30 @@ type DashboardScrollRecorderReport = {
   maxWindowDelta: number;
   maxMainContentDelta: number;
   maxDashboardDelta: number;
+};
+
+type FixtureAnnotation = {
+  annotation_id: string;
+  target_type: 'session' | 'event';
+  session_id: string;
+  event_uid: string;
+  author_type: 'human' | 'agent';
+  author_id: string;
+  author_name: string;
+  source: 'api' | 'ui' | 'mcp';
+  category: string;
+  outcome: string;
+  quality_score: number;
+  confidence: number;
+  needs_followup: boolean;
+  labels: string[];
+  note: string;
+  metadata_json: string;
+  status: 'active' | 'deleted';
+  schema_version: number;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
 };
 
 const fixedNow = '2026-05-09T18:00:00.000Z';
@@ -872,12 +897,78 @@ async function fulfillJSON(route: Route, data: unknown, status = 200, contractNa
   });
 }
 
+function annotationButtonHTML(target: 'session' | 'event', sessionID: string, eventUID = '', label = 'Annotate') {
+  return `
+    <button type="button"
+      class="annotation-button"
+      data-annotation-button
+      data-annotation-target="${target}"
+      data-annotation-session-id="${sessionID}"
+      data-annotation-event-uid="${eventUID}"
+      aria-label="${label}">
+      <span class="annotation-button-icon" aria-hidden="true">+</span>
+      <span class="annotation-button-label">${label}</span>
+      <span class="annotation-count hidden" data-annotation-count>0</span>
+    </button>
+  `;
+}
+
+function annotationSessionStripHTML(sessionID: string) {
+  return `
+    <div class="annotation-session-strip" data-annotation-summary data-annotation-target="session" data-annotation-session-id="${sessionID}">
+      <div class="min-w-0">
+        <p class="annotation-session-title">Annotations</p>
+        <p class="annotation-session-count" data-annotation-summary-count>0 annotations</p>
+      </div>
+      ${annotationButtonHTML('session', sessionID, '', 'Annotate session')}
+    </div>
+  `;
+}
+
+function annotationDrawerHTML() {
+  return `
+    <div id="annotation-drawer" class="annotation-drawer hidden" aria-hidden="true">
+      <div class="annotation-backdrop" data-annotation-close></div>
+      <section class="annotation-panel" role="dialog" aria-modal="true" aria-labelledby="annotation-drawer-title">
+        <header class="annotation-panel-header">
+          <div class="min-w-0">
+            <p class="annotation-panel-kicker" data-annotation-target-label>Session</p>
+            <h2 id="annotation-drawer-title" class="annotation-panel-title">Annotations</h2>
+          </div>
+          <button type="button" class="annotation-close-button" data-annotation-close aria-label="Close annotations">x</button>
+        </header>
+        <div class="annotation-panel-body">
+          <div class="annotation-list" data-annotation-list></div>
+          <form class="annotation-form" data-annotation-form>
+            <input type="hidden" name="annotation_id" value=""/>
+            <div class="annotation-form-grid">
+              <label class="annotation-field"><span>Category</span><input name="category" type="text"/></label>
+              <label class="annotation-field"><span>Outcome</span><input name="outcome" type="text"/></label>
+              <label class="annotation-field"><span>Quality</span><select name="quality_score"><option value="0">No score</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
+              <label class="annotation-field"><span>Confidence</span><input name="confidence" type="number" min="0" max="100" value="0"/></label>
+            </div>
+            <label class="annotation-field"><span>Labels</span><input name="labels" type="text"/></label>
+            <label class="annotation-field"><span>Note</span><textarea name="note" rows="5"></textarea></label>
+            <label class="annotation-check"><input name="needs_followup" type="checkbox"/><span>Needs follow-up</span></label>
+            <p class="annotation-message" data-annotation-message></p>
+            <div class="annotation-actions">
+              <button type="button" class="annotation-secondary-button" data-annotation-new>New</button>
+              <button type="submit" class="annotation-primary-button" data-annotation-save>Save annotation</button>
+            </div>
+          </form>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function conversationFixtureHTML(sessionID = TEST_SESSION_ID) {
   const eventID = sessionID === TEST_SESSION_ID ? TEST_EVENT_ID : `event-${sessionID}`;
   return `
     <div id="chat-view" class="transcript-chat-view space-y-3">
       <details id="${eventID}" open class="rounded border border-gray-700 p-3 bg-gray-800/30">
         <summary class="cursor-pointer">Read dashboard fixture payload</summary>
+        <div class="annotation-inline-row mt-2">${annotationButtonHTML('event', sessionID, eventID)}</div>
         <div class="code-container relative mt-3">
           <pre><code>{"file_path":"internal/views/pages/dashboard.templ"}</code></pre>
           <button type="button" onclick="copyToClipboard(this)" title="Copy to clipboard" aria-label="Copy to clipboard">
@@ -885,11 +976,12 @@ function conversationFixtureHTML(sessionID = TEST_SESSION_ID) {
           </button>
         </div>
       </details>
-      <details id="${eventID}-assistant" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Assistant summary</summary><p>Dashboard state summarized.</p></details>
-      <details id="${eventID}-result" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Tool result</summary><p>Payload loaded.</p></details>
+      <details id="${eventID}-assistant" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Assistant summary</summary><div class="annotation-inline-row mt-2">${annotationButtonHTML('event', sessionID, `${eventID}-assistant`)}</div><p>Dashboard state summarized.</p></details>
+      <details id="${eventID}-result" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Tool result</summary><div class="annotation-inline-row mt-2">${annotationButtonHTML('event', sessionID, `${eventID}-result`)}</div><p>Payload loaded.</p></details>
     </div>
     <div id="timeline-view" class="transcript-timeline-view hidden rounded border border-gray-700 p-3">
       <a href="#${eventID}" class="text-blue-400">Read dashboard fixture payload</a>
+      ${annotationButtonHTML('event', sessionID, eventID)}
     </div>
   `;
 }
@@ -915,7 +1007,7 @@ function transcriptFixtureHTML(sessionID = TEST_SESSION_ID) {
   </head>
   <body data-page="transcript" class="bg-gray-900 text-gray-100 min-h-screen">
     <main id="main-content" class="min-h-screen w-full p-6 overflow-y-auto">
-      <div id="transcript-wrap" class="transcript-page space-y-6">
+      <div id="transcript-wrap" class="transcript-page space-y-6" data-session-id="${sessionID}">
         <section class="transcript-header border border-gray-700">
           <div class="flex flex-wrap items-start justify-between gap-4">
             <div class="min-w-0 flex-1">
@@ -941,6 +1033,7 @@ function transcriptFixtureHTML(sessionID = TEST_SESSION_ID) {
             <div class="transcript-stat"><span class="text-gray-500">Turns</span><p class="text-gray-200 font-medium">14</p></div>
             <div class="transcript-stat"><span class="text-gray-500">Tool Calls</span><p class="text-gray-200 font-medium">42</p></div>
           </div>
+          ${annotationSessionStripHTML(sessionID)}
         </section>
         <section class="transcript-conversation">
           <div class="transcript-conversation-header flex items-center justify-between gap-3">
@@ -954,6 +1047,7 @@ function transcriptFixtureHTML(sessionID = TEST_SESSION_ID) {
           </div>
           ${conversationFixtureHTML(sessionID)}
         </section>
+        ${annotationDrawerHTML()}
       </div>
     </main>
     <script src="/static/js/transcript.js"></script>
@@ -965,6 +1059,42 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
   const scenario = options.scenario || 'default';
   const failures = new Set(options.failOnce || []);
   let activeRequestCount = 0;
+  let annotationSequence = 0;
+  const annotations: FixtureAnnotation[] = [];
+
+  function annotationNow() {
+    return new Date(fixedNow).toISOString();
+  }
+
+  function annotationFromPayload(payload: Record<string, unknown>): FixtureAnnotation {
+    annotationSequence += 1;
+    return {
+      annotation_id: `annotation-${annotationSequence}`,
+      target_type: payload.target_type === 'event' ? 'event' : 'session',
+      session_id: String(payload.session_id || TEST_SESSION_ID),
+      event_uid: String(payload.event_uid || ''),
+      author_type: payload.author_type === 'agent' ? 'agent' : 'human',
+      author_id: '',
+      author_name: '',
+      source: payload.source === 'mcp' || payload.source === 'api' ? payload.source : 'ui',
+      category: String(payload.category || ''),
+      outcome: String(payload.outcome || ''),
+      quality_score: Number(payload.quality_score || 0),
+      confidence: Number(payload.confidence || 0),
+      needs_followup: Boolean(payload.needs_followup),
+      labels: Array.isArray(payload.labels) ? payload.labels.map(String) : [],
+      note: String(payload.note || ''),
+      metadata_json: '',
+      status: 'active',
+      schema_version: 1,
+      created_at: annotationNow(),
+      updated_at: annotationNow(),
+    };
+  }
+
+  function annotationsForSession(sessionID: string) {
+    return annotations.filter((item) => item.session_id === sessionID && item.status !== 'deleted');
+  }
 
   const initialStorage = initialStorageForScenario(scenario);
   if (Object.keys(initialStorage).length > 0) {
@@ -1103,6 +1233,50 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
 
   await page.route('**/api/sessions/*/events**', async (route) => {
     return fulfillJSON(route, eventsForSession(), 200, 'APISessionEvent[]');
+  });
+
+  await page.route('**/api/sessions/*/annotations**', async (route) => {
+    if (options.annotationsUnavailable) return fulfillJSON(route, { error: 'annotations unavailable' }, 500);
+    const url = new URL(route.request().url());
+    const match = url.pathname.match(/^\/api\/sessions\/([^/]+)\/annotations$/);
+    const sessionID = match ? decodeURIComponent(match[1]) : TEST_SESSION_ID;
+    return fulfillJSON(route, { items: annotationsForSession(sessionID) }, 200, 'APITraceAnnotationListResponse');
+  });
+
+  await page.route('**/api/annotations**', async (route) => {
+    if (options.annotationsUnavailable) return fulfillJSON(route, { error: 'annotations unavailable' }, 500);
+    const request = route.request();
+    const url = new URL(request.url());
+    const id = decodeURIComponent(url.pathname.replace(/^\/api\/annotations\/?/, ''));
+    if (request.method() === 'POST') {
+      const payload = JSON.parse(request.postData() || '{}') as Record<string, unknown>;
+      const annotation = annotationFromPayload(payload);
+      annotations.push(annotation);
+      return fulfillJSON(route, annotation, 201, 'APITraceAnnotation');
+    }
+    if (request.method() === 'PATCH') {
+      const annotation = annotations.find((item) => item.annotation_id === id);
+      if (!annotation) return fulfillJSON(route, { error: 'annotation not found' }, 404);
+      const payload = JSON.parse(request.postData() || '{}') as Record<string, unknown>;
+      annotation.category = String(payload.category || '');
+      annotation.outcome = String(payload.outcome || '');
+      annotation.quality_score = Number(payload.quality_score || 0);
+      annotation.confidence = Number(payload.confidence || 0);
+      annotation.needs_followup = Boolean(payload.needs_followup);
+      annotation.labels = Array.isArray(payload.labels) ? payload.labels.map(String) : [];
+      annotation.note = String(payload.note || '');
+      annotation.updated_at = annotationNow();
+      return fulfillJSON(route, annotation, 200, 'APITraceAnnotation');
+    }
+    if (request.method() === 'DELETE') {
+      const annotation = annotations.find((item) => item.annotation_id === id);
+      if (!annotation) return fulfillJSON(route, { error: 'annotation not found' }, 404);
+      annotation.status = 'deleted';
+      annotation.deleted_at = annotationNow();
+      annotation.updated_at = annotationNow();
+      return fulfillJSON(route, annotation, 200, 'APITraceAnnotation');
+    }
+    return fulfillJSON(route, { items: annotations.filter((item) => item.status !== 'deleted') }, 200, 'APITraceAnnotationListResponse');
   });
 
   await page.route('**/api/sessions/*', async (route) => {

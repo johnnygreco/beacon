@@ -166,6 +166,412 @@
     setTranscriptView(view, btn);
   };
 
+  // --- Trace annotations ---
+  var annotationState = {
+    loaded: false,
+    loading: false,
+    error: '',
+    items: [],
+    activeTarget: null,
+  };
+
+  function escapeHTML(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function currentSessionID() {
+    var wrap = document.getElementById('transcript-wrap');
+    return wrap ? String(wrap.dataset.sessionId || '').trim() : '';
+  }
+
+  function scopedPath(path, params) {
+    var url = new URL(path, window.location.origin);
+    var scope = new URLSearchParams(window.location.search || '');
+    scope.forEach(function(value, key) {
+      if (!url.searchParams.has(key)) url.searchParams.append(key, value);
+    });
+    Object.keys(params || {}).forEach(function(key) {
+      var value = params[key];
+      if (value !== undefined && value !== null && value !== '') {
+        url.searchParams.set(key, String(value));
+      }
+    });
+    return url.pathname + url.search;
+  }
+
+  function normalizeAnnotationLabels(value) {
+    var raw = Array.isArray(value) ? value.join(',') : String(value || '');
+    var seen = {};
+    var labels = [];
+    raw.split(',').forEach(function(part) {
+      var label = part.trim().toLowerCase().replace(/\s+/g, '-');
+      if (!label || seen[label]) return;
+      seen[label] = true;
+      labels.push(label);
+    });
+    labels.sort();
+    return labels;
+  }
+
+  function annotationTargetKey(target) {
+    if (!target) return '';
+    var targetType = String(target.target_type || target.targetType || '').trim().toLowerCase();
+    if (targetType === 'event') {
+      return 'event:' + String(target.event_uid || target.eventUID || '').trim();
+    }
+    return 'session:' + String(target.session_id || target.sessionID || currentSessionID()).trim();
+  }
+
+  function normalizeAnnotation(annotation) {
+    var item = annotation || {};
+    return {
+      annotation_id: String(item.annotation_id || ''),
+      target_type: String(item.target_type || 'session'),
+      session_id: String(item.session_id || ''),
+      event_uid: String(item.event_uid || ''),
+      source: String(item.source || 'ui'),
+      category: String(item.category || ''),
+      outcome: String(item.outcome || ''),
+      quality_score: Number(item.quality_score || 0),
+      confidence: Number(item.confidence || 0),
+      needs_followup: Boolean(item.needs_followup),
+      labels: Array.isArray(item.labels) ? item.labels.slice() : [],
+      note: String(item.note || ''),
+      status: String(item.status || 'active'),
+      updated_at: String(item.updated_at || ''),
+    };
+  }
+
+  function annotationTargetFromElement(el) {
+    if (!el) return null;
+    var targetType = String(el.dataset.annotationTarget || 'session').trim().toLowerCase();
+    var sessionID = String(el.dataset.annotationSessionId || currentSessionID()).trim();
+    var eventUID = String(el.dataset.annotationEventUid || '').trim();
+    if (targetType === 'event' && !eventUID) return null;
+    if (!sessionID) return null;
+    return {
+      target_type: targetType === 'event' ? 'event' : 'session',
+      session_id: sessionID,
+      event_uid: eventUID,
+    };
+  }
+
+  function annotationsForTarget(target) {
+    var key = annotationTargetKey(target);
+    if (!key) return [];
+    return annotationState.items.filter(function(item) {
+      return item.status !== 'deleted' && annotationTargetKey(item) === key;
+    });
+  }
+
+  function annotationCountText(count) {
+    return count === 1 ? '1 annotation' : count + ' annotations';
+  }
+
+  function updateAnnotationButton(button) {
+    var target = annotationTargetFromElement(button);
+    var count = annotationsForTarget(target).length;
+    var countEl = button.querySelector('[data-annotation-count]');
+    if (countEl) {
+      countEl.textContent = String(count);
+      countEl.classList.toggle('hidden', count === 0);
+    }
+    button.dataset.annotationHasItems = count > 0 ? 'true' : 'false';
+    button.disabled = annotationState.loading && !annotationState.loaded;
+  }
+
+  function updateAnnotationSummary(summary) {
+    var target = annotationTargetFromElement(summary);
+    var countEl = summary.querySelector('[data-annotation-summary-count]');
+    if (!countEl) return;
+    if (annotationState.error) {
+      countEl.textContent = 'Annotations unavailable';
+      return;
+    }
+    if (annotationState.loading && !annotationState.loaded) {
+      countEl.textContent = 'Loading annotations';
+      return;
+    }
+    countEl.textContent = annotationCountText(annotationsForTarget(target).length);
+  }
+
+  function refreshAnnotationControls(root) {
+    root = root || document;
+    root.querySelectorAll('[data-annotation-button]').forEach(updateAnnotationButton);
+    root.querySelectorAll('[data-annotation-summary]').forEach(updateAnnotationSummary);
+  }
+
+  function fetchJSON(path, options) {
+    return fetch(path, options || {}).then(function(res) {
+      if (res.ok) return res.json();
+      return res.json().then(function(body) {
+        throw new Error(body && body.error ? body.error : 'Request failed');
+      }).catch(function(err) {
+        if (err && err.message && err.message !== 'Request failed') throw err;
+        throw new Error('Request failed');
+      });
+    });
+  }
+
+  function loadAnnotations() {
+    var sessionID = currentSessionID();
+    if (!sessionID || annotationState.loading) return Promise.resolve();
+    annotationState.loading = true;
+    annotationState.error = '';
+    refreshAnnotationControls();
+    return fetchJSON(scopedPath('/api/sessions/' + encodeURIComponent(sessionID) + '/annotations', { limit: 500 }), {
+      headers: { Accept: 'application/json' },
+    }).then(function(data) {
+      annotationState.items = (data.items || []).map(normalizeAnnotation);
+      annotationState.loaded = true;
+      annotationState.error = '';
+    }).catch(function() {
+      annotationState.error = 'Unable to load annotations';
+    }).finally(function() {
+      annotationState.loading = false;
+      refreshAnnotationControls();
+      renderAnnotationDrawer();
+    });
+  }
+
+  function drawerEl() {
+    return document.getElementById('annotation-drawer');
+  }
+
+  function annotationForm() {
+    var drawer = drawerEl();
+    return drawer ? drawer.querySelector('[data-annotation-form]') : null;
+  }
+
+  function setAnnotationMessage(text, state) {
+    var drawer = drawerEl();
+    var message = drawer ? drawer.querySelector('[data-annotation-message]') : null;
+    if (!message) return;
+    message.textContent = text || '';
+    if (state) message.dataset.state = state;
+    else message.removeAttribute('data-state');
+  }
+
+  function resetAnnotationForm() {
+    var form = annotationForm();
+    if (!form) return;
+    form.reset();
+    form.elements.annotation_id.value = '';
+    form.elements.quality_score.value = '0';
+    form.elements.confidence.value = '0';
+    var save = form.querySelector('[data-annotation-save]');
+    if (save) save.textContent = 'Save annotation';
+    setAnnotationMessage('', '');
+  }
+
+  function formValues(form) {
+    return {
+      category: form.elements.category.value,
+      outcome: form.elements.outcome.value,
+      quality_score: form.elements.quality_score.value,
+      confidence: form.elements.confidence.value,
+      labels: form.elements.labels.value,
+      note: form.elements.note.value,
+      needs_followup: form.elements.needs_followup.checked,
+    };
+  }
+
+  function boundedInt(value, min, max) {
+    var parsed = parseInt(value, 10);
+    if (!Number.isFinite(parsed)) parsed = 0;
+    if (parsed < min) return min;
+    if (parsed > max) return max;
+    return parsed;
+  }
+
+  function buildAnnotationPayload(target, values, includeTarget) {
+    var payload = {
+      author_type: 'human',
+      source: 'ui',
+      category: String(values.category || '').trim(),
+      outcome: String(values.outcome || '').trim(),
+      quality_score: boundedInt(values.quality_score, 0, 5),
+      confidence: boundedInt(values.confidence, 0, 100),
+      needs_followup: Boolean(values.needs_followup),
+      labels: normalizeAnnotationLabels(values.labels),
+      note: String(values.note || '').trim(),
+    };
+    if (includeTarget) {
+      payload.target_type = target.target_type;
+      payload.session_id = target.session_id;
+      if (target.target_type === 'event') payload.event_uid = target.event_uid;
+    }
+    return payload;
+  }
+
+  function targetTitle(target) {
+    if (!target) return 'Annotations';
+    if (target.target_type === 'event') return 'Event ' + target.event_uid.slice(0, 12);
+    return 'Session';
+  }
+
+  function openAnnotationDrawer(target) {
+    var drawer = drawerEl();
+    if (!drawer || !target) return;
+    annotationState.activeTarget = target;
+    drawer.classList.remove('hidden');
+    drawer.setAttribute('aria-hidden', 'false');
+    var kicker = drawer.querySelector('[data-annotation-target-label]');
+    var title = drawer.querySelector('#annotation-drawer-title');
+    if (kicker) kicker.textContent = target.target_type === 'event' ? 'Event annotation' : 'Session annotation';
+    if (title) title.textContent = targetTitle(target);
+    resetAnnotationForm();
+    renderAnnotationDrawer();
+    loadAnnotations();
+    window.requestAnimationFrame(function() {
+      var note = drawer.querySelector('textarea[name="note"]');
+      if (note) note.focus();
+    });
+  }
+
+  function closeAnnotationDrawer() {
+    var drawer = drawerEl();
+    if (!drawer) return;
+    drawer.classList.add('hidden');
+    drawer.setAttribute('aria-hidden', 'true');
+    annotationState.activeTarget = null;
+    resetAnnotationForm();
+  }
+
+  function annotationChips(annotation) {
+    var chips = [];
+    if (annotation.category) chips.push(annotation.category);
+    if (annotation.outcome) chips.push(annotation.outcome);
+    if (annotation.quality_score > 0) chips.push('quality ' + annotation.quality_score);
+    if (annotation.confidence > 0) chips.push(annotation.confidence + '% confidence');
+    if (annotation.needs_followup) chips.push('follow-up');
+    annotation.labels.forEach(function(label) { chips.push(label); });
+    if (chips.length === 0) return '';
+    return '<div class="annotation-chip-list">' + chips.map(function(chip) {
+      return '<span class="annotation-chip">' + escapeHTML(chip) + '</span>';
+    }).join('') + '</div>';
+  }
+
+  function annotationCardHTML(annotation) {
+    return '<article class="annotation-card" data-annotation-id="' + escapeHTML(annotation.annotation_id) + '">' +
+      '<div class="annotation-card-top">' +
+        '<span class="annotation-chip">' + escapeHTML(annotation.source || 'ui') + '</span>' +
+        '<div class="annotation-card-actions">' +
+          '<button type="button" class="annotation-card-button" data-annotation-edit="' + escapeHTML(annotation.annotation_id) + '">Edit</button>' +
+          '<button type="button" class="annotation-card-button" data-variant="danger" data-annotation-delete="' + escapeHTML(annotation.annotation_id) + '">Delete</button>' +
+        '</div>' +
+      '</div>' +
+      annotationChips(annotation) +
+      '<p class="annotation-card-note">' + escapeHTML(annotation.note || '') + '</p>' +
+    '</article>';
+  }
+
+  function renderAnnotationDrawer() {
+    var drawer = drawerEl();
+    if (!drawer || drawer.classList.contains('hidden') || !annotationState.activeTarget) return;
+    var list = drawer.querySelector('[data-annotation-list]');
+    if (!list) return;
+    if (annotationState.error) {
+      list.innerHTML = '<div class="annotation-list-error">Unable to load annotations</div>';
+      return;
+    }
+    if (annotationState.loading && !annotationState.loaded) {
+      list.innerHTML = '<div class="annotation-empty">Loading annotations</div>';
+      return;
+    }
+    var items = annotationsForTarget(annotationState.activeTarget);
+    if (items.length === 0) {
+      list.innerHTML = '<div class="annotation-empty">No annotations yet</div>';
+      return;
+    }
+    list.innerHTML = items.map(annotationCardHTML).join('');
+  }
+
+  function setAnnotationSaving(isSaving) {
+    var form = annotationForm();
+    if (!form) return;
+    form.querySelectorAll('button, input, textarea, select').forEach(function(el) {
+      if (el.matches('[data-annotation-close]')) return;
+      el.disabled = isSaving;
+    });
+    var save = form.querySelector('[data-annotation-save]');
+    if (save) save.textContent = isSaving ? 'Saving...' : (form.elements.annotation_id.value ? 'Update annotation' : 'Save annotation');
+  }
+
+  function saveAnnotation(form) {
+    var target = annotationState.activeTarget;
+    if (!target) return;
+    var id = String(form.elements.annotation_id.value || '').trim();
+    var payload = buildAnnotationPayload(target, formValues(form), id === '');
+    var path = id ? '/api/annotations/' + encodeURIComponent(id) : '/api/annotations';
+    setAnnotationSaving(true);
+    setAnnotationMessage('', '');
+    fetchJSON(scopedPath(path), {
+      method: id ? 'PATCH' : 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then(function() {
+      resetAnnotationForm();
+      setAnnotationMessage(id ? 'Annotation updated' : 'Annotation saved', '');
+      return loadAnnotations();
+    }).catch(function(err) {
+      setAnnotationMessage(err && err.message ? err.message : 'Unable to save annotation', 'error');
+    }).finally(function() {
+      setAnnotationSaving(false);
+    });
+  }
+
+  function editAnnotation(id) {
+    var form = annotationForm();
+    if (!form) return;
+    var annotation = annotationState.items.find(function(item) { return item.annotation_id === id; });
+    if (!annotation) return;
+    form.elements.annotation_id.value = annotation.annotation_id;
+    form.elements.category.value = annotation.category;
+    form.elements.outcome.value = annotation.outcome;
+    form.elements.quality_score.value = String(annotation.quality_score || 0);
+    form.elements.confidence.value = String(annotation.confidence || 0);
+    form.elements.labels.value = annotation.labels.join(', ');
+    form.elements.note.value = annotation.note;
+    form.elements.needs_followup.checked = annotation.needs_followup;
+    var save = form.querySelector('[data-annotation-save]');
+    if (save) save.textContent = 'Update annotation';
+    setAnnotationMessage('', '');
+    form.elements.note.focus();
+  }
+
+  function deleteAnnotation(id) {
+    if (!id) return;
+    setAnnotationMessage('', '');
+    fetchJSON(scopedPath('/api/annotations/' + encodeURIComponent(id)), {
+      method: 'DELETE',
+      headers: { Accept: 'application/json' },
+    }).then(function() {
+      return loadAnnotations();
+    }).catch(function(err) {
+      setAnnotationMessage(err && err.message ? err.message : 'Unable to delete annotation', 'error');
+    });
+  }
+
+  function initAnnotationControls(root) {
+    refreshAnnotationControls(root || document);
+    if (!annotationState.loaded && !annotationState.loading && currentSessionID()) {
+      loadAnnotations();
+    }
+  }
+
+  window.__beaconTranscriptAnnotations = {
+    annotationCountText: annotationCountText,
+    annotationTargetKey: annotationTargetKey,
+    buildAnnotationPayload: buildAnnotationPayload,
+    normalizeAnnotationLabels: normalizeAnnotationLabels,
+  };
+
   // --- HTMX integration ---
   function transcriptViewFromButton(btn) {
     if (!btn) return currentTranscriptView;
@@ -235,6 +641,7 @@
     container.dataset.transcriptObserver = 'true';
     var observer = new MutationObserver(function() {
       initHighlighting(container);
+      initAnnotationControls(container);
       restoreTranscriptViewAfterSwap(container);
     });
     observer.observe(container, { childList: true });
@@ -249,6 +656,7 @@
 
   document.addEventListener('htmx:afterSwap', function(e) {
     initHighlighting(e.detail.target);
+    initAnnotationControls(e.detail.target);
     restoreDetails();
     initConversationObserver();
     window.requestAnimationFrame(function() {
@@ -258,6 +666,7 @@
 
   document.addEventListener('htmx:afterSettle', function(e) {
     initConversationObserver();
+    initAnnotationControls(e.detail.target);
     restoreTranscriptViewAfterSwap(e.detail.target);
     scrollHashIntoViewAfterSwap(e.detail.target);
   });
@@ -287,12 +696,55 @@
     if (truncateButton) {
       evt.preventDefault();
       window.toggleTruncation(truncateButton.closest('.truncatable'));
+      return;
     }
+    var annotationButton = evt.target.closest && evt.target.closest('[data-annotation-button]');
+    if (annotationButton) {
+      evt.preventDefault();
+      evt.stopPropagation();
+      openAnnotationDrawer(annotationTargetFromElement(annotationButton));
+      return;
+    }
+    var annotationClose = evt.target.closest && evt.target.closest('[data-annotation-close]');
+    if (annotationClose) {
+      evt.preventDefault();
+      closeAnnotationDrawer();
+      return;
+    }
+    var annotationEdit = evt.target.closest && evt.target.closest('[data-annotation-edit]');
+    if (annotationEdit) {
+      evt.preventDefault();
+      editAnnotation(annotationEdit.getAttribute('data-annotation-edit'));
+      return;
+    }
+    var annotationDelete = evt.target.closest && evt.target.closest('[data-annotation-delete]');
+    if (annotationDelete) {
+      evt.preventDefault();
+      deleteAnnotation(annotationDelete.getAttribute('data-annotation-delete'));
+      return;
+    }
+    var annotationNew = evt.target.closest && evt.target.closest('[data-annotation-new]');
+    if (annotationNew) {
+      evt.preventDefault();
+      resetAnnotationForm();
+    }
+  });
+
+  document.addEventListener('submit', function(evt) {
+    var form = evt.target.closest && evt.target.closest('[data-annotation-form]');
+    if (!form) return;
+    evt.preventDefault();
+    saveAnnotation(form);
+  });
+
+  document.addEventListener('keydown', function(evt) {
+    if (evt.key === 'Escape') closeAnnotationDrawer();
   });
 
   // --- Init highlighting ---
   initDashboardReturnLinks();
   initConversationObserver();
+  initAnnotationControls();
   initHighlighting();
 
 })();

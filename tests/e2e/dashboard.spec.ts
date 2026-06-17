@@ -1966,6 +1966,78 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('creates edits and deletes transcript annotations', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-annotation-summary-count]')).toContainText('0 annotations');
+
+    await page.getByRole('button', { name: 'Annotate session' }).click();
+    const drawer = page.locator('#annotation-drawer');
+    const form = drawer.locator('[data-annotation-form]');
+    await expect(drawer).toBeVisible();
+    await form.locator('input[name="category"]').fill('review');
+    await form.locator('input[name="labels"]').fill('quality:good, dataset:train');
+    await form.locator('textarea[name="note"]').fill('Session note for dataset review.');
+    await form.locator('input[name="needs_followup"]').check();
+    await form.locator('[data-annotation-save]').click();
+    await expect(page.locator('[data-annotation-summary-count]')).toContainText('1 annotation');
+    await expect(drawer).toContainText('Session note for dataset review.');
+    await drawer.getByRole('button', { name: 'Close annotations' }).click();
+
+    await page.locator(`#${TEST_EVENT_ID} [data-annotation-button]`).first().click();
+    await expect(drawer).toBeVisible();
+    await form.locator('textarea[name="note"]').fill('Event-level correction.');
+    await form.locator('select[name="quality_score"]').selectOption('4');
+    await form.locator('[data-annotation-save]').click();
+    await expect(drawer).toContainText('Event-level correction.');
+    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('1');
+
+    await page.evaluate(({ eventID, sessionID }) => {
+      const container = document.getElementById('conversation-container');
+      if (!container) return;
+      container.innerHTML = `
+        <div id="chat-view" class="transcript-chat-view">
+          <details id="${eventID}" open>
+            <summary>Reloaded event</summary>
+            <div class="annotation-inline-row">
+              <button type="button" class="annotation-button" data-annotation-button data-annotation-target="event" data-annotation-session-id="${sessionID}" data-annotation-event-uid="${eventID}" aria-label="Annotate">
+                <span class="annotation-button-label">Annotate</span>
+                <span class="annotation-count hidden" data-annotation-count>0</span>
+              </button>
+            </div>
+          </details>
+        </div>
+        <div id="timeline-view" class="transcript-timeline-view hidden"></div>
+      `;
+    }, { eventID: TEST_EVENT_ID, sessionID: TEST_SESSION_ID });
+    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('1');
+
+    await drawer.getByRole('button', { name: 'Edit' }).click();
+    await expect(form.locator('textarea[name="note"]')).toHaveValue('Event-level correction.');
+    await form.locator('textarea[name="note"]').fill('Updated event-level correction.');
+    await form.locator('[data-annotation-save]').click();
+    await expect(drawer).toContainText('Updated event-level correction.');
+    await drawer.getByRole('button', { name: 'Delete' }).click();
+    await expect(drawer).toContainText('No annotations yet');
+    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveClass(/hidden/);
+
+    await guards.expectClean();
+  });
+
+  test('shows transcript annotation failure state on mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 760 });
+    await installDashboardFixtures(page, { annotationsUnavailable: true });
+
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-annotation-summary-count]')).toContainText('Annotations unavailable');
+    await page.getByRole('button', { name: 'Annotate session' }).click();
+    await expect(page.locator('#annotation-drawer')).toBeVisible();
+    await expect(page.locator('[data-annotation-list]')).toContainText('Unable to load annotations');
+    await expectNoHorizontalOverflow(page);
+  });
+
   test('refreshes transcript conversation smoothly from session SSE updates', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installTranscriptRealtimeFixture(page);

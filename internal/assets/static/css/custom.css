@@ -3314,6 +3314,350 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
   justify-content: flex-end;
 }
 
+.annotation-session-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--dash-border-muted);
+}
+
+.annotation-session-title,
+.annotation-panel-kicker {
+  margin: 0;
+  color: var(--dash-text-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.annotation-session-count {
+  margin: 0.1rem 0 0;
+  color: var(--dash-text-soft);
+  font-size: 0.9rem;
+  line-height: 1.25rem;
+}
+
+.annotation-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 1.75rem;
+  max-width: 100%;
+  padding: 0.25rem 0.55rem;
+  color: var(--dash-text-muted);
+  background: var(--dash-bg-soft);
+  border: 1px solid var(--dash-border-muted);
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1rem;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.annotation-button:hover,
+.annotation-button:focus-visible,
+.annotation-button[data-annotation-has-items="true"] {
+  color: var(--dash-accent);
+  background: var(--dash-accent-soft);
+  border-color: var(--dash-accent-border);
+}
+
+.annotation-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.annotation-button-icon,
+.annotation-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.annotation-count {
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.3rem;
+  color: var(--dash-bg);
+  background: var(--dash-accent);
+  border-radius: 999px;
+  font-size: 0.68rem;
+  line-height: 1;
+}
+
+.annotation-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.annotation-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(22rem, 30rem);
+}
+
+.annotation-drawer.hidden {
+  display: none;
+}
+
+.annotation-backdrop {
+  min-width: 0;
+  background: rgba(2, 6, 23, 0.58);
+  backdrop-filter: blur(2px);
+}
+
+.annotation-panel {
+  min-width: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+  color: var(--dash-text);
+  background: var(--dash-card);
+  border-left: 1px solid var(--dash-border);
+  box-shadow: -18px 0 44px rgba(0, 0, 0, 0.28);
+}
+
+.annotation-panel-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--dash-bg-overlay);
+  border-bottom: 1px solid var(--dash-border-muted);
+  backdrop-filter: blur(14px);
+}
+
+.annotation-panel-title {
+  margin: 0.15rem 0 0;
+  color: var(--dash-text);
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1.4rem;
+}
+
+.annotation-close-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  color: var(--dash-text-muted);
+  background: var(--dash-bg-soft);
+  border: 1px solid var(--dash-border-muted);
+  border-radius: 6px;
+}
+
+.annotation-close-button:hover,
+.annotation-close-button:focus-visible {
+  color: var(--dash-text);
+  border-color: var(--dash-border);
+}
+
+.annotation-panel-body {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.annotation-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.annotation-empty,
+.annotation-list-error,
+.annotation-card {
+  padding: 0.75rem;
+  background: var(--dash-bg-soft);
+  border: 1px solid var(--dash-border-muted);
+  border-radius: 6px;
+}
+
+.annotation-list-error {
+  color: var(--dash-danger);
+  border-color: color-mix(in srgb, var(--dash-danger) 42%, transparent);
+  background: var(--dash-danger-soft);
+}
+
+.annotation-card {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.annotation-card-top,
+.annotation-card-actions,
+.annotation-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.annotation-card-top {
+  justify-content: space-between;
+}
+
+.annotation-card-note {
+  margin: 0;
+  color: var(--dash-text-soft);
+  font-size: 0.86rem;
+  line-height: 1.35rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.annotation-chip-list {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.annotation-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.35rem;
+  padding: 0.15rem 0.45rem;
+  color: var(--dash-text-soft);
+  background: var(--dash-chip);
+  border: 1px solid var(--dash-border-muted);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  line-height: 1rem;
+}
+
+.annotation-form {
+  display: grid;
+  gap: 0.85rem;
+  padding-top: 0.25rem;
+}
+
+.annotation-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.annotation-field {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+  color: var(--dash-text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1rem;
+}
+
+.annotation-field input,
+.annotation-field select,
+.annotation-field textarea {
+  width: 100%;
+  min-width: 0;
+  color: var(--dash-text);
+  background: var(--dash-bg-deep);
+  border: 1px solid var(--dash-border-muted);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  line-height: 1.35rem;
+  outline: none;
+}
+
+.annotation-field input,
+.annotation-field select {
+  min-height: 2.25rem;
+  padding: 0.4rem 0.55rem;
+}
+
+.annotation-field textarea {
+  resize: vertical;
+  padding: 0.55rem;
+}
+
+.annotation-field input:focus,
+.annotation-field select:focus,
+.annotation-field textarea:focus {
+  border-color: var(--dash-accent);
+  box-shadow: 0 0 0 3px var(--dash-accent-soft);
+}
+
+.annotation-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--dash-text-soft);
+  font-size: 0.86rem;
+}
+
+.annotation-check input {
+  width: 1rem;
+  height: 1rem;
+}
+
+.annotation-message {
+  min-height: 1.2rem;
+  margin: 0;
+  color: var(--dash-text-muted);
+  font-size: 0.8rem;
+  line-height: 1.2rem;
+}
+
+.annotation-message[data-state="error"] {
+  color: var(--dash-danger);
+}
+
+.annotation-primary-button,
+.annotation-secondary-button,
+.annotation-card-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.annotation-primary-button {
+  color: var(--dash-bg);
+  background: var(--dash-accent);
+  border: 1px solid var(--dash-accent);
+}
+
+.annotation-secondary-button,
+.annotation-card-button {
+  color: var(--dash-text-soft);
+  background: var(--dash-bg-soft);
+  border: 1px solid var(--dash-border-muted);
+}
+
+.annotation-card-button[data-variant="danger"] {
+  color: var(--dash-danger);
+  border-color: color-mix(in srgb, var(--dash-danger) 42%, transparent);
+}
+
+.annotation-primary-button:disabled,
+.annotation-secondary-button:disabled,
+.annotation-card-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .transcript-chat-view > .space-y-4 {
   display: flex;
   flex-direction: column;
@@ -4122,6 +4466,22 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
     justify-content: flex-start;
   }
 
+  .annotation-drawer {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .annotation-backdrop {
+    min-height: 12vh;
+  }
+
+  .annotation-panel {
+    max-height: 88vh;
+    border-top: 1px solid var(--dash-border);
+    border-left: 0;
+    border-radius: 8px 8px 0 0;
+  }
+
 }
 
 @media (max-width: 640px) {
@@ -4137,6 +4497,23 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
 
   .transcript-metric-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .annotation-session-strip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .annotation-session-strip .annotation-button {
+    width: 100%;
+  }
+
+  .annotation-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .annotation-button {
+    max-width: 100%;
   }
 
   #transcript-wrap .sm\:max-w-\[85\%\] {
