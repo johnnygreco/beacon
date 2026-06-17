@@ -72,6 +72,9 @@ func TestAnnotationAPICreateListUpdateDeleteSessionAnnotation(t *testing.T) {
 	if updated.Note != "Updated note" || updated.QualityScore != 5 || updated.NeedsFollowup || strings.Join(updated.Labels, ",") != "dataset:train" {
 		t.Fatalf("updated annotation = %#v", updated)
 	}
+	if updated.AuthorType != created.AuthorType || updated.AuthorName != created.AuthorName || updated.Source != created.Source {
+		t.Fatalf("updated provenance = %#v, want %#v/%q", updated, created.AuthorType, created.Source)
+	}
 
 	w = httptest.NewRecorder()
 	handlers.GetSessionAnnotations(w, annotationAPIRequest(http.MethodGet, "/api/sessions/session-1/annotations", "", "id", "session-1"))
@@ -282,6 +285,64 @@ func TestAnnotationAPIListByAnnotationIDAppliesScope(t *testing.T) {
 	}
 	if len(out.Items) != 0 {
 		t.Fatalf("out-of-scope annotation_id list returned %#v", out.Items)
+	}
+}
+
+func TestAnnotationAPIListPaginatesAfterScopeFiltering(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	fake := newAnnotationAPIFake()
+	fake.sessions["session-1"] = annotationAPISession{sourceName: "source-a"}
+	fake.events["hidden-message"] = annotationAPIEvent{sessionID: "session-1", eventKind: "message", sourceName: "source-b", timestamp: now}
+	fake.events["visible-message"] = annotationAPIEvent{sessionID: "session-1", eventKind: "message", sourceName: "source-a", timestamp: now.Add(time.Second)}
+	fake.annotations["ann-hidden"] = testTraceAnnotation("ann-hidden", models.AnnotationTargetMessage, "session-1", "hidden-message", now, "hidden note", []string{"dataset:eval"})
+	fake.annotations["ann-visible"] = testTraceAnnotation("ann-visible", models.AnnotationTargetMessage, "session-1", "visible-message", now.Add(time.Second), "visible note", []string{"dataset:eval"})
+	handlers := &APIHandlers{db: newAnnotationAPIDB(t, fake), logger: testLogger()}
+
+	w := httptest.NewRecorder()
+	handlers.ListAnnotations(w, annotationAPIRequest(http.MethodGet, "/api/annotations?session_id=session-1&source_name=source-a&limit=1", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("list status = %d body=%s", w.Code, w.Body.String())
+	}
+	var out APITraceAnnotationListResponse
+	if err := json.NewDecoder(w.Body).Decode(&out); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(out.Items) != 1 || out.Items[0].AnnotationID != "ann-visible" {
+		t.Fatalf("scoped paginated list = %#v, want ann-visible", out.Items)
+	}
+}
+
+func TestAnnotationAPIIDScopeMissReturnsAnnotationNotFound(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	fake := newAnnotationAPIFake()
+	fake.sessions["session-secret"] = annotationAPISession{sourceName: "source-a"}
+	fake.annotations["ann-secret"] = testTraceAnnotation("ann-secret", models.AnnotationTargetSession, "session-secret", "", now, "secret note", nil)
+	handlers := &APIHandlers{db: newAnnotationAPIDB(t, fake), logger: testLogger()}
+
+	tests := []struct {
+		name   string
+		method string
+		body   string
+		call   func(http.ResponseWriter, *http.Request)
+	}{
+		{name: "get", method: http.MethodGet, call: handlers.GetAnnotation},
+		{name: "update", method: http.MethodPatch, body: `{"note":"nope"}`, call: handlers.UpdateAnnotation},
+		{name: "delete", method: http.MethodDelete, call: handlers.DeleteAnnotation},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := annotationAPIRequest(tt.method, "/api/annotations/ann-secret", tt.body, "annotation_id", "ann-secret")
+			req = req.WithContext(ContextWithAPIScope(req.Context(), APIScopeFilters{SourceNames: []string{"source-b"}}))
+			w := httptest.NewRecorder()
+			tt.call(w, req)
+			if w.Code != http.StatusNotFound {
+				t.Fatalf("status = %d body=%s", w.Code, w.Body.String())
+			}
+			assertAPIError(t, w.Body.String(), "annotation not found")
+			if strings.Contains(w.Body.String(), "annotation target not found") {
+				t.Fatalf("scoped id miss leaked target state: %s", w.Body.String())
+			}
+		})
 	}
 }
 

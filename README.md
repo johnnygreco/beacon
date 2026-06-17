@@ -78,9 +78,10 @@ state, and free-form notes.
 
 Agents can create and maintain the same records through Beacon MCP with
 `create_annotation`, `update_annotation`, `list_annotations`, `get_annotation`,
-and `delete_annotation`. MCP annotation writes use `source: "mcp"` and
-`author_type: "agent"` and support `session_id`, `message_id`, `event_id`, or
-an `open_ref` returned by Beacon search/open tools.
+and `delete_annotation`. MCP-created annotations use `source: "mcp"` and
+`author_type: "agent"`; updates preserve existing provenance. Tools support
+`session_id`, `message_id`, `event_id`, or an `open_ref` returned by Beacon
+search/open tools.
 
 ## Annotated Trace Datasets
 

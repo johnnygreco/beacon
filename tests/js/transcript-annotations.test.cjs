@@ -58,7 +58,11 @@ test("transcript annotation helpers normalize labels and target keys", () => {
   );
   assert.equal(helpers.annotationTargetKey({ target_type: "session", session_id: "session-1" }), "session:session-1");
   assert.equal(helpers.annotationTargetKey({ target_type: "event", event_uid: "event-1" }), "event:event-1");
-  assert.equal(helpers.annotationTargetKey({ target_type: "message", event_uid: "message-1" }), "event:message-1");
+  assert.equal(helpers.annotationTargetKey({ target_type: "message", event_uid: "message-1" }), "message:message-1");
+  assert.notEqual(
+    helpers.annotationTargetKey({ target_type: "event", event_uid: "shared-uid" }),
+    helpers.annotationTargetKey({ target_type: "message", event_uid: "shared-uid" }),
+  );
   assert.equal(helpers.annotationCountText(1), "1 annotation");
   assert.equal(helpers.annotationCountText(2), "2 annotations");
 });
@@ -105,6 +109,8 @@ test("transcript annotation helpers build create and update payloads", () => {
   assert.equal(updatePayload.target_type, undefined);
   assert.equal(updatePayload.session_id, undefined);
   assert.equal(updatePayload.event_uid, undefined);
+  assert.equal(updatePayload.author_type, undefined);
+  assert.equal(updatePayload.source, undefined);
   assert.equal(updatePayload.quality_score, 3);
   assert.equal(updatePayload.confidence, 80);
 });

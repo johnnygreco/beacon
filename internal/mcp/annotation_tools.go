@@ -87,8 +87,6 @@ func (s *Server) toolCreateAnnotation(ctx context.Context, args json.RawMessage)
 func (s *Server) toolUpdateAnnotation(ctx context.Context, args json.RawMessage) (string, error) {
 	var params struct {
 		AnnotationID  string    `json:"annotation_id"`
-		AuthorID      *string   `json:"author_id"`
-		AuthorName    *string   `json:"author_name"`
 		Category      *string   `json:"category"`
 		Outcome       *string   `json:"outcome"`
 		QualityScore  *int      `json:"quality_score"`
@@ -119,10 +117,6 @@ func (s *Server) toolUpdateAnnotation(ctx context.Context, args json.RawMessage)
 		return "", err
 	}
 	annotation, err := store.UpdateTraceAnnotation(ctx, backend.DB, current.AnnotationID, store.AnnotationUpdate{
-		AuthorType:    stringPtr(models.AnnotationAuthorAgent),
-		AuthorID:      params.AuthorID,
-		AuthorName:    params.AuthorName,
-		Source:        stringPtr(models.AnnotationSourceMCP),
 		Category:      params.Category,
 		Outcome:       params.Outcome,
 		QualityScore:  params.QualityScore,
@@ -166,19 +160,15 @@ func (s *Server) toolListAnnotations(ctx context.Context, args json.RawMessage) 
 	if params.Offset > 0 {
 		filter.Offset = params.Offset
 	}
-	annotations, err := store.ListTraceAnnotations(ctx, backend.DB, filter)
+	visibleAnnotations, resultComplete, err := s.listAnnotationsVisiblePage(ctx, backend.DB, filter, metadata)
 	if err != nil {
 		return "", annotationToolError("failed to list annotations", err)
-	}
-	visibleAnnotations, err := s.filterAnnotationListInScope(ctx, backend.DB, annotations, metadata)
-	if err != nil {
-		return "", err
 	}
 	return FormatAnnotationList(visibleAnnotations, AnnotationListMetadata{
 		ResultCount:    len(visibleAnnotations),
 		Limit:          filter.Limit,
 		Offset:         filter.Offset,
-		ResultComplete: len(annotations) < filter.Limit,
+		ResultComplete: resultComplete,
 	}, metadata), nil
 }
 
@@ -446,18 +436,50 @@ func normalizeAnnotationTargetInput(targetType, sessionID, eventID, messageID st
 	return input, nil
 }
 
-func (s *Server) filterAnnotationListInScope(ctx context.Context, db *sql.DB, annotations []models.TraceAnnotation, metadata ScopeMetadata) ([]models.TraceAnnotation, error) {
-	filtered := make([]models.TraceAnnotation, 0, len(annotations))
-	for _, annotation := range annotations {
-		if _, err := s.ensureAnnotationToolTargetInScope(ctx, db, annotation, metadata.Filters); err != nil {
-			if isAnnotationListScopeMiss(err) {
+func (s *Server) listAnnotationsVisiblePage(ctx context.Context, db *sql.DB, filter store.AnnotationFilter, metadata ScopeMetadata) ([]models.TraceAnnotation, bool, error) {
+	limit := normalizeAnnotationListLimit(filter.Limit)
+	offset := 0
+	if filter.Offset > 0 {
+		offset = filter.Offset
+	}
+	visible := make([]models.TraceAnnotation, 0, limit)
+	rawOffset := 0
+	visibleSkipped := 0
+	resultComplete := true
+	for len(visible) <= limit {
+		pageFilter := filter
+		pageFilter.Limit = maxAnnotationListLimit
+		pageFilter.Offset = rawOffset
+		annotations, err := store.ListTraceAnnotations(ctx, db, pageFilter)
+		if err != nil {
+			return nil, false, err
+		}
+		if len(annotations) == 0 {
+			break
+		}
+		for _, annotation := range annotations {
+			if _, err := s.ensureAnnotationToolTargetInScope(ctx, db, annotation, metadata.Filters); err != nil {
+				if isAnnotationListScopeMiss(err) {
+					continue
+				}
+				return nil, false, err
+			}
+			if visibleSkipped < offset {
+				visibleSkipped++
 				continue
 			}
-			return nil, err
+			visible = append(visible, annotation)
+			if len(visible) > limit {
+				resultComplete = false
+				return visible[:limit], resultComplete, nil
+			}
 		}
-		filtered = append(filtered, annotation)
+		rawOffset += len(annotations)
+		if len(annotations) < pageFilter.Limit {
+			break
+		}
 	}
-	return filtered, nil
+	return visible, resultComplete, nil
 }
 
 func (s *Server) ensureAnnotationToolTargetInScope(ctx context.Context, db *sql.DB, annotation models.TraceAnnotation, requestedScope ScopeFilters) (ScopeMetadata, error) {
@@ -589,10 +611,6 @@ func normalizeMessageID(id string) string {
 	id = strings.TrimSpace(id)
 	id = stripBeaconPrefix(id, "message:")
 	return stripBeaconPrefix(id, "event:")
-}
-
-func stringPtr(value string) *string {
-	return &value
 }
 
 func firstNonEmptyString(values ...string) string {

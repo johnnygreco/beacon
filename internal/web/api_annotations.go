@@ -35,10 +35,6 @@ type annotationWriteRequest struct {
 }
 
 type annotationUpdateRequest struct {
-	AuthorType    *string   `json:"author_type"`
-	AuthorID      *string   `json:"author_id"`
-	AuthorName    *string   `json:"author_name"`
-	Source        *string   `json:"source"`
 	Category      *string   `json:"category"`
 	Outcome       *string   `json:"outcome"`
 	QualityScore  *int      `json:"quality_score"`
@@ -91,6 +87,9 @@ func (a *APIHandlers) GetAnnotation(w http.ResponseWriter, r *http.Request) {
 	}
 	scope, _ := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
 	if err := a.ensureAnnotationTargetInScope(r, annotation, scope); err != nil {
+		if a.writeAnnotationIDScopeMiss(w, err) {
+			return
+		}
 		a.annotationError(w, "failed to query annotation", err)
 		return
 	}
@@ -141,6 +140,9 @@ func (a *APIHandlers) UpdateAnnotation(w http.ResponseWriter, r *http.Request) {
 	}
 	scope, _ := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
 	if err := a.ensureAnnotationTargetInScope(r, current, scope); err != nil {
+		if a.writeAnnotationIDScopeMiss(w, err) {
+			return
+		}
 		a.annotationError(w, "failed to update annotation", err)
 		return
 	}
@@ -160,6 +162,9 @@ func (a *APIHandlers) DeleteAnnotation(w http.ResponseWriter, r *http.Request) {
 	}
 	scope, _ := scopeForRequest(r.Context(), parseAPIScopeFilters(r.URL.Query()))
 	if err := a.ensureAnnotationTargetInScope(r, current, scope); err != nil {
+		if a.writeAnnotationIDScopeMiss(w, err) {
+			return
+		}
 		a.annotationError(w, "failed to delete annotation", err)
 		return
 	}
@@ -208,21 +213,10 @@ func (a *APIHandlers) listAnnotations(w http.ResponseWriter, r *http.Request, re
 		}
 	}
 
-	annotations, err := store.ListTraceAnnotations(r.Context(), a.db, filter)
+	items, err := a.listAnnotationsInScope(r, filter, req.Scope, req.Limit, req.Offset)
 	if err != nil {
 		a.annotationError(w, "failed to query annotations", err)
 		return
-	}
-	items := make([]APITraceAnnotation, 0, len(annotations))
-	for _, annotation := range annotations {
-		if err := a.ensureAnnotationTargetInScope(r, annotation, req.Scope); err != nil {
-			if errors.Is(err, store.ErrAnnotationTargetNotFound) {
-				continue
-			}
-			a.annotationError(w, "failed to query annotations", err)
-			return
-		}
-		items = append(items, apiTraceAnnotationFromModel(annotation))
 	}
 	a.jsonResponse(w, APITraceAnnotationListResponse{Items: items})
 }
@@ -249,10 +243,6 @@ func (r annotationWriteRequest) traceAnnotation() models.TraceAnnotation {
 
 func (r annotationUpdateRequest) storeUpdate() store.AnnotationUpdate {
 	return store.AnnotationUpdate{
-		AuthorType:    r.AuthorType,
-		AuthorID:      r.AuthorID,
-		AuthorName:    r.AuthorName,
-		Source:        r.Source,
 		Category:      r.Category,
 		Outcome:       r.Outcome,
 		QualityScore:  r.QualityScore,
@@ -375,6 +365,72 @@ func (a *APIHandlers) resolveEventAnnotationTargetInScope(r *http.Request, sessi
 func (a *APIHandlers) ensureAnnotationTargetInScope(r *http.Request, annotation models.TraceAnnotation, scope APIScopeFilters) error {
 	_, err := a.resolveAnnotationTargetInScope(r, annotation.TargetType, annotation.SessionID, annotation.EventUID, scope)
 	return err
+}
+
+func (a *APIHandlers) listAnnotationsInScope(r *http.Request, filter store.AnnotationFilter, scope APIScopeFilters, limit, offset int) ([]APITraceAnnotation, error) {
+	limit = normalizeAnnotationAPIListLimit(limit)
+	offset = normalizeAnnotationAPIListOffset(offset)
+	items := make([]APITraceAnnotation, 0, limit)
+	rawOffset := 0
+	visibleSkipped := 0
+	for len(items) < limit {
+		pageFilter := filter
+		pageFilter.Limit = maxAnnotationsAPILimit
+		pageFilter.Offset = rawOffset
+		annotations, err := store.ListTraceAnnotations(r.Context(), a.db, pageFilter)
+		if err != nil {
+			return nil, err
+		}
+		if len(annotations) == 0 {
+			break
+		}
+		for _, annotation := range annotations {
+			if err := a.ensureAnnotationTargetInScope(r, annotation, scope); err != nil {
+				if errors.Is(err, store.ErrAnnotationTargetNotFound) {
+					continue
+				}
+				return nil, err
+			}
+			if visibleSkipped < offset {
+				visibleSkipped++
+				continue
+			}
+			items = append(items, apiTraceAnnotationFromModel(annotation))
+			if len(items) == limit {
+				break
+			}
+		}
+		rawOffset += len(annotations)
+		if len(annotations) < pageFilter.Limit {
+			break
+		}
+	}
+	return items, nil
+}
+
+func normalizeAnnotationAPIListLimit(limit int) int {
+	if limit <= 0 {
+		return defaultAnnotationsAPILimit
+	}
+	if limit > maxAnnotationsAPILimit {
+		return maxAnnotationsAPILimit
+	}
+	return limit
+}
+
+func normalizeAnnotationAPIListOffset(offset int) int {
+	if offset < 0 {
+		return 0
+	}
+	return offset
+}
+
+func (a *APIHandlers) writeAnnotationIDScopeMiss(w http.ResponseWriter, err error) bool {
+	if !errors.Is(err, store.ErrAnnotationTargetNotFound) {
+		return false
+	}
+	a.jsonError(w, "annotation not found", http.StatusNotFound)
+	return true
 }
 
 func (a *APIHandlers) annotationError(w http.ResponseWriter, publicMessage string, err error) {

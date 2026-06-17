@@ -48,7 +48,7 @@ Validated paths:
 - `create_annotation` writes `author_type: "agent"` and `source: "mcp"`.
 - Message targets return both `event_id` and `message_id`.
 - Returned `open_ref` can be passed back to `list_annotations`.
-- `update_annotation` increments revision and keeps source attribution as MCP.
+- `update_annotation` increments revision and preserves existing source attribution.
 - `delete_annotation` soft-deletes and returns `status: "deleted"`.
 
 ## API Evidence

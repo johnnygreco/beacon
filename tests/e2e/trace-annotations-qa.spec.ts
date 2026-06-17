@@ -332,11 +332,11 @@ test.describe('trace annotation QA screenshots', () => {
     });
     await page.setViewportSize({ width: 1280, height: 900 });
 
-    await page.goto('/api/annotations/traces?label=dataset:eval&limit=25', { waitUntil: 'domcontentloaded' });
+    await page.goto('/api/annotations/traces?label=dataset:eval&limit=25&source_name=source-a&project_key=beacon', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('body')).toContainText('beacon.annotated_traces.index.v1');
     await capture(page, '08-annotated-trace-discovery-json.png');
 
-    await page.goto('/api/annotations/export?label=dataset:eval&event_limit=2000&limit=25', { waitUntil: 'domcontentloaded' });
+    await page.goto('/api/annotations/export?label=dataset:eval&event_limit=2000&limit=25&source_name=source-a&project_key=beacon', { waitUntil: 'domcontentloaded' });
     await expect(page.locator('body')).toContainText('beacon.annotated_traces.export.v1');
     await expect(page.locator('body')).toContainText('Message-level MCP annotation.');
     await capture(page, '09-annotated-trace-export-json.png');
