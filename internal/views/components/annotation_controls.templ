@@ -1,0 +1,20 @@
+package components
+
+templ AnnotationButton(targetType, sessionID, eventUID, label string) {
+	<button type="button"
+	        class="annotation-button"
+	        data-annotation-button
+	        data-annotation-target={ targetType }
+	        data-annotation-session-id={ sessionID }
+	        data-annotation-event-uid={ eventUID }
+	        data-annotation-label={ label }
+	        aria-label={ label }>
+		<span class="annotation-button-icon" aria-hidden="true">
+			<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+				<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h6m-8 8l3-3h9a4 4 0 004-4V7a4 4 0 00-4-4H7a4 4 0 00-4 4v6a4 4 0 004 4"></path>
+			</svg>
+		</span>
+		<span class="annotation-button-label">{ label }</span>
+		<span class="annotation-count hidden" data-annotation-count>0</span>
+	</button>
+}

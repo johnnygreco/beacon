@@ -16,7 +16,7 @@ func scopedSessionPath(path, query string) string {
 
 templ SessionDetail(data views.SessionDetailData) {
 	@views.Layout("Session " + data.Session.ID, "transcript") {
-		<div id="transcript-wrap" hx-ext="sse" sse-connect={ fmt.Sprintf("/sse/session/%s", data.Session.ID) } class="transcript-page space-y-6">
+		<div id="transcript-wrap" hx-ext="sse" sse-connect={ fmt.Sprintf("/sse/session/%s", data.Session.ID) } class="transcript-page space-y-6" data-session-id={ data.Session.ID }>
 			<!-- Session Header -->
 			<section class={ "transcript-header border", templ.KV("border-blue-500/30", data.Session.IsSubagent()), templ.KV("border-gray-700", !data.Session.IsSubagent()) }>
 				<div class="flex flex-wrap items-start justify-between gap-4">
@@ -98,6 +98,13 @@ templ SessionDetail(data views.SessionDetailData) {
 							</p>
 						}
 					</div>
+				</div>
+				<div class="annotation-session-strip" data-annotation-summary data-annotation-target="session" data-annotation-session-id={ data.Session.ID }>
+					<div class="min-w-0">
+						<p class="annotation-session-title">Annotations</p>
+						<p class="annotation-session-count" data-annotation-summary-count role="status" aria-live="polite">0 annotations</p>
+					</div>
+					@components.AnnotationButton("session", data.Session.ID, "", "Annotate session")
 				</div>
 			</section>
 
@@ -207,8 +214,76 @@ templ SessionDetail(data views.SessionDetailData) {
 			<script src={ views.AssetURL("/static/js/charts/session-models.js") }></script>
 			<script src={ views.AssetURL("/static/js/charts/bootstrap.js") }></script>
 			<script src={ views.AssetURL("/static/js/transcript.js") }></script>
+			@annotationDrawer()
 		</div>
 	}
+}
+
+templ annotationDrawer() {
+	<div id="annotation-drawer" class="annotation-drawer hidden" aria-hidden="true">
+		<div class="annotation-backdrop" data-annotation-close></div>
+		<section class="annotation-panel" role="dialog" aria-modal="true" aria-labelledby="annotation-drawer-title">
+			<header class="annotation-panel-header">
+				<div class="min-w-0">
+					<p class="annotation-panel-kicker" data-annotation-target-label>Session</p>
+					<h2 id="annotation-drawer-title" class="annotation-panel-title">Annotations</h2>
+				</div>
+				<button type="button" class="annotation-close-button" data-annotation-close aria-label="Close annotations">
+					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+						<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+					</svg>
+				</button>
+			</header>
+			<div class="annotation-panel-body">
+				<div class="annotation-list" data-annotation-list role="status" aria-live="polite"></div>
+				<form class="annotation-form" data-annotation-form>
+					<input type="hidden" name="annotation_id" value=""/>
+					<div class="annotation-form-grid">
+						<label class="annotation-field">
+							<span>Category</span>
+							<input name="category" type="text" maxlength="256" autocomplete="off"/>
+						</label>
+						<label class="annotation-field">
+							<span>Outcome</span>
+							<input name="outcome" type="text" maxlength="256" autocomplete="off"/>
+						</label>
+						<label class="annotation-field">
+							<span>Quality</span>
+							<select name="quality_score">
+								<option value="0">No score</option>
+								<option value="1">1</option>
+								<option value="2">2</option>
+								<option value="3">3</option>
+								<option value="4">4</option>
+								<option value="5">5</option>
+							</select>
+						</label>
+						<label class="annotation-field">
+							<span>Confidence</span>
+							<input name="confidence" type="number" min="0" max="100" step="1" inputmode="numeric" value="0"/>
+						</label>
+					</div>
+					<label class="annotation-field">
+						<span>Labels</span>
+						<input name="labels" type="text" maxlength="2048" autocomplete="off" placeholder="quality:good, dataset:train"/>
+					</label>
+					<label class="annotation-field">
+						<span>Note</span>
+						<textarea name="note" rows="5" maxlength="20480"></textarea>
+					</label>
+					<label class="annotation-check">
+						<input name="needs_followup" type="checkbox"/>
+						<span>Needs follow-up</span>
+					</label>
+					<p class="annotation-message" data-annotation-message role="status" aria-live="polite"></p>
+					<div class="annotation-actions">
+						<button type="button" class="annotation-secondary-button" data-annotation-new>New</button>
+						<button type="submit" class="annotation-primary-button" data-annotation-save>Save annotation</button>
+					</div>
+				</form>
+			</div>
+		</section>
+	</div>
 }
 
 func multiSeriesChartData(data views.MultiSeriesChart) any {
