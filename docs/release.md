@@ -57,8 +57,22 @@ pipeline if it changed.
 
 ## Release preflight
 
-Run release preflight from a clean worktree before `make publish`. Required
-checks for a dashboard/UI release are:
+Run release preflight from a clean worktree before `make publish`.
+
+For a dashboard/UI release, run the full preflight:
+
+```bash
+make release-preflight
+```
+
+For a non-UI maintenance release, run the core preflight plus any targeted
+checks for the touched area:
+
+```bash
+make release-preflight-core
+```
+
+The Makefile targets wrap the release checks below:
 
 ```bash
 git diff --check
@@ -66,17 +80,16 @@ make fmt-check
 make generate-check
 make test-cover
 make lint
-tmpbin=$(mktemp -d); GOBIN="$tmpbin" go install .; "$tmpbin/beacon" --version; rm -rf "$tmpbin"
-tmpbin=$(mktemp -d); GOBIN="$tmpbin" go install ./cmd/beacon; "$tmpbin/beacon" --version; rm -rf "$tmpbin"
+make release-install-check
 GOTOOLCHAIN=go1.26.4 make vulncheck
 npm ci
 npm audit --audit-level=moderate
 npm run vendor:check
 npm run test:frontend
+go test ./scripts
 npm run test:e2e
 npm run test:a11y
 npm run test:visual
-go test ./scripts
 ```
 
 Run `npm run test:visual` on Darwin while the repository uses Darwin visual

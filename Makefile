@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help build install-local run generate generate-check clean clean-local clean-deps simulator publish test test-race test-cover perf-fast perf-bench perf-explain perf-browser perf-lab-smoke perf-lab perf-budget perf-compare fmt fmt-check lint vulncheck
+.PHONY: help build install-local run generate generate-check clean clean-local clean-deps simulator publish release-install-check release-preflight-core release-preflight-ui release-preflight test test-race test-cover perf-fast perf-bench perf-explain perf-browser perf-lab-smoke perf-lab perf-budget perf-compare fmt fmt-check lint vulncheck
 
 GO_PACKAGE_DIRS = $(shell if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then git ls-files '*.go' | xargs -n1 dirname | sort -u; else find . \( -path ./node_modules -o -path ./.scratch -o -path ./.venv -o -path ./dist -o -path ./bin \) -prune -o -name '*.go' -print | xargs -n1 dirname | sort -u; fi)
 GO_PACKAGES = $(shell printf '%s\n' $(GO_PACKAGE_DIRS) | while read -r dir; do if [ "$$dir" = "." ] || [ "$$dir" = "./." ]; then pkg="."; elif printf '%s\n' "$$dir" | grep -q '^\./'; then pkg="$$dir"; else pkg="./$$dir"; fi; go list "$$pkg" >/dev/null 2>&1 && printf '%s\n' "$$pkg"; done)
@@ -120,3 +120,36 @@ vulncheck: ## Run Go vulnerability scan
 
 publish: ## Publish a release (usage: make publish VERSION=x.y.z)
 	./scripts/publish.sh $(VERSION)
+
+release-install-check: ## Verify root and legacy Go install paths
+	@tmpbin=$$(mktemp -d); \
+	trap 'rm -rf "$$tmpbin"' EXIT; \
+	GOBIN="$$tmpbin" go install .; \
+	"$$tmpbin/beacon" --version
+	@tmpbin=$$(mktemp -d); \
+	trap 'rm -rf "$$tmpbin"' EXIT; \
+	GOBIN="$$tmpbin" go install ./cmd/beacon; \
+	"$$tmpbin/beacon" --version
+
+release-preflight-core: ## Run non-browser release preflight checks
+	git diff --check
+	$(MAKE) fmt-check
+	$(MAKE) generate-check
+	$(MAKE) test-cover
+	$(MAKE) lint
+	$(MAKE) release-install-check
+	GOTOOLCHAIN=$${GOTOOLCHAIN:-go1.26.4} $(MAKE) vulncheck
+	npm ci
+	npm audit --audit-level=moderate
+	npm run vendor:check
+	npm run test:frontend
+	go test ./scripts
+
+release-preflight-ui: ## Run browser release preflight checks
+	npm run test:e2e
+	npm run test:a11y
+	npm run test:visual
+
+release-preflight: ## Run full release preflight
+	$(MAKE) release-preflight-core
+	$(MAKE) release-preflight-ui

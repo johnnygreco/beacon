@@ -44,6 +44,7 @@ make install-local INSTALL_DIR="$HOME/.local/bin"
 | Run Playwright dashboard tests | `npm run test:e2e` |
 | Run accessibility tests | `npm run test:a11y` |
 | Run visual regression tests | `npm run test:visual` |
+| Run full release preflight | `make release-preflight` |
 | Publish a release | `make publish VERSION=x.y.z` |
 | Remove generated artifacts | `make clean` |
 
@@ -129,8 +130,9 @@ Use visual updates only when intentional UI changes require new baselines.
 ## Release Work
 
 Release builds, checksums, install-script validation, and publishing steps live
-in [release.md](release.md). The publish entrypoint is:
+in [release.md](release.md). The release sequence is:
 
 ```bash
+make release-preflight
 make publish VERSION=x.y.z
 ```
