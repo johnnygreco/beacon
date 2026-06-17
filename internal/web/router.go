@@ -72,6 +72,8 @@ func NewRouter(
 			r.Get("/events/{event_id}", apiHandlers.GetEvent)
 			r.Get("/events/{event_id}/annotations", apiHandlers.GetEventAnnotations)
 			r.Get("/tool-payloads/{event_id}", apiHandlers.GetToolPayload)
+			r.Get("/annotations/traces", apiHandlers.ListAnnotatedTraces)
+			r.Get("/annotations/export", apiHandlers.ExportAnnotatedTraces)
 			r.Get("/annotations", apiHandlers.ListAnnotations)
 			r.Post("/annotations", apiHandlers.CreateAnnotation)
 			r.Get("/annotations/{annotation_id}", apiHandlers.GetAnnotation)

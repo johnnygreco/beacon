@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -284,6 +285,182 @@ func TestAnnotationAPIListByAnnotationIDAppliesScope(t *testing.T) {
 	}
 }
 
+func TestAnnotationAPIAnnotatedTracesListsSessionsAndTargets(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	fake := newAnnotationAPIFake()
+	fake.sessions["session-1"] = annotationAPISession{sourceName: "source-a", runtime: "runtime-a", startedAt: now.Add(-time.Hour), endedAt: now}
+	fake.events["message-1"] = annotationAPIEvent{sessionID: "session-1", eventKind: "message", sourceName: "source-a", runtime: "runtime-a", timestamp: now.Add(-time.Minute), textPreview: "user asks for help"}
+	fake.annotations["ann-session"] = testTraceAnnotation("ann-session", models.AnnotationTargetSession, "session-1", "", now, "session note", []string{"dataset:eval"})
+	fake.annotations["ann-message"] = testTraceAnnotation("ann-message", models.AnnotationTargetMessage, "session-1", "message-1", now.Add(time.Second), "message note", []string{"dataset:eval"})
+	hidden := testTraceAnnotation("ann-hidden", models.AnnotationTargetMessage, "session-1", "hidden-message", now.Add(2*time.Second), "hidden note", []string{"dataset:eval"})
+	fake.annotations[hidden.AnnotationID] = hidden
+	fake.events["hidden-message"] = annotationAPIEvent{sessionID: "session-1", eventKind: "message", sourceName: "source-b", runtime: "runtime-a", timestamp: now}
+	handlers := &APIHandlers{db: newAnnotationAPIDB(t, fake), logger: testLogger()}
+
+	req := annotationAPIRequest(http.MethodGet, "/api/annotations/traces?label=dataset:eval&source_name=source-a", "")
+	w := httptest.NewRecorder()
+	handlers.ListAnnotatedTraces(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("annotated traces status = %d body=%s", w.Code, w.Body.String())
+	}
+	var got APIAnnotatedTracesResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode annotated traces: %v", err)
+	}
+	if got.Schema != annotatedTraceIndexSchema || len(got.Items) != 1 {
+		t.Fatalf("annotated traces response = %#v", got)
+	}
+	item := got.Items[0]
+	if item.Session.ID != "session-1" || item.Counts.AnnotationCount != 2 || item.Counts.SessionAnnotationCount != 1 || item.Counts.MessageAnnotationCount != 1 {
+		t.Fatalf("annotated trace item = %#v", item)
+	}
+	if len(item.Targets) != 2 {
+		t.Fatalf("targets = %#v, want session and visible message targets", item.Targets)
+	}
+	for _, target := range item.Targets {
+		if target.EventUID == "hidden-message" {
+			t.Fatalf("out-of-scope target leaked: %#v", item.Targets)
+		}
+	}
+}
+
+func TestAnnotationAPIAnnotatedTracesOrdersByVisibleScopedAnnotations(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	fake := newAnnotationAPIFake()
+	fake.sessions["session-a"] = annotationAPISession{sourceName: "source-a", runtime: "runtime-a", startedAt: now.Add(-2 * time.Hour), endedAt: now}
+	fake.sessions["session-b"] = annotationAPISession{sourceName: "source-a", runtime: "runtime-a", startedAt: now.Add(-time.Hour), endedAt: now}
+	fake.events["hidden-message"] = annotationAPIEvent{sessionID: "session-a", eventKind: "message", sourceName: "source-b", runtime: "runtime-a", timestamp: now}
+	fake.annotations["ann-a-visible"] = testTraceAnnotation("ann-a-visible", models.AnnotationTargetSession, "session-a", "", now.Add(time.Second), "older visible note", []string{"dataset:eval"})
+	fake.annotations["ann-b-visible"] = testTraceAnnotation("ann-b-visible", models.AnnotationTargetSession, "session-b", "", now.Add(5*time.Second), "newer visible note", []string{"dataset:eval"})
+	fake.annotations["ann-a-hidden"] = testTraceAnnotation("ann-a-hidden", models.AnnotationTargetMessage, "session-a", "hidden-message", now.Add(10*time.Second), "newest hidden note", []string{"dataset:eval"})
+	handlers := &APIHandlers{db: newAnnotationAPIDB(t, fake), logger: testLogger()}
+
+	w := httptest.NewRecorder()
+	handlers.ListAnnotatedTraces(w, annotationAPIRequest(http.MethodGet, "/api/annotations/traces?source_name=source-a&label=dataset:eval&limit=1", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("annotated traces status = %d body=%s", w.Code, w.Body.String())
+	}
+	var firstPage APIAnnotatedTracesResponse
+	if err := json.NewDecoder(w.Body).Decode(&firstPage); err != nil {
+		t.Fatalf("decode first page: %v", err)
+	}
+	if len(firstPage.Items) != 1 || firstPage.Items[0].Session.ID != "session-b" || !firstPage.HasMore {
+		t.Fatalf("first page = %#v, want session-b first with more results", firstPage)
+	}
+
+	w = httptest.NewRecorder()
+	handlers.ListAnnotatedTraces(w, annotationAPIRequest(http.MethodGet, "/api/annotations/traces?source_name=source-a&label=dataset:eval&limit=1&offset=1", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("annotated traces second page status = %d body=%s", w.Code, w.Body.String())
+	}
+	var secondPage APIAnnotatedTracesResponse
+	if err := json.NewDecoder(w.Body).Decode(&secondPage); err != nil {
+		t.Fatalf("decode second page: %v", err)
+	}
+	if len(secondPage.Items) != 1 || secondPage.Items[0].Session.ID != "session-a" || secondPage.HasMore {
+		t.Fatalf("second page = %#v, want session-a without hidden target influence", secondPage)
+	}
+}
+
+func TestAnnotationAPIExportAnnotatedTracesIncludesContextAndDeleted(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	fake := newAnnotationAPIFake()
+	fake.sessions["session-1"] = annotationAPISession{sourceName: "source-a", runtime: "runtime-a", startedAt: now.Add(-time.Hour), endedAt: now}
+	fake.events["message-1"] = annotationAPIEvent{sessionID: "session-1", eventKind: "message", sourceName: "source-a", runtime: "runtime-a", timestamp: now.Add(-2 * time.Minute), textPreview: "first message", actorRole: "user", model: "gpt-test", tokens: 12}
+	fake.events["event-1"] = annotationAPIEvent{sessionID: "session-1", eventKind: "tool_call", sourceName: "source-a", runtime: "runtime-a", timestamp: now.Add(-time.Minute), textPreview: "tool call", toolName: "shell", tokens: 3}
+	active := testTraceAnnotation("ann-session", models.AnnotationTargetSession, "session-1", "", now, "session note", []string{"dataset:eval"})
+	deleted := testTraceAnnotation("ann-event", models.AnnotationTargetEvent, "session-1", "event-1", now.Add(time.Second), "deleted event note", []string{"dataset:eval"})
+	deleted.Status = models.AnnotationStatusDeleted
+	deletedAt := now.Add(2 * time.Second)
+	deleted.DeletedAt = &deletedAt
+	fake.annotations[active.AnnotationID] = active
+	fake.annotations[deleted.AnnotationID] = deleted
+	handlers := &APIHandlers{db: newAnnotationAPIDB(t, fake), logger: testLogger()}
+
+	w := httptest.NewRecorder()
+	handlers.ExportAnnotatedTraces(w, annotationAPIRequest(http.MethodGet, "/api/annotations/export?session_id=session-1&include_deleted=1&event_limit=1", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("export status = %d body=%s", w.Code, w.Body.String())
+	}
+	var got APIAnnotatedTraceExportResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode export: %v", err)
+	}
+	if got.Schema != annotatedTraceExportSchema || len(got.Traces) != 1 {
+		t.Fatalf("export response = %#v", got)
+	}
+	trace := got.Traces[0]
+	if trace.Session.ID != "session-1" || trace.Counts.AnnotationCount != 2 || trace.Counts.EventAnnotationCount != 1 {
+		t.Fatalf("export trace counts = %#v", trace)
+	}
+	if len(trace.Annotations) != 2 || trace.Annotations[1].Status != models.AnnotationStatusDeleted {
+		t.Fatalf("export annotations = %#v", trace.Annotations)
+	}
+	if len(trace.Events) != 1 || trace.Events[0].EventUID != "message-1" || !trace.EventTruncated || len(got.Warnings) != 1 {
+		t.Fatalf("export events/truncation = events:%#v truncated:%v warnings:%#v", trace.Events, trace.EventTruncated, got.Warnings)
+	}
+}
+
+func TestAnnotationAPIExportAnnotatedTracesPaginatesAnnotations(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	fake := newAnnotationAPIFake()
+	fake.sessions["session-1"] = annotationAPISession{sourceName: "source-a", runtime: "runtime-a", startedAt: now.Add(-time.Hour), endedAt: now}
+	for i := 0; i < maxAnnotationsAPILimit+5; i++ {
+		id := fmt.Sprintf("ann-%03d", i)
+		fake.annotations[id] = testTraceAnnotation(id, models.AnnotationTargetSession, "session-1", "", now.Add(time.Duration(i)*time.Second), "session note", []string{"dataset:eval"})
+	}
+	handlers := &APIHandlers{db: newAnnotationAPIDB(t, fake), logger: testLogger()}
+
+	w := httptest.NewRecorder()
+	handlers.ExportAnnotatedTraces(w, annotationAPIRequest(http.MethodGet, "/api/annotations/export?session_id=session-1&label=dataset:eval", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("export status = %d body=%s", w.Code, w.Body.String())
+	}
+	var got APIAnnotatedTraceExportResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode export: %v", err)
+	}
+	if len(got.Traces) != 1 {
+		t.Fatalf("trace count = %d, want 1", len(got.Traces))
+	}
+	trace := got.Traces[0]
+	if trace.Counts.AnnotationCount != maxAnnotationsAPILimit+5 || len(trace.Annotations) != maxAnnotationsAPILimit+5 {
+		t.Fatalf("paginated annotations = count:%d len:%d, want %d", trace.Counts.AnnotationCount, len(trace.Annotations), maxAnnotationsAPILimit+5)
+	}
+}
+
+func TestAnnotationAPIAnnotatedTracesEmptyResults(t *testing.T) {
+	handlers := &APIHandlers{db: newAnnotationAPIDB(t, newAnnotationAPIFake()), logger: testLogger()}
+	w := httptest.NewRecorder()
+	handlers.ListAnnotatedTraces(w, annotationAPIRequest(http.MethodGet, "/api/annotations/traces", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("empty traces status = %d body=%s", w.Code, w.Body.String())
+	}
+	var got APIAnnotatedTracesResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode empty traces: %v", err)
+	}
+	if got.Schema != annotatedTraceIndexSchema || len(got.Items) != 0 {
+		t.Fatalf("empty traces = %#v", got)
+	}
+}
+
+func TestAnnotationAPIAnnotatedTracesCapsOffset(t *testing.T) {
+	handlers := &APIHandlers{db: newAnnotationAPIDB(t, newAnnotationAPIFake()), logger: testLogger()}
+	w := httptest.NewRecorder()
+	handlers.ListAnnotatedTraces(w, annotationAPIRequest(http.MethodGet, "/api/annotations/traces?offset=999999999", ""))
+	if w.Code != http.StatusOK {
+		t.Fatalf("large offset status = %d body=%s", w.Code, w.Body.String())
+	}
+	var got APIAnnotatedTracesResponse
+	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
+		t.Fatalf("decode large offset: %v", err)
+	}
+	if got.Offset != maxAnnotatedTracesOffset || len(got.Items) != 0 || got.HasMore {
+		t.Fatalf("large offset response = %#v", got)
+	}
+}
+
 func annotationAPIRequest(method, target, body string, routeParams ...string) *http.Request {
 	req := httptest.NewRequest(method, target, strings.NewReader(body))
 	if len(routeParams) == 0 {
@@ -296,6 +473,24 @@ func annotationAPIRequest(method, target, body string, routeParams ...string) *h
 	return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 }
 
+func testTraceAnnotation(id, targetType, sessionID, eventUID string, at time.Time, note string, labels []string) models.TraceAnnotation {
+	return models.NormalizeTraceAnnotation(models.TraceAnnotation{
+		AnnotationID:  id,
+		Revision:      1,
+		TargetType:    targetType,
+		SessionID:     sessionID,
+		EventUID:      eventUID,
+		AuthorType:    models.AnnotationAuthorAgent,
+		Source:        models.AnnotationSourceMCP,
+		Labels:        labels,
+		Note:          note,
+		Status:        models.AnnotationStatusActive,
+		SchemaVersion: models.AnnotationSchemaVersion,
+		CreatedAt:     at,
+		UpdatedAt:     at,
+	})
+}
+
 type annotationAPIFake struct {
 	sessions    map[string]annotationAPISession
 	events      map[string]annotationAPIEvent
@@ -305,13 +500,27 @@ type annotationAPIFake struct {
 type annotationAPISession struct {
 	sourceName string
 	runtime    string
+	provider   string
+	startedAt  time.Time
+	endedAt    time.Time
 }
 
 type annotationAPIEvent struct {
-	sessionID  string
-	eventKind  string
-	sourceName string
-	runtime    string
+	sessionID     string
+	eventKind     string
+	payloadType   string
+	actorRole     string
+	sourceName    string
+	runtime       string
+	timestamp     time.Time
+	textPreview   string
+	toolName      string
+	toolUseID     string
+	model         string
+	tokens        int64
+	durationMs    int64
+	inputPreview  string
+	outputPreview string
 }
 
 func newAnnotationAPIFake() *annotationAPIFake {
@@ -411,8 +620,14 @@ func (c annotationAPIConn) ExecContext(_ context.Context, query string, args []d
 func (c annotationAPIConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	values := namedValues(args)
 	switch {
+	case strings.Contains(query, "trace_annotations FINAL") && strings.Contains(query, "GROUP BY session_id"):
+		return c.annotationSessionSummaryRows(query, values), nil
 	case strings.Contains(query, "trace_annotations FINAL"):
 		return c.annotationRows(query, values), nil
+	case strings.Contains(query, "session_events AS"):
+		return c.sessionEventRows(query, values), nil
+	case strings.Contains(query, "COALESCE(source_name") && strings.Contains(query, "session_projection"):
+		return c.sessionSummaryRows(query, values), nil
 	case strings.Contains(query, "session_projection"):
 		sessionID := values.stringAt(0)
 		session, ok := c.fake.sessions[sessionID]
@@ -432,27 +647,137 @@ func (c annotationAPIConn) QueryContext(_ context.Context, query string, args []
 	}
 }
 
+func (c annotationAPIConn) annotationSessionSummaryRows(query string, values annotationNamedValues) driver.Rows {
+	annotations := c.filteredAnnotations(query, values, 3)
+	type summary struct {
+		sessionID     string
+		count         uint64
+		sessionCount  uint64
+		messageCount  uint64
+		eventCount    uint64
+		followupCount uint64
+		first         time.Time
+		last          time.Time
+	}
+	bySession := map[string]*summary{}
+	for _, annotation := range annotations {
+		s := bySession[annotation.SessionID]
+		if s == nil {
+			s = &summary{sessionID: annotation.SessionID}
+			bySession[annotation.SessionID] = s
+		}
+		s.count++
+		switch annotation.TargetType {
+		case models.AnnotationTargetSession:
+			s.sessionCount++
+		case models.AnnotationTargetMessage:
+			s.messageCount++
+		case models.AnnotationTargetEvent:
+			s.eventCount++
+		}
+		if annotation.NeedsFollowup {
+			s.followupCount++
+		}
+		if s.first.IsZero() || annotation.CreatedAt.Before(s.first) {
+			s.first = annotation.CreatedAt
+		}
+		if s.last.IsZero() || annotation.UpdatedAt.After(s.last) {
+			s.last = annotation.UpdatedAt
+		}
+	}
+	summaries := make([]*summary, 0, len(bySession))
+	for _, s := range bySession {
+		summaries = append(summaries, s)
+	}
+	sort.Slice(summaries, func(i, j int) bool {
+		if summaries[i].last.Equal(summaries[j].last) {
+			return summaries[i].sessionID < summaries[j].sessionID
+		}
+		return summaries[i].last.After(summaries[j].last)
+	})
+	rows := make([][]driver.Value, 0, len(summaries))
+	for _, s := range summaries {
+		rows = append(rows, []driver.Value{s.sessionID, s.count, s.sessionCount, s.messageCount, s.eventCount, s.followupCount, s.first, s.last})
+	}
+	rows = paginateDriverRows(rows, values)
+	return &annotationRows{
+		columns: []string{"session_id", "annotation_count", "session_annotation_count", "message_annotation_count", "event_annotation_count", "needs_followup_count", "first_annotation_at", "last_annotation_at"},
+		rows:    rows,
+	}
+}
+
 func (c annotationAPIConn) annotationRows(query string, values annotationNamedValues) driver.Rows {
-	idx := 0
+	annotations := c.filteredAnnotations(query, values, 0)
+	annotations = paginateTraceAnnotations(annotations, values)
+	rows := make([][]driver.Value, 0, len(annotations))
+	for _, annotation := range annotations {
+		rows = append(rows, annotationRowValues(annotation))
+	}
+	return &annotationRows{
+		columns: []string{"annotation_id", "revision", "target_type", "session_id", "event_uid", "author_type", "author_id", "author_name", "source", "category", "outcome", "quality_score", "confidence", "needs_followup", "labels", "note", "metadata_json", "status", "schema_version", "created_at", "updated_at", "deleted_at"},
+		rows:    rows,
+	}
+}
+
+func (c annotationAPIConn) filteredAnnotations(query string, values annotationNamedValues, idx int) []models.TraceAnnotation {
 	var annotationID, targetType, sessionID, eventUID, excludedStatus string
-	if strings.Contains(query, "annotation_id = ?") {
+	var sessionIDs []string
+	var authorType, source, category, outcome, label string
+	var needsFollowup *bool
+	if hasAnnotationFilter(query, "annotation_id = ?") {
 		annotationID = values.stringAt(idx)
 		idx++
 	}
-	if strings.Contains(query, "target_type = ?") {
+	if hasAnnotationFilter(query, "target_type = ?") {
 		targetType = values.stringAt(idx)
 		idx++
 	}
-	if strings.Contains(query, "session_id = ?") {
+	if hasAnnotationFilter(query, "session_id = ?") {
 		sessionID = values.stringAt(idx)
 		idx++
 	}
-	if strings.Contains(query, "event_uid = ?") {
+	if hasAnnotationFilter(query, "session_id IN (") {
+		count := placeholderCountInClause(query, "session_id IN (")
+		for i := 0; i < count; i++ {
+			sessionIDs = append(sessionIDs, values.stringAt(idx))
+			idx++
+		}
+	}
+	if hasAnnotationFilter(query, "event_uid = ?") {
 		eventUID = values.stringAt(idx)
 		idx++
 	}
-	if strings.Contains(query, "status != ?") {
+	if hasAnnotationFilter(query, "author_type = ?") {
+		authorType = values.stringAt(idx)
+		idx++
+	}
+	if hasAnnotationFilter(query, "source = ?") {
+		source = values.stringAt(idx)
+		idx++
+	}
+	if hasAnnotationFilter(query, "category = ?") {
+		category = values.stringAt(idx)
+		idx++
+	}
+	if hasAnnotationFilter(query, "outcome = ?") {
+		outcome = values.stringAt(idx)
+		idx++
+	}
+	if hasAnnotationFilter(query, "has(labels, ?)") {
+		label = values.stringAt(idx)
+		idx++
+	}
+	if hasAnnotationFilter(query, "needs_followup = ?") {
+		value := values.intAt(idx) != 0
+		needsFollowup = &value
+		idx++
+	}
+	if hasAnnotationFilter(query, "status != ?") {
 		excludedStatus = values.stringAt(idx)
+	}
+	sessionIDSet := make(map[string]struct{}, len(sessionIDs))
+	for _, id := range sessionIDs {
+		sessionIDSet[id] = struct{}{}
 	}
 
 	var annotations []models.TraceAnnotation
@@ -466,7 +791,30 @@ func (c annotationAPIConn) annotationRows(query string, values annotationNamedVa
 		if sessionID != "" && annotation.SessionID != sessionID {
 			continue
 		}
+		if len(sessionIDSet) > 0 {
+			if _, ok := sessionIDSet[annotation.SessionID]; !ok {
+				continue
+			}
+		}
 		if eventUID != "" && annotation.EventUID != eventUID {
+			continue
+		}
+		if authorType != "" && annotation.AuthorType != authorType {
+			continue
+		}
+		if source != "" && annotation.Source != source {
+			continue
+		}
+		if category != "" && annotation.Category != category {
+			continue
+		}
+		if outcome != "" && annotation.Outcome != outcome {
+			continue
+		}
+		if label != "" && !annotationHasLabel(annotation, label) {
+			continue
+		}
+		if needsFollowup != nil && annotation.NeedsFollowup != *needsFollowup {
 			continue
 		}
 		if excludedStatus != "" && annotation.Status == excludedStatus {
@@ -480,41 +828,227 @@ func (c annotationAPIConn) annotationRows(query string, values annotationNamedVa
 		}
 		return annotations[i].CreatedAt.Before(annotations[j].CreatedAt)
 	})
-	rows := make([][]driver.Value, 0, len(annotations))
-	for _, annotation := range annotations {
-		deletedAt := time.Unix(0, 0).UTC()
-		if annotation.DeletedAt != nil {
-			deletedAt = *annotation.DeletedAt
+	return annotations
+}
+
+func (c annotationAPIConn) sessionSummaryRows(query string, values annotationNamedValues) driver.Rows {
+	sessionIDs := map[string]struct{}{}
+	for _, value := range values {
+		if id, ok := value.(string); ok {
+			if _, exists := c.fake.sessions[id]; exists {
+				sessionIDs[id] = struct{}{}
+			}
 		}
+	}
+	rows := make([][]driver.Value, 0, len(sessionIDs))
+	for id := range sessionIDs {
+		session := c.fake.sessions[id]
+		if !queryScopeMatches(query, values, firstSessionSummaryScopeArg(query, values), session.sourceName, session.runtime) {
+			continue
+		}
+		rows = append(rows, annotationAPISessionSummaryRow(id, session))
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i][0].(string) < rows[j][0].(string)
+	})
+	return &annotationRows{
+		columns: []string{"session_id", "source_name", "runtime", "provider", "format", "project_key", "project_path", "started_at", "ended_at", "turn_count", "total_tokens", "total_input_tokens", "total_output_tokens", "total_cache_read_tokens", "total_cache_create_tokens", "tool_call_count", "mcp_call_count", "error_count", "last_model", "working_dir", "parent_session_id", "has_session_end", "completion_state", "total_cost_usd", "cost_event_count", "cost_provenance", "attention_score", "attention_reasons", "archive_reason", "archived_at", "reopened"},
+		rows:    rows,
+	}
+}
+
+func (c annotationAPIConn) sessionEventRows(_ string, values annotationNamedValues) driver.Rows {
+	sessionID := values.stringAt(0)
+	type keyedEvent struct {
+		uid   string
+		event annotationAPIEvent
+	}
+	var events []keyedEvent
+	for eventUID, event := range c.fake.events {
+		if event.sessionID == sessionID {
+			events = append(events, keyedEvent{uid: eventUID, event: event})
+		}
+	}
+	sort.Slice(events, func(i, j int) bool {
+		if events[i].event.timestamp.Equal(events[j].event.timestamp) {
+			return events[i].uid < events[j].uid
+		}
+		return events[i].event.timestamp.Before(events[j].event.timestamp)
+	})
+	limit := values.intAt(len(values) - 1)
+	if limit > 0 && len(events) > limit {
+		events = events[:limit]
+	}
+	rows := make([][]driver.Value, 0, len(events))
+	for _, item := range events {
+		event := item.event
 		rows = append(rows, []driver.Value{
-			annotation.AnnotationID,
-			int64(annotation.Revision),
-			annotation.TargetType,
-			annotation.SessionID,
-			annotation.EventUID,
-			annotation.AuthorType,
-			annotation.AuthorID,
-			annotation.AuthorName,
-			annotation.Source,
-			annotation.Category,
-			annotation.Outcome,
-			int64(annotation.QualityScore),
-			int64(annotation.Confidence),
-			boolAsInt64(annotation.NeedsFollowup),
-			strings.Join(annotation.Labels, ","),
-			annotation.Note,
-			annotation.MetadataJSON,
-			annotation.Status,
-			int64(annotation.SchemaVersion),
-			annotation.CreatedAt,
-			annotation.UpdatedAt,
-			deletedAt,
+			item.uid,
+			event.sessionID,
+			firstNonEmpty(event.eventKind, "message"),
+			event.payloadType,
+			event.actorRole,
+			event.timestamp,
+			event.textPreview,
+			event.toolName,
+			event.toolUseID,
+			event.model,
+			event.tokens,
+			event.durationMs,
+			event.inputPreview,
+			event.outputPreview,
 		})
 	}
 	return &annotationRows{
-		columns: []string{"annotation_id", "revision", "target_type", "session_id", "event_uid", "author_type", "author_id", "author_name", "source", "category", "outcome", "quality_score", "confidence", "needs_followup", "labels", "note", "metadata_json", "status", "schema_version", "created_at", "updated_at", "deleted_at"},
+		columns: []string{"event_uid", "session_id", "event_kind", "payload_type", "actor_role", "timestamp", "text_preview", "tool_name", "tool_use_id", "model", "tokens", "duration_ms", "input_preview", "output_preview"},
 		rows:    rows,
 	}
+}
+
+func annotationAPISessionSummaryRow(id string, session annotationAPISession) []driver.Value {
+	startedAt := session.startedAt
+	if startedAt.IsZero() {
+		startedAt = time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	}
+	endedAt := session.endedAt
+	if endedAt.IsZero() {
+		endedAt = startedAt.Add(time.Minute)
+	}
+	return []driver.Value{
+		id,
+		firstNonEmpty(session.sourceName, "source-a"),
+		firstNonEmpty(session.runtime, "runtime-a"),
+		firstNonEmpty(session.provider, "provider-a"),
+		"jsonl",
+		"beacon",
+		"/work/beacon",
+		startedAt,
+		endedAt,
+		int64(2),
+		int64(30),
+		int64(10),
+		int64(20),
+		int64(0),
+		int64(0),
+		int64(1),
+		int64(0),
+		int64(0),
+		"gpt-test",
+		"/work/beacon",
+		"",
+		int64(1),
+		"completed",
+		float64(0),
+		int64(0),
+		"none",
+		int64(0),
+		[]string{},
+		"",
+		time.Unix(0, 0).UTC(),
+		int64(0),
+	}
+}
+
+func annotationRowValues(annotation models.TraceAnnotation) []driver.Value {
+	deletedAt := time.Unix(0, 0).UTC()
+	if annotation.DeletedAt != nil {
+		deletedAt = *annotation.DeletedAt
+	}
+	return []driver.Value{
+		annotation.AnnotationID,
+		int64(annotation.Revision),
+		annotation.TargetType,
+		annotation.SessionID,
+		annotation.EventUID,
+		annotation.AuthorType,
+		annotation.AuthorID,
+		annotation.AuthorName,
+		annotation.Source,
+		annotation.Category,
+		annotation.Outcome,
+		int64(annotation.QualityScore),
+		int64(annotation.Confidence),
+		boolAsInt64(annotation.NeedsFollowup),
+		strings.Join(annotation.Labels, ","),
+		annotation.Note,
+		annotation.MetadataJSON,
+		annotation.Status,
+		int64(annotation.SchemaVersion),
+		annotation.CreatedAt,
+		annotation.UpdatedAt,
+		deletedAt,
+	}
+}
+
+func placeholderCountInClause(query, marker string) int {
+	start := strings.Index(query, marker)
+	if start < 0 {
+		return 0
+	}
+	start += len(marker)
+	end := strings.Index(query[start:], ")")
+	if end < 0 {
+		return 0
+	}
+	return strings.Count(query[start:start+end], "?")
+}
+
+func paginateTraceAnnotations(annotations []models.TraceAnnotation, values annotationNamedValues) []models.TraceAnnotation {
+	limit, offset := queryLimitOffset(values)
+	if offset >= len(annotations) {
+		return nil
+	}
+	end := len(annotations)
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	return annotations[offset:end]
+}
+
+func paginateDriverRows(rows [][]driver.Value, values annotationNamedValues) [][]driver.Value {
+	limit, offset := queryLimitOffset(values)
+	if offset >= len(rows) {
+		return nil
+	}
+	end := len(rows)
+	if limit > 0 && offset+limit < end {
+		end = offset + limit
+	}
+	return rows[offset:end]
+}
+
+func queryLimitOffset(values annotationNamedValues) (int, int) {
+	if len(values) < 2 {
+		return 0, 0
+	}
+	return values.intAt(len(values) - 2), values.intAt(len(values) - 1)
+}
+
+func hasAnnotationFilter(query, clause string) bool {
+	return strings.Contains(query, "AND "+clause) || strings.Contains(query, "WHERE "+clause)
+}
+
+func firstSessionSummaryScopeArg(query string, values annotationNamedValues) int {
+	scopeArgs := 0
+	if strings.Contains(query, "source_name IN") {
+		scopeArgs++
+	}
+	if strings.Contains(query, "runtime IN") {
+		scopeArgs++
+	}
+	if scopeArgs == 0 {
+		return len(values)
+	}
+	return len(values) - scopeArgs
+}
+
+func annotationHasLabel(annotation models.TraceAnnotation, label string) bool {
+	for _, candidate := range annotation.Labels {
+		if candidate == label {
+			return true
+		}
+	}
+	return false
 }
 
 type annotationNamedValues []driver.Value

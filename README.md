@@ -66,6 +66,49 @@ from their usual local locations.
   configuration for trusted local or private-network deployments
 - Privacy controls for redaction, hashing, capture filters, and offline operation
 
+## Annotated Trace Datasets
+
+Beacon annotations can mark a whole session, a transcript message, or a
+specific event. The local JSON API exposes annotated traces directly for review,
+evaluation, fine-tuning, and skill-development datasets.
+
+List annotated sessions and their annotated targets:
+
+```bash
+curl 'http://localhost:4600/api/annotations/traces?label=dataset:eval&limit=25'
+```
+
+Export dataset-ready traces with session metadata, ordered event context, and
+annotation records:
+
+```bash
+curl 'http://localhost:4600/api/annotations/export?label=dataset:eval&event_limit=2000'
+```
+
+Discovery and export responses are paginated with `limit`, `offset`, and
+`has_more`. Continue increasing `offset` until `has_more` is false when
+collecting a complete dataset:
+
+```bash
+offset=0
+while :; do
+  curl -fsS "http://localhost:4600/api/annotations/export?label=dataset:eval&event_limit=2000&limit=200&offset=${offset}" > "annotated-traces-${offset}.json"
+  jq -e '.has_more' "annotated-traces-${offset}.json" >/dev/null || break
+  offset=$((offset + 200))
+done
+```
+
+Each exported trace reports `event_truncated`, and the response includes
+`warnings` when `event_limit` clipped ordered event context for a session.
+
+Both endpoints return versioned JSON schema markers:
+`beacon.annotated_traces.index.v1` and
+`beacon.annotated_traces.export.v1`. Supported filters include `session_id`,
+`event_uid`, `target_type`, `label`, `author_type`, `source`, `category`,
+`outcome`, `needs_followup`, `include_deleted`, and the usual Beacon scope
+filters (`source_name`, `source_names`, `runtime`, `runtimes`, `project_key`,
+`project_keys`).
+
 Check the local setup:
 
 ```bash
