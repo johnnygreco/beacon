@@ -13,6 +13,7 @@ const (
 	AnnotationSchemaVersion = 1
 
 	AnnotationTargetSession = "session"
+	AnnotationTargetMessage = "message"
 	AnnotationTargetEvent   = "event"
 
 	AnnotationAuthorHuman = "human"
@@ -136,12 +137,16 @@ func ValidateTraceAnnotation(a TraceAnnotation) error {
 		if a.EventUID != "" {
 			return NewAnnotationValidationError("session annotations must not include event_uid")
 		}
+	case AnnotationTargetMessage:
+		if a.EventUID == "" {
+			return NewAnnotationValidationError("message annotations require event_uid")
+		}
 	case AnnotationTargetEvent:
 		if a.EventUID == "" {
 			return NewAnnotationValidationError("event annotations require event_uid")
 		}
 	default:
-		return NewAnnotationValidationError("target_type must be session or event")
+		return NewAnnotationValidationError("target_type must be session, message, or event")
 	}
 	if a.SessionID == "" {
 		return NewAnnotationValidationError("session_id is required")

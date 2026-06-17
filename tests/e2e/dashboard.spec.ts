@@ -2008,22 +2008,22 @@ test.describe('dashboard battle-tested workflows', () => {
 
     await page.locator(`#${TEST_EVENT_ID} [data-annotation-button]`).first().click();
     await expect(drawer).toBeVisible();
-    await form.locator('textarea[name="note"]').fill('Event-level correction.');
+    await form.locator('textarea[name="note"]').fill('Message-level correction.');
     await form.locator('select[name="quality_score"]').selectOption('4');
     const eventCreateRequest = page.waitForRequest((request) => {
       if (request.method() !== 'POST') return false;
       if (new URL(request.url()).pathname !== '/api/annotations') return false;
       const body = JSON.parse(request.postData() || '{}') as Record<string, unknown>;
-      return body.target_type === 'event';
+      return body.target_type === 'message';
     });
     await form.locator('[data-annotation-save]').click();
     const eventCreateBody = JSON.parse((await eventCreateRequest).postData() || '{}') as Record<string, unknown>;
     expect(eventCreateBody).toMatchObject({
-      target_type: 'event',
+      target_type: 'message',
       session_id: TEST_SESSION_ID,
       event_uid: TEST_EVENT_ID,
     });
-    await expect(drawer).toContainText('Event-level correction.');
+    await expect(drawer).toContainText('Message-level correction.');
     await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('1');
     await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-button]`).first()).toHaveAttribute('aria-label', /1 annotation/);
 
@@ -2035,7 +2035,7 @@ test.describe('dashboard battle-tested workflows', () => {
           <details id="${eventID}" open>
             <summary>Reloaded event</summary>
             <div class="annotation-inline-row">
-              <button type="button" class="annotation-button" data-annotation-button data-annotation-target="event" data-annotation-session-id="" data-annotation-event-uid="${eventID}" data-annotation-label="Annotate" aria-label="Annotate">
+              <button type="button" class="annotation-button" data-annotation-button data-annotation-target="message" data-annotation-session-id="" data-annotation-event-uid="${eventID}" data-annotation-label="Annotate" aria-label="Annotate">
                 <span class="annotation-button-label">Annotate</span>
                 <span class="annotation-count hidden" data-annotation-count>0</span>
               </button>
@@ -2048,10 +2048,10 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('1');
 
     await drawer.getByRole('button', { name: 'Edit' }).click();
-    await expect(form.locator('textarea[name="note"]')).toHaveValue('Event-level correction.');
-    await form.locator('textarea[name="note"]').fill('Updated event-level correction.');
+    await expect(form.locator('textarea[name="note"]')).toHaveValue('Message-level correction.');
+    await form.locator('textarea[name="note"]').fill('Updated message-level correction.');
     await form.locator('[data-annotation-save]').click();
-    await expect(drawer).toContainText('Updated event-level correction.');
+    await expect(drawer).toContainText('Updated message-level correction.');
     await drawer.getByRole('button', { name: 'Delete' }).click();
     await expect(drawer).toContainText('No annotations yet');
     await expect(drawer.getByRole('button', { name: 'New' })).toBeFocused();

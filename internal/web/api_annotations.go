@@ -77,7 +77,6 @@ func (a *APIHandlers) GetEventAnnotations(w http.ResponseWriter, r *http.Request
 		return
 	}
 	req.Scope, _ = scopeForRequest(r.Context(), req.Scope)
-	req.TargetType = models.AnnotationTargetEvent
 	req.EventUID = chi.URLParam(r, "event_id")
 	a.listAnnotations(w, r, req)
 }
@@ -182,8 +181,8 @@ func (a *APIHandlers) listAnnotations(w http.ResponseWriter, r *http.Request, re
 		Limit:          req.Limit,
 		Offset:         req.Offset,
 	}
-	if filter.TargetType != "" && filter.TargetType != models.AnnotationTargetSession && filter.TargetType != models.AnnotationTargetEvent {
-		a.badRequest(w, fmt.Errorf("target_type must be session or event"))
+	if filter.TargetType != "" && filter.TargetType != models.AnnotationTargetSession && filter.TargetType != models.AnnotationTargetMessage && filter.TargetType != models.AnnotationTargetEvent {
+		a.badRequest(w, fmt.Errorf("target_type must be session, message, or event"))
 		return
 	}
 	if filter.AnnotationID == "" && filter.SessionID == "" && filter.EventUID == "" {
@@ -191,7 +190,11 @@ func (a *APIHandlers) listAnnotations(w http.ResponseWriter, r *http.Request, re
 		return
 	}
 	if filter.EventUID != "" {
-		resolvedSessionID, err := a.resolveAnnotationTargetInScope(r, models.AnnotationTargetEvent, filter.SessionID, filter.EventUID, req.Scope)
+		resolveType := filter.TargetType
+		if resolveType == "" {
+			resolveType = models.AnnotationTargetEvent
+		}
+		resolvedSessionID, err := a.resolveAnnotationTargetInScope(r, resolveType, filter.SessionID, filter.EventUID, req.Scope)
 		if err != nil {
 			a.annotationError(w, "failed to query annotations", err)
 			return
@@ -293,10 +296,12 @@ func (a *APIHandlers) resolveAnnotationTargetInScope(r *http.Request, targetType
 	switch targetType {
 	case models.AnnotationTargetSession:
 		return a.resolveSessionAnnotationTargetInScope(r, sessionID, scope)
+	case models.AnnotationTargetMessage:
+		return a.resolveEventAnnotationTargetInScope(r, sessionID, eventUID, models.AnnotationTargetMessage, scope)
 	case models.AnnotationTargetEvent:
-		return a.resolveEventAnnotationTargetInScope(r, sessionID, eventUID, scope)
+		return a.resolveEventAnnotationTargetInScope(r, sessionID, eventUID, models.AnnotationTargetEvent, scope)
 	default:
-		return "", models.NewAnnotationValidationError("target_type must be session or event")
+		return "", models.NewAnnotationValidationError("target_type must be session, message, or event")
 	}
 }
 
@@ -322,12 +327,19 @@ func (a *APIHandlers) resolveSessionAnnotationTargetInScope(r *http.Request, ses
 	return resolved, err
 }
 
-func (a *APIHandlers) resolveEventAnnotationTargetInScope(r *http.Request, sessionID, eventUID string, scope APIScopeFilters) (string, error) {
+func (a *APIHandlers) resolveEventAnnotationTargetInScope(r *http.Request, sessionID, eventUID, targetType string, scope APIScopeFilters) (string, error) {
 	eventUID = strings.TrimSpace(eventUID)
 	if eventUID == "" {
+		if targetType == models.AnnotationTargetMessage {
+			return "", models.NewAnnotationValidationError("message annotations require event_uid")
+		}
 		return "", models.NewAnnotationValidationError("event annotations require event_uid")
 	}
 	scopeClause, scopeArgs := scope.eventAndSessionProjectSQLAndClause("e", "e.cwd", "s")
+	kindClause := ""
+	if strings.TrimSpace(strings.ToLower(targetType)) == models.AnnotationTargetMessage {
+		kindClause = " AND e.event_kind = 'message'"
+	}
 	args := []any{eventUID}
 	args = append(args, scopeArgs...)
 	var resolved string
@@ -337,6 +349,7 @@ func (a *APIHandlers) resolveEventAnnotationTargetInScope(r *http.Request, sessi
 			       argMax(session_id, captured_at) AS session_id,
 			       argMax(source_name, captured_at) AS source_name,
 			       argMax(runtime, captured_at) AS runtime,
+			       argMax(event_kind, captured_at) AS event_kind,
 			       argMax(cwd, captured_at) AS cwd
 			FROM activity_events
 			WHERE event_uid = ?
@@ -345,7 +358,7 @@ func (a *APIHandlers) resolveEventAnnotationTargetInScope(r *http.Request, sessi
 		 SELECT e.session_id
 		 FROM latest_event AS e
 		 LEFT JOIN `+sessionProjectFallbackSubquery("ae.session_id IN (SELECT session_id FROM latest_event)")+` AS s ON s.session_id = e.session_id
-		 WHERE e.session_id != ''`+scopeClause+`
+		 WHERE e.session_id != ''`+kindClause+scopeClause+`
 		 LIMIT 1`, args...).Scan(&resolved)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", store.ErrAnnotationTargetNotFound

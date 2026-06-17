@@ -152,6 +152,57 @@ func TestAnnotationAPIEventAnnotationResolvesSessionAndDeleteFilters(t *testing.
 	}
 }
 
+func TestAnnotationAPIMessageAnnotationTargetsMessageEvents(t *testing.T) {
+	fake := newAnnotationAPIFake()
+	fake.sessions["session-1"] = annotationAPISession{}
+	fake.events["message-1"] = annotationAPIEvent{sessionID: "session-1", eventKind: "message"}
+	fake.events["tool-1"] = annotationAPIEvent{sessionID: "session-1", eventKind: "tool_call"}
+	handlers := &APIHandlers{db: newAnnotationAPIDB(t, fake), logger: testLogger()}
+
+	w := httptest.NewRecorder()
+	handlers.CreateAnnotation(w, annotationAPIRequest(http.MethodPost, "/api/annotations", `{
+		"target_type":"message",
+		"event_uid":"message-1",
+		"author_type":"agent",
+		"source":"mcp",
+		"note":"Message-level finding."
+	}`))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create message status = %d body=%s", w.Code, w.Body.String())
+	}
+	var created APITraceAnnotation
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatalf("decode message create: %v", err)
+	}
+	if created.TargetType != models.AnnotationTargetMessage || created.SessionID != "session-1" || created.EventUID != "message-1" {
+		t.Fatalf("message annotation = %#v", created)
+	}
+
+	w = httptest.NewRecorder()
+	handlers.GetEventAnnotations(w, annotationAPIRequest(http.MethodGet, "/api/events/message-1/annotations", "", "event_id", "message-1"))
+	if w.Code != http.StatusOK {
+		t.Fatalf("event annotations status = %d body=%s", w.Code, w.Body.String())
+	}
+	var list APITraceAnnotationListResponse
+	if err := json.NewDecoder(w.Body).Decode(&list); err != nil {
+		t.Fatalf("decode event annotations: %v", err)
+	}
+	if len(list.Items) != 1 || list.Items[0].AnnotationID != created.AnnotationID {
+		t.Fatalf("event annotations = %#v", list.Items)
+	}
+
+	w = httptest.NewRecorder()
+	handlers.CreateAnnotation(w, annotationAPIRequest(http.MethodPost, "/api/annotations", `{
+		"target_type":"message",
+		"event_uid":"tool-1",
+		"note":"Should not attach to a tool event."
+	}`))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("non-message target status = %d body=%s", w.Code, w.Body.String())
+	}
+	assertAPIError(t, w.Body.String(), "annotation target not found")
+}
+
 func TestAnnotationAPIValidationAndMissingTargets(t *testing.T) {
 	fake := newAnnotationAPIFake()
 	fake.sessions["session-1"] = annotationAPISession{}
@@ -258,6 +309,7 @@ type annotationAPISession struct {
 
 type annotationAPIEvent struct {
 	sessionID  string
+	eventKind  string
 	sourceName string
 	runtime    string
 }
@@ -371,7 +423,7 @@ func (c annotationAPIConn) QueryContext(_ context.Context, query string, args []
 	case strings.Contains(query, "activity_events"):
 		eventUID := values.stringAt(0)
 		event := c.fake.events[eventUID]
-		if event.sessionID != "" && queryScopeMatches(query, values, 1, event.sourceName, event.runtime) {
+		if event.sessionID != "" && queryEventKindMatches(query, event.eventKind) && queryScopeMatches(query, values, 1, event.sourceName, event.runtime) {
 			return singleColumnRows("session_id", event.sessionID), nil
 		}
 		return emptyAnnotationRows([]string{"session_id"}), nil
@@ -579,6 +631,13 @@ func queryScopeMatches(query string, values annotationNamedValues, firstScopeArg
 			runtimeArg++
 		}
 		return runtime == values.stringAt(runtimeArg)
+	}
+	return true
+}
+
+func queryEventKindMatches(query, eventKind string) bool {
+	if strings.Contains(query, "event_kind = 'message'") {
+		return eventKind == "message"
 	}
 	return true
 }

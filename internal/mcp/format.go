@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/search"
 	"github.com/johnnygreco/beacon/internal/usage"
 )
@@ -11,6 +12,7 @@ import (
 type openRef struct {
 	Type      string        `json:"type"`
 	EventID   string        `json:"event_id,omitempty"`
+	MessageID string        `json:"message_id,omitempty"`
 	SessionID string        `json:"session_id,omitempty"`
 	Anchor    string        `json:"anchor,omitempty"`
 	Scope     *ScopeFilters `json:"scope,omitempty"`
@@ -20,12 +22,22 @@ func eventOpenRef(eventUID, sessionID string) openRef {
 	return openRef{Type: "event", EventID: beaconEventID(eventUID), SessionID: beaconSessionID(sessionID)}
 }
 
+func messageOpenRef(eventUID, sessionID string) openRef {
+	return openRef{Type: "message", MessageID: beaconMessageID(eventUID), SessionID: beaconSessionID(sessionID)}
+}
+
 func sessionLatestOpenRef(sessionID string) openRef {
 	return openRef{Type: "session_latest", SessionID: beaconSessionID(sessionID), Anchor: "latest"}
 }
 
 func scopedEventOpenRef(eventUID, sessionID string, scope ScopeMetadata) openRef {
 	ref := eventOpenRef(eventUID, sessionID)
+	ref.Scope = openRefScope(scope.Filters)
+	return ref
+}
+
+func scopedMessageOpenRef(eventUID, sessionID string, scope ScopeMetadata) openRef {
+	ref := messageOpenRef(eventUID, sessionID)
 	ref.Scope = openRefScope(scope.Filters)
 	return ref
 }
@@ -56,6 +68,13 @@ func beaconSessionID(sessionID string) string {
 		return ""
 	}
 	return "session:" + sessionID
+}
+
+func beaconMessageID(eventUID string) string {
+	if eventUID == "" {
+		return ""
+	}
+	return "message:" + eventUID
 }
 
 func FormatSearchResults(results []search.SearchResult, metadataOpt ...ScopeMetadata) string {
@@ -343,6 +362,124 @@ func FormatUsageSummary(result usage.Result, scope ScopeMetadata) string {
 		Metadata:                result.Metadata,
 	}
 	return mustJSON(payload)
+}
+
+type AnnotationListMetadata struct {
+	ResultCount    int  `json:"result_count"`
+	Limit          int  `json:"limit"`
+	Offset         int  `json:"offset"`
+	ResultComplete bool `json:"result_complete"`
+}
+
+type formattedAnnotation struct {
+	AnnotationID  string     `json:"annotation_id"`
+	Revision      uint64     `json:"revision"`
+	TargetType    string     `json:"target_type"`
+	SessionID     string     `json:"session_id"`
+	EventID       string     `json:"event_id,omitempty"`
+	MessageID     string     `json:"message_id,omitempty"`
+	OpenRef       *openRef   `json:"open_ref,omitempty"`
+	AuthorType    string     `json:"author_type"`
+	AuthorID      string     `json:"author_id,omitempty"`
+	AuthorName    string     `json:"author_name,omitempty"`
+	Source        string     `json:"source"`
+	Category      string     `json:"category,omitempty"`
+	Outcome       string     `json:"outcome,omitempty"`
+	QualityScore  int        `json:"quality_score,omitempty"`
+	Confidence    int        `json:"confidence,omitempty"`
+	NeedsFollowup bool       `json:"needs_followup"`
+	Labels        []string   `json:"labels"`
+	Note          string     `json:"note"`
+	MetadataJSON  string     `json:"metadata_json,omitempty"`
+	Status        string     `json:"status"`
+	SchemaVersion int        `json:"schema_version"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
+}
+
+func FormatAnnotationResult(tool string, annotation models.TraceAnnotation, scope ScopeMetadata) string {
+	payload := struct {
+		Schema     string              `json:"schema"`
+		Tool       string              `json:"tool"`
+		Scope      ScopeMetadata       `json:"scope"`
+		Annotation formattedAnnotation `json:"annotation"`
+		Warnings   []string            `json:"warnings"`
+	}{
+		Schema:     "beacon.mcp." + tool + ".v1",
+		Tool:       tool,
+		Scope:      scope,
+		Annotation: formatAnnotation(annotation, scope),
+		Warnings:   []string{},
+	}
+	return mustJSON(payload)
+}
+
+func FormatAnnotationList(annotations []models.TraceAnnotation, metadata AnnotationListMetadata, scope ScopeMetadata) string {
+	payload := struct {
+		Schema      string                 `json:"schema"`
+		Tool        string                 `json:"tool"`
+		Scope       ScopeMetadata          `json:"scope"`
+		Annotations []formattedAnnotation  `json:"annotations"`
+		Metadata    AnnotationListMetadata `json:"metadata"`
+		Warnings    []string               `json:"warnings"`
+	}{
+		Schema:      "beacon.mcp.list_annotations.v1",
+		Tool:        "list_annotations",
+		Scope:       scope,
+		Annotations: []formattedAnnotation{},
+		Metadata:    metadata,
+		Warnings:    []string{},
+	}
+	for _, annotation := range annotations {
+		payload.Annotations = append(payload.Annotations, formatAnnotation(annotation, scope))
+	}
+	return mustJSON(payload)
+}
+
+func formatAnnotation(annotation models.TraceAnnotation, scope ScopeMetadata) formattedAnnotation {
+	labels := append([]string(nil), annotation.Labels...)
+	if labels == nil {
+		labels = []string{}
+	}
+	item := formattedAnnotation{
+		AnnotationID:  annotation.AnnotationID,
+		Revision:      annotation.Revision,
+		TargetType:    annotation.TargetType,
+		SessionID:     beaconSessionID(annotation.SessionID),
+		AuthorType:    annotation.AuthorType,
+		AuthorID:      annotation.AuthorID,
+		AuthorName:    annotation.AuthorName,
+		Source:        annotation.Source,
+		Category:      annotation.Category,
+		Outcome:       annotation.Outcome,
+		QualityScore:  annotation.QualityScore,
+		Confidence:    annotation.Confidence,
+		NeedsFollowup: annotation.NeedsFollowup,
+		Labels:        labels,
+		Note:          annotation.Note,
+		MetadataJSON:  annotation.MetadataJSON,
+		Status:        annotation.Status,
+		SchemaVersion: annotation.SchemaVersion,
+		CreatedAt:     annotation.CreatedAt,
+		UpdatedAt:     annotation.UpdatedAt,
+		DeletedAt:     annotation.DeletedAt,
+	}
+	if annotation.EventUID != "" {
+		item.EventID = beaconEventID(annotation.EventUID)
+		if annotation.TargetType == models.AnnotationTargetMessage {
+			ref := scopedMessageOpenRef(annotation.EventUID, annotation.SessionID, scope)
+			item.MessageID = beaconMessageID(annotation.EventUID)
+			item.OpenRef = &ref
+		} else {
+			ref := scopedEventOpenRef(annotation.EventUID, annotation.SessionID, scope)
+			item.OpenRef = &ref
+		}
+	} else {
+		ref := scopedSessionLatestOpenRef(annotation.SessionID, scope)
+		item.OpenRef = &ref
+	}
+	return item
 }
 
 func mustJSON(v any) string {
