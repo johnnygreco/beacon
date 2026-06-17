@@ -2060,6 +2060,45 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('creates transcript timeline event annotations', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: 'Timeline' }).click();
+    await expect(page.locator('#timeline-view')).toBeVisible();
+
+    const eventAnnotationButton = page.locator('#timeline-view [data-annotation-button][data-annotation-target="event"]').first();
+    await eventAnnotationButton.click();
+    const drawer = page.locator('#annotation-drawer');
+    const form = drawer.locator('[data-annotation-form]');
+    await expect(drawer).toBeVisible();
+    await expect(drawer.locator('[data-annotation-target-label]')).toContainText('Event');
+
+    await form.locator('input[name="category"]').fill('timeline');
+    await form.locator('input[name="outcome"]').fill('kept');
+    await form.locator('input[name="labels"]').fill('dataset:eval, event:timeline');
+    await form.locator('textarea[name="note"]').fill('Timeline event evidence for annotation QA.');
+    const createRequest = page.waitForRequest((request) => {
+      if (request.method() !== 'POST') return false;
+      if (new URL(request.url()).pathname !== '/api/annotations') return false;
+      const body = JSON.parse(request.postData() || '{}') as Record<string, unknown>;
+      return body.target_type === 'event';
+    });
+    await form.locator('[data-annotation-save]').click();
+    const createBody = JSON.parse((await createRequest).postData() || '{}') as Record<string, unknown>;
+    expect(createBody).toMatchObject({
+      target_type: 'event',
+      session_id: TEST_SESSION_ID,
+      event_uid: TEST_EVENT_ID,
+    });
+    await expect(drawer).toContainText('Timeline event evidence for annotation QA.');
+    await expect(eventAnnotationButton.locator('[data-annotation-count]')).toHaveText('1');
+    await expect(eventAnnotationButton).toHaveAttribute('aria-label', /1 annotation/);
+
+    await guards.expectClean();
+  });
+
   test('shows transcript annotation failure state on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 760 });
     await installDashboardFixtures(page, { annotationsUnavailable: true });

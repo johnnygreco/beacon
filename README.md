@@ -61,16 +61,31 @@ from their usual local locations.
 - A dashboard at `http://localhost:4600`
 - Token, cost, model, project, runtime, and session summaries
 - Source-aware capture across local AI coding tools
-- MCP tools for querying sessions and usage from other agents
+- MCP tools for querying sessions, usage, and trace annotations from other
+  agents
 - Managed local ClickHouse storage, with optional direct ClickHouse
   configuration for trusted local or private-network deployments
 - Privacy controls for redaction, hashing, capture filters, and offline operation
 
-## Annotated Trace Datasets
+## Trace Annotations
 
 Beacon annotations can mark a whole session, a transcript message, or a
-specific event. The local JSON API exposes annotated traces directly for review,
-evaluation, fine-tuning, and skill-development datasets.
+specific event. Open a session transcript, use **Annotate session** for
+session-level notes, or use the inline annotation controls in chat and timeline
+views to annotate one message or event. Annotation records include structured
+fields for category, outcome, quality score, confidence, labels, follow-up
+state, and free-form notes.
+
+Agents can create and maintain the same records through Beacon MCP with
+`create_annotation`, `update_annotation`, `list_annotations`, `get_annotation`,
+and `delete_annotation`. MCP annotation writes use `source: "mcp"` and
+`author_type: "agent"` and support `session_id`, `message_id`, `event_id`, or
+an `open_ref` returned by Beacon search/open tools.
+
+## Annotated Trace Datasets
+
+The local JSON API exposes annotated traces directly for review, evaluation,
+fine-tuning, and skill-development datasets.
 
 List annotated sessions and their annotated targets:
 

@@ -3423,7 +3423,7 @@ body[data-page="search"] ::-webkit-scrollbar-thumb:hover {
   max-height: 100vh;
   overflow-y: auto;
   color: var(--dash-text);
-  background: var(--dash-card);
+  background: var(--dash-bg);
   border-left: 1px solid var(--dash-border);
   box-shadow: -18px 0 44px rgba(0, 0, 0, 0.28);
 }
