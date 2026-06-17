@@ -102,7 +102,7 @@ templ SessionDetail(data views.SessionDetailData) {
 				<div class="annotation-session-strip" data-annotation-summary data-annotation-target="session" data-annotation-session-id={ data.Session.ID }>
 					<div class="min-w-0">
 						<p class="annotation-session-title">Annotations</p>
-						<p class="annotation-session-count" data-annotation-summary-count>0 annotations</p>
+						<p class="annotation-session-count" data-annotation-summary-count role="status" aria-live="polite">0 annotations</p>
 					</div>
 					@components.AnnotationButton("session", data.Session.ID, "", "Annotate session")
 				</div>
@@ -235,7 +235,7 @@ templ annotationDrawer() {
 				</button>
 			</header>
 			<div class="annotation-panel-body">
-				<div class="annotation-list" data-annotation-list></div>
+				<div class="annotation-list" data-annotation-list role="status" aria-live="polite"></div>
 				<form class="annotation-form" data-annotation-form>
 					<input type="hidden" name="annotation_id" value=""/>
 					<div class="annotation-form-grid">
@@ -275,7 +275,7 @@ templ annotationDrawer() {
 						<input name="needs_followup" type="checkbox"/>
 						<span>Needs follow-up</span>
 					</label>
-					<p class="annotation-message" data-annotation-message></p>
+					<p class="annotation-message" data-annotation-message role="status" aria-live="polite"></p>
 					<div class="annotation-actions">
 						<button type="button" class="annotation-secondary-button" data-annotation-new>New</button>
 						<button type="submit" class="annotation-primary-button" data-annotation-save>Save annotation</button>

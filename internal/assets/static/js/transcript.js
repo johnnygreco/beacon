@@ -386,9 +386,16 @@
     var drawer = drawerEl();
     var message = drawer ? drawer.querySelector('[data-annotation-message]') : null;
     if (!message) return;
+    if (state) {
+      message.dataset.state = state;
+      message.setAttribute('role', state === 'error' ? 'alert' : 'status');
+      message.setAttribute('aria-live', state === 'error' ? 'assertive' : 'polite');
+    } else {
+      message.removeAttribute('data-state');
+      message.setAttribute('role', 'status');
+      message.setAttribute('aria-live', 'polite');
+    }
     message.textContent = text || '';
-    if (state) message.dataset.state = state;
-    else message.removeAttribute('data-state');
   }
 
   function resetAnnotationForm() {
@@ -585,12 +592,39 @@
     if (save) save.textContent = isSaving ? 'Saving...' : (form.elements.annotation_id.value ? 'Update annotation' : 'Save annotation');
   }
 
+  function currentAnnotationFormFocus(form) {
+    var active = document.activeElement;
+    if (active && form.contains(active) && typeof active.focus === 'function') return active;
+    return form.querySelector('[data-annotation-save]');
+  }
+
+  function restoreAnnotationFormFocus(el) {
+    if (!el || !annotationDrawerOpen()) return;
+    window.requestAnimationFrame(function() {
+      if (annotationDrawerOpen() && document.contains(el) && !el.disabled && typeof el.focus === 'function') {
+        el.focus();
+      }
+    });
+  }
+
+  function focusAnnotationFallback() {
+    var drawer = drawerEl();
+    if (!drawer || !annotationDrawerOpen()) return;
+    window.requestAnimationFrame(function() {
+      var fallback = drawer.querySelector('[data-annotation-new]') ||
+        drawer.querySelector('[data-annotation-save]') ||
+        drawer.querySelector('[data-annotation-close]');
+      if (fallback && !fallback.disabled && typeof fallback.focus === 'function') fallback.focus();
+    });
+  }
+
   function saveAnnotation(form) {
     var target = annotationState.activeTarget;
     if (!target) return;
     var id = String(form.elements.annotation_id.value || '').trim();
     var payload = buildAnnotationPayload(target, formValues(form), id === '');
     var path = id ? '/api/annotations/' + encodeURIComponent(id) : '/api/annotations';
+    var focusAfterSave = currentAnnotationFormFocus(form);
     setAnnotationSaving(true);
     setAnnotationMessage('', '');
     fetchJSON(scopedPath(path), {
@@ -606,6 +640,7 @@
       setAnnotationMessage(err && err.message ? err.message : 'Unable to save annotation', 'error');
     }).finally(function() {
       setAnnotationSaving(false);
+      restoreAnnotationFormFocus(focusAfterSave);
     });
   }
 
@@ -636,7 +671,7 @@
       headers: { Accept: 'application/json' },
     }).then(function() {
       annotationState.mutationVersion += 1;
-      return loadAnnotations({ force: true });
+      return loadAnnotations({ force: true }).then(focusAnnotationFallback);
     }).catch(function(err) {
       setAnnotationMessage(err && err.message ? err.message : 'Unable to delete annotation', 'error');
     });

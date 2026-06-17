@@ -919,7 +919,7 @@ function annotationSessionStripHTML(sessionID: string) {
     <div class="annotation-session-strip" data-annotation-summary data-annotation-target="session" data-annotation-session-id="${sessionID}">
       <div class="min-w-0">
         <p class="annotation-session-title">Annotations</p>
-        <p class="annotation-session-count" data-annotation-summary-count>0 annotations</p>
+        <p class="annotation-session-count" data-annotation-summary-count role="status" aria-live="polite">0 annotations</p>
       </div>
       ${annotationButtonHTML('session', sessionID, '', 'Annotate session')}
     </div>
@@ -939,7 +939,7 @@ function annotationDrawerHTML() {
           <button type="button" class="annotation-close-button" data-annotation-close aria-label="Close annotations">x</button>
         </header>
         <div class="annotation-panel-body">
-          <div class="annotation-list" data-annotation-list></div>
+          <div class="annotation-list" data-annotation-list role="status" aria-live="polite"></div>
           <form class="annotation-form" data-annotation-form>
             <input type="hidden" name="annotation_id" value=""/>
             <div class="annotation-form-grid">
@@ -951,7 +951,7 @@ function annotationDrawerHTML() {
             <label class="annotation-field"><span>Labels</span><input name="labels" type="text"/></label>
             <label class="annotation-field"><span>Note</span><textarea name="note" rows="5"></textarea></label>
             <label class="annotation-check"><input name="needs_followup" type="checkbox"/><span>Needs follow-up</span></label>
-            <p class="annotation-message" data-annotation-message></p>
+            <p class="annotation-message" data-annotation-message role="status" aria-live="polite"></p>
             <div class="annotation-actions">
               <button type="button" class="annotation-secondary-button" data-annotation-new>New</button>
               <button type="submit" class="annotation-primary-button" data-annotation-save>Save annotation</button>
@@ -1074,7 +1074,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
     return {
       annotation_id: `annotation-${annotationSequence}`,
       target_type: payload.target_type === 'event' ? 'event' : 'session',
-      session_id: String(payload.session_id || TEST_SESSION_ID),
+      session_id: String(payload.session_id || ''),
       event_uid: String(payload.event_uid || ''),
       author_type: payload.author_type === 'agent' ? 'agent' : 'human',
       author_id: '',
@@ -1253,6 +1253,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
     const id = decodeURIComponent(url.pathname.replace(/^\/api\/annotations\/?/, ''));
     if (request.method() === 'POST') {
       const payload = JSON.parse(request.postData() || '{}') as Record<string, unknown>;
+      if (!payload.session_id) return fulfillJSON(route, { error: 'session_id is required' }, 400);
       const annotation = annotationFromPayload(payload);
       annotations.push(annotation);
       return fulfillJSON(route, annotation, 201, 'APITraceAnnotation');

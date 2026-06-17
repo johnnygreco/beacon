@@ -1987,7 +1987,19 @@ test.describe('dashboard battle-tested workflows', () => {
     await form.locator('input[name="labels"]').fill('quality:good, dataset:train');
     await form.locator('textarea[name="note"]').fill('Session note for dataset review.');
     await form.locator('input[name="needs_followup"]').check();
+    const sessionCreateRequest = page.waitForRequest((request) => {
+      if (request.method() !== 'POST') return false;
+      if (new URL(request.url()).pathname !== '/api/annotations') return false;
+      const body = JSON.parse(request.postData() || '{}') as Record<string, unknown>;
+      return body.target_type === 'session';
+    });
     await form.locator('[data-annotation-save]').click();
+    const sessionCreateBody = JSON.parse((await sessionCreateRequest).postData() || '{}') as Record<string, unknown>;
+    expect(sessionCreateBody).toMatchObject({
+      target_type: 'session',
+      session_id: TEST_SESSION_ID,
+    });
+    await expect(form.locator('[data-annotation-save]')).toBeFocused();
     await expect(page.locator('[data-annotation-summary-count]')).toContainText('1 annotation');
     await expect(page.locator('[data-annotation-summary] [data-annotation-button]')).toHaveAttribute('aria-label', /1 annotation/);
     await expect(drawer).toContainText('Session note for dataset review.');
@@ -2042,6 +2054,7 @@ test.describe('dashboard battle-tested workflows', () => {
     await expect(drawer).toContainText('Updated event-level correction.');
     await drawer.getByRole('button', { name: 'Delete' }).click();
     await expect(drawer).toContainText('No annotations yet');
+    await expect(drawer.getByRole('button', { name: 'New' })).toBeFocused();
     await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveClass(/hidden/);
 
     await guards.expectClean();
