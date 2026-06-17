@@ -401,7 +401,6 @@ func (c annotationAPIConn) annotationRows(query string, values annotationNamedVa
 	}
 	if strings.Contains(query, "status != ?") {
 		excludedStatus = values.stringAt(idx)
-		idx++
 	}
 
 	var annotations []models.TraceAnnotation
@@ -569,17 +568,17 @@ func boolAsInt64(value bool) int64 {
 }
 
 func queryScopeMatches(query string, values annotationNamedValues, firstScopeArg int, sourceName, runtime string) bool {
-	idx := firstScopeArg
 	if strings.Contains(query, "source_name IN") {
-		if sourceName != values.stringAt(idx) {
+		if sourceName != values.stringAt(firstScopeArg) {
 			return false
 		}
-		idx++
 	}
 	if strings.Contains(query, "runtime IN") {
-		if runtime != values.stringAt(idx) {
-			return false
+		runtimeArg := firstScopeArg
+		if strings.Contains(query, "source_name IN") {
+			runtimeArg++
 		}
+		return runtime == values.stringAt(runtimeArg)
 	}
 	return true
 }
