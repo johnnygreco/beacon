@@ -22,10 +22,28 @@ type AnnotationFilter struct {
 	AnnotationID   string
 	TargetType     string
 	SessionID      string
+	SessionIDs     []string
 	EventUID       string
+	AuthorType     string
+	Source         string
+	Category       string
+	Outcome        string
+	Label          string
+	NeedsFollowup  *bool
 	IncludeDeleted bool
 	Limit          int
 	Offset         int
+}
+
+type TraceAnnotationSessionSummary struct {
+	SessionID              string
+	AnnotationCount        int
+	SessionAnnotationCount int
+	MessageAnnotationCount int
+	EventAnnotationCount   int
+	NeedsFollowupCount     int
+	FirstAnnotationAt      time.Time
+	LastAnnotationAt       time.Time
 }
 
 type AnnotationUpdate struct {
@@ -112,38 +130,9 @@ func ListTraceAnnotations(ctx context.Context, db *sql.DB, filter AnnotationFilt
 	filter.TargetType = strings.TrimSpace(strings.ToLower(filter.TargetType))
 	filter.SessionID = strings.TrimSpace(filter.SessionID)
 	filter.EventUID = strings.TrimSpace(filter.EventUID)
-	if filter.Limit <= 0 {
-		filter.Limit = defaultAnnotationLimit
-	}
-	if filter.Limit > maxAnnotationLimit {
-		filter.Limit = maxAnnotationLimit
-	}
-	if filter.Offset < 0 {
-		filter.Offset = 0
-	}
-
-	where := []string{"1 = 1"}
-	args := []any{}
-	if filter.AnnotationID != "" {
-		where = append(where, "annotation_id = ?")
-		args = append(args, filter.AnnotationID)
-	}
-	if filter.TargetType != "" {
-		where = append(where, "target_type = ?")
-		args = append(args, filter.TargetType)
-	}
-	if filter.SessionID != "" {
-		where = append(where, "session_id = ?")
-		args = append(args, filter.SessionID)
-	}
-	if filter.EventUID != "" {
-		where = append(where, "event_uid = ?")
-		args = append(args, filter.EventUID)
-	}
-	if !filter.IncludeDeleted {
-		where = append(where, "status != ?")
-		args = append(args, models.AnnotationStatusDeleted)
-	}
+	filter.Limit = normalizeAnnotationLimit(filter.Limit)
+	filter.Offset = normalizeAnnotationOffset(filter.Offset)
+	where, args := annotationFilterWhere(filter)
 	args = append(args, filter.Limit, filter.Offset)
 
 	rows, err := db.QueryContext(ctx, traceAnnotationSelectSQL("WHERE "+strings.Join(where, " AND ")+" ORDER BY created_at ASC, annotation_id ASC LIMIT ? OFFSET ?"), args...)
@@ -164,6 +153,66 @@ func ListTraceAnnotations(ctx context.Context, db *sql.DB, filter AnnotationFilt
 		return nil, err
 	}
 	return annotations, nil
+}
+
+func ListTraceAnnotationSessionSummaries(ctx context.Context, db *sql.DB, filter AnnotationFilter) ([]TraceAnnotationSessionSummary, error) {
+	if db == nil {
+		return nil, fmt.Errorf("database is not configured")
+	}
+	filter.Limit = normalizeAnnotationLimit(filter.Limit)
+	filter.Offset = normalizeAnnotationOffset(filter.Offset)
+	where, args := annotationFilterWhere(filter)
+	args = append(args, filter.Limit, filter.Offset)
+	rows, err := db.QueryContext(ctx, `SELECT session_id,
+		       count() AS annotation_count,
+		       countIf(target_type = ?) AS session_annotation_count,
+		       countIf(target_type = ?) AS message_annotation_count,
+		       countIf(target_type = ?) AS event_annotation_count,
+		       countIf(needs_followup != 0) AS needs_followup_count,
+		       min(created_at) AS first_annotation_at,
+		       max(updated_at) AS last_annotation_at
+		FROM trace_annotations FINAL
+		WHERE `+strings.Join(where, " AND ")+`
+		GROUP BY session_id
+		ORDER BY last_annotation_at DESC, session_id ASC
+		LIMIT ? OFFSET ?`,
+		append([]any{
+			models.AnnotationTargetSession,
+			models.AnnotationTargetMessage,
+			models.AnnotationTargetEvent,
+		}, args...)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	summaries := make([]TraceAnnotationSessionSummary, 0)
+	for rows.Next() {
+		var summary TraceAnnotationSessionSummary
+		var annotationCount, sessionCount, messageCount, eventCount, followupCount uint64
+		if err := rows.Scan(
+			&summary.SessionID,
+			&annotationCount,
+			&sessionCount,
+			&messageCount,
+			&eventCount,
+			&followupCount,
+			&summary.FirstAnnotationAt,
+			&summary.LastAnnotationAt,
+		); err != nil {
+			return nil, err
+		}
+		summary.AnnotationCount = int(annotationCount)
+		summary.SessionAnnotationCount = int(sessionCount)
+		summary.MessageAnnotationCount = int(messageCount)
+		summary.EventAnnotationCount = int(eventCount)
+		summary.NeedsFollowupCount = int(followupCount)
+		summaries = append(summaries, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return summaries, nil
 }
 
 func UpdateTraceAnnotation(ctx context.Context, db *sql.DB, annotationID string, update AnnotationUpdate) (models.TraceAnnotation, error) {
@@ -415,6 +464,110 @@ func splitAnnotationLabels(value string) []string {
 		return nil
 	}
 	return models.NormalizeAnnotationLabels(strings.Split(value, annotationLabelJoiner))
+}
+
+func annotationFilterWhere(filter AnnotationFilter) ([]string, []any) {
+	filter.AnnotationID = strings.TrimSpace(filter.AnnotationID)
+	filter.TargetType = strings.TrimSpace(strings.ToLower(filter.TargetType))
+	filter.SessionID = strings.TrimSpace(filter.SessionID)
+	filter.EventUID = strings.TrimSpace(filter.EventUID)
+	filter.AuthorType = strings.TrimSpace(strings.ToLower(filter.AuthorType))
+	filter.Source = strings.TrimSpace(strings.ToLower(filter.Source))
+	filter.Category = strings.TrimSpace(strings.ToLower(filter.Category))
+	filter.Outcome = strings.TrimSpace(strings.ToLower(filter.Outcome))
+	filter.Label = strings.TrimSpace(strings.ToLower(filter.Label))
+	filter.SessionIDs = compactAnnotationStrings(filter.SessionIDs)
+
+	where := []string{"1 = 1"}
+	args := []any{}
+	if filter.AnnotationID != "" {
+		where = append(where, "annotation_id = ?")
+		args = append(args, filter.AnnotationID)
+	}
+	if filter.TargetType != "" {
+		where = append(where, "target_type = ?")
+		args = append(args, filter.TargetType)
+	}
+	if filter.SessionID != "" {
+		where = append(where, "session_id = ?")
+		args = append(args, filter.SessionID)
+	}
+	if len(filter.SessionIDs) > 0 {
+		where = append(where, "session_id IN ("+strings.TrimRight(strings.Repeat("?,", len(filter.SessionIDs)), ",")+")")
+		for _, sessionID := range filter.SessionIDs {
+			args = append(args, sessionID)
+		}
+	}
+	if filter.EventUID != "" {
+		where = append(where, "event_uid = ?")
+		args = append(args, filter.EventUID)
+	}
+	if filter.AuthorType != "" {
+		where = append(where, "author_type = ?")
+		args = append(args, filter.AuthorType)
+	}
+	if filter.Source != "" {
+		where = append(where, "source = ?")
+		args = append(args, filter.Source)
+	}
+	if filter.Category != "" {
+		where = append(where, "category = ?")
+		args = append(args, filter.Category)
+	}
+	if filter.Outcome != "" {
+		where = append(where, "outcome = ?")
+		args = append(args, filter.Outcome)
+	}
+	if filter.Label != "" {
+		where = append(where, "has(labels, ?)")
+		args = append(args, filter.Label)
+	}
+	if filter.NeedsFollowup != nil {
+		where = append(where, "needs_followup = ?")
+		args = append(args, boolToUInt8(*filter.NeedsFollowup))
+	}
+	if !filter.IncludeDeleted {
+		where = append(where, "status != ?")
+		args = append(args, models.AnnotationStatusDeleted)
+	}
+	return where, args
+}
+
+func normalizeAnnotationLimit(limit int) int {
+	if limit <= 0 {
+		return defaultAnnotationLimit
+	}
+	if limit > maxAnnotationLimit {
+		return maxAnnotationLimit
+	}
+	return limit
+}
+
+func normalizeAnnotationOffset(offset int) int {
+	if offset < 0 {
+		return 0
+	}
+	return offset
+}
+
+func compactAnnotationStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func boolToUInt8(value bool) uint8 {

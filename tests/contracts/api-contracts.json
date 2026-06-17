@@ -249,6 +249,75 @@
     },
     "optional": {}
   },
+  "APIAnnotationCounts": {
+    "required": {
+      "annotation_count": "integer",
+      "session_annotation_count": "integer",
+      "message_annotation_count": "integer",
+      "event_annotation_count": "integer",
+      "needs_followup_count": "integer"
+    },
+    "optional": {}
+  },
+  "APIAnnotatedTargetSummary": {
+    "required": {
+      "target_type": "string",
+      "annotation_count": "integer",
+      "first_annotation_at": "string",
+      "last_annotation_at": "string"
+    },
+    "optional": {
+      "event_uid": "string"
+    }
+  },
+  "APIAnnotatedTraceSummary": {
+    "required": {
+      "session": "APISessionSummary",
+      "counts": "APIAnnotationCounts",
+      "first_annotation_at": "string",
+      "last_annotation_at": "string",
+      "targets": "APIAnnotatedTargetSummary[]"
+    },
+    "optional": {}
+  },
+  "APIAnnotatedTracesResponse": {
+    "required": {
+      "schema": "string",
+      "scope": "APIScopeMetadata",
+      "include_deleted": "boolean",
+      "offset": "integer",
+      "limit": "integer",
+      "has_more": "boolean",
+      "items": "APIAnnotatedTraceSummary[]"
+    },
+    "optional": {}
+  },
+  "APIAnnotatedTraceExport": {
+    "required": {
+      "session": "APISessionSummary",
+      "counts": "APIAnnotationCounts",
+      "annotations": "APITraceAnnotation[]",
+      "events": "APISessionEvent[]",
+      "event_limit": "integer",
+      "event_truncated": "boolean"
+    },
+    "optional": {}
+  },
+  "APIAnnotatedTraceExportResponse": {
+    "required": {
+      "schema": "string",
+      "exported_at": "string",
+      "scope": "APIScopeMetadata",
+      "include_deleted": "boolean",
+      "offset": "integer",
+      "limit": "integer",
+      "event_limit": "integer",
+      "has_more": "boolean",
+      "traces": "APIAnnotatedTraceExport[]",
+      "warnings": "string[]"
+    },
+    "optional": {}
+  },
   "APIToolPayload": {
     "required": {
       "event_uid": "string",
