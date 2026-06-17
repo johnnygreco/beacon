@@ -253,6 +253,28 @@ func ResolveTraceAnnotationTarget(ctx context.Context, db *sql.DB, targetType, s
 			return "", ErrAnnotationTargetNotFound
 		}
 		return resolved, err
+	case models.AnnotationTargetMessage:
+		if eventUID == "" {
+			return "", models.NewAnnotationValidationError("message annotations require event_uid")
+		}
+		var resolved string
+		err := db.QueryRowContext(ctx, `SELECT session_id FROM (
+				SELECT argMax(session_id, captured_at) AS session_id,
+				       argMax(event_kind, captured_at) AS event_kind
+				FROM activity_events
+				WHERE event_uid = ?
+				GROUP BY event_uid
+			) WHERE session_id != '' AND event_kind = 'message' LIMIT 1`, eventUID).Scan(&resolved)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrAnnotationTargetNotFound
+		}
+		if err != nil {
+			return "", err
+		}
+		if sessionID != "" && sessionID != resolved {
+			return "", ErrAnnotationTargetNotFound
+		}
+		return resolved, nil
 	case models.AnnotationTargetEvent:
 		if eventUID == "" {
 			return "", models.NewAnnotationValidationError("event annotations require event_uid")
@@ -275,7 +297,7 @@ func ResolveTraceAnnotationTarget(ctx context.Context, db *sql.DB, targetType, s
 		}
 		return resolved, nil
 	default:
-		return "", models.NewAnnotationValidationError("target_type must be session or event")
+		return "", models.NewAnnotationValidationError("target_type must be session, message, or event")
 	}
 }
 

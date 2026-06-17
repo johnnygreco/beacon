@@ -58,6 +58,7 @@ test("transcript annotation helpers normalize labels and target keys", () => {
   );
   assert.equal(helpers.annotationTargetKey({ target_type: "session", session_id: "session-1" }), "session:session-1");
   assert.equal(helpers.annotationTargetKey({ target_type: "event", event_uid: "event-1" }), "event:event-1");
+  assert.equal(helpers.annotationTargetKey({ target_type: "message", event_uid: "message-1" }), "event:message-1");
   assert.equal(helpers.annotationCountText(1), "1 annotation");
   assert.equal(helpers.annotationCountText(2), "2 annotations");
 });
@@ -106,4 +107,34 @@ test("transcript annotation helpers build create and update payloads", () => {
   assert.equal(updatePayload.event_uid, undefined);
   assert.equal(updatePayload.quality_score, 3);
   assert.equal(updatePayload.confidence, 80);
+});
+
+test("transcript annotation helpers build message payloads", () => {
+  const helpers = loadAnnotationHelpers();
+  const target = { target_type: "message", session_id: "session-1", event_uid: "message-1" };
+
+  const createPayload = helpers.buildAnnotationPayload(target, {
+    category: "",
+    outcome: "",
+    quality_score: "0",
+    confidence: "70",
+    needs_followup: false,
+    labels: "message:important",
+    note: "Message-level note.",
+  }, true);
+
+  assert.deepEqual(plain(createPayload), {
+    author_type: "human",
+    source: "ui",
+    target_type: "message",
+    session_id: "session-1",
+    event_uid: "message-1",
+    category: "",
+    outcome: "",
+    quality_score: 0,
+    confidence: 70,
+    needs_followup: false,
+    labels: ["message:important"],
+    note: "Message-level note.",
+  });
 });

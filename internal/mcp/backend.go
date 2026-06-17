@@ -45,7 +45,7 @@ func NewClickHouseBackend(opts store.Options, logger *slog.Logger, maxResults in
 		opts:       opts,
 		logger:     logger,
 		maxResults: maxResults,
-		open:       store.OpenReadOnly,
+		open:       store.Open,
 	}
 }
 
@@ -62,7 +62,7 @@ func (b *ClickHouseBackend) Backend(ctx context.Context) (Backend, error) {
 
 	open := b.open
 	if open == nil {
-		open = store.OpenReadOnly
+		open = store.Open
 	}
 	ch, err := open(ctx, b.opts)
 	if err != nil {

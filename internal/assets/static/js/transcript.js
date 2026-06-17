@@ -226,7 +226,7 @@
   function annotationTargetKey(target) {
     if (!target) return '';
     var targetType = String(target.target_type || target.targetType || '').trim().toLowerCase();
-    if (targetType === 'event') {
+    if (targetType === 'event' || targetType === 'message') {
       return 'event:' + String(target.event_uid || target.eventUID || '').trim();
     }
     return 'session:' + String(target.session_id || target.sessionID || currentSessionID()).trim();
@@ -257,10 +257,10 @@
     var targetType = String(el.dataset.annotationTarget || 'session').trim().toLowerCase();
     var sessionID = String(el.dataset.annotationSessionId || currentSessionID()).trim();
     var eventUID = String(el.dataset.annotationEventUid || '').trim();
-    if (targetType === 'event' && !eventUID) return null;
+    if ((targetType === 'event' || targetType === 'message') && !eventUID) return null;
     if (!sessionID) return null;
     return {
-      target_type: targetType === 'event' ? 'event' : 'session',
+      target_type: (targetType === 'event' || targetType === 'message') ? targetType : 'session',
       session_id: sessionID,
       event_uid: eventUID,
     };
@@ -295,8 +295,8 @@
     var labelEl = button.querySelector('.annotation-button-label');
     var label = String(button.dataset.annotationLabel || (labelEl ? labelEl.textContent : '') || 'Annotate').trim();
     if (!label) label = 'Annotate';
-    if (target && target.target_type === 'event') {
-      label += ' event ' + target.event_uid.slice(0, 12);
+    if (target && (target.target_type === 'event' || target.target_type === 'message')) {
+      label += ' ' + target.target_type + ' ' + target.event_uid.slice(0, 12);
     } else if (!/\bsession\b/i.test(label)) {
       label += ' session';
     }
@@ -445,13 +445,14 @@
     if (includeTarget) {
       payload.target_type = target.target_type;
       payload.session_id = target.session_id;
-      if (target.target_type === 'event') payload.event_uid = target.event_uid;
+      if (target.target_type === 'event' || target.target_type === 'message') payload.event_uid = target.event_uid;
     }
     return payload;
   }
 
   function targetTitle(target) {
     if (!target) return 'Annotations';
+    if (target.target_type === 'message') return 'Message ' + target.event_uid.slice(0, 12);
     if (target.target_type === 'event') return 'Event ' + target.event_uid.slice(0, 12);
     return 'Session';
   }
@@ -505,7 +506,10 @@
     drawer.setAttribute('aria-hidden', 'false');
     var kicker = drawer.querySelector('[data-annotation-target-label]');
     var title = drawer.querySelector('#annotation-drawer-title');
-    if (kicker) kicker.textContent = target.target_type === 'event' ? 'Event annotation' : 'Session annotation';
+    if (kicker) {
+      kicker.textContent = target.target_type === 'message' ? 'Message annotation' :
+        target.target_type === 'event' ? 'Event annotation' : 'Session annotation';
+    }
     if (title) title.textContent = targetTitle(target);
     resetAnnotationForm();
     renderAnnotationDrawer();

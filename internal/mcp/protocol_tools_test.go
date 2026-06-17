@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/johnnygreco/beacon/internal/models"
 	"github.com/johnnygreco/beacon/internal/search"
 	"github.com/johnnygreco/beacon/internal/store"
 )
@@ -787,6 +788,457 @@ func TestToolUsageSummarySuccessAndErrors(t *testing.T) {
 	}
 }
 
+func TestToolCreateAnnotationSupportsMessageTarget(t *testing.T) {
+	db, stub := newMCPStubDBWithExecs(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH latest_event AS", "argMax(event_kind, captured_at) AS event_kind", "e.event_kind = 'message'")
+			assertMCPNamedValues(t, args, []any{"msg-1"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "FROM activity_events", "event_kind = 'message'")
+			assertMCPNamedValues(t, args, []any{"msg-1"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+	}, []mcpStubExec{
+		func(query string, args []driver.NamedValue) (driver.Result, error) {
+			assertMCPQueryContains(t, query, "INSERT INTO trace_annotations")
+			values := mcpNamedValues(args)
+			if len(values) != 22 {
+				t.Fatalf("insert values = %d, want 22: %#v", len(values), values)
+			}
+			id, _ := values[0].(string)
+			if !strings.HasPrefix(id, "ann_") || values[2] != models.AnnotationTargetMessage || values[3] != "session-1" || values[4] != "msg-1" || values[5] != models.AnnotationAuthorAgent || values[8] != models.AnnotationSourceMCP {
+				t.Fatalf("insert annotation target/agent/source = %#v", values[:9])
+			}
+			if values[9] != "quality" || values[15] != "message note" || values[16] != `{"rubric":"qa"}` {
+				t.Fatalf("insert annotation content = %#v", values[9:17])
+			}
+			return mcpExecResult(1), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	text, err := srv.toolCreateAnnotation(context.Background(), json.RawMessage(`{
+		"target_type":"message",
+		"message_id":"event:msg-1",
+		"author_id":"agent-1",
+		"author_name":"Reviewer Agent",
+		"category":"quality",
+		"labels":["dataset:eval"],
+		"note":"message note",
+		"metadata_json":"{\"rubric\":\"qa\"}"
+	}`))
+	if err != nil {
+		t.Fatalf("toolCreateAnnotation: %v", err)
+	}
+	for _, want := range []string{
+		`"schema":"beacon.mcp.create_annotation.v1"`,
+		`"target_type":"message"`,
+		`"session_id":"session:session-1"`,
+		`"event_id":"event:msg-1"`,
+		`"message_id":"message:msg-1"`,
+		`"author_type":"agent"`,
+		`"source":"mcp"`,
+		`"note":"message note"`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("create annotation output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestToolListAnnotationsSessionTargetListsAllSessionAnnotations(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	sessionAnnotation := models.TraceAnnotation{
+		AnnotationID:  "ann-session",
+		Revision:      1,
+		TargetType:    models.AnnotationTargetSession,
+		SessionID:     "session-1",
+		AuthorType:    models.AnnotationAuthorAgent,
+		Source:        models.AnnotationSourceMCP,
+		Note:          "session note",
+		Status:        models.AnnotationStatusActive,
+		SchemaVersion: models.AnnotationSchemaVersion,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	messageAnnotation := sessionAnnotation
+	messageAnnotation.AnnotationID = "ann-message"
+	messageAnnotation.TargetType = models.AnnotationTargetMessage
+	messageAnnotation.EventUID = "msg-1"
+	messageAnnotation.Note = "message note"
+	db, stub := newMCPStubDB(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "SELECT session_id FROM", "session_id = ?")
+			assertMCPNamedValues(t, args, []any{"session-1"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "FROM trace_annotations FINAL", "session_id = ?", "status != ?")
+			if strings.Contains(query, "target_type = ?") {
+				t.Fatalf("session list without target_type must not filter target_type:\n%s", query)
+			}
+			assertMCPNamedValues(t, args, []any{"session-1", models.AnnotationStatusDeleted, defaultAnnotationListLimit, 0})
+			return mcpRows(
+				mcpAnnotationColumns(),
+				mcpAnnotationRow(sessionAnnotation),
+				mcpAnnotationRow(messageAnnotation),
+			), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "SELECT session_id FROM", "session_id = ?")
+			assertMCPNamedValues(t, args, []any{"session-1"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH latest_event AS", "e.event_kind = 'message'")
+			assertMCPNamedValues(t, args, []any{"msg-1"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	text, err := srv.toolListAnnotations(context.Background(), json.RawMessage(`{"session_id":"session:session-1"}`))
+	if err != nil {
+		t.Fatalf("toolListAnnotations: %v", err)
+	}
+	for _, want := range []string{
+		`"schema":"beacon.mcp.list_annotations.v1"`,
+		`"annotation_id":"ann-session"`,
+		`"annotation_id":"ann-message"`,
+		`"message_id":"message:msg-1"`,
+		`"open_ref":{"type":"message"`,
+		`"result_count":2`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("list annotation output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestToolListAnnotationsFiltersOutOfScopeTargets(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	sessionAnnotation := models.TraceAnnotation{
+		AnnotationID:  "ann-session",
+		Revision:      1,
+		TargetType:    models.AnnotationTargetSession,
+		SessionID:     "session-1",
+		AuthorType:    models.AnnotationAuthorAgent,
+		Source:        models.AnnotationSourceMCP,
+		Note:          "session note",
+		Status:        models.AnnotationStatusActive,
+		SchemaVersion: models.AnnotationSchemaVersion,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	messageAnnotation := sessionAnnotation
+	messageAnnotation.AnnotationID = "ann-message"
+	messageAnnotation.TargetType = models.AnnotationTargetMessage
+	messageAnnotation.EventUID = "msg-1"
+	messageAnnotation.Note = "visible message note"
+	secretAnnotation := sessionAnnotation
+	secretAnnotation.AnnotationID = "ann-secret"
+	secretAnnotation.TargetType = models.AnnotationTargetMessage
+	secretAnnotation.EventUID = "msg-secret"
+	secretAnnotation.Note = "secret note"
+	db, stub := newMCPStubDB(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "SELECT session_id FROM", "session_id = ?", "source_name IN (?)")
+			assertMCPNamedValues(t, args, []any{"session-1", "source-a"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "FROM trace_annotations FINAL", "session_id = ?", "status != ?")
+			assertMCPNamedValues(t, args, []any{"session-1", models.AnnotationStatusDeleted, defaultAnnotationListLimit, 0})
+			return mcpRows(
+				mcpAnnotationColumns(),
+				mcpAnnotationRow(sessionAnnotation),
+				mcpAnnotationRow(messageAnnotation),
+				mcpAnnotationRow(secretAnnotation),
+			), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "SELECT session_id FROM", "session_id = ?", "source_name IN (?)")
+			assertMCPNamedValues(t, args, []any{"session-1", "source-a"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH latest_event AS", "e.event_kind = 'message'", "e.source_name IN (?)")
+			assertMCPNamedValues(t, args, []any{"msg-1", "source-a"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH latest_event AS", "e.event_kind = 'message'", "e.source_name IN (?)")
+			assertMCPNamedValues(t, args, []any{"msg-secret", "source-a"})
+			return mcpRows([]string{"session_id"}), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	text, err := srv.toolListAnnotations(context.Background(), json.RawMessage(`{"session_id":"session:session-1","source_name":"source-a"}`))
+	if err != nil {
+		t.Fatalf("toolListAnnotations: %v", err)
+	}
+	for _, want := range []string{
+		`"annotation_id":"ann-session"`,
+		`"annotation_id":"ann-message"`,
+		`"result_count":2`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("scoped list annotation output missing %q:\n%s", want, text)
+		}
+	}
+	for _, notWant := range []string{`"annotation_id":"ann-secret"`, "secret note"} {
+		if strings.Contains(text, notWant) {
+			t.Fatalf("scoped list annotation output leaked %q:\n%s", notWant, text)
+		}
+	}
+}
+
+func TestToolListAnnotationsMessageOpenRefRoundTripsFromCreate(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	annotation := models.TraceAnnotation{
+		AnnotationID:  "ann-message",
+		Revision:      1,
+		TargetType:    models.AnnotationTargetMessage,
+		SessionID:     "session-1",
+		EventUID:      "msg-1",
+		AuthorType:    models.AnnotationAuthorAgent,
+		AuthorID:      "agent-1",
+		AuthorName:    "Reviewer Agent",
+		Source:        models.AnnotationSourceMCP,
+		Note:          "message note",
+		Status:        models.AnnotationStatusActive,
+		SchemaVersion: models.AnnotationSchemaVersion,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	db, stub := newMCPStubDBWithExecs(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH latest_event AS", "e.event_kind = 'message'")
+			assertMCPNamedValues(t, args, []any{"msg-1"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "FROM activity_events", "event_kind = 'message'")
+			assertMCPNamedValues(t, args, []any{"msg-1"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH latest_event AS", "e.event_kind = 'message'")
+			assertMCPNamedValues(t, args, []any{"msg-1"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "FROM trace_annotations FINAL", "target_type = ?", "session_id = ?", "event_uid = ?", "status != ?")
+			assertMCPNamedValues(t, args, []any{models.AnnotationTargetMessage, "session-1", "msg-1", models.AnnotationStatusDeleted, defaultAnnotationListLimit, 0})
+			return mcpRows(mcpAnnotationColumns(), mcpAnnotationRow(annotation)), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH latest_event AS", "e.event_kind = 'message'")
+			assertMCPNamedValues(t, args, []any{"msg-1"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+	}, []mcpStubExec{
+		func(query string, args []driver.NamedValue) (driver.Result, error) {
+			assertMCPQueryContains(t, query, "INSERT INTO trace_annotations")
+			return mcpExecResult(1), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	createdText, err := srv.toolCreateAnnotation(context.Background(), json.RawMessage(`{
+		"target_type":"message",
+		"message_id":"message:msg-1",
+		"author_id":"agent-1",
+		"author_name":"Reviewer Agent",
+		"note":"message note"
+	}`))
+	if err != nil {
+		t.Fatalf("toolCreateAnnotation: %v", err)
+	}
+	var created struct {
+		Annotation struct {
+			OpenRef openRef `json:"open_ref"`
+		} `json:"annotation"`
+	}
+	if err := json.Unmarshal([]byte(createdText), &created); err != nil {
+		t.Fatalf("unmarshal create output: %v\n%s", err, createdText)
+	}
+	if created.Annotation.OpenRef.Type != "message" || created.Annotation.OpenRef.MessageID != "message:msg-1" {
+		t.Fatalf("create message open_ref = %#v", created.Annotation.OpenRef)
+	}
+	refJSON, err := json.Marshal(created.Annotation.OpenRef)
+	if err != nil {
+		t.Fatalf("marshal open_ref: %v", err)
+	}
+	text, err := srv.toolListAnnotations(context.Background(), json.RawMessage(`{"open_ref":`+string(refJSON)+`}`))
+	if err != nil {
+		t.Fatalf("toolListAnnotations open_ref: %v", err)
+	}
+	for _, want := range []string{
+		`"annotation_id":"ann-message"`,
+		`"target_type":"message"`,
+		`"message_id":"message:msg-1"`,
+		`"open_ref":{"type":"message"`,
+		`"result_count":1`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("message open_ref list output missing %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestToolUpdateAndDeleteAnnotationVerifyMessageScope(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	current := models.TraceAnnotation{
+		AnnotationID:  "ann-message",
+		Revision:      1,
+		TargetType:    models.AnnotationTargetMessage,
+		SessionID:     "session-1",
+		EventUID:      "msg-1",
+		AuthorType:    models.AnnotationAuthorHuman,
+		Source:        models.AnnotationSourceUI,
+		Note:          "old note",
+		Status:        models.AnnotationStatusActive,
+		SchemaVersion: models.AnnotationSchemaVersion,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	db, stub := newMCPStubDBWithExecs(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "FROM trace_annotations FINAL", "annotation_id = ?")
+			assertMCPNamedValues(t, args, []any{"ann-message", models.AnnotationStatusDeleted, 1, 0})
+			return mcpRows(mcpAnnotationColumns(), mcpAnnotationRow(current)), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH latest_event AS", "e.event_kind = 'message'")
+			assertMCPNamedValues(t, args, []any{"msg-1"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "FROM trace_annotations FINAL", "annotation_id = ?")
+			assertMCPNamedValues(t, args, []any{"ann-message", models.AnnotationStatusDeleted, 1, 0})
+			return mcpRows(mcpAnnotationColumns(), mcpAnnotationRow(current)), nil
+		},
+	}, []mcpStubExec{
+		func(query string, args []driver.NamedValue) (driver.Result, error) {
+			assertMCPQueryContains(t, query, "INSERT INTO trace_annotations")
+			values := mcpNamedValues(args)
+			if values[1] != uint64(2) || values[5] != models.AnnotationAuthorAgent || values[8] != models.AnnotationSourceMCP || values[15] != "new note" {
+				t.Fatalf("updated insert values = %#v", values)
+			}
+			return mcpExecResult(1), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	text, err := srv.toolUpdateAnnotation(context.Background(), json.RawMessage(`{"annotation_id":"ann-message","note":"new note"}`))
+	if err != nil {
+		t.Fatalf("toolUpdateAnnotation: %v", err)
+	}
+	if !strings.Contains(text, `"schema":"beacon.mcp.update_annotation.v1"`) || !strings.Contains(text, `"revision":2`) || !strings.Contains(text, `"source":"mcp"`) {
+		t.Fatalf("update output = %s", text)
+	}
+
+	deletedAt := now.Add(time.Minute)
+	deleted := current
+	deleted.Revision = 2
+	deleted.Status = models.AnnotationStatusDeleted
+	deleted.DeletedAt = &deletedAt
+	db, stub = newMCPStubDBWithExecs(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "FROM trace_annotations FINAL", "annotation_id = ?")
+			assertMCPNamedValues(t, args, []any{"ann-message", models.AnnotationStatusDeleted, 1, 0})
+			return mcpRows(mcpAnnotationColumns(), mcpAnnotationRow(current)), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH latest_event AS", "e.event_kind = 'message'")
+			assertMCPNamedValues(t, args, []any{"msg-1"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "FROM trace_annotations FINAL", "annotation_id = ?")
+			assertMCPNamedValues(t, args, []any{"ann-message", models.AnnotationStatusDeleted, 1, 0})
+			return mcpRows(mcpAnnotationColumns(), mcpAnnotationRow(current)), nil
+		},
+	}, []mcpStubExec{
+		func(query string, args []driver.NamedValue) (driver.Result, error) {
+			assertMCPQueryContains(t, query, "INSERT INTO trace_annotations")
+			values := mcpNamedValues(args)
+			if values[1] != uint64(2) || values[17] != models.AnnotationStatusDeleted {
+				t.Fatalf("deleted insert values = %#v", values)
+			}
+			return mcpExecResult(1), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+	srv.db = db
+	text, err = srv.toolDeleteAnnotation(context.Background(), json.RawMessage(`{"annotation_id":"ann-message"}`))
+	if err != nil {
+		t.Fatalf("toolDeleteAnnotation: %v", err)
+	}
+	if !strings.Contains(text, `"schema":"beacon.mcp.delete_annotation.v1"`) || !strings.Contains(text, `"status":"deleted"`) {
+		t.Fatalf("delete output = %s", text)
+	}
+}
+
+func TestToolGetAnnotationScopedMissReturnsForbidden(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	annotation := models.TraceAnnotation{
+		AnnotationID:  "ann-secret",
+		Revision:      1,
+		TargetType:    models.AnnotationTargetMessage,
+		SessionID:     "session-secret",
+		EventUID:      "msg-secret",
+		AuthorType:    models.AnnotationAuthorAgent,
+		Source:        models.AnnotationSourceMCP,
+		Note:          "secret note",
+		Status:        models.AnnotationStatusActive,
+		SchemaVersion: models.AnnotationSchemaVersion,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	db, stub := newMCPStubDB(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "FROM trace_annotations FINAL", "annotation_id = ?")
+			assertMCPNamedValues(t, args, []any{"ann-secret", models.AnnotationStatusDeleted, 1, 0})
+			return mcpRows(mcpAnnotationColumns(), mcpAnnotationRow(annotation)), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH latest_event AS", "e.event_kind = 'message'", "e.source_name IN (?)")
+			assertMCPNamedValues(t, args, []any{"msg-secret", "source-a"})
+			return mcpRows([]string{"session_id"}), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	_, err := srv.toolGetAnnotation(context.Background(), json.RawMessage(`{"annotation_id":"ann-secret","source_name":"source-a"}`))
+	if err == nil || err.Error() != "forbidden" {
+		t.Fatalf("scoped get annotation error = %v, want forbidden", err)
+	}
+}
+
 func TestDataBackedToolsReturnDatabaseUnavailableToolErrors(t *testing.T) {
 	srv := NewServerWithBackend(failingBackendProvider{
 		err: databaseUnavailableError(store.Options{
@@ -814,6 +1266,26 @@ func TestDataBackedToolsReturnDatabaseUnavailableToolErrors(t *testing.T) {
 		{
 			name: "usage_summary",
 			args: `{"name":"usage_summary","arguments":{"since":"now-24h","until":"now","window_mode":null,"token_mode":null,"source_name":null,"model":null,"provider":null,"working_dir":null,"group_by":null,"limit":null}}`,
+		},
+		{
+			name: "create_annotation",
+			args: `{"name":"create_annotation","arguments":{"target_type":"session","session_id":"session:session-1","message_id":null,"event_id":null,"open_ref":null,"author_id":null,"author_name":null,"category":null,"outcome":null,"quality_score":null,"confidence":null,"needs_followup":null,"labels":null,"note":"note","metadata_json":null}}`,
+		},
+		{
+			name: "update_annotation",
+			args: `{"name":"update_annotation","arguments":{"annotation_id":"ann_1","author_id":null,"author_name":null,"category":null,"outcome":null,"quality_score":null,"confidence":null,"needs_followup":null,"labels":null,"note":"note","metadata_json":null}}`,
+		},
+		{
+			name: "list_annotations",
+			args: `{"name":"list_annotations","arguments":{"target_type":null,"session_id":"session:session-1","message_id":null,"event_id":null,"open_ref":null,"include_deleted":null,"limit":null,"offset":null}}`,
+		},
+		{
+			name: "get_annotation",
+			args: `{"name":"get_annotation","arguments":{"annotation_id":"ann_1","include_deleted":null}}`,
+		},
+		{
+			name: "delete_annotation",
+			args: `{"name":"delete_annotation","arguments":{"annotation_id":"ann_1"}}`,
 		},
 	}
 
@@ -919,6 +1391,49 @@ func TestToolDefinitionsMatchImplementedArguments(t *testing.T) {
 	}
 	assertPropertyNullableType(t, usageSchema, "group_by", "array")
 	assertPropertyNullableType(t, usageSchema, "limit", "integer")
+
+	createSchema := inputSchema(t, defs["create_annotation"])
+	createRequired := append(append(annotationTargetRequiredProperties(), annotationContentRequiredProperties()...), scopeRequiredProperties()...)
+	assertSchemaProperties(t, createSchema, createRequired...)
+	assertRequired(t, createSchema, createRequired...)
+	for _, name := range []string{"target_type", "session_id", "message_id", "event_id", "author_id", "author_name", "category", "outcome", "note", "metadata_json"} {
+		assertPropertyNullableType(t, createSchema, name, "string")
+	}
+	assertPropertyNullableType(t, createSchema, "quality_score", "integer")
+	assertPropertyNullableType(t, createSchema, "confidence", "integer")
+	assertPropertyNullableType(t, createSchema, "needs_followup", "boolean")
+	assertPropertyNullableType(t, createSchema, "labels", "array")
+	assertToolAnnotations(t, defs["create_annotation"], false, false)
+
+	updateSchema := inputSchema(t, defs["update_annotation"])
+	updateRequired := append(append([]string{"annotation_id"}, annotationContentRequiredProperties()...), scopeRequiredProperties()...)
+	assertSchemaProperties(t, updateSchema, updateRequired...)
+	assertRequired(t, updateSchema, updateRequired...)
+	assertPropertyType(t, updateSchema, "annotation_id", "string")
+	assertPropertyNullableType(t, updateSchema, "note", "string")
+	assertToolAnnotations(t, defs["update_annotation"], false, false)
+
+	listAnnotationsSchema := inputSchema(t, defs["list_annotations"])
+	listRequired := append(append(annotationTargetRequiredProperties(), "include_deleted", "limit", "offset"), scopeRequiredProperties()...)
+	assertSchemaProperties(t, listAnnotationsSchema, listRequired...)
+	assertRequired(t, listAnnotationsSchema, listRequired...)
+	assertPropertyNullableType(t, listAnnotationsSchema, "include_deleted", "boolean")
+	assertPropertyNullableType(t, listAnnotationsSchema, "limit", "integer")
+	assertPropertyNullableType(t, listAnnotationsSchema, "offset", "integer")
+	assertToolAnnotations(t, defs["list_annotations"], true, false)
+
+	getSchema := inputSchema(t, defs["get_annotation"])
+	assertSchemaProperties(t, getSchema, append([]string{"annotation_id", "include_deleted"}, scopeRequiredProperties()...)...)
+	assertRequired(t, getSchema, append([]string{"annotation_id", "include_deleted"}, scopeRequiredProperties()...)...)
+	assertPropertyType(t, getSchema, "annotation_id", "string")
+	assertPropertyNullableType(t, getSchema, "include_deleted", "boolean")
+	assertToolAnnotations(t, defs["get_annotation"], true, false)
+
+	deleteSchema := inputSchema(t, defs["delete_annotation"])
+	assertSchemaProperties(t, deleteSchema, append([]string{"annotation_id"}, scopeRequiredProperties()...)...)
+	assertRequired(t, deleteSchema, append([]string{"annotation_id"}, scopeRequiredProperties()...)...)
+	assertPropertyType(t, deleteSchema, "annotation_id", "string")
+	assertToolAnnotations(t, defs["delete_annotation"], false, true)
 }
 
 type failingBackendProvider struct {
@@ -1015,7 +1530,7 @@ func toolDefinitionsByName(t *testing.T) map[string]map[string]any {
 		name, _ := def["name"].(string)
 		defs[name] = def
 	}
-	for _, name := range []string{"search_sessions", "open", "list_sessions", "usage_summary"} {
+	for _, name := range expectedMCPToolNames() {
 		if defs[name] == nil {
 			t.Fatalf("missing tool definition %q", name)
 		}
@@ -1103,6 +1618,20 @@ func schemaProperty(t *testing.T, schema map[string]any, name string) map[string
 	return property
 }
 
+func assertToolAnnotations(t *testing.T, def map[string]any, readOnly, destructive bool) {
+	t.Helper()
+	annotations, ok := def["annotations"].(map[string]any)
+	if !ok {
+		t.Fatalf("annotations = %T", def["annotations"])
+	}
+	if annotations["readOnlyHint"] != readOnly || annotations["destructiveHint"] != destructive {
+		t.Fatalf("annotations = %#v, want readOnly=%v destructive=%v", annotations, readOnly, destructive)
+	}
+	if annotations["idempotentHint"] != readOnly || annotations["openWorldHint"] != false {
+		t.Fatalf("annotations idempotent/openWorld = %#v", annotations)
+	}
+}
+
 func assertRequiredCoversAllProperties(t *testing.T, toolName string, schema map[string]any) {
 	t.Helper()
 	properties, ok := schema["properties"].(map[string]any)
@@ -1128,15 +1657,22 @@ func assertRequiredCoversAllProperties(t *testing.T, toolName string, schema map
 }
 
 type mcpStubQuery func(query string, args []driver.NamedValue) (driver.Rows, error)
+type mcpStubExec func(query string, args []driver.NamedValue) (driver.Result, error)
 
 type mcpStubDB struct {
 	mu      sync.Mutex
 	queries []mcpStubQuery
+	execs   []mcpStubExec
 }
 
 func newMCPStubDB(t *testing.T, queries []mcpStubQuery) (*sql.DB, *mcpStubDB) {
 	t.Helper()
-	stub := &mcpStubDB{queries: queries}
+	return newMCPStubDBWithExecs(t, queries, nil)
+}
+
+func newMCPStubDBWithExecs(t *testing.T, queries []mcpStubQuery, execs []mcpStubExec) (*sql.DB, *mcpStubDB) {
+	t.Helper()
+	stub := &mcpStubDB{queries: queries, execs: execs}
 	return sql.OpenDB(mcpStubConnector{stub: stub}), stub
 }
 
@@ -1146,6 +1682,9 @@ func (s *mcpStubDB) assertDone(t *testing.T) {
 	defer s.mu.Unlock()
 	if len(s.queries) != 0 {
 		t.Fatalf("unconsumed query expectations = %d", len(s.queries))
+	}
+	if len(s.execs) != 0 {
+		t.Fatalf("unconsumed exec expectations = %d", len(s.execs))
 	}
 }
 
@@ -1198,6 +1737,27 @@ func (c mcpStubConn) QueryContext(_ context.Context, query string, args []driver
 	return next(query, args)
 }
 
+func (c mcpStubConn) ExecContext(_ context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
+	c.stub.mu.Lock()
+	defer c.stub.mu.Unlock()
+	if len(c.stub.execs) == 0 {
+		return nil, fmt.Errorf("unexpected exec: %s args=%#v", query, mcpNamedValues(args))
+	}
+	next := c.stub.execs[0]
+	c.stub.execs = c.stub.execs[1:]
+	return next(query, args)
+}
+
+type mcpExecResult int64
+
+func (r mcpExecResult) LastInsertId() (int64, error) {
+	return 0, errors.New("last insert id unsupported")
+}
+
+func (r mcpExecResult) RowsAffected() (int64, error) {
+	return int64(r), nil
+}
+
 type mcpDriverRows struct {
 	columns []string
 	rows    [][]driver.Value
@@ -1237,6 +1797,48 @@ func mcpSessionColumns() []string {
 
 func mcpSessionRow(sessionID string, started, ended any) []driver.Value {
 	return []driver.Value{sessionID, "codex", "codex", "beacon", "/work/beacon", "openai", started, ended, int64(4), int64(2), int64(30), int64(1), int64(1), int64(0), "gpt-5.4", "/work/beacon"}
+}
+
+func mcpAnnotationColumns() []string {
+	return []string{"annotation_id", "revision", "target_type", "session_id", "event_uid", "author_type", "author_id", "author_name", "source", "category", "outcome", "quality_score", "confidence", "needs_followup", "labels", "note", "metadata_json", "status", "schema_version", "created_at", "updated_at", "deleted_at"}
+}
+
+func mcpAnnotationRow(a models.TraceAnnotation) []driver.Value {
+	deletedAt := time.Unix(0, 0).UTC()
+	if a.DeletedAt != nil {
+		deletedAt = *a.DeletedAt
+	}
+	return []driver.Value{
+		a.AnnotationID,
+		int64(a.Revision),
+		a.TargetType,
+		a.SessionID,
+		a.EventUID,
+		a.AuthorType,
+		a.AuthorID,
+		a.AuthorName,
+		a.Source,
+		a.Category,
+		a.Outcome,
+		int64(a.QualityScore),
+		int64(a.Confidence),
+		boolAsMCPUInt8(a.NeedsFollowup),
+		strings.Join(a.Labels, ","),
+		a.Note,
+		a.MetadataJSON,
+		a.Status,
+		int64(a.SchemaVersion),
+		a.CreatedAt,
+		a.UpdatedAt,
+		deletedAt,
+	}
+}
+
+func boolAsMCPUInt8(value bool) uint8 {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func (r *mcpDriverRows) Columns() []string {

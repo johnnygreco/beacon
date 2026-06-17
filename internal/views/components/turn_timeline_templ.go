@@ -283,7 +283,7 @@ func EventItem(e views.EventSummary) templ.Component {
 			}
 		}
 		if e.EventUID != "" {
-			templ_7745c5c3_Err = AnnotationButton("event", "", e.EventUID, "Annotate").Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = AnnotationButton(chatAnnotationTargetType(e), "", e.EventUID, "Annotate").Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

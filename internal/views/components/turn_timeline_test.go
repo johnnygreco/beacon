@@ -47,6 +47,7 @@ func TestTurnTimelineRendersTurnAndEventDetails(t *testing.T) {
 		"planner",
 		"custom_event",
 		"please inspect &lt;script&gt;alert(1)&lt;/script&gt;",
+		`data-annotation-target="message"`,
 		`data-annotation-target="event"`,
 		`data-annotation-event-uid="timeline-user-1"`,
 		`data-annotation-event-uid="timeline-tool-1"`,

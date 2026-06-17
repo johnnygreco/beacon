@@ -48,9 +48,11 @@ type DashboardScrollRecorderReport = {
   maxDashboardDelta: number;
 };
 
+type AnnotationTarget = 'session' | 'message' | 'event';
+
 type FixtureAnnotation = {
   annotation_id: string;
-  target_type: 'session' | 'event';
+  target_type: AnnotationTarget;
   session_id: string;
   event_uid: string;
   author_type: 'human' | 'agent';
@@ -897,7 +899,7 @@ async function fulfillJSON(route: Route, data: unknown, status = 200, contractNa
   });
 }
 
-function annotationButtonHTML(target: 'session' | 'event', sessionID: string, eventUID = '', label = 'Annotate') {
+function annotationButtonHTML(target: 'session' | 'message' | 'event', sessionID: string, eventUID = '', label = 'Annotate') {
   return `
     <button type="button"
       class="annotation-button"
@@ -969,7 +971,7 @@ function conversationFixtureHTML(sessionID = TEST_SESSION_ID) {
     <div id="chat-view" class="transcript-chat-view space-y-3">
       <details id="${eventID}" open class="rounded border border-gray-700 p-3 bg-gray-800/30">
         <summary class="cursor-pointer">Read dashboard fixture payload</summary>
-        <div class="annotation-inline-row mt-2">${annotationButtonHTML('event', '', eventID)}</div>
+        <div class="annotation-inline-row mt-2">${annotationButtonHTML('message', '', eventID)}</div>
         <div class="code-container relative mt-3">
           <pre><code>{"file_path":"internal/views/pages/dashboard.templ"}</code></pre>
           <button type="button" onclick="copyToClipboard(this)" title="Copy to clipboard" aria-label="Copy to clipboard">
@@ -977,7 +979,7 @@ function conversationFixtureHTML(sessionID = TEST_SESSION_ID) {
           </button>
         </div>
       </details>
-      <details id="${eventID}-assistant" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Assistant summary</summary><div class="annotation-inline-row mt-2">${annotationButtonHTML('event', '', `${eventID}-assistant`)}</div><p>Dashboard state summarized.</p></details>
+      <details id="${eventID}-assistant" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Assistant summary</summary><div class="annotation-inline-row mt-2">${annotationButtonHTML('message', '', `${eventID}-assistant`)}</div><p>Dashboard state summarized.</p></details>
       <details id="${eventID}-result" open class="rounded border border-gray-700 p-3 bg-gray-800/30"><summary>Tool result</summary><div class="annotation-inline-row mt-2">${annotationButtonHTML('event', '', `${eventID}-result`)}</div><p>Payload loaded.</p></details>
     </div>
     <div id="timeline-view" class="transcript-timeline-view hidden rounded border border-gray-700 p-3">
@@ -1073,7 +1075,7 @@ export async function installDashboardFixtures(page: Page, options: DashboardFix
     annotationSequence += 1;
     return {
       annotation_id: `annotation-${annotationSequence}`,
-      target_type: payload.target_type === 'event' ? 'event' : 'session',
+      target_type: payload.target_type === 'message' || payload.target_type === 'event' ? payload.target_type : 'session',
       session_id: String(payload.session_id || ''),
       event_uid: String(payload.event_uid || ''),
       author_type: payload.author_type === 'agent' ? 'agent' : 'human',

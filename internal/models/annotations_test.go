@@ -44,6 +44,10 @@ func TestValidateTraceAnnotation(t *testing.T) {
 	if err := ValidateTraceAnnotation(valid); err != nil {
 		t.Fatalf("valid annotation rejected: %v", err)
 	}
+	valid.TargetType = AnnotationTargetMessage
+	if err := ValidateTraceAnnotation(valid); err != nil {
+		t.Fatalf("valid message annotation rejected: %v", err)
+	}
 
 	tests := []struct {
 		name string
@@ -59,6 +63,11 @@ func TestValidateTraceAnnotation(t *testing.T) {
 			name: "event without event uid",
 			ann:  TraceAnnotation{TargetType: AnnotationTargetEvent, SessionID: "session-1", Note: "bad"},
 			want: "event annotations require event_uid",
+		},
+		{
+			name: "message without event uid",
+			ann:  TraceAnnotation{TargetType: AnnotationTargetMessage, SessionID: "session-1", Note: "bad"},
+			want: "message annotations require event_uid",
 		},
 		{
 			name: "empty content",

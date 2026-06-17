@@ -322,8 +322,15 @@ templ chatEventAnnotationGroup(events []views.EventSummary) {
 
 templ chatEventAnnotationControl(e views.EventSummary) {
 	if e.EventUID != "" {
-		@AnnotationButton("event", "", e.EventUID, "Annotate")
+		@AnnotationButton(chatAnnotationTargetType(e), "", e.EventUID, "Annotate")
 	}
+}
+
+func chatAnnotationTargetType(e views.EventSummary) string {
+	if e.EventKind == "message" {
+		return models.AnnotationTargetMessage
+	}
+	return models.AnnotationTargetEvent
 }
 
 templ toolCardBash(item views.ToolChainItem) {
