@@ -8,7 +8,7 @@ import (
 func TestTraceAnnotationSelectSQLTargetsFinalTable(t *testing.T) {
 	query := traceAnnotationSelectSQL("WHERE session_id = ?")
 	for _, want := range []string{
-		"SELECT annotation_id, target_type, session_id, event_uid",
+		"SELECT annotation_id, revision, target_type, session_id, event_uid",
 		"arrayStringConcat(labels, ','",
 		"FROM trace_annotations FINAL",
 		"WHERE session_id = ?",

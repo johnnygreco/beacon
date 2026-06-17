@@ -21,7 +21,7 @@ import (
 
 func TestAnnotationAPICreateListUpdateDeleteSessionAnnotation(t *testing.T) {
 	fake := newAnnotationAPIFake()
-	fake.sessions["session-1"] = true
+	fake.sessions["session-1"] = annotationAPISession{}
 	handlers := &APIHandlers{db: newAnnotationAPIDB(t, fake), logger: testLogger()}
 
 	create := `{
@@ -88,8 +88,8 @@ func TestAnnotationAPICreateListUpdateDeleteSessionAnnotation(t *testing.T) {
 
 func TestAnnotationAPIEventAnnotationResolvesSessionAndDeleteFilters(t *testing.T) {
 	fake := newAnnotationAPIFake()
-	fake.sessions["session-1"] = true
-	fake.events["event-1"] = "session-1"
+	fake.sessions["session-1"] = annotationAPISession{}
+	fake.events["event-1"] = annotationAPIEvent{sessionID: "session-1"}
 	handlers := &APIHandlers{db: newAnnotationAPIDB(t, fake), logger: testLogger()}
 
 	w := httptest.NewRecorder()
@@ -154,7 +154,7 @@ func TestAnnotationAPIEventAnnotationResolvesSessionAndDeleteFilters(t *testing.
 
 func TestAnnotationAPIValidationAndMissingTargets(t *testing.T) {
 	fake := newAnnotationAPIFake()
-	fake.sessions["session-1"] = true
+	fake.sessions["session-1"] = annotationAPISession{}
 	handlers := &APIHandlers{db: newAnnotationAPIDB(t, fake), logger: testLogger()}
 
 	tests := []struct {
@@ -195,6 +195,44 @@ func TestAnnotationAPIValidationAndMissingTargets(t *testing.T) {
 	}
 }
 
+func TestAnnotationAPIListByAnnotationIDAppliesScope(t *testing.T) {
+	fake := newAnnotationAPIFake()
+	fake.sessions["session-1"] = annotationAPISession{sourceName: "source-a"}
+	fake.events["event-1"] = annotationAPIEvent{sessionID: "session-1", sourceName: "source-a"}
+	handlers := &APIHandlers{db: newAnnotationAPIDB(t, fake), logger: testLogger()}
+
+	w := httptest.NewRecorder()
+	handlers.CreateAnnotation(w, annotationAPIRequest(http.MethodPost, "/api/annotations", `{
+		"target_type":"event",
+		"event_uid":"event-1",
+		"author_type":"agent",
+		"source":"api",
+		"note":"scoped event annotation"
+	}`))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", w.Code, w.Body.String())
+	}
+	var created APITraceAnnotation
+	if err := json.NewDecoder(w.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create: %v", err)
+	}
+
+	req := annotationAPIRequest(http.MethodGet, "/api/annotations?annotation_id="+created.AnnotationID, "")
+	req = req.WithContext(ContextWithAPIScope(req.Context(), APIScopeFilters{SourceNames: []string{"source-b"}}))
+	w = httptest.NewRecorder()
+	handlers.ListAnnotations(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("list status = %d body=%s", w.Code, w.Body.String())
+	}
+	var out APITraceAnnotationListResponse
+	if err := json.NewDecoder(w.Body).Decode(&out); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(out.Items) != 0 {
+		t.Fatalf("out-of-scope annotation_id list returned %#v", out.Items)
+	}
+}
+
 func annotationAPIRequest(method, target, body string, routeParams ...string) *http.Request {
 	req := httptest.NewRequest(method, target, strings.NewReader(body))
 	if len(routeParams) == 0 {
@@ -208,15 +246,26 @@ func annotationAPIRequest(method, target, body string, routeParams ...string) *h
 }
 
 type annotationAPIFake struct {
-	sessions    map[string]bool
-	events      map[string]string
+	sessions    map[string]annotationAPISession
+	events      map[string]annotationAPIEvent
 	annotations map[string]models.TraceAnnotation
+}
+
+type annotationAPISession struct {
+	sourceName string
+	runtime    string
+}
+
+type annotationAPIEvent struct {
+	sessionID  string
+	sourceName string
+	runtime    string
 }
 
 func newAnnotationAPIFake() *annotationAPIFake {
 	return &annotationAPIFake{
-		sessions:    map[string]bool{},
-		events:      map[string]string{},
+		sessions:    map[string]annotationAPISession{},
+		events:      map[string]annotationAPIEvent{},
 		annotations: map[string]models.TraceAnnotation{},
 	}
 }
@@ -276,29 +325,30 @@ func (c annotationAPIConn) ExecContext(_ context.Context, query string, args []d
 		return nil, errors.New("unexpected exec query")
 	}
 	values := namedValues(args)
-	deletedAt := values.timeAt(20)
 	annotation := models.TraceAnnotation{
 		AnnotationID:  values.stringAt(0),
-		TargetType:    values.stringAt(1),
-		SessionID:     values.stringAt(2),
-		EventUID:      values.stringAt(3),
-		AuthorType:    values.stringAt(4),
-		AuthorID:      values.stringAt(5),
-		AuthorName:    values.stringAt(6),
-		Source:        values.stringAt(7),
-		Category:      values.stringAt(8),
-		Outcome:       values.stringAt(9),
-		QualityScore:  values.intAt(10),
-		Confidence:    values.intAt(11),
-		NeedsFollowup: values.intAt(12) != 0,
-		Labels:        values.labelsAt(13),
-		Note:          values.stringAt(14),
-		MetadataJSON:  values.stringAt(15),
-		Status:        values.stringAt(16),
-		SchemaVersion: values.intAt(17),
-		CreatedAt:     values.timeAt(18),
-		UpdatedAt:     values.timeAt(19),
+		Revision:      uint64(values.intAt(1)),
+		TargetType:    values.stringAt(2),
+		SessionID:     values.stringAt(3),
+		EventUID:      values.stringAt(4),
+		AuthorType:    values.stringAt(5),
+		AuthorID:      values.stringAt(6),
+		AuthorName:    values.stringAt(7),
+		Source:        values.stringAt(8),
+		Category:      values.stringAt(9),
+		Outcome:       values.stringAt(10),
+		QualityScore:  values.intAt(11),
+		Confidence:    values.intAt(12),
+		NeedsFollowup: values.intAt(13) != 0,
+		Labels:        values.labelsAt(14),
+		Note:          values.stringAt(15),
+		MetadataJSON:  values.stringAt(16),
+		Status:        values.stringAt(17),
+		SchemaVersion: values.intAt(18),
+		CreatedAt:     values.timeAt(19),
+		UpdatedAt:     values.timeAt(20),
 	}
+	deletedAt := values.timeAt(21)
 	if !deletedAt.IsZero() && !deletedAt.Equal(time.Unix(0, 0).UTC()) {
 		annotation.DeletedAt = &deletedAt
 	}
@@ -313,15 +363,16 @@ func (c annotationAPIConn) QueryContext(_ context.Context, query string, args []
 		return c.annotationRows(query, values), nil
 	case strings.Contains(query, "session_projection"):
 		sessionID := values.stringAt(0)
-		if c.fake.sessions[sessionID] {
+		session, ok := c.fake.sessions[sessionID]
+		if ok && queryScopeMatches(query, values, 1, session.sourceName, session.runtime) {
 			return singleColumnRows("session_id", sessionID), nil
 		}
 		return emptyAnnotationRows([]string{"session_id"}), nil
 	case strings.Contains(query, "activity_events"):
 		eventUID := values.stringAt(0)
-		sessionID := c.fake.events[eventUID]
-		if sessionID != "" {
-			return singleColumnRows("session_id", sessionID), nil
+		event := c.fake.events[eventUID]
+		if event.sessionID != "" && queryScopeMatches(query, values, 1, event.sourceName, event.runtime) {
+			return singleColumnRows("session_id", event.sessionID), nil
 		}
 		return emptyAnnotationRows([]string{"session_id"}), nil
 	default:
@@ -386,6 +437,7 @@ func (c annotationAPIConn) annotationRows(query string, values annotationNamedVa
 		}
 		rows = append(rows, []driver.Value{
 			annotation.AnnotationID,
+			int64(annotation.Revision),
 			annotation.TargetType,
 			annotation.SessionID,
 			annotation.EventUID,
@@ -409,7 +461,7 @@ func (c annotationAPIConn) annotationRows(query string, values annotationNamedVa
 		})
 	}
 	return &annotationRows{
-		columns: []string{"annotation_id", "target_type", "session_id", "event_uid", "author_type", "author_id", "author_name", "source", "category", "outcome", "quality_score", "confidence", "needs_followup", "labels", "note", "metadata_json", "status", "schema_version", "created_at", "updated_at", "deleted_at"},
+		columns: []string{"annotation_id", "revision", "target_type", "session_id", "event_uid", "author_type", "author_id", "author_name", "source", "category", "outcome", "quality_score", "confidence", "needs_followup", "labels", "note", "metadata_json", "status", "schema_version", "created_at", "updated_at", "deleted_at"},
 		rows:    rows,
 	}
 }
@@ -448,6 +500,8 @@ func (v annotationNamedValues) intAt(idx int) int {
 	case uint8:
 		return int(value)
 	case uint16:
+		return int(value)
+	case uint64:
 		return int(value)
 	default:
 		return 0
@@ -512,4 +566,20 @@ func boolAsInt64(value bool) int64 {
 		return 1
 	}
 	return 0
+}
+
+func queryScopeMatches(query string, values annotationNamedValues, firstScopeArg int, sourceName, runtime string) bool {
+	idx := firstScopeArg
+	if strings.Contains(query, "source_name IN") {
+		if sourceName != values.stringAt(idx) {
+			return false
+		}
+		idx++
+	}
+	if strings.Contains(query, "runtime IN") {
+		if runtime != values.stringAt(idx) {
+			return false
+		}
+	}
+	return true
 }

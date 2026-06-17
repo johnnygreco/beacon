@@ -19,12 +19,15 @@ func TestNormalizeTraceAnnotationDefaultsAndLabels(t *testing.T) {
 	if got.SchemaVersion != AnnotationSchemaVersion {
 		t.Fatalf("schema version = %d, want %d", got.SchemaVersion, AnnotationSchemaVersion)
 	}
+	if got.Revision != 1 {
+		t.Fatalf("revision = %d, want 1", got.Revision)
+	}
 	wantLabels := []string{"debug.fix", "quality:good", "regression"}
 	if strings.Join(got.Labels, ",") != strings.Join(wantLabels, ",") {
 		t.Fatalf("labels = %#v, want %#v", got.Labels, wantLabels)
 	}
-	if len(got.AuthorName) != MaxAnnotationFieldBytes {
-		t.Fatalf("author name length = %d, want capped %d", len(got.AuthorName), MaxAnnotationFieldBytes)
+	if len(got.AuthorName) != MaxAnnotationFieldBytes+20 {
+		t.Fatalf("author name length = %d, want untruncated input", len(got.AuthorName))
 	}
 }
 
@@ -81,6 +84,11 @@ func TestValidateTraceAnnotation(t *testing.T) {
 			name: "bad confidence",
 			ann:  TraceAnnotation{TargetType: AnnotationTargetSession, SessionID: "session-1", Note: "confidence", Confidence: 101},
 			want: "confidence must be between 0 and 100",
+		},
+		{
+			name: "oversize author",
+			ann:  TraceAnnotation{TargetType: AnnotationTargetSession, SessionID: "session-1", Note: "author", AuthorName: strings.Repeat("a", MaxAnnotationFieldBytes+1)},
+			want: "author_name exceeds",
 		},
 	}
 

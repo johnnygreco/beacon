@@ -48,6 +48,7 @@ func NewAnnotationValidationError(format string, args ...any) error {
 
 type TraceAnnotation struct {
 	AnnotationID  string     `json:"annotation_id"`
+	Revision      uint64     `json:"revision"`
 	TargetType    string     `json:"target_type"`
 	SessionID     string     `json:"session_id"`
 	EventUID      string     `json:"event_uid,omitempty"`
@@ -76,8 +77,8 @@ func NormalizeTraceAnnotation(a TraceAnnotation) TraceAnnotation {
 	a.SessionID = strings.TrimSpace(a.SessionID)
 	a.EventUID = strings.TrimSpace(a.EventUID)
 	a.AuthorType = normalizeAnnotationEnum(a.AuthorType)
-	a.AuthorID = truncateAnnotationField(strings.TrimSpace(a.AuthorID))
-	a.AuthorName = truncateAnnotationField(strings.TrimSpace(a.AuthorName))
+	a.AuthorID = strings.TrimSpace(a.AuthorID)
+	a.AuthorName = strings.TrimSpace(a.AuthorName)
 	a.Source = normalizeAnnotationEnum(a.Source)
 	a.Category = normalizeAnnotationEnum(a.Category)
 	a.Outcome = normalizeAnnotationEnum(a.Outcome)
@@ -103,6 +104,9 @@ func NormalizeTraceAnnotation(a TraceAnnotation) TraceAnnotation {
 	}
 	if a.SchemaVersion == 0 {
 		a.SchemaVersion = AnnotationSchemaVersion
+	}
+	if a.Revision == 0 {
+		a.Revision = 1
 	}
 	return a
 }
@@ -208,11 +212,4 @@ func normalizeAnnotationEnum(value string) string {
 	value = strings.TrimSpace(strings.ToLower(value))
 	value = strings.ReplaceAll(value, " ", "-")
 	return value
-}
-
-func truncateAnnotationField(value string) string {
-	if len(value) <= MaxAnnotationFieldBytes {
-		return value
-	}
-	return value[:MaxAnnotationFieldBytes]
 }

@@ -468,6 +468,7 @@ func Schema(database string) []string {
 
 		`CREATE TABLE IF NOT EXISTS ` + db("trace_annotations") + ` (
 			annotation_id String,
+			revision UInt64,
 			target_type LowCardinality(String),
 			session_id String,
 			event_uid String,
@@ -485,13 +486,13 @@ func Schema(database string) []string {
 			metadata_json String CODEC(ZSTD(3)),
 			status LowCardinality(String),
 			schema_version UInt16,
-			created_at DateTime64(3, 'UTC'),
-			updated_at DateTime64(3, 'UTC') DEFAULT now64(3),
-			deleted_at DateTime64(3, 'UTC'),
+			created_at DateTime64(9, 'UTC'),
+			updated_at DateTime64(9, 'UTC') DEFAULT now64(9),
+			deleted_at DateTime64(9, 'UTC'),
 			INDEX idx_annotation_session session_id TYPE bloom_filter(0.01) GRANULARITY 2,
 			INDEX idx_annotation_event event_uid TYPE bloom_filter(0.01) GRANULARITY 2
 		)
-		ENGINE = ReplacingMergeTree(updated_at)
+		ENGINE = ReplacingMergeTree(revision)
 		ORDER BY (session_id, target_type, event_uid, annotation_id)`,
 	}
 }

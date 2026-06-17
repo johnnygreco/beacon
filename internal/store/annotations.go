@@ -80,6 +80,9 @@ func CreateTraceAnnotation(ctx context.Context, db *sql.DB, input models.TraceAn
 		deletedAt := a.UpdatedAt
 		a.DeletedAt = &deletedAt
 	}
+	if a.Revision == 0 {
+		a.Revision = 1
+	}
 	if err := insertTraceAnnotation(ctx, db, a); err != nil {
 		return models.TraceAnnotation{}, err
 	}
@@ -205,6 +208,7 @@ func UpdateTraceAnnotation(ctx context.Context, db *sql.DB, annotationID string,
 		current.MetadataJSON = *update.MetadataJSON
 	}
 	current = models.NormalizeTraceAnnotation(current)
+	current.Revision++
 	current.UpdatedAt = time.Now().UTC()
 	if err := models.ValidateTraceAnnotation(current); err != nil {
 		return models.TraceAnnotation{}, err
@@ -222,6 +226,7 @@ func DeleteTraceAnnotation(ctx context.Context, db *sql.DB, annotationID string)
 	}
 	now := time.Now().UTC()
 	current.Status = models.AnnotationStatusDeleted
+	current.Revision++
 	current.UpdatedAt = now
 	current.DeletedAt = &now
 	if err := insertTraceAnnotation(ctx, db, current); err != nil {
@@ -280,13 +285,14 @@ func insertTraceAnnotation(ctx context.Context, db *sql.DB, a models.TraceAnnota
 		deletedAt = a.DeletedAt.UTC()
 	}
 	_, err := db.ExecContext(ctx, `INSERT INTO trace_annotations (
-		annotation_id, target_type, session_id, event_uid,
+		annotation_id, revision, target_type, session_id, event_uid,
 		author_type, author_id, author_name, source,
 		category, outcome, quality_score, confidence, needs_followup,
 		labels, note, metadata_json, status, schema_version,
 		created_at, updated_at, deleted_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		a.AnnotationID,
+		a.Revision,
 		a.TargetType,
 		a.SessionID,
 		a.EventUID,
@@ -312,7 +318,7 @@ func insertTraceAnnotation(ctx context.Context, db *sql.DB, a models.TraceAnnota
 }
 
 func traceAnnotationSelectSQL(suffix string) string {
-	return `SELECT annotation_id, target_type, session_id, event_uid,
+	return `SELECT annotation_id, revision, target_type, session_id, event_uid,
 	       author_type, author_id, author_name, source,
 	       category, outcome, quality_score, confidence, needs_followup,
 	       arrayStringConcat(labels, '` + annotationLabelJoiner + `') AS labels,
@@ -327,6 +333,7 @@ type traceAnnotationScanner interface {
 
 func scanTraceAnnotation(scanner traceAnnotationScanner) (models.TraceAnnotation, error) {
 	var a models.TraceAnnotation
+	var revision int64
 	var qualityScore int16
 	var confidence uint8
 	var needsFollowup uint8
@@ -335,6 +342,7 @@ func scanTraceAnnotation(scanner traceAnnotationScanner) (models.TraceAnnotation
 	var deletedAt time.Time
 	if err := scanner.Scan(
 		&a.AnnotationID,
+		&revision,
 		&a.TargetType,
 		&a.SessionID,
 		&a.EventUID,
@@ -357,6 +365,9 @@ func scanTraceAnnotation(scanner traceAnnotationScanner) (models.TraceAnnotation
 		&deletedAt,
 	); err != nil {
 		return models.TraceAnnotation{}, err
+	}
+	if revision > 0 {
+		a.Revision = uint64(revision)
 	}
 	a.QualityScore = int(qualityScore)
 	a.Confidence = int(confidence)

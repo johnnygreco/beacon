@@ -164,6 +164,7 @@ func TestSchemaIncludesTraceAnnotations(t *testing.T) {
 	for _, expected := range []string{
 		"beacon.trace_annotations",
 		"annotation_id String",
+		"revision UInt64",
 		"target_type LowCardinality(String)",
 		"session_id String",
 		"event_uid String",
@@ -172,6 +173,8 @@ func TestSchemaIncludesTraceAnnotations(t *testing.T) {
 		"metadata_json String CODEC(ZSTD(3))",
 		"status LowCardinality(String)",
 		"schema_version UInt16",
+		"updated_at DateTime64(9, 'UTC') DEFAULT now64(9)",
+		"ENGINE = ReplacingMergeTree(revision)",
 		"INDEX idx_annotation_session session_id TYPE bloom_filter",
 		"ORDER BY (session_id, target_type, event_uid, annotation_id)",
 	} {

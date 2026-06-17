@@ -212,6 +212,13 @@ func (a *APIHandlers) listAnnotations(w http.ResponseWriter, r *http.Request, re
 	}
 	items := make([]APITraceAnnotation, 0, len(annotations))
 	for _, annotation := range annotations {
+		if err := a.ensureAnnotationTargetInScope(r, annotation, req.Scope); err != nil {
+			if errors.Is(err, store.ErrAnnotationTargetNotFound) {
+				continue
+			}
+			a.annotationError(w, "failed to query annotations", err)
+			return
+		}
 		items = append(items, apiTraceAnnotationFromModel(annotation))
 	}
 	a.jsonResponse(w, APITraceAnnotationListResponse{Items: items})
