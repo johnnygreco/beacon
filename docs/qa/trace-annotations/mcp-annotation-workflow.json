@@ -83,13 +83,13 @@
       }
     ]
   },
-  "update_delete_excerpt_note": "The update and delete excerpts are independent targeted contract-test examples, not one sequential mutation history.",
+  "update_delete_excerpt_note": "The update and delete excerpts are independent targeted contract-test examples, not one sequential mutation history. The update excerpt demonstrates preserving the existing annotation source.",
   "update_response_excerpt": {
     "schema": "beacon.mcp.update_annotation.v1",
     "annotation": {
       "annotation_id": "ann-message",
       "revision": 2,
-      "source": "mcp",
+      "source": "ui",
       "note": "new note"
     }
   },

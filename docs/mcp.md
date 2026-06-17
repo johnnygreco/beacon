@@ -234,9 +234,10 @@ explicit scope filters and the token's auth scope. Do not pass `id` or
 
 Annotation tools share the same scope filters as search tools. Message targets
 require a message event and are returned with both `event_id` and `message_id`;
-event targets use `event_id`; session targets use `session_id`. Passing an
-`open_ref` from `search_sessions`, `open`, or an annotation response is the
-least error-prone way to target the exact item an agent just inspected.
+event targets use `event_id`; session targets use `session_id`. Use
+`message_id` or pass `target_type: "message"` with a message `open_ref` when
+you want a message-level annotation; event `open_ref` values from search/open
+create event annotations unless the target type is explicit.
 
 `create_annotation`:
 
@@ -268,6 +269,8 @@ least error-prone way to target the exact item an agent just inspected.
 
 `target_type` may be `session`, `message`, or `event`. If omitted or `null`,
 Beacon infers it from `message_id`, `event_id`, `session_id`, or `open_ref`.
+For message annotations, prefer `message_id` or set `target_type: "message"`
+because generic event refs infer an event target.
 `metadata_json` must be a JSON object encoded as a string when provided.
 Successful creates return schema `beacon.mcp.create_annotation.v1`, the
 annotation record, and an `open_ref` for the target.
@@ -277,8 +280,6 @@ annotation record, and an `open_ref` for the target.
 ```json
 {
   "annotation_id": "ann_abc123",
-  "author_id": "agent-run-42",
-  "author_name": "Reviewer Agent",
   "category": "quality",
   "outcome": "fixed",
   "quality_score": 4,
@@ -296,8 +297,8 @@ annotation record, and an `open_ref` for the target.
 }
 ```
 
-Updates return schema `beacon.mcp.update_annotation.v1`. The updated annotation
-is recorded with `author_type: "agent"` and `source: "mcp"`.
+Updates return schema `beacon.mcp.update_annotation.v1`. Updates change content
+fields and preserve the annotation's existing author and source attribution.
 
 `list_annotations`:
 

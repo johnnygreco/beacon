@@ -109,8 +109,8 @@ func toolDefinitions() []map[string]any {
 			"annotations": writeToolAnnotations(false),
 			"inputSchema": map[string]any{
 				"type":                 "object",
-				"properties":           mergeSchemaProperties(mergeSchemaProperties(annotationTargetSchemaProperties(), annotationContentSchemaProperties()), scopeSchemaProperties()),
-				"required":             append(append(annotationTargetRequiredProperties(), annotationContentRequiredProperties()...), scopeRequiredProperties()...),
+				"properties":           mergeSchemaProperties(mergeSchemaProperties(annotationTargetSchemaProperties(), annotationCreateContentSchemaProperties()), scopeSchemaProperties()),
+				"required":             append(append(annotationTargetRequiredProperties(), annotationCreateContentRequiredProperties()...), scopeRequiredProperties()...),
 				"additionalProperties": false,
 			},
 		},
@@ -122,8 +122,8 @@ func toolDefinitions() []map[string]any {
 				"type": "object",
 				"properties": mergeSchemaProperties(mergeSchemaProperties(map[string]any{
 					"annotation_id": map[string]any{"type": "string", "description": "Beacon annotation ID returned by annotation tools"},
-				}, annotationContentSchemaProperties()), scopeSchemaProperties()),
-				"required":             append(append([]string{"annotation_id"}, annotationContentRequiredProperties()...), scopeRequiredProperties()...),
+				}, annotationUpdateContentSchemaProperties()), scopeSchemaProperties()),
+				"required":             append(append([]string{"annotation_id"}, annotationUpdateContentRequiredProperties()...), scopeRequiredProperties()...),
 				"additionalProperties": false,
 			},
 		},
@@ -208,7 +208,7 @@ func scopeRequiredProperties() []string {
 
 func annotationTargetSchemaProperties() map[string]any {
 	return map[string]any{
-		"target_type": nullableType("string", "Annotation target type: session, message, or event. If omitted, Beacon infers from message_id, event_id, session_id, or open_ref."),
+		"target_type": nullableType("string", "Annotation target type: session, message, or event. Use message with message_id or a message open_ref for message-level annotations."),
 		"session_id":  nullableType("string", "Beacon session ID, e.g. session:<id>. Required for session targets and optional as a constraint for message/event targets."),
 		"message_id":  nullableType("string", "Beacon message event ID. Message events may be passed as event:<uid> or message:<uid>."),
 		"event_id":    nullableType("string", "Beacon event ID returned by search_sessions or open, e.g. event:<uid>."),
@@ -220,10 +220,19 @@ func annotationTargetRequiredProperties() []string {
 	return []string{"target_type", "session_id", "message_id", "event_id", "open_ref"}
 }
 
-func annotationContentSchemaProperties() map[string]any {
+func annotationCreateContentSchemaProperties() map[string]any {
+	properties := annotationUpdateContentSchemaProperties()
+	properties["author_id"] = nullableType("string", "Optional stable agent or run identifier")
+	properties["author_name"] = nullableType("string", "Optional display name for the annotating agent")
+	return properties
+}
+
+func annotationCreateContentRequiredProperties() []string {
+	return append([]string{"author_id", "author_name"}, annotationUpdateContentRequiredProperties()...)
+}
+
+func annotationUpdateContentSchemaProperties() map[string]any {
 	return map[string]any{
-		"author_id":      nullableType("string", "Optional stable agent or run identifier"),
-		"author_name":    nullableType("string", "Optional display name for the annotating agent"),
 		"category":       nullableType("string", "Optional annotation category"),
 		"outcome":        nullableType("string", "Optional annotation outcome"),
 		"quality_score":  nullableType("integer", "Optional quality score from 0 to 5"),
@@ -235,8 +244,8 @@ func annotationContentSchemaProperties() map[string]any {
 	}
 }
 
-func annotationContentRequiredProperties() []string {
-	return []string{"author_id", "author_name", "category", "outcome", "quality_score", "confidence", "needs_followup", "labels", "note", "metadata_json"}
+func annotationUpdateContentRequiredProperties() []string {
+	return []string{"category", "outcome", "quality_score", "confidence", "needs_followup", "labels", "note", "metadata_json"}
 }
 
 func readOnlyToolAnnotations() map[string]any {

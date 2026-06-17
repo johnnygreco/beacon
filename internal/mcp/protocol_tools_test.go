@@ -882,7 +882,7 @@ func TestToolListAnnotationsSessionTargetListsAllSessionAnnotations(t *testing.T
 			if strings.Contains(query, "target_type = ?") {
 				t.Fatalf("session list without target_type must not filter target_type:\n%s", query)
 			}
-			assertMCPNamedValues(t, args, []any{"session-1", models.AnnotationStatusDeleted, defaultAnnotationListLimit, 0})
+			assertMCPNamedValues(t, args, []any{"session-1", models.AnnotationStatusDeleted, maxAnnotationListLimit, 0})
 			return mcpRows(
 				mcpAnnotationColumns(),
 				mcpAnnotationRow(sessionAnnotation),
@@ -956,7 +956,7 @@ func TestToolListAnnotationsFiltersOutOfScopeTargets(t *testing.T) {
 		},
 		func(query string, args []driver.NamedValue) (driver.Rows, error) {
 			assertMCPQueryContains(t, query, "FROM trace_annotations FINAL", "session_id = ?", "status != ?")
-			assertMCPNamedValues(t, args, []any{"session-1", models.AnnotationStatusDeleted, defaultAnnotationListLimit, 0})
+			assertMCPNamedValues(t, args, []any{"session-1", models.AnnotationStatusDeleted, maxAnnotationListLimit, 0})
 			return mcpRows(
 				mcpAnnotationColumns(),
 				mcpAnnotationRow(sessionAnnotation),
@@ -1005,6 +1005,89 @@ func TestToolListAnnotationsFiltersOutOfScopeTargets(t *testing.T) {
 	}
 }
 
+func TestToolListAnnotationsPaginatesAfterScopeFiltering(t *testing.T) {
+	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
+	base := models.TraceAnnotation{
+		Revision:      1,
+		TargetType:    models.AnnotationTargetMessage,
+		SessionID:     "session-1",
+		AuthorType:    models.AnnotationAuthorAgent,
+		Source:        models.AnnotationSourceMCP,
+		Status:        models.AnnotationStatusActive,
+		SchemaVersion: models.AnnotationSchemaVersion,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	hidden := base
+	hidden.AnnotationID = "ann-hidden"
+	hidden.EventUID = "msg-hidden"
+	hidden.Note = "hidden note"
+	visible := base
+	visible.AnnotationID = "ann-visible"
+	visible.EventUID = "msg-visible"
+	visible.Note = "visible note"
+	nextVisible := base
+	nextVisible.AnnotationID = "ann-next"
+	nextVisible.EventUID = "msg-next"
+	nextVisible.Note = "next visible note"
+
+	db, stub := newMCPStubDB(t, []mcpStubQuery{
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "SELECT session_id FROM", "session_id = ?", "source_name IN (?)")
+			assertMCPNamedValues(t, args, []any{"session-1", "source-a"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "FROM trace_annotations FINAL", "session_id = ?", "status != ?")
+			assertMCPNamedValues(t, args, []any{"session-1", models.AnnotationStatusDeleted, maxAnnotationListLimit, 0})
+			return mcpRows(
+				mcpAnnotationColumns(),
+				mcpAnnotationRow(hidden),
+				mcpAnnotationRow(visible),
+				mcpAnnotationRow(nextVisible),
+			), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH latest_event AS", "e.event_kind = 'message'", "e.source_name IN (?)")
+			assertMCPNamedValues(t, args, []any{"msg-hidden", "source-a"})
+			return mcpRows([]string{"session_id"}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH latest_event AS", "e.event_kind = 'message'", "e.source_name IN (?)")
+			assertMCPNamedValues(t, args, []any{"msg-visible", "source-a"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+		func(query string, args []driver.NamedValue) (driver.Rows, error) {
+			assertMCPQueryContains(t, query, "WITH latest_event AS", "e.event_kind = 'message'", "e.source_name IN (?)")
+			assertMCPNamedValues(t, args, []any{"msg-next", "source-a"})
+			return mcpRows([]string{"session_id"}, []driver.Value{"session-1"}), nil
+		},
+	})
+	defer db.Close()
+	defer stub.assertDone(t)
+
+	srv := testServer()
+	srv.db = db
+	text, err := srv.toolListAnnotations(context.Background(), json.RawMessage(`{"session_id":"session:session-1","source_name":"source-a","limit":1}`))
+	if err != nil {
+		t.Fatalf("toolListAnnotations: %v", err)
+	}
+	for _, want := range []string{
+		`"annotation_id":"ann-visible"`,
+		`"result_count":1`,
+		`"result_complete":false`,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("scoped paginated output missing %q:\n%s", want, text)
+		}
+	}
+	for _, notWant := range []string{`"annotation_id":"ann-hidden"`, `"annotation_id":"ann-next"`, "hidden note", "next visible note"} {
+		if strings.Contains(text, notWant) {
+			t.Fatalf("scoped paginated output leaked %q:\n%s", notWant, text)
+		}
+	}
+}
+
 func TestToolListAnnotationsMessageOpenRefRoundTripsFromCreate(t *testing.T) {
 	now := time.Date(2026, 6, 16, 10, 0, 0, 0, time.UTC)
 	annotation := models.TraceAnnotation{
@@ -1041,7 +1124,7 @@ func TestToolListAnnotationsMessageOpenRefRoundTripsFromCreate(t *testing.T) {
 		},
 		func(query string, args []driver.NamedValue) (driver.Rows, error) {
 			assertMCPQueryContains(t, query, "FROM trace_annotations FINAL", "target_type = ?", "session_id = ?", "event_uid = ?", "status != ?")
-			assertMCPNamedValues(t, args, []any{models.AnnotationTargetMessage, "session-1", "msg-1", models.AnnotationStatusDeleted, defaultAnnotationListLimit, 0})
+			assertMCPNamedValues(t, args, []any{models.AnnotationTargetMessage, "session-1", "msg-1", models.AnnotationStatusDeleted, maxAnnotationListLimit, 0})
 			return mcpRows(mcpAnnotationColumns(), mcpAnnotationRow(annotation)), nil
 		},
 		func(query string, args []driver.NamedValue) (driver.Rows, error) {
@@ -1138,7 +1221,7 @@ func TestToolUpdateAndDeleteAnnotationVerifyMessageScope(t *testing.T) {
 		func(query string, args []driver.NamedValue) (driver.Result, error) {
 			assertMCPQueryContains(t, query, "INSERT INTO trace_annotations")
 			values := mcpNamedValues(args)
-			if values[1] != uint64(2) || values[5] != models.AnnotationAuthorAgent || values[8] != models.AnnotationSourceMCP || values[15] != "new note" {
+			if values[1] != uint64(2) || values[5] != models.AnnotationAuthorHuman || values[8] != models.AnnotationSourceUI || values[15] != "new note" {
 				t.Fatalf("updated insert values = %#v", values)
 			}
 			return mcpExecResult(1), nil
@@ -1153,7 +1236,7 @@ func TestToolUpdateAndDeleteAnnotationVerifyMessageScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("toolUpdateAnnotation: %v", err)
 	}
-	if !strings.Contains(text, `"schema":"beacon.mcp.update_annotation.v1"`) || !strings.Contains(text, `"revision":2`) || !strings.Contains(text, `"source":"mcp"`) {
+	if !strings.Contains(text, `"schema":"beacon.mcp.update_annotation.v1"`) || !strings.Contains(text, `"revision":2`) || !strings.Contains(text, `"source":"ui"`) {
 		t.Fatalf("update output = %s", text)
 	}
 
@@ -1273,7 +1356,7 @@ func TestDataBackedToolsReturnDatabaseUnavailableToolErrors(t *testing.T) {
 		},
 		{
 			name: "update_annotation",
-			args: `{"name":"update_annotation","arguments":{"annotation_id":"ann_1","author_id":null,"author_name":null,"category":null,"outcome":null,"quality_score":null,"confidence":null,"needs_followup":null,"labels":null,"note":"note","metadata_json":null}}`,
+			args: `{"name":"update_annotation","arguments":{"annotation_id":"ann_1","category":null,"outcome":null,"quality_score":null,"confidence":null,"needs_followup":null,"labels":null,"note":"note","metadata_json":null}}`,
 		},
 		{
 			name: "list_annotations",
@@ -1393,7 +1476,7 @@ func TestToolDefinitionsMatchImplementedArguments(t *testing.T) {
 	assertPropertyNullableType(t, usageSchema, "limit", "integer")
 
 	createSchema := inputSchema(t, defs["create_annotation"])
-	createRequired := append(append(annotationTargetRequiredProperties(), annotationContentRequiredProperties()...), scopeRequiredProperties()...)
+	createRequired := append(append(annotationTargetRequiredProperties(), annotationCreateContentRequiredProperties()...), scopeRequiredProperties()...)
 	assertSchemaProperties(t, createSchema, createRequired...)
 	assertRequired(t, createSchema, createRequired...)
 	for _, name := range []string{"target_type", "session_id", "message_id", "event_id", "author_id", "author_name", "category", "outcome", "note", "metadata_json"} {
@@ -1406,11 +1489,17 @@ func TestToolDefinitionsMatchImplementedArguments(t *testing.T) {
 	assertToolAnnotations(t, defs["create_annotation"], false, false)
 
 	updateSchema := inputSchema(t, defs["update_annotation"])
-	updateRequired := append(append([]string{"annotation_id"}, annotationContentRequiredProperties()...), scopeRequiredProperties()...)
+	updateRequired := append(append([]string{"annotation_id"}, annotationUpdateContentRequiredProperties()...), scopeRequiredProperties()...)
 	assertSchemaProperties(t, updateSchema, updateRequired...)
 	assertRequired(t, updateSchema, updateRequired...)
 	assertPropertyType(t, updateSchema, "annotation_id", "string")
 	assertPropertyNullableType(t, updateSchema, "note", "string")
+	if _, ok := updateSchema["properties"].(map[string]any)["author_id"]; ok {
+		t.Fatalf("update_annotation schema must not expose author_id")
+	}
+	if _, ok := updateSchema["properties"].(map[string]any)["author_name"]; ok {
+		t.Fatalf("update_annotation schema must not expose author_name")
+	}
 	assertToolAnnotations(t, defs["update_annotation"], false, false)
 
 	listAnnotationsSchema := inputSchema(t, defs["list_annotations"])

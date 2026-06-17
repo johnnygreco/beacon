@@ -227,7 +227,7 @@
     if (!target) return '';
     var targetType = String(target.target_type || target.targetType || '').trim().toLowerCase();
     if (targetType === 'event' || targetType === 'message') {
-      return 'event:' + String(target.event_uid || target.eventUID || '').trim();
+      return targetType + ':' + String(target.event_uid || target.eventUID || '').trim();
     }
     return 'session:' + String(target.session_id || target.sessionID || currentSessionID()).trim();
   }
@@ -432,8 +432,6 @@
 
   function buildAnnotationPayload(target, values, includeTarget) {
     var payload = {
-      author_type: 'human',
-      source: 'ui',
       category: String(values.category || '').trim(),
       outcome: String(values.outcome || '').trim(),
       quality_score: boundedInt(values.quality_score, 0, 5),
@@ -443,6 +441,8 @@
       note: String(values.note || '').trim(),
     };
     if (includeTarget) {
+      payload.author_type = 'human';
+      payload.source = 'ui';
       payload.target_type = target.target_type;
       payload.session_id = target.session_id;
       if (target.target_type === 'event' || target.target_type === 'message') payload.event_uid = target.event_uid;
