@@ -37,12 +37,13 @@ Beacon exposes these write tools:
 - `delete_annotation` soft-deletes one annotation after verifying the target
   remains in scope.
 
-The server does not run capture or migrations. MCP searches skip Beacon's query
-log, and annotation write tools are explicitly advertised as non-read-only in
-their tool annotations. Beacon returns MCP server instructions during
-initialization so clients prefer the search-then-open workflow and treat
-captured transcripts as historical context that should be verified against the
-current workspace before acting.
+The server does not run capture. It opens the writable Beacon store so annotation
+tools can persist notes, which means startup may run schema migrations on the
+configured database. MCP searches skip Beacon's query log, and annotation write
+tools are explicitly advertised as non-read-only in their tool annotations.
+Beacon returns MCP server instructions during initialization so clients prefer
+the search-then-open workflow and treat captured transcripts as historical
+context that should be verified against the current workspace before acting.
 
 ## Start Beacon
 
@@ -235,9 +236,9 @@ explicit scope filters and the token's auth scope. Do not pass `id` or
 Annotation tools share the same scope filters as search tools. Message targets
 require a message event and are returned with both `event_id` and `message_id`;
 event targets use `event_id`; session targets use `session_id`. Use
-`message_id` or pass `target_type: "message"` with a message `open_ref` when
-you want a message-level annotation; event `open_ref` values from search/open
-create event annotations unless the target type is explicit.
+`message_id` or the message `open_ref` returned by message search/open results
+when you want a message-level annotation; event `open_ref` values create event
+annotations unless the target type is explicit.
 
 `create_annotation`:
 
@@ -269,8 +270,9 @@ create event annotations unless the target type is explicit.
 
 `target_type` may be `session`, `message`, or `event`. If omitted or `null`,
 Beacon infers it from `message_id`, `event_id`, `session_id`, or `open_ref`.
-For message annotations, prefer `message_id` or set `target_type: "message"`
-because generic event refs infer an event target.
+For message annotations, prefer `message_id` or use the message `open_ref`
+returned for message search/open results. Event `open_ref` values infer event
+targets unless `target_type: "message"` is explicit.
 `metadata_json` must be a JSON object encoded as a string when provided.
 Successful creates return schema `beacon.mcp.create_annotation.v1`, the
 annotation record, and an `open_ref` for the target.

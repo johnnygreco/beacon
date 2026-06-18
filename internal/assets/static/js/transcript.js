@@ -550,13 +550,22 @@
     }).join('') + '</div>';
   }
 
+  function annotationActionLabel(action, annotation) {
+    var context = annotation.category || annotation.outcome || (annotation.labels && annotation.labels[0]) || annotation.note || annotation.annotation_id;
+    context = String(context || '').trim();
+    if (context.length > 56) context = context.slice(0, 53).trimEnd() + '...';
+    return action + ' annotation' + (context ? ' ' + context : '');
+  }
+
   function annotationCardHTML(annotation) {
+    var editLabel = annotationActionLabel('Edit', annotation);
+    var deleteLabel = annotationActionLabel('Delete', annotation);
     return '<article class="annotation-card" data-annotation-id="' + escapeHTML(annotation.annotation_id) + '">' +
       '<div class="annotation-card-top">' +
         '<span class="annotation-chip">' + escapeHTML(annotation.source || 'ui') + '</span>' +
         '<div class="annotation-card-actions">' +
-          '<button type="button" class="annotation-card-button" data-annotation-edit="' + escapeHTML(annotation.annotation_id) + '">Edit</button>' +
-          '<button type="button" class="annotation-card-button" data-variant="danger" data-annotation-delete="' + escapeHTML(annotation.annotation_id) + '">Delete</button>' +
+          '<button type="button" class="annotation-card-button" data-annotation-edit="' + escapeHTML(annotation.annotation_id) + '" aria-label="' + escapeHTML(editLabel) + '">Edit</button>' +
+          '<button type="button" class="annotation-card-button" data-variant="danger" data-annotation-delete="' + escapeHTML(annotation.annotation_id) + '" aria-label="' + escapeHTML(deleteLabel) + '">Delete</button>' +
         '</div>' +
       '</div>' +
       annotationChips(annotation) +
@@ -669,12 +678,15 @@
 
   function deleteAnnotation(id) {
     if (!id) return;
+    var form = annotationForm();
+    var editingDeletedAnnotation = form && String(form.elements.annotation_id.value || '').trim() === id;
     setAnnotationMessage('', '');
     fetchJSON(scopedPath('/api/annotations/' + encodeURIComponent(id)), {
       method: 'DELETE',
       headers: { Accept: 'application/json' },
     }).then(function() {
       annotationState.mutationVersion += 1;
+      if (editingDeletedAnnotation) resetAnnotationForm();
       return loadAnnotations({ force: true }).then(focusAnnotationFallback);
     }).catch(function(err) {
       setAnnotationMessage(err && err.message ? err.message : 'Unable to delete annotation', 'error');

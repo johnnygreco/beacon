@@ -248,7 +248,7 @@ func TestFormatSearchResults_WithResults(t *testing.T) {
 	}
 
 	output := FormatSearchResults(results)
-	for _, expected := range []string{`"event_id":"event:uid-abc-123"`, `"session_id":"session:session-123456789012"`, `"open_ref":{"type":"event"`, `"event_kind":"message"`, `"tool_name":"grep"`, `"model":"gpt-4"`, `"score":1.5`, "Hello world preview"} {
+	for _, expected := range []string{`"event_id":"event:uid-abc-123"`, `"session_id":"session:session-123456789012"`, `"open_ref":{"type":"message"`, `"message_id":"message:uid-abc-123"`, `"event_kind":"message"`, `"tool_name":"grep"`, `"model":"gpt-4"`, `"score":1.5`, "Hello world preview"} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected %q in output", expected)
 		}
@@ -285,7 +285,7 @@ func TestFormatOpenContext(t *testing.T) {
 	}
 
 	output := FormatOpenContext(events, 1) // target is the assistant message
-	for _, expected := range []string{`"schema":"beacon.mcp.open.v1"`, `"event_id":"event:uid-2"`, `"tool_name":"weather"`, `"model":"gpt-4"`, `"tokens":150`, `"target":true`} {
+	for _, expected := range []string{`"schema":"beacon.mcp.open.v1"`, `"event_id":"event:uid-2"`, `"open_ref":{"type":"message"`, `"message_id":"message:uid-2"`, `"tool_name":"weather"`, `"model":"gpt-4"`, `"tokens":150`, `"target":true`} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected %q in output", expected)
 		}

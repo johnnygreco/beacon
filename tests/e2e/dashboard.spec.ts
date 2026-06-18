@@ -2023,9 +2023,15 @@ test.describe('dashboard battle-tested workflows', () => {
       session_id: TEST_SESSION_ID,
       event_uid: TEST_EVENT_ID,
     });
-    await expect(drawer).toContainText('Message-level correction.');
-    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('1');
-    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-button]`).first()).toHaveAttribute('aria-label', /1 annotation/);
+	    await expect(drawer).toContainText('Message-level correction.');
+	    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('1');
+	    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-button]`).first()).toHaveAttribute('aria-label', /1 annotation/);
+	    await form.locator('textarea[name="note"]').fill('Second message-level note.');
+	    await form.locator('[data-annotation-save]').click();
+	    await expect(drawer).toContainText('Second message-level note.');
+	    await expect(drawer.getByRole('button', { name: /Edit annotation Message-level correction/ })).toBeVisible();
+	    await expect(drawer.getByRole('button', { name: /Edit annotation Second message-level note/ })).toBeVisible();
+	    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('2');
 
     await page.evaluate(({ eventID }) => {
       const container = document.getElementById('conversation-container');
@@ -2045,17 +2051,25 @@ test.describe('dashboard battle-tested workflows', () => {
         <div id="timeline-view" class="transcript-timeline-view hidden"></div>
       `;
     }, { eventID: TEST_EVENT_ID });
-    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('1');
+	    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('2');
 
-    await drawer.getByRole('button', { name: 'Edit' }).click();
-    await expect(form.locator('textarea[name="note"]')).toHaveValue('Message-level correction.');
-    await form.locator('textarea[name="note"]').fill('Updated message-level correction.');
-    await form.locator('[data-annotation-save]').click();
-    await expect(drawer).toContainText('Updated message-level correction.');
-    await drawer.getByRole('button', { name: 'Delete' }).click();
-    await expect(drawer).toContainText('No annotations yet');
-    await expect(drawer.getByRole('button', { name: 'New' })).toBeFocused();
-    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveClass(/hidden/);
+	    await drawer.getByRole('button', { name: /Edit annotation Message-level correction/ }).click();
+	    await expect(form.locator('textarea[name="note"]')).toHaveValue('Message-level correction.');
+	    await form.locator('textarea[name="note"]').fill('Updated message-level correction.');
+	    await form.locator('[data-annotation-save]').click();
+	    await expect(drawer).toContainText('Updated message-level correction.');
+	    await drawer.getByRole('button', { name: /Edit annotation Updated message-level correction/ }).click();
+	    await expect(form.locator('textarea[name="note"]')).toHaveValue('Updated message-level correction.');
+	    await drawer.getByRole('button', { name: /Delete annotation Updated message-level correction/ }).click();
+	    await expect(form.locator('textarea[name="note"]')).toHaveValue('');
+	    await expect(form.locator('[data-annotation-save]')).toHaveText('Save annotation');
+	    await expect(drawer.getByRole('button', { name: 'New' })).toBeFocused();
+	    await expect(drawer).toContainText('Second message-level note.');
+	    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('1');
+	    await drawer.getByRole('button', { name: /Delete annotation Second message-level note/ }).click();
+	    await expect(drawer).toContainText('No annotations yet');
+	    await expect(drawer.getByRole('button', { name: 'New' })).toBeFocused();
+	    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveClass(/hidden/);
 
     await guards.expectClean();
   });

@@ -2,7 +2,7 @@
 
 This guide covers running Beacon as a single-machine service. Beacon captures
 local AI-agent activity, stores it in ClickHouse, serves the dashboard on the
-same host, and exposes read-only MCP over local stdio.
+same host, and exposes MCP over local stdio.
 
 If you expose Beacon outside loopback, put it behind infrastructure you control
 and authenticate that external access before traffic reaches Beacon.

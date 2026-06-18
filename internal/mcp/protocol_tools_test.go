@@ -93,7 +93,7 @@ func TestToolsCallSearchSessionsSuccessAndError(t *testing.T) {
 		t.Fatalf("event kinds = %#v", fake.query.EventKinds)
 	}
 	text, isError := toolText(t, resp)
-	if isError || !strings.Contains(text, `"schema":"beacon.mcp.search_sessions.v1"`) || !strings.Contains(text, `"event_id":"event:evt-search"`) {
+	if isError || !strings.Contains(text, `"schema":"beacon.mcp.search_sessions.v1"`) || !strings.Contains(text, `"event_id":"event:evt-search"`) || !strings.Contains(text, `"open_ref":{"type":"message"`) || !strings.Contains(text, `"message_id":"message:evt-search"`) {
 		t.Fatalf("tool text/isError = %q/%v", text, isError)
 	}
 
@@ -181,7 +181,8 @@ func TestToolSearchAppliesAuthScope(t *testing.T) {
 		`"source_names":["source"]`,
 		`"runtime":"runtime"`,
 		`"project_key":"beacon"`,
-		`"open_ref":{"type":"event"`,
+		`"open_ref":{"type":"message"`,
+		`"message_id":"message:evt-search"`,
 		`"scope":{"source_names":["source"]}`,
 	} {
 		if !strings.Contains(text, want) {
@@ -295,6 +296,9 @@ func TestToolOpenSuccessAndErrors(t *testing.T) {
 	}
 	if !strings.Contains(text, `"schema":"beacon.mcp.open.v1"`) || !strings.Contains(text, `"event_id":"event:evt-target"`) || !strings.Contains(text, `"session_id":"session:session-1"`) || !strings.Contains(text, `"target":true`) {
 		t.Fatalf("open output = %s", text)
+	}
+	if !strings.Contains(text, `"event_id":"event:evt-before"`) || !strings.Contains(text, `"open_ref":{"type":"message"`) || !strings.Contains(text, `"message_id":"message:evt-before"`) {
+		t.Fatalf("open output missing message open_ref = %s", text)
 	}
 
 	db, stub = newMCPStubDB(t, []mcpStubQuery{

@@ -75,17 +75,23 @@ func NewRouter(
 			r.Get("/annotations/traces", apiHandlers.ListAnnotatedTraces)
 			r.Get("/annotations/export", apiHandlers.ExportAnnotatedTraces)
 			r.Get("/annotations", apiHandlers.ListAnnotations)
-			r.Post("/annotations", apiHandlers.CreateAnnotation)
 			r.Get("/annotations/{annotation_id}", apiHandlers.GetAnnotation)
-			r.Patch("/annotations/{annotation_id}", apiHandlers.UpdateAnnotation)
-			r.Delete("/annotations/{annotation_id}", apiHandlers.DeleteAnnotation)
 			r.Get("/search", apiHandlers.SearchEvents)
 			r.Get("/tokens-per-minute", apiHandlers.GetTokensPerMinute)
 			r.Get("/tool-stats", apiHandlers.GetToolStats)
 			r.Get("/tokens-by-model", apiHandlers.GetTokensByModel)
-			if opts.mcpHandler != nil {
-				r.Post("/mcp", opts.mcpHandler.ServeHTTP)
-			}
+			r.Group(func(r chi.Router) {
+				r.Use(MutationRequestGuardMiddleware(true))
+				r.Post("/annotations", apiHandlers.CreateAnnotation)
+				r.Patch("/annotations/{annotation_id}", apiHandlers.UpdateAnnotation)
+				if opts.mcpHandler != nil {
+					r.Post("/mcp", opts.mcpHandler.ServeHTTP)
+				}
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(MutationRequestGuardMiddleware(false))
+				r.Delete("/annotations/{annotation_id}", apiHandlers.DeleteAnnotation)
+			})
 		})
 	})
 

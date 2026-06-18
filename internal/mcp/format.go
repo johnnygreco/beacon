@@ -42,6 +42,13 @@ func scopedMessageOpenRef(eventUID, sessionID string, scope ScopeMetadata) openR
 	return ref
 }
 
+func scopedOpenRefForEventKind(eventUID, sessionID, eventKind string, scope ScopeMetadata) openRef {
+	if eventKind == models.EventKindMessage {
+		return scopedMessageOpenRef(eventUID, sessionID, scope)
+	}
+	return scopedEventOpenRef(eventUID, sessionID, scope)
+}
+
 func scopedSessionLatestOpenRef(sessionID string, scope ScopeMetadata) openRef {
 	ref := sessionLatestOpenRef(sessionID)
 	ref.Scope = openRefScope(scope.Filters)
@@ -130,7 +137,7 @@ func FormatSearchResults(results []search.SearchResult, metadataOpt ...ScopeMeta
 			ToolName:    r.ToolName,
 			Model:       r.Model,
 			Provider:    r.Provider,
-			OpenRef:     scopedEventOpenRef(r.EventUID, r.SessionID, scope),
+			OpenRef:     scopedOpenRefForEventKind(r.EventUID, r.SessionID, r.EventKind, scope),
 		})
 	}
 	return mustJSON(payload)
@@ -203,7 +210,7 @@ func FormatOpenContext(events []contextEvent, targetIdx int, metadataOpt ...Scop
 			Tokens:      e.Tokens,
 			Timestamp:   e.Timestamp,
 			Target:      i == targetIdx,
-			OpenRef:     scopedEventOpenRef(e.EventUID, e.SessionID, scope),
+			OpenRef:     scopedOpenRefForEventKind(e.EventUID, e.SessionID, e.EventKind, scope),
 		})
 	}
 	return mustJSON(payload)
