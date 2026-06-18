@@ -1966,6 +1966,194 @@ test.describe('dashboard battle-tested workflows', () => {
     await guards.expectClean();
   });
 
+  test('creates edits and deletes transcript annotations', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-annotation-summary-count]')).toContainText('0 annotations');
+
+    await page.getByRole('button', { name: 'Annotate session' }).click();
+    const drawer = page.locator('#annotation-drawer');
+    const form = drawer.locator('[data-annotation-form]');
+    await expect(drawer).toBeVisible();
+    await expect(form.locator('textarea[name="note"]')).toBeFocused();
+    await drawer.getByRole('button', { name: 'Close annotations' }).focus();
+    await page.keyboard.press('Shift+Tab');
+    await expect(form.locator('[data-annotation-save]')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(drawer.getByRole('button', { name: 'Close annotations' })).toBeFocused();
+    await form.locator('input[name="category"]').fill('review');
+    await form.locator('input[name="labels"]').fill('quality:good, dataset:train');
+    await form.locator('textarea[name="note"]').fill('Session note for dataset review.');
+    await form.locator('input[name="needs_followup"]').check();
+    const sessionCreateRequest = page.waitForRequest((request) => {
+      if (request.method() !== 'POST') return false;
+      if (new URL(request.url()).pathname !== '/api/annotations') return false;
+      const body = JSON.parse(request.postData() || '{}') as Record<string, unknown>;
+      return body.target_type === 'session';
+    });
+    await form.locator('[data-annotation-save]').click();
+    const sessionCreateBody = JSON.parse((await sessionCreateRequest).postData() || '{}') as Record<string, unknown>;
+    expect(sessionCreateBody).toMatchObject({
+      target_type: 'session',
+      session_id: TEST_SESSION_ID,
+    });
+    await expect(form.locator('[data-annotation-save]')).toBeFocused();
+    await expect(page.locator('[data-annotation-summary-count]')).toContainText('1 annotation');
+    await expect(page.locator('[data-annotation-summary] [data-annotation-button]')).toHaveAttribute('aria-label', /1 annotation/);
+    await expect(drawer).toContainText('Session note for dataset review.');
+    await drawer.getByRole('button', { name: 'Close annotations' }).click();
+    await expect(page.locator('[data-annotation-summary] [data-annotation-button]')).toBeFocused();
+
+    await page.locator(`#${TEST_EVENT_ID} [data-annotation-button]`).first().click();
+    await expect(drawer).toBeVisible();
+    await form.locator('input[name="category"]').fill('review');
+    await form.locator('textarea[name="note"]').fill('Message-level correction.');
+    await form.locator('select[name="quality_score"]').selectOption('4');
+    const eventCreateRequest = page.waitForRequest((request) => {
+      if (request.method() !== 'POST') return false;
+      if (new URL(request.url()).pathname !== '/api/annotations') return false;
+      const body = JSON.parse(request.postData() || '{}') as Record<string, unknown>;
+      return body.target_type === 'message';
+    });
+    await form.locator('[data-annotation-save]').click();
+    const eventCreateBody = JSON.parse((await eventCreateRequest).postData() || '{}') as Record<string, unknown>;
+    expect(eventCreateBody).toMatchObject({
+      target_type: 'message',
+      session_id: TEST_SESSION_ID,
+      event_uid: TEST_EVENT_ID,
+    });
+    await expect(drawer).toContainText('Message-level correction.');
+    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('1');
+    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-button]`).first()).toHaveAttribute('aria-label', /1 annotation/);
+    await form.locator('input[name="category"]').fill('review');
+    await form.locator('textarea[name="note"]').fill('Second message-level note.');
+    await form.locator('[data-annotation-save]').click();
+    await expect(drawer).toContainText('Second message-level note.');
+
+    const reviewEditButtons = drawer.getByRole('button', { name: /^Edit annotation review:/ });
+    await expect(reviewEditButtons).toHaveCount(2);
+    const editLabels = await reviewEditButtons.evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label') || ''));
+    expect(new Set(editLabels).size).toBe(2);
+    await expect(drawer.locator('.annotation-card').filter({ hasText: 'Message-level correction.' })
+      .getByRole('button', { name: /^Edit annotation review:/ })).toBeVisible();
+    await expect(drawer.locator('.annotation-card').filter({ hasText: 'Second message-level note.' })
+      .getByRole('button', { name: /^Edit annotation review:/ })).toBeVisible();
+    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('2');
+
+    await page.evaluate(() => {
+      const timelineButton = document.querySelector('[data-transcript-view="timeline"]') as HTMLElement | null;
+      (window as typeof window & { switchView?: (view: string, btn?: HTMLElement | null) => void }).switchView?.('timeline', timelineButton);
+    });
+    await page.evaluate(({ eventID }) => {
+      const container = document.getElementById('conversation-container');
+      if (!container) throw new Error('missing conversation container');
+      container.innerHTML = `
+        <div id="chat-view" class="transcript-chat-view hidden">
+          <details id="${eventID}" open>
+            <summary>Hidden chat event</summary>
+            <div class="annotation-inline-row">
+              <button type="button" class="annotation-button" data-annotation-button data-annotation-target="message" data-annotation-session-id="" data-annotation-event-uid="${eventID}" data-annotation-label="Annotate" aria-label="Annotate">
+                <span class="annotation-button-label">Annotate</span>
+                <span class="annotation-count hidden" data-annotation-count>0</span>
+              </button>
+            </div>
+          </details>
+        </div>
+        <div id="timeline-view" class="transcript-timeline-view">
+          <div class="annotation-inline-row">
+            <button type="button" class="annotation-button" data-annotation-button data-annotation-target="message" data-annotation-session-id="" data-annotation-event-uid="${eventID}" data-annotation-label="Annotate" aria-label="Annotate">
+              <span class="annotation-button-label">Annotate</span>
+              <span class="annotation-count hidden" data-annotation-count>0</span>
+            </button>
+          </div>
+        </div>
+      `;
+    }, { eventID: TEST_EVENT_ID });
+    const reloadedAnnotationButton = page.locator('#timeline-view [data-annotation-button]').first();
+    await expect(page.locator('#timeline-view [data-annotation-count]').first()).toHaveText('2');
+    await drawer.getByRole('button', { name: 'Close annotations' }).click();
+    await expect(reloadedAnnotationButton).toBeFocused();
+    await reloadedAnnotationButton.click();
+    await expect(drawer).toBeVisible();
+
+    await drawer.locator('.annotation-card').filter({ hasText: 'Message-level correction.' })
+      .getByRole('button', { name: /^Edit annotation review:/ }).click();
+    await expect(form.locator('textarea[name="note"]')).toHaveValue('Message-level correction.');
+    await form.locator('textarea[name="note"]').fill('Updated message-level correction.');
+    await form.locator('[data-annotation-save]').click();
+    await expect(drawer).toContainText('Updated message-level correction.');
+    await drawer.locator('.annotation-card').filter({ hasText: 'Updated message-level correction.' })
+      .getByRole('button', { name: /^Edit annotation review:/ }).click();
+    await expect(form.locator('textarea[name="note"]')).toHaveValue('Updated message-level correction.');
+    await drawer.locator('.annotation-card').filter({ hasText: 'Updated message-level correction.' })
+      .getByRole('button', { name: /^Delete annotation review:/ }).click();
+    await expect(form.locator('textarea[name="note"]')).toHaveValue('');
+    await expect(form.locator('[data-annotation-save]')).toHaveText('Save annotation');
+    await expect(drawer.getByRole('button', { name: 'New' })).toBeFocused();
+    await expect(drawer).toContainText('Second message-level note.');
+    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('1');
+    await drawer.locator('.annotation-card').filter({ hasText: 'Second message-level note.' })
+      .getByRole('button', { name: /^Delete annotation review:/ }).click();
+    await expect(drawer).toContainText('No annotations yet');
+    await expect(drawer.getByRole('button', { name: 'New' })).toBeFocused();
+    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveClass(/hidden/);
+
+    await guards.expectClean();
+  });
+
+  test('creates transcript timeline event annotations', async ({ page }) => {
+    const guards = attachPageGuards(page);
+    await installDashboardFixtures(page);
+
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: 'Timeline' }).click();
+    await expect(page.locator('#timeline-view')).toBeVisible();
+
+    const eventAnnotationButton = page.locator('#timeline-view [data-annotation-button][data-annotation-target="event"]').first();
+    await eventAnnotationButton.click();
+    const drawer = page.locator('#annotation-drawer');
+    const form = drawer.locator('[data-annotation-form]');
+    await expect(drawer).toBeVisible();
+    await expect(drawer.locator('[data-annotation-target-label]')).toContainText('Event');
+
+    await form.locator('input[name="category"]').fill('timeline');
+    await form.locator('input[name="outcome"]').fill('kept');
+    await form.locator('input[name="labels"]').fill('dataset:eval, event:timeline');
+    await form.locator('textarea[name="note"]').fill('Timeline event evidence for annotation QA.');
+    const createRequest = page.waitForRequest((request) => {
+      if (request.method() !== 'POST') return false;
+      if (new URL(request.url()).pathname !== '/api/annotations') return false;
+      const body = JSON.parse(request.postData() || '{}') as Record<string, unknown>;
+      return body.target_type === 'event';
+    });
+    await form.locator('[data-annotation-save]').click();
+    const createBody = JSON.parse((await createRequest).postData() || '{}') as Record<string, unknown>;
+    expect(createBody).toMatchObject({
+      target_type: 'event',
+      session_id: TEST_SESSION_ID,
+      event_uid: TEST_EVENT_ID,
+    });
+    await expect(drawer).toContainText('Timeline event evidence for annotation QA.');
+    await expect(eventAnnotationButton.locator('[data-annotation-count]')).toHaveText('1');
+    await expect(eventAnnotationButton).toHaveAttribute('aria-label', /1 annotation/);
+
+    await guards.expectClean();
+  });
+
+  test('shows transcript annotation failure state on mobile', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 760 });
+    await installDashboardFixtures(page, { annotationsUnavailable: true });
+
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-annotation-summary-count]')).toContainText('Annotations unavailable');
+    await page.getByRole('button', { name: 'Annotate session' }).click();
+    await expect(page.locator('#annotation-drawer')).toBeVisible();
+    await expect(page.locator('[data-annotation-list]')).toContainText('Unable to load annotations');
+    await expectNoHorizontalOverflow(page);
+  });
+
   test('refreshes transcript conversation smoothly from session SSE updates', async ({ page }) => {
     const guards = attachPageGuards(page);
     await installTranscriptRealtimeFixture(page);

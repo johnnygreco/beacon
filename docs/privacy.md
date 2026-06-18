@@ -13,7 +13,7 @@ database as sensitive local data even after redaction.
 
 ## Data Beacon stores
 
-Beacon can store the following content from configured capture sources:
+Beacon can store the following local content:
 
 - raw source records from agent session files;
 - normalized prompts, responses, reasoning summaries, tool calls, tool results,
@@ -25,6 +25,10 @@ Beacon can store the following content from configured capture sources:
 - session and analytics projections derived from captured events;
 - search query log rows containing search text, normalized terms, result counts,
   and timing data;
+- trace annotation records created through the dashboard, REST API, or MCP tools,
+  including author/source metadata, target IDs, categories, outcomes, labels,
+  quality/confidence values, notes, JSON metadata, follow-up flags, status, and
+  soft-delete timestamps;
 - capture checkpoints and capture errors used to replay files safely.
 
 The ClickHouse schema and table ownership are documented in
@@ -55,8 +59,9 @@ The web dashboard exposes captured session summaries, transcripts, search
 results, tool payloads, metrics, and recent activity through local HTTP routes.
 Anyone who can reach the Beacon web server can inspect that data.
 
-The MCP server exposes the same local database through read-only tools:
-`search_sessions`, `open`, `list_sessions`, and `usage_summary`. Those tools can
+The MCP server exposes the same local database through query tools such as
+`search_sessions`, `open`, `list_sessions`, and `usage_summary`, plus writable
+annotation tools for marking sessions, messages, and events. Query tools can
 return transcript context, session summaries, source/runtime/project metadata,
 token-usage aggregates, and working directories. MCP clients should be
 configured only for trusted agent environments, especially when pointing Beacon
@@ -74,12 +79,12 @@ Beacon sets dashboard security headers including `Content-Security-Policy`,
 JavaScript execution. Dashboard controls are wired through external scripts and
 server-rendered captured content is escaped by default.
 
-The optional `POST /api/mcp` route exposes the same read-only MCP tools as the
-local dashboard server and inherits the dashboard server's local-trust boundary.
-If Beacon is exposed beyond loopback, put it behind an external authenticated
-proxy or equivalent network control. If Beacon adds browser-driven mutation
-routes such as reset or admin settings, those routes should require same-origin
-proof or CSRF protection and must not mutate state via GET.
+The optional `POST /api/mcp` route exposes the same MCP tools as the local
+dashboard server and inherits the dashboard server's local-trust boundary. If
+Beacon is exposed beyond loopback, put it behind an external authenticated proxy
+or equivalent network control. Browser-driven mutation routes reject explicit
+cross-site browser signals, require JSON content types for JSON writes, and must
+not mutate state via GET.
 
 ## Retention policy
 

@@ -109,6 +109,7 @@ templ chatReasoningGroup(events []views.EventSummary) {
 						for _, e := range events {
 							<div class="text-gray-400 text-sm italic whitespace-pre-wrap px-3 py-1">
 								{ chatDisplayText(e) }
+								@chatEventAnnotationControl(e)
 							</div>
 						}
 					}
@@ -130,6 +131,7 @@ templ chatReasoningGroup(events []views.EventSummary) {
 				} else {
 					<span class="text-gray-600 text-xs">content not logged</span>
 				}
+				@chatEventAnnotationGroup(events)
 			</div>
 		</div>
 	}
@@ -188,6 +190,9 @@ templ chatToolItemWithContext(item views.ToolChainItem, chatCtx views.ChatContex
 					<span class="text-gray-600 text-xs flex-shrink-0">{ fmt.Sprintf("%dms", item.CallEvent.DurationMs) }</span>
 				}
 			</summary>
+			<div class="annotation-inline-row mt-2 ml-5">
+				@chatEventAnnotationControl(item.CallEvent)
+			</div>
 			<div class="mt-2 ml-5">
 				if item.Params != nil && item.ToolName == "Bash" {
 					@toolCardBash(item)
@@ -201,6 +206,12 @@ templ chatToolItemWithContext(item views.ToolChainItem, chatCtx views.ChatContex
 					@toolCardSearch(item)
 				} else {
 					@toolCardGeneric(item)
+				}
+				if item.ResultEvent != nil {
+					<div class="annotation-inline-row mt-2">
+						<span class="text-xs text-gray-500">Result</span>
+						@chatEventAnnotationControl(*item.ResultEvent)
+					</div>
 				}
 			</div>
 		</details>
@@ -219,6 +230,7 @@ templ chatSubagentDispatch(item views.ToolChainItem, chatCtx views.ChatContext) 
 			} else {
 				<span class="text-blue-400/60 text-xs">running...</span>
 			}
+			@chatEventAnnotationControl(item.CallEvent)
 		</div>
 		if agentDescription(item) != "" {
 			<p class="text-xs text-gray-400 mb-2">{ agentDescription(item) }</p>
@@ -266,6 +278,9 @@ templ chatErrorBlock(e views.EventSummary) {
 			</svg>
 			<p class="text-red-300 text-sm break-words">{ chatDisplayText(e) }</p>
 		</div>
+		<div class="annotation-inline-row mt-2">
+			@chatEventAnnotationControl(e)
+		</div>
 	</div>
 }
 
@@ -282,15 +297,40 @@ templ chatToolErrorBlock(e views.EventSummary) {
 				<p class="text-orange-300 text-sm break-words">{ chatDisplayText(e) }</p>
 			</div>
 		</div>
+		<div class="annotation-inline-row mt-2">
+			@chatEventAnnotationControl(e)
+		</div>
 	</div>
 }
 
 templ chatMetaStrip(e views.EventSummary) {
-	if e.Model != "" {
+	if e.Model != "" || e.EventUID != "" {
 		<div class="chat-meta-strip text-xs text-gray-500 mt-1.5 flex items-center gap-2">
-			<span class="px-1.5 py-0.5 rounded bg-gray-800/50 text-gray-400">{ e.Model }</span>
+			if e.Model != "" {
+				<span class="px-1.5 py-0.5 rounded bg-gray-800/50 text-gray-400">{ e.Model }</span>
+			}
+			@chatEventAnnotationControl(e)
 		</div>
 	}
+}
+
+templ chatEventAnnotationGroup(events []views.EventSummary) {
+	for _, e := range events {
+		@chatEventAnnotationControl(e)
+	}
+}
+
+templ chatEventAnnotationControl(e views.EventSummary) {
+	if e.EventUID != "" {
+		@AnnotationButton(chatAnnotationTargetType(e), "", e.EventUID, "Annotate")
+	}
+}
+
+func chatAnnotationTargetType(e views.EventSummary) string {
+	if e.EventKind == "message" {
+		return models.AnnotationTargetMessage
+	}
+	return models.AnnotationTargetEvent
 }
 
 templ toolCardBash(item views.ToolChainItem) {

@@ -103,6 +103,72 @@ func toolDefinitions() []map[string]any {
 				"additionalProperties": false,
 			},
 		},
+		{
+			"name":        "create_annotation",
+			"description": "Create a Beacon annotation for a session, message, or event. Message targets require a message event ID.",
+			"annotations": writeToolAnnotations(false),
+			"inputSchema": map[string]any{
+				"type":                 "object",
+				"properties":           mergeSchemaProperties(mergeSchemaProperties(annotationTargetSchemaProperties(), annotationCreateContentSchemaProperties()), scopeSchemaProperties()),
+				"required":             append(append(annotationTargetRequiredProperties(), annotationCreateContentRequiredProperties()...), scopeRequiredProperties()...),
+				"additionalProperties": false,
+			},
+		},
+		{
+			"name":        "update_annotation",
+			"description": "Update an existing Beacon annotation after verifying its target is in scope.",
+			"annotations": writeToolAnnotations(false),
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": mergeSchemaProperties(mergeSchemaProperties(map[string]any{
+					"annotation_id": map[string]any{"type": "string", "description": "Beacon annotation ID returned by annotation tools"},
+				}, annotationUpdateContentSchemaProperties()), scopeSchemaProperties()),
+				"required":             append(append([]string{"annotation_id"}, annotationUpdateContentRequiredProperties()...), scopeRequiredProperties()...),
+				"additionalProperties": false,
+			},
+		},
+		{
+			"name":        "list_annotations",
+			"description": "List Beacon annotations for a session, message, event, or returned open_ref.",
+			"annotations": readOnlyToolAnnotations(),
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": mergeSchemaProperties(mergeSchemaProperties(annotationTargetSchemaProperties(), map[string]any{
+					"include_deleted": nullableType("boolean", "When true, include soft-deleted annotations"),
+					"limit":           nullableType("integer", "Max annotations (default 200, max 500)"),
+					"offset":          nullableType("integer", "Zero-based annotation offset"),
+				}), scopeSchemaProperties()),
+				"required":             append(append(annotationTargetRequiredProperties(), "include_deleted", "limit", "offset"), scopeRequiredProperties()...),
+				"additionalProperties": false,
+			},
+		},
+		{
+			"name":        "get_annotation",
+			"description": "Read one Beacon annotation by ID after verifying its target is in scope.",
+			"annotations": readOnlyToolAnnotations(),
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": mergeSchemaProperties(map[string]any{
+					"annotation_id":   map[string]any{"type": "string", "description": "Beacon annotation ID"},
+					"include_deleted": nullableType("boolean", "When true, allow reading soft-deleted annotations"),
+				}, scopeSchemaProperties()),
+				"required":             append([]string{"annotation_id", "include_deleted"}, scopeRequiredProperties()...),
+				"additionalProperties": false,
+			},
+		},
+		{
+			"name":        "delete_annotation",
+			"description": "Soft-delete one Beacon annotation after verifying its target is in scope.",
+			"annotations": writeToolAnnotations(true),
+			"inputSchema": map[string]any{
+				"type": "object",
+				"properties": mergeSchemaProperties(map[string]any{
+					"annotation_id": map[string]any{"type": "string", "description": "Beacon annotation ID"},
+				}, scopeSchemaProperties()),
+				"required":             append([]string{"annotation_id"}, scopeRequiredProperties()...),
+				"additionalProperties": false,
+			},
+		},
 	}
 }
 
@@ -140,11 +206,62 @@ func scopeRequiredProperties() []string {
 	return []string{"source_name", "source_names", "runtime", "runtimes", "project_key", "project_keys"}
 }
 
+func annotationTargetSchemaProperties() map[string]any {
+	return map[string]any{
+		"target_type": nullableType("string", "Annotation target type: session, message, or event. Use message with message_id or a message open_ref for message-level annotations."),
+		"session_id":  nullableType("string", "Beacon session ID, e.g. session:<id>. Required for session targets and optional as a constraint for message/event targets."),
+		"message_id":  nullableType("string", "Beacon message event ID. Message events may be passed as event:<uid> or message:<uid>."),
+		"event_id":    nullableType("string", "Beacon event ID returned by search_sessions or open, e.g. event:<uid>."),
+		"open_ref":    map[string]any{"type": []string{"object", "null"}, "description": "open_ref object returned by Beacon MCP tools"},
+	}
+}
+
+func annotationTargetRequiredProperties() []string {
+	return []string{"target_type", "session_id", "message_id", "event_id", "open_ref"}
+}
+
+func annotationCreateContentSchemaProperties() map[string]any {
+	properties := annotationUpdateContentSchemaProperties()
+	properties["author_id"] = nullableType("string", "Optional stable agent or run identifier")
+	properties["author_name"] = nullableType("string", "Optional display name for the annotating agent")
+	return properties
+}
+
+func annotationCreateContentRequiredProperties() []string {
+	return append([]string{"author_id", "author_name"}, annotationUpdateContentRequiredProperties()...)
+}
+
+func annotationUpdateContentSchemaProperties() map[string]any {
+	return map[string]any{
+		"category":       nullableType("string", "Optional annotation category"),
+		"outcome":        nullableType("string", "Optional annotation outcome"),
+		"quality_score":  nullableType("integer", "Optional quality score from 0 to 5"),
+		"confidence":     nullableType("integer", "Optional confidence from 0 to 100"),
+		"needs_followup": nullableType("boolean", "Whether this annotation needs follow-up"),
+		"labels":         nullableArrayType("string", "Optional labels"),
+		"note":           nullableType("string", "Annotation note"),
+		"metadata_json":  nullableType("string", "Optional metadata JSON object as a string"),
+	}
+}
+
+func annotationUpdateContentRequiredProperties() []string {
+	return []string{"category", "outcome", "quality_score", "confidence", "needs_followup", "labels", "note", "metadata_json"}
+}
+
 func readOnlyToolAnnotations() map[string]any {
 	return map[string]any{
 		"readOnlyHint":    true,
 		"destructiveHint": false,
 		"idempotentHint":  true,
+		"openWorldHint":   false,
+	}
+}
+
+func writeToolAnnotations(destructive bool) map[string]any {
+	return map[string]any{
+		"readOnlyHint":    false,
+		"destructiveHint": destructive,
+		"idempotentHint":  false,
 		"openWorldHint":   false,
 	}
 }
@@ -159,6 +276,16 @@ func (s *Server) callTool(ctx context.Context, name string, args json.RawMessage
 		return s.toolListSessions(ctx, args)
 	case "usage_summary":
 		return s.toolUsageSummary(ctx, args)
+	case "create_annotation":
+		return s.toolCreateAnnotation(ctx, args)
+	case "update_annotation":
+		return s.toolUpdateAnnotation(ctx, args)
+	case "list_annotations":
+		return s.toolListAnnotations(ctx, args)
+	case "get_annotation":
+		return s.toolGetAnnotation(ctx, args)
+	case "delete_annotation":
+		return s.toolDeleteAnnotation(ctx, args)
 	default:
 		return "", userToolError("unknown tool: %s", name)
 	}
@@ -375,7 +502,9 @@ func clampOpenContextWindow(events int) int {
 func resolveOpenTarget(eventID, sessionID, anchor string, ref *openRef) (string, string, string, ScopeFilters, error) {
 	var refScope ScopeFilters
 	if ref != nil {
-		if ref.EventID != "" {
+		if ref.MessageID != "" {
+			eventID = ref.MessageID
+		} else if ref.EventID != "" {
 			eventID = ref.EventID
 		}
 		if ref.SessionID != "" {
@@ -388,7 +517,7 @@ func resolveOpenTarget(eventID, sessionID, anchor string, ref *openRef) (string,
 			refScope = normalizeScopeFilters(*ref.Scope)
 		}
 	}
-	eventUID := stripBeaconPrefix(eventID, "event:")
+	eventUID := normalizeMessageID(eventID)
 	sessionID = stripBeaconPrefix(sessionID, "session:")
 	anchor = strings.TrimSpace(anchor)
 	if eventUID != "" {

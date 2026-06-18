@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import axe from 'axe-core';
 import {
+  TEST_EVENT_ID,
   TEST_SESSION_ID,
   fillDashboardSearchAndWait,
   gotoDashboard,
@@ -95,6 +96,27 @@ test.describe('dashboard accessibility', () => {
 
     await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
     await expect(page.locator('#transcript-wrap')).toBeVisible();
+
+    expect(await axeSeriousOrCritical(page)).toEqual([]);
+  });
+
+  test('has no serious or critical axe violations with transcript annotation drawer open', async ({ page }) => {
+    await installDashboardFixtures(page);
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await page.locator(`#${TEST_EVENT_ID} [data-annotation-button]`).first().click();
+    await expect(page.locator('#annotation-drawer')).toBeVisible();
+    await expect(page.locator('[data-annotation-form] textarea[name="note"]')).toBeFocused();
+
+    expect(await axeSeriousOrCritical(page)).toEqual([]);
+  });
+
+  test('has no serious or critical axe violations on mobile annotation failure state', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 760 });
+    await installDashboardFixtures(page, { annotationsUnavailable: true });
+    await page.goto(`/sessions/${TEST_SESSION_ID}`, { waitUntil: 'domcontentloaded' });
+    await page.getByRole('button', { name: 'Annotate session' }).click();
+    await expect(page.locator('#annotation-drawer')).toBeVisible();
+    await expect(page.locator('[data-annotation-list]')).toContainText('Unable to load annotations');
 
     expect(await axeSeriousOrCritical(page)).toEqual([]);
   });

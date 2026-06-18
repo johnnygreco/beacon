@@ -92,4 +92,16 @@ func TestChatViewEscapesUntrustedPayloads(t *testing.T) {
 	if !strings.Contains(html, "&lt;img src=x") || !strings.Contains(html, "&lt;script&gt;alert(1)&lt;/script&gt;") {
 		t.Fatalf("tool/error payloads were not HTML-escaped: %s", html)
 	}
+	for _, want := range []string{
+		`data-annotation-target="message"`,
+		`data-annotation-event-uid="user-&#34; onmouseover=&#34;alert(1)"`,
+		`data-annotation-event-uid="assistant-&#34; onclick=&#34;alert(1)"`,
+		`data-annotation-target="event"`,
+		`data-annotation-event-uid="call-&#34; onclick=&#34;alert(1)"`,
+		`data-annotation-event-uid="tool-result-xss"`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rendered transcript missing annotation hook %q: %s", want, html)
+		}
+	}
 }

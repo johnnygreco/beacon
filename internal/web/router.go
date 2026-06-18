@@ -66,17 +66,32 @@ func NewRouter(
 			r.Get("/dashboard/activity", apiHandlers.GetActivity)
 			r.Get("/dashboard/charts", apiHandlers.GetDashboardCharts)
 			r.Get("/sessions/{id}", apiHandlers.GetSessionDetail)
+			r.Get("/sessions/{id}/annotations", apiHandlers.GetSessionAnnotations)
 			r.Get("/sessions/{id}/subagents", apiHandlers.GetSessionSubagents)
 			r.Get("/sessions/{id}/events", apiHandlers.GetSessionEvents)
 			r.Get("/events/{event_id}", apiHandlers.GetEvent)
+			r.Get("/events/{event_id}/annotations", apiHandlers.GetEventAnnotations)
 			r.Get("/tool-payloads/{event_id}", apiHandlers.GetToolPayload)
+			r.Get("/annotations/traces", apiHandlers.ListAnnotatedTraces)
+			r.Get("/annotations/export", apiHandlers.ExportAnnotatedTraces)
+			r.Get("/annotations", apiHandlers.ListAnnotations)
+			r.Get("/annotations/{annotation_id}", apiHandlers.GetAnnotation)
 			r.Get("/search", apiHandlers.SearchEvents)
 			r.Get("/tokens-per-minute", apiHandlers.GetTokensPerMinute)
 			r.Get("/tool-stats", apiHandlers.GetToolStats)
 			r.Get("/tokens-by-model", apiHandlers.GetTokensByModel)
-			if opts.mcpHandler != nil {
-				r.Post("/mcp", opts.mcpHandler.ServeHTTP)
-			}
+			r.Group(func(r chi.Router) {
+				r.Use(MutationRequestGuardMiddleware(true))
+				r.Post("/annotations", apiHandlers.CreateAnnotation)
+				r.Patch("/annotations/{annotation_id}", apiHandlers.UpdateAnnotation)
+				if opts.mcpHandler != nil {
+					r.Post("/mcp", opts.mcpHandler.ServeHTTP)
+				}
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(MutationRequestGuardMiddleware(false))
+				r.Delete("/annotations/{annotation_id}", apiHandlers.DeleteAnnotation)
+			})
 		})
 	})
 

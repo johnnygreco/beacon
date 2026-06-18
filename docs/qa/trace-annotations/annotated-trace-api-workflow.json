@@ -1,0 +1,123 @@
+{
+  "discovery_request": {
+    "method": "GET",
+    "path": "/api/annotations/traces?label=dataset:eval&limit=25&source_name=source-a&project_key=beacon"
+  },
+  "discovery_response_excerpt": {
+    "schema": "beacon.annotated_traces.index.v1",
+    "scope": {
+      "auth_scope_applied": false,
+      "filters": {
+        "source_names": ["source-a"],
+        "project_keys": ["beacon"]
+      }
+    },
+    "include_deleted": false,
+    "offset": 0,
+    "limit": 25,
+    "has_more": false,
+    "items": [
+      {
+        "session": {
+          "id": "session-annotation-qa",
+          "title": "Trace annotation QA review",
+          "source": "source-a",
+          "runtime": "runtime-a",
+          "project_key": "beacon"
+        },
+        "counts": {
+          "annotation_count": 3,
+          "session_annotation_count": 1,
+          "message_annotation_count": 1,
+          "event_annotation_count": 1,
+          "needs_followup_count": 1
+        },
+        "targets": [
+          {
+            "target_type": "session",
+            "annotation_count": 1
+          },
+          {
+            "target_type": "message",
+            "event_uid": "event-annotation-message-001",
+            "annotation_count": 1
+          },
+          {
+            "target_type": "event",
+            "event_uid": "event-annotation-tool-result-001",
+            "annotation_count": 1
+          }
+        ]
+      }
+    ]
+  },
+  "export_request": {
+    "method": "GET",
+    "path": "/api/annotations/export?label=dataset:eval&event_limit=2000&limit=25&source_name=source-a&project_key=beacon"
+  },
+  "export_response_excerpt": {
+    "schema": "beacon.annotated_traces.export.v1",
+    "offset": 0,
+    "limit": 25,
+    "event_limit": 2000,
+    "has_more": false,
+    "traces": [
+      {
+        "session": {
+          "id": "session-annotation-qa",
+          "title": "Trace annotation QA review"
+        },
+        "annotations": [
+          {
+            "annotation_id": "annotation-session-qa",
+            "target_type": "session",
+            "source": "ui",
+            "labels": ["dataset:eval", "rubric:correctness"],
+            "note": "Session-level QA annotation."
+          },
+          {
+            "annotation_id": "annotation-message-qa",
+            "target_type": "message",
+            "event_uid": "event-annotation-message-001",
+            "source": "mcp",
+            "author_type": "agent",
+            "labels": ["dataset:eval", "dataset:train"],
+            "metadata_json": "{\"rubric_version\":\"2026-06\"}",
+            "note": "Message-level MCP annotation."
+          },
+          {
+            "annotation_id": "annotation-event-qa",
+            "target_type": "event",
+            "event_uid": "event-annotation-tool-result-001",
+            "source": "ui",
+            "author_type": "human",
+            "labels": ["dataset:eval", "event:timeline"],
+            "note": "Event-level timeline annotation."
+          }
+        ],
+        "events": [
+          {
+            "event_uid": "event-annotation-message-001",
+            "event_kind": "message",
+            "actor_role": "user",
+            "text_preview": "Read dashboard fixture payload"
+          },
+          {
+            "event_uid": "event-annotation-tool-result-001",
+            "event_kind": "tool_result",
+            "actor_role": "tool",
+            "text_preview": "Payload loaded."
+          }
+        ],
+        "event_limit": 2000,
+        "event_truncated": false
+      }
+    ],
+    "warnings": []
+  },
+  "validation": [
+    "go test ./internal/web -run TestAnnotationAPIAnnotatedTracesListsSessionsAndTargets",
+    "go test ./internal/web -run TestAnnotationAPIExportAnnotatedTracesIncludesContextAndDeleted",
+    "go test ./internal/web -run TestAnnotationAPIExportAnnotatedTracesPaginatesAnnotations"
+  ]
+}

@@ -173,3 +173,87 @@ type APIToolPayload struct {
 	InputPreview  string `json:"input_preview"`
 	OutputPreview string `json:"output_preview"`
 }
+
+type APITraceAnnotation struct {
+	AnnotationID  string     `json:"annotation_id"`
+	TargetType    string     `json:"target_type"`
+	SessionID     string     `json:"session_id"`
+	EventUID      string     `json:"event_uid,omitempty"`
+	AuthorType    string     `json:"author_type"`
+	AuthorID      string     `json:"author_id,omitempty"`
+	AuthorName    string     `json:"author_name,omitempty"`
+	Source        string     `json:"source"`
+	Category      string     `json:"category,omitempty"`
+	Outcome       string     `json:"outcome,omitempty"`
+	QualityScore  int        `json:"quality_score,omitempty"`
+	Confidence    int        `json:"confidence,omitempty"`
+	NeedsFollowup bool       `json:"needs_followup"`
+	Labels        []string   `json:"labels"`
+	Note          string     `json:"note"`
+	MetadataJSON  string     `json:"metadata_json,omitempty"`
+	Status        string     `json:"status"`
+	SchemaVersion int        `json:"schema_version"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
+}
+
+type APITraceAnnotationListResponse struct {
+	Items []APITraceAnnotation `json:"items"`
+}
+
+type APIAnnotationCounts struct {
+	AnnotationCount        int `json:"annotation_count"`
+	SessionAnnotationCount int `json:"session_annotation_count"`
+	MessageAnnotationCount int `json:"message_annotation_count"`
+	EventAnnotationCount   int `json:"event_annotation_count"`
+	NeedsFollowupCount     int `json:"needs_followup_count"`
+}
+
+type APIAnnotatedTargetSummary struct {
+	TargetType        string    `json:"target_type"`
+	EventUID          string    `json:"event_uid,omitempty"`
+	AnnotationCount   int       `json:"annotation_count"`
+	FirstAnnotationAt time.Time `json:"first_annotation_at"`
+	LastAnnotationAt  time.Time `json:"last_annotation_at"`
+}
+
+type APIAnnotatedTraceSummary struct {
+	Session           APISessionSummary           `json:"session"`
+	Counts            APIAnnotationCounts         `json:"counts"`
+	FirstAnnotationAt time.Time                   `json:"first_annotation_at"`
+	LastAnnotationAt  time.Time                   `json:"last_annotation_at"`
+	Targets           []APIAnnotatedTargetSummary `json:"targets"`
+}
+
+type APIAnnotatedTracesResponse struct {
+	Schema         string                     `json:"schema"`
+	Scope          APIScopeMetadata           `json:"scope"`
+	IncludeDeleted bool                       `json:"include_deleted"`
+	Offset         int                        `json:"offset"`
+	Limit          int                        `json:"limit"`
+	HasMore        bool                       `json:"has_more"`
+	Items          []APIAnnotatedTraceSummary `json:"items"`
+}
+
+type APIAnnotatedTraceExport struct {
+	Session        APISessionSummary    `json:"session"`
+	Counts         APIAnnotationCounts  `json:"counts"`
+	Annotations    []APITraceAnnotation `json:"annotations"`
+	Events         []APISessionEvent    `json:"events"`
+	EventLimit     int                  `json:"event_limit"`
+	EventTruncated bool                 `json:"event_truncated"`
+}
+
+type APIAnnotatedTraceExportResponse struct {
+	Schema         string                    `json:"schema"`
+	ExportedAt     time.Time                 `json:"exported_at"`
+	Scope          APIScopeMetadata          `json:"scope"`
+	IncludeDeleted bool                      `json:"include_deleted"`
+	Offset         int                       `json:"offset"`
+	Limit          int                       `json:"limit"`
+	EventLimit     int                       `json:"event_limit"`
+	HasMore        bool                      `json:"has_more"`
+	Traces         []APIAnnotatedTraceExport `json:"traces"`
+	Warnings       []string                  `json:"warnings"`
+}

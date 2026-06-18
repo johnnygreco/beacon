@@ -1,0 +1,109 @@
+{
+  "create_request": {
+    "tool": "create_annotation",
+    "arguments": {
+      "target_type": "message",
+      "session_id": null,
+      "message_id": "message:msg-1",
+      "event_id": null,
+      "open_ref": null,
+      "author_id": "agent-1",
+      "author_name": "Reviewer Agent",
+      "category": "quality",
+      "outcome": null,
+      "quality_score": null,
+      "confidence": null,
+      "needs_followup": null,
+      "labels": ["dataset:eval"],
+      "note": "message note",
+      "metadata_json": "{\"rubric\":\"qa\"}",
+      "source_name": null,
+      "source_names": null,
+      "runtime": null,
+      "runtimes": null,
+      "project_key": null,
+      "project_keys": null
+    }
+  },
+  "create_response_excerpt": {
+    "schema": "beacon.mcp.create_annotation.v1",
+    "tool": "create_annotation",
+    "annotation": {
+      "target_type": "message",
+      "session_id": "session:session-1",
+      "event_id": "event:msg-1",
+      "message_id": "message:msg-1",
+      "author_type": "agent",
+      "source": "mcp",
+      "note": "message note",
+      "open_ref": {
+        "type": "message",
+        "session_id": "session:session-1",
+        "message_id": "message:msg-1"
+      }
+    }
+  },
+  "list_request": {
+    "tool": "list_annotations",
+    "arguments": {
+      "target_type": null,
+      "session_id": null,
+      "message_id": null,
+      "event_id": null,
+      "open_ref": {
+        "type": "message",
+        "session_id": "session:session-1",
+        "message_id": "message:msg-1"
+      },
+      "include_deleted": false,
+      "limit": 50,
+      "offset": 0,
+      "source_name": null,
+      "source_names": null,
+      "runtime": null,
+      "runtimes": null,
+      "project_key": null,
+      "project_keys": null
+    }
+  },
+  "list_response_excerpt": {
+    "schema": "beacon.mcp.list_annotations.v1",
+    "metadata": {
+      "result_count": 1,
+      "limit": 50,
+      "offset": 0,
+      "result_complete": true
+    },
+    "annotations": [
+      {
+        "annotation_id": "ann-message",
+        "target_type": "message",
+        "message_id": "message:msg-1",
+        "source": "mcp"
+      }
+    ]
+  },
+  "update_delete_excerpt_note": "The update and delete excerpts are independent targeted contract-test examples, not one sequential mutation history. The update excerpt demonstrates preserving the existing annotation source.",
+  "update_response_excerpt": {
+    "schema": "beacon.mcp.update_annotation.v1",
+    "annotation": {
+      "annotation_id": "ann-message",
+      "revision": 2,
+      "source": "ui",
+      "note": "new note"
+    }
+  },
+  "delete_response_excerpt": {
+    "schema": "beacon.mcp.delete_annotation.v1",
+    "annotation": {
+      "annotation_id": "ann-message",
+      "revision": 2,
+      "status": "deleted"
+    }
+  },
+  "validation": [
+    "go test ./internal/mcp -run TestToolCreateAnnotationSupportsMessageTarget",
+    "go test ./internal/mcp -run TestToolListAnnotationsMessageOpenRefRoundTripsFromCreate",
+    "go test ./internal/mcp -run TestToolUpdateAndDeleteAnnotationVerifyMessageScope"
+  ]
+}

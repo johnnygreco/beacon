@@ -13,11 +13,13 @@ func TestTurnTimelineRendersTurnAndEventDetails(t *testing.T) {
 		TotalTokens: 2_048,
 		Events: []views.EventSummary{
 			{
+				EventUID:    "timeline-user-1",
 				EventKind:   "message",
 				ActorRole:   "user",
 				TextPreview: "please inspect <script>alert(1)</script>",
 			},
 			{
+				EventUID:   "timeline-tool-1",
 				EventKind:  "tool_call",
 				ActorRole:  "tool",
 				ToolName:   "Bash",
@@ -45,6 +47,10 @@ func TestTurnTimelineRendersTurnAndEventDetails(t *testing.T) {
 		"planner",
 		"custom_event",
 		"please inspect &lt;script&gt;alert(1)&lt;/script&gt;",
+		`data-annotation-target="message"`,
+		`data-annotation-target="event"`,
+		`data-annotation-event-uid="timeline-user-1"`,
+		`data-annotation-event-uid="timeline-tool-1"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("expected timeline to contain %q: %s", want, html)

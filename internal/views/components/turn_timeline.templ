@@ -59,6 +59,9 @@ templ EventItem(e views.EventSummary) {
 			if e.DurationMs > 0 {
 				<span class="text-gray-600">{ fmt.Sprintf("%dms", e.DurationMs) }</span>
 			}
+			if e.EventUID != "" {
+				@AnnotationButton(chatAnnotationTargetType(e), "", e.EventUID, "Annotate")
+			}
 		</div>
 		if e.TextPreview != "" {
 			<p class="text-sm text-gray-300 mt-1 truncate">{ e.TextPreview }</p>

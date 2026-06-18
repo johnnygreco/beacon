@@ -56,7 +56,7 @@ func TestDispatch_Initialize(t *testing.T) {
 		t.Error("missing serverInfo in result")
 	}
 	instructions, ok := result["instructions"].(string)
-	if !ok || !strings.Contains(instructions, "search_sessions") || !strings.Contains(instructions, "read-only") {
+	if !ok || !strings.Contains(instructions, "search_sessions") || !strings.Contains(instructions, "create_annotation") || !strings.Contains(instructions, "not current workspace truth") {
 		t.Fatalf("instructions = %#v, want Beacon MCP workflow guidance", result["instructions"])
 	}
 
@@ -175,8 +175,8 @@ func TestDispatch_ToolsList(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected tools to be []map[string]any, got %T", result["tools"])
 	}
-	if len(tools) != 4 {
-		t.Fatalf("expected 4 tools, got %d", len(tools))
+	if len(tools) != len(expectedMCPToolNames()) {
+		t.Fatalf("expected %d tools, got %d", len(expectedMCPToolNames()), len(tools))
 	}
 
 	names := map[string]bool{}
@@ -184,7 +184,7 @@ func TestDispatch_ToolsList(t *testing.T) {
 		name, _ := tool["name"].(string)
 		names[name] = true
 	}
-	for _, expected := range []string{"search_sessions", "open", "list_sessions", "usage_summary"} {
+	for _, expected := range expectedMCPToolNames() {
 		if !names[expected] {
 			t.Errorf("missing tool: %s", expected)
 		}
@@ -248,7 +248,7 @@ func TestFormatSearchResults_WithResults(t *testing.T) {
 	}
 
 	output := FormatSearchResults(results)
-	for _, expected := range []string{`"event_id":"event:uid-abc-123"`, `"session_id":"session:session-123456789012"`, `"open_ref":{"type":"event"`, `"event_kind":"message"`, `"tool_name":"grep"`, `"model":"gpt-4"`, `"score":1.5`, "Hello world preview"} {
+	for _, expected := range []string{`"event_id":"event:uid-abc-123"`, `"session_id":"session:session-123456789012"`, `"open_ref":{"type":"message"`, `"message_id":"message:uid-abc-123"`, `"event_kind":"message"`, `"tool_name":"grep"`, `"model":"gpt-4"`, `"score":1.5`, "Hello world preview"} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected %q in output", expected)
 		}
@@ -285,7 +285,7 @@ func TestFormatOpenContext(t *testing.T) {
 	}
 
 	output := FormatOpenContext(events, 1) // target is the assistant message
-	for _, expected := range []string{`"schema":"beacon.mcp.open.v1"`, `"event_id":"event:uid-2"`, `"tool_name":"weather"`, `"model":"gpt-4"`, `"tokens":150`, `"target":true`} {
+	for _, expected := range []string{`"schema":"beacon.mcp.open.v1"`, `"event_id":"event:uid-2"`, `"open_ref":{"type":"message"`, `"message_id":"message:uid-2"`, `"tool_name":"weather"`, `"model":"gpt-4"`, `"tokens":150`, `"target":true`} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("expected %q in output", expected)
 		}
@@ -355,8 +355,8 @@ func TestFormatSessionList_WithSessions(t *testing.T) {
 
 func TestToolDefinitions(t *testing.T) {
 	defs := toolDefinitions()
-	if len(defs) != 4 {
-		t.Fatalf("expected 4 tool definitions, got %d", len(defs))
+	if len(defs) != len(expectedMCPToolNames()) {
+		t.Fatalf("expected %d tool definitions, got %d", len(expectedMCPToolNames()), len(defs))
 	}
 
 	names := map[string]bool{}
@@ -372,9 +372,23 @@ func TestToolDefinitions(t *testing.T) {
 		}
 	}
 
-	for _, expected := range []string{"search_sessions", "open", "list_sessions", "usage_summary"} {
+	for _, expected := range expectedMCPToolNames() {
 		if !names[expected] {
 			t.Errorf("missing tool definition: %s", expected)
 		}
+	}
+}
+
+func expectedMCPToolNames() []string {
+	return []string{
+		"search_sessions",
+		"open",
+		"list_sessions",
+		"usage_summary",
+		"create_annotation",
+		"update_annotation",
+		"list_annotations",
+		"get_annotation",
+		"delete_annotation",
 	}
 }

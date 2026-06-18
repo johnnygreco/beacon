@@ -43,6 +43,10 @@ func setupLiveClickHouse(t *testing.T) *Store {
 	return ch
 }
 
+func intPtr(value int) *int {
+	return &value
+}
+
 func TestClickHouseResetDropsRowsAndRecreatesTables(t *testing.T) {
 	ch := setupLiveClickHouse(t)
 	ctx := context.Background()
@@ -827,6 +831,116 @@ func TestClickHouseSchemaVersionRecorded(t *testing.T) {
 	}
 	if !ok || version != CurrentSchemaVersion {
 		t.Fatalf("schema version = %d ok=%v, want %d true", version, ok, CurrentSchemaVersion)
+	}
+}
+
+func TestClickHouseTraceAnnotationsCRUD(t *testing.T) {
+	ch := setupLiveClickHouse(t)
+	ctx := context.Background()
+	sessionID := "annotation-crud-session"
+	eventUID := "annotation-crud-event"
+	event := models.Event{
+		EventUID:     eventUID,
+		SessionID:    sessionID,
+		SourceName:   "codex",
+		Runtime:      models.RuntimeCodex,
+		Provider:     models.ProviderOpenAI,
+		Format:       models.FormatJSONL,
+		EventKind:    models.EventKindMessage,
+		ActorRole:    models.ActorRoleAssistant,
+		Timestamp:    time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC),
+		TextContent:  "annotation integration target",
+		TextPreview:  "annotation integration target",
+		CWD:          "/tmp/beacon",
+		SourceFile:   "annotation.jsonl",
+		SourceLineNo: 1,
+	}
+	if err := ch.Flush(ctx, RowBatch{
+		ActivityEvents: []models.Event{event},
+		RawRecords:     []models.RawRecord{NewRawRecord(event)},
+	}); err != nil {
+		t.Fatalf("flush event: %v", err)
+	}
+
+	sessionAnn, err := CreateTraceAnnotation(ctx, ch.DB, models.TraceAnnotation{
+		TargetType:    models.AnnotationTargetSession,
+		SessionID:     sessionID,
+		AuthorType:    models.AnnotationAuthorHuman,
+		AuthorName:    "Reviewer",
+		Source:        models.AnnotationSourceUI,
+		Category:      "quality",
+		Outcome:       "useful",
+		QualityScore:  4,
+		Confidence:    85,
+		NeedsFollowup: true,
+		Labels:        []string{"quality:good", "dataset:train"},
+		Note:          "Good dataset candidate.",
+		MetadataJSON:  `{"rubric":"integration"}`,
+	})
+	if err != nil {
+		t.Fatalf("create session annotation: %v", err)
+	}
+	if sessionAnn.Revision != 1 {
+		t.Fatalf("session annotation revision = %d, want 1", sessionAnn.Revision)
+	}
+
+	eventAnn, err := CreateTraceAnnotation(ctx, ch.DB, models.TraceAnnotation{
+		TargetType: models.AnnotationTargetEvent,
+		EventUID:   eventUID,
+		AuthorType: models.AnnotationAuthorAgent,
+		Source:     models.AnnotationSourceMCP,
+		Labels:     []string{"dataset:eval"},
+		Note:       "Concise event-level correction.",
+	})
+	if err != nil {
+		t.Fatalf("create event annotation: %v", err)
+	}
+	if eventAnn.SessionID != sessionID {
+		t.Fatalf("event annotation session_id = %q, want %q", eventAnn.SessionID, sessionID)
+	}
+
+	updatedNote := "Updated dataset note."
+	updated, err := UpdateTraceAnnotation(ctx, ch.DB, sessionAnn.AnnotationID, AnnotationUpdate{
+		Note:         &updatedNote,
+		QualityScore: intPtr(5),
+	})
+	if err != nil {
+		t.Fatalf("update session annotation: %v", err)
+	}
+	if updated.Revision != 2 || updated.Note != updatedNote || updated.QualityScore != 5 {
+		t.Fatalf("updated annotation = %#v, want revision 2 note/score update", updated)
+	}
+
+	active, err := ListTraceAnnotations(ctx, ch.DB, AnnotationFilter{SessionID: sessionID})
+	if err != nil {
+		t.Fatalf("list active annotations: %v", err)
+	}
+	if len(active) != 2 {
+		t.Fatalf("active annotations = %d, want 2: %#v", len(active), active)
+	}
+
+	deleted, err := DeleteTraceAnnotation(ctx, ch.DB, eventAnn.AnnotationID)
+	if err != nil {
+		t.Fatalf("delete event annotation: %v", err)
+	}
+	if deleted.Status != models.AnnotationStatusDeleted || deleted.DeletedAt == nil || deleted.Revision != 2 {
+		t.Fatalf("deleted annotation = %#v", deleted)
+	}
+
+	active, err = ListTraceAnnotations(ctx, ch.DB, AnnotationFilter{SessionID: sessionID})
+	if err != nil {
+		t.Fatalf("list active annotations after delete: %v", err)
+	}
+	if len(active) != 1 || active[0].AnnotationID != sessionAnn.AnnotationID || active[0].Note != updatedNote {
+		t.Fatalf("active annotations after delete = %#v, want only updated session annotation", active)
+	}
+
+	withDeleted, err := ListTraceAnnotations(ctx, ch.DB, AnnotationFilter{EventUID: eventUID, IncludeDeleted: true})
+	if err != nil {
+		t.Fatalf("list deleted event annotation: %v", err)
+	}
+	if len(withDeleted) != 1 || withDeleted[0].Status != models.AnnotationStatusDeleted || withDeleted[0].DeletedAt == nil {
+		t.Fatalf("deleted event annotation list = %#v", withDeleted)
 	}
 }
 

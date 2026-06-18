@@ -17,6 +17,13 @@ const (
 	maxSearchEventsAPILimit      = 240
 	maxDashboardSessionsAPILimit = 200
 	maxDashboardSearchAPILimit   = 240
+	defaultAnnotationsAPILimit   = 200
+	maxAnnotationsAPILimit       = 500
+	defaultAnnotatedTracesLimit  = 50
+	maxAnnotatedTracesLimit      = 200
+	maxAnnotatedTracesOffset     = 100000
+	defaultAnnotatedEventsLimit  = 1000
+	maxAnnotatedEventsLimit      = 5000
 )
 
 type apiIntParam struct {
@@ -253,4 +260,124 @@ func parseSearchEventsAPIRequest(values url.Values) (searchEventsAPIRequest, err
 		return searchEventsAPIRequest{}, err
 	}
 	return searchEventsAPIRequest{Query: query, Limit: limit, Scope: parseAPIScopeFilters(values)}, nil
+}
+
+type annotationsAPIRequest struct {
+	TargetType     string
+	SessionID      string
+	EventUID       string
+	AnnotationID   string
+	IncludeDeleted bool
+	Limit          int
+	Offset         int
+	Scope          APIScopeFilters
+}
+
+type annotatedTracesAPIRequest struct {
+	TargetType     string
+	SessionID      string
+	EventUID       string
+	AuthorType     string
+	Source         string
+	Category       string
+	Outcome        string
+	Label          string
+	NeedsFollowup  *bool
+	IncludeDeleted bool
+	Limit          int
+	Offset         int
+	EventLimit     int
+	Scope          APIScopeFilters
+}
+
+func parseAnnotationsAPIRequest(values url.Values) (annotationsAPIRequest, error) {
+	limit, err := parseAPIIntParam(values, apiIntParam{
+		Name:    "limit",
+		Default: defaultAnnotationsAPILimit,
+		Min:     1,
+		Max:     maxAnnotationsAPILimit,
+	})
+	if err != nil {
+		return annotationsAPIRequest{}, err
+	}
+	offset, err := parseAPIIntParam(values, apiIntParam{Name: "offset", Default: 0, Min: 0})
+	if err != nil {
+		return annotationsAPIRequest{}, err
+	}
+	includeDeletedValue := values.Get("include_deleted")
+	includeDeleted := includeDeletedValue == "1" || strings.EqualFold(includeDeletedValue, "true")
+	return annotationsAPIRequest{
+		TargetType:     strings.TrimSpace(values.Get("target_type")),
+		SessionID:      strings.TrimSpace(values.Get("session_id")),
+		EventUID:       strings.TrimSpace(values.Get("event_uid")),
+		AnnotationID:   strings.TrimSpace(values.Get("annotation_id")),
+		IncludeDeleted: includeDeleted,
+		Limit:          limit,
+		Offset:         offset,
+		Scope:          parseAPIScopeFilters(values),
+	}, nil
+}
+
+func parseAnnotatedTracesAPIRequest(values url.Values) (annotatedTracesAPIRequest, error) {
+	limit, err := parseAPIIntParam(values, apiIntParam{
+		Name:    "limit",
+		Default: defaultAnnotatedTracesLimit,
+		Min:     1,
+		Max:     maxAnnotatedTracesLimit,
+	})
+	if err != nil {
+		return annotatedTracesAPIRequest{}, err
+	}
+	offset, err := parseAPIIntParam(values, apiIntParam{Name: "offset", Default: 0, Min: 0, Max: maxAnnotatedTracesOffset})
+	if err != nil {
+		return annotatedTracesAPIRequest{}, err
+	}
+	eventLimit, err := parseAPIIntParam(values, apiIntParam{
+		Name:    "event_limit",
+		Default: defaultAnnotatedEventsLimit,
+		Min:     1,
+		Max:     maxAnnotatedEventsLimit,
+	})
+	if err != nil {
+		return annotatedTracesAPIRequest{}, err
+	}
+	includeDeletedValue := values.Get("include_deleted")
+	includeDeleted := includeDeletedValue == "1" || strings.EqualFold(includeDeletedValue, "true")
+	needsFollowup, err := parseOptionalAPIBool(values.Get("needs_followup"), "needs_followup")
+	if err != nil {
+		return annotatedTracesAPIRequest{}, err
+	}
+	return annotatedTracesAPIRequest{
+		TargetType:     strings.TrimSpace(values.Get("target_type")),
+		SessionID:      strings.TrimSpace(values.Get("session_id")),
+		EventUID:       strings.TrimSpace(values.Get("event_uid")),
+		AuthorType:     strings.TrimSpace(values.Get("author_type")),
+		Source:         strings.TrimSpace(values.Get("source")),
+		Category:       strings.TrimSpace(values.Get("category")),
+		Outcome:        strings.TrimSpace(values.Get("outcome")),
+		Label:          strings.TrimSpace(values.Get("label")),
+		NeedsFollowup:  needsFollowup,
+		IncludeDeleted: includeDeleted,
+		Limit:          limit,
+		Offset:         offset,
+		EventLimit:     eventLimit,
+		Scope:          parseAPIScopeFilters(values),
+	}, nil
+}
+
+func parseOptionalAPIBool(raw, name string) (*bool, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	switch strings.ToLower(raw) {
+	case "1", "true":
+		value := true
+		return &value, nil
+	case "0", "false":
+		value := false
+		return &value, nil
+	default:
+		return nil, fmt.Errorf("invalid %s", name)
+	}
 }

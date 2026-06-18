@@ -61,10 +61,69 @@ from their usual local locations.
 - A dashboard at `http://localhost:4600`
 - Token, cost, model, project, runtime, and session summaries
 - Source-aware capture across local AI coding tools
-- MCP tools for querying sessions and usage from other agents
+- MCP tools for querying sessions, usage, and trace annotations from other
+  agents
 - Managed local ClickHouse storage, with optional direct ClickHouse
   configuration for trusted local or private-network deployments
 - Privacy controls for redaction, hashing, capture filters, and offline operation
+
+## Trace Annotations
+
+Beacon annotations can mark a whole session, a transcript message, or a
+specific event. Open a session transcript, use **Annotate session** for
+session-level notes, or use the inline annotation controls in chat and timeline
+views to annotate one message or event. Annotation records include structured
+fields for category, outcome, quality score, confidence, labels, follow-up
+state, and free-form notes.
+
+Agents can create and maintain the same records through Beacon MCP with
+`create_annotation`, `update_annotation`, `list_annotations`, `get_annotation`,
+and `delete_annotation`. MCP-created annotations use `source: "mcp"` and
+`author_type: "agent"`; updates preserve existing provenance. Tools support
+`session_id`, `message_id`, `event_id`, or an `open_ref` returned by Beacon
+search/open tools.
+
+## Annotated Trace Datasets
+
+The local JSON API exposes annotated traces directly for review, evaluation,
+fine-tuning, and skill-development datasets.
+
+List annotated sessions and their annotated targets:
+
+```bash
+curl 'http://localhost:4600/api/annotations/traces?label=dataset:eval&limit=25'
+```
+
+Export dataset-ready traces with session metadata, ordered event context, and
+annotation records:
+
+```bash
+curl 'http://localhost:4600/api/annotations/export?label=dataset:eval&event_limit=2000'
+```
+
+Discovery and export responses are paginated with `limit`, `offset`, and
+`has_more`. Continue increasing `offset` until `has_more` is false when
+collecting a complete dataset:
+
+```bash
+offset=0
+while :; do
+  curl -fsS "http://localhost:4600/api/annotations/export?label=dataset:eval&event_limit=2000&limit=200&offset=${offset}" > "annotated-traces-${offset}.json"
+  jq -e '.has_more' "annotated-traces-${offset}.json" >/dev/null || break
+  offset=$((offset + 200))
+done
+```
+
+Each exported trace reports `event_truncated`, and the response includes
+`warnings` when `event_limit` clipped ordered event context for a session.
+
+Both endpoints return versioned JSON schema markers:
+`beacon.annotated_traces.index.v1` and
+`beacon.annotated_traces.export.v1`. Supported filters include `session_id`,
+`event_uid`, `target_type`, `label`, `author_type`, `source`, `category`,
+`outcome`, `needs_followup`, `include_deleted`, and the usual Beacon scope
+filters (`source_name`, `source_names`, `runtime`, `runtimes`, `project_key`,
+`project_keys`).
 
 Check the local setup:
 
