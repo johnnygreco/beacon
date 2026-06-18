@@ -2042,13 +2042,17 @@ test.describe('dashboard battle-tested workflows', () => {
       .getByRole('button', { name: /^Edit annotation review:/ })).toBeVisible();
     await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('2');
 
+    await page.evaluate(() => {
+      const timelineButton = document.querySelector('[data-transcript-view="timeline"]') as HTMLElement | null;
+      (window as typeof window & { switchView?: (view: string, btn?: HTMLElement | null) => void }).switchView?.('timeline', timelineButton);
+    });
     await page.evaluate(({ eventID }) => {
       const container = document.getElementById('conversation-container');
       if (!container) throw new Error('missing conversation container');
       container.innerHTML = `
-        <div id="chat-view" class="transcript-chat-view">
+        <div id="chat-view" class="transcript-chat-view hidden">
           <details id="${eventID}" open>
-            <summary>Reloaded event</summary>
+            <summary>Hidden chat event</summary>
             <div class="annotation-inline-row">
               <button type="button" class="annotation-button" data-annotation-button data-annotation-target="message" data-annotation-session-id="" data-annotation-event-uid="${eventID}" data-annotation-label="Annotate" aria-label="Annotate">
                 <span class="annotation-button-label">Annotate</span>
@@ -2057,11 +2061,18 @@ test.describe('dashboard battle-tested workflows', () => {
             </div>
           </details>
         </div>
-        <div id="timeline-view" class="transcript-timeline-view hidden"></div>
+        <div id="timeline-view" class="transcript-timeline-view">
+          <div class="annotation-inline-row">
+            <button type="button" class="annotation-button" data-annotation-button data-annotation-target="message" data-annotation-session-id="" data-annotation-event-uid="${eventID}" data-annotation-label="Annotate" aria-label="Annotate">
+              <span class="annotation-button-label">Annotate</span>
+              <span class="annotation-count hidden" data-annotation-count>0</span>
+            </button>
+          </div>
+        </div>
       `;
     }, { eventID: TEST_EVENT_ID });
-    const reloadedAnnotationButton = page.locator(`#${TEST_EVENT_ID} [data-annotation-button]`).first();
-    await expect(page.locator(`#${TEST_EVENT_ID} [data-annotation-count]`).first()).toHaveText('2');
+    const reloadedAnnotationButton = page.locator('#timeline-view [data-annotation-button]').first();
+    await expect(page.locator('#timeline-view [data-annotation-count]').first()).toHaveText('2');
     await drawer.getByRole('button', { name: 'Close annotations' }).click();
     await expect(reloadedAnnotationButton).toBeFocused();
     await reloadedAnnotationButton.click();

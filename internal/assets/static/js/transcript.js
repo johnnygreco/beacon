@@ -324,18 +324,30 @@
     root.querySelectorAll('[data-annotation-summary]').forEach(updateAnnotationSummary);
   }
 
+  function annotationElementVisible(el) {
+    if (!el || !document.contains(el)) return false;
+    var current = el;
+    while (current && current !== document.documentElement) {
+      if (current.hidden || current.getAttribute('aria-hidden') === 'true') return false;
+      current = current.parentElement;
+    }
+    var style = window.getComputedStyle(el);
+    if (style.display === 'none' || style.visibility === 'hidden') return false;
+    return el.getClientRects().length > 0;
+  }
+
   function annotationButtonForTarget(target) {
     var key = annotationTargetKey(target);
     if (!key) return null;
     var buttons = Array.prototype.slice.call(document.querySelectorAll('[data-annotation-button]'));
     return buttons.find(function(button) {
-      return annotationTargetKey(annotationTargetFromElement(button)) === key;
+      return annotationElementVisible(button) && annotationTargetKey(annotationTargetFromElement(button)) === key;
     }) || null;
   }
 
   function focusAnnotationReturnTarget(target, opener) {
     var fallback = null;
-    if (opener && document.contains(opener) && typeof opener.focus === 'function') {
+    if (opener && annotationElementVisible(opener) && typeof opener.focus === 'function') {
       fallback = opener;
     } else {
       fallback = annotationButtonForTarget(target) ||
