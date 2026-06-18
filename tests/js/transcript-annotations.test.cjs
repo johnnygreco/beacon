@@ -65,6 +65,32 @@ test("transcript annotation helpers normalize labels and target keys", () => {
   );
   assert.equal(helpers.annotationCountText(1), "1 annotation");
   assert.equal(helpers.annotationCountText(2), "2 annotations");
+  assert.equal(
+    helpers.annotationActionLabel("Edit", {
+      annotation_id: "annotation-1",
+      category: "review",
+      outcome: "",
+      labels: [],
+      note: "Message-level correction.",
+    }),
+    "Edit annotation review: Message-level correction. (annotation-1)",
+  );
+  assert.notEqual(
+    helpers.annotationActionLabel("Edit", {
+      annotation_id: "annotation-1",
+      category: "review",
+      outcome: "",
+      labels: [],
+      note: "Message-level correction.",
+    }),
+    helpers.annotationActionLabel("Edit", {
+      annotation_id: "annotation-2",
+      category: "review",
+      outcome: "",
+      labels: [],
+      note: "Message-level correction.",
+    }),
+  );
 });
 
 test("transcript annotation helpers build create and update payloads", () => {

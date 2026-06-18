@@ -13,7 +13,7 @@ database as sensitive local data even after redaction.
 
 ## Data Beacon stores
 
-Beacon can store the following content from configured capture sources:
+Beacon can store the following local content:
 
 - raw source records from agent session files;
 - normalized prompts, responses, reasoning summaries, tool calls, tool results,
@@ -25,6 +25,10 @@ Beacon can store the following content from configured capture sources:
 - session and analytics projections derived from captured events;
 - search query log rows containing search text, normalized terms, result counts,
   and timing data;
+- trace annotation records created through the dashboard, REST API, or MCP tools,
+  including author/source metadata, target IDs, categories, outcomes, labels,
+  quality/confidence values, notes, JSON metadata, follow-up flags, status, and
+  soft-delete timestamps;
 - capture checkpoints and capture errors used to replay files safely.
 
 The ClickHouse schema and table ownership are documented in
@@ -78,8 +82,9 @@ server-rendered captured content is escaped by default.
 The optional `POST /api/mcp` route exposes the same MCP tools as the local
 dashboard server and inherits the dashboard server's local-trust boundary. If
 Beacon is exposed beyond loopback, put it behind an external authenticated proxy
-or equivalent network control. Browser-driven mutation routes require
-same-origin proof and must not mutate state via GET.
+or equivalent network control. Browser-driven mutation routes reject explicit
+cross-site browser signals, require JSON content types for JSON writes, and must
+not mutate state via GET.
 
 ## Retention policy
 

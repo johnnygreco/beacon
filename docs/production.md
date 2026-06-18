@@ -147,8 +147,10 @@ Configure the client to launch Beacon over stdio:
 beacon mcp
 ```
 
-The MCP server opens ClickHouse read-only and does not run migrations or writes.
-For details, see [MCP Integration](mcp.md).
+The MCP server does not run capture, but it opens the writable Beacon store so
+annotation tools can persist notes. Startup may run schema migrations on the
+configured database, matching `beacon up`. For details, see
+[MCP Integration](mcp.md).
 
 ## Service Managers
 

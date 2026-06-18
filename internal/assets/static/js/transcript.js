@@ -324,6 +324,33 @@
     root.querySelectorAll('[data-annotation-summary]').forEach(updateAnnotationSummary);
   }
 
+  function annotationButtonForTarget(target) {
+    var key = annotationTargetKey(target);
+    if (!key) return null;
+    var buttons = Array.prototype.slice.call(document.querySelectorAll('[data-annotation-button]'));
+    return buttons.find(function(button) {
+      return annotationTargetKey(annotationTargetFromElement(button)) === key;
+    }) || null;
+  }
+
+  function focusAnnotationReturnTarget(target, opener) {
+    var fallback = null;
+    if (opener && document.contains(opener) && typeof opener.focus === 'function') {
+      fallback = opener;
+    } else {
+      fallback = annotationButtonForTarget(target) ||
+        document.querySelector('[data-annotation-summary] [data-annotation-button]') ||
+        document.getElementById('transcript-wrap');
+    }
+    if (!fallback || !document.contains(fallback) || typeof fallback.focus !== 'function') return;
+    if (fallback.id === 'transcript-wrap' && !fallback.hasAttribute('tabindex')) {
+      fallback.setAttribute('tabindex', '-1');
+    }
+    window.requestAnimationFrame(function() {
+      if (document.contains(fallback) && typeof fallback.focus === 'function') fallback.focus();
+    });
+  }
+
   function fetchJSON(path, options) {
     return fetch(path, options || {}).then(function(res) {
       if (res.ok) return res.json();
@@ -523,17 +550,14 @@
   function closeAnnotationDrawer() {
     var drawer = drawerEl();
     if (!drawer || drawer.classList.contains('hidden')) return;
+    var target = annotationState.activeTarget;
     var opener = annotationState.opener;
     drawer.classList.add('hidden');
     drawer.setAttribute('aria-hidden', 'true');
     annotationState.activeTarget = null;
     annotationState.opener = null;
     resetAnnotationForm();
-    if (opener && document.contains(opener) && typeof opener.focus === 'function') {
-      window.requestAnimationFrame(function() {
-        opener.focus();
-      });
-    }
+    focusAnnotationReturnTarget(target, opener);
   }
 
   function annotationChips(annotation) {
@@ -551,10 +575,15 @@
   }
 
   function annotationActionLabel(action, annotation) {
-    var context = annotation.category || annotation.outcome || (annotation.labels && annotation.labels[0]) || annotation.note || annotation.annotation_id;
+    var primary = annotation.category || annotation.outcome || (annotation.labels && annotation.labels[0]) || '';
+    var note = String(annotation.note || '').trim();
+    var id = String(annotation.annotation_id || '').trim();
+    var context = primary;
+    if (note) context = context ? context + ': ' + note : note;
     context = String(context || '').trim();
-    if (context.length > 56) context = context.slice(0, 53).trimEnd() + '...';
-    return action + ' annotation' + (context ? ' ' + context : '');
+    if (context.length > 72) context = context.slice(0, 69).trimEnd() + '...';
+    if (id.length > 20) id = id.slice(0, 20);
+    return action + ' annotation' + (context ? ' ' + context : '') + (id ? ' (' + id + ')' : '');
   }
 
   function annotationCardHTML(annotation) {
@@ -701,6 +730,7 @@
   }
 
   window.__beaconTranscriptAnnotations = {
+    annotationActionLabel: annotationActionLabel,
     annotationCountText: annotationCountText,
     annotationTargetKey: annotationTargetKey,
     buildAnnotationPayload: buildAnnotationPayload,
