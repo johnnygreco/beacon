@@ -20,7 +20,9 @@ func TestRouterMCPRouteUsesConfiguredMCPHandler(t *testing.T) {
 	)
 
 	mcpReq := httptest.NewRequest(http.MethodPost, "/api/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"initialized"}`))
+	mcpReq.Host = "beacon.example"
 	mcpReq.Header.Set("Content-Type", "application/json")
+	mcpReq.Header.Set("Origin", "https://beacon.example")
 	mcpRec := httptest.NewRecorder()
 	router.ServeHTTP(mcpRec, mcpReq)
 	if mcpRec.Code != http.StatusNoContent {
@@ -97,17 +99,29 @@ func TestMutationRequestGuardAllowsSameOriginJSONAndDeleteWithoutContentType(t *
 	jsonHandler := MutationRequestGuardMiddleware(true)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	jsonReq := httptest.NewRequest(http.MethodPost, "/api/annotations", strings.NewReader(`{"note":"x"}`))
-	jsonReq.Host = "127.0.0.1:4600"
-	jsonReq.Header.Set("Content-Type", "application/json; charset=utf-8")
-	jsonReq.Header.Set("Origin", "http://127.0.0.1:4600")
-	jsonReq.Header.Set("Sec-Fetch-Site", "same-origin")
-	jsonRec := httptest.NewRecorder()
+	tests := []struct {
+		name   string
+		host   string
+		origin string
+	}{
+		{name: "loopback host", host: "127.0.0.1:4600", origin: "http://127.0.0.1:4600"},
+		{name: "proxy host", host: "beacon.example", origin: "https://beacon.example"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			jsonReq := httptest.NewRequest(http.MethodPost, "/api/annotations", strings.NewReader(`{"note":"x"}`))
+			jsonReq.Host = tt.host
+			jsonReq.Header.Set("Content-Type", "application/json; charset=utf-8")
+			jsonReq.Header.Set("Origin", tt.origin)
+			jsonReq.Header.Set("Sec-Fetch-Site", "same-origin")
+			jsonRec := httptest.NewRecorder()
 
-	jsonHandler.ServeHTTP(jsonRec, jsonReq)
+			jsonHandler.ServeHTTP(jsonRec, jsonReq)
 
-	if jsonRec.Code != http.StatusNoContent {
-		t.Fatalf("same-origin JSON status = %d, want %d", jsonRec.Code, http.StatusNoContent)
+			if jsonRec.Code != http.StatusNoContent {
+				t.Fatalf("same-origin JSON status = %d, want %d", jsonRec.Code, http.StatusNoContent)
+			}
+		})
 	}
 
 	deleteHandler := MutationRequestGuardMiddleware(false)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -90,10 +90,12 @@ host = "127.0.0.1"
 port = 4600
 ```
 
-Configure the proxy upstream to forward to `127.0.0.1:4600`. Terminate TLS and
-authentication in the proxy or VPN layer. Beacon's dashboard, JSON API, and
-`/api/mcp` trust the local network boundary once the request reaches the
-process.
+Configure the proxy upstream to forward to `127.0.0.1:4600` while preserving the
+browser-facing `Host` header. Do not rewrite `Host` to loopback; Beacon's
+mutation guard compares `Origin` to `Host` for same-origin POST, PATCH, and
+DELETE requests. Terminate TLS and authentication in the proxy or VPN layer.
+Beacon's dashboard, JSON API, and `/api/mcp` trust the local network boundary
+once the request reaches the process.
 
 ## ClickHouse
 
