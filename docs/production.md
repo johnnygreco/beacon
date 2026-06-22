@@ -72,9 +72,9 @@ secure = false
 name = "Beacon"
 ```
 
-Keep the server bound to loopback for ordinary use. Beacon rejects non-loopback
-dashboard hosts unless you deliberately configure a trusted boundary outside
-Beacon.
+Keep the server bound to loopback for ordinary use. If you expose Beacon outside
+loopback, do that at the proxy or VPN layer and authenticate traffic before it
+reaches Beacon.
 
 ## Reverse Proxy Or VPN Access
 
@@ -90,14 +90,12 @@ host = "127.0.0.1"
 port = 4600
 ```
 
-Configure the proxy upstream to send `Host: 127.0.0.1:4600` or
-`Host: localhost:4600`. Beacon's loopback host guard rejects unrelated Host
-headers so DNS rebinding or accidental public exposure cannot silently reach the
-dashboard.
-
-If you need an external hostname, terminate TLS and authentication in the proxy
-or VPN layer. Beacon's dashboard, JSON API, and `/api/mcp` trust the local
-network boundary once the request reaches the process.
+Configure the proxy upstream to forward to `127.0.0.1:4600` while preserving the
+browser-facing `Host` header. Do not rewrite `Host` to loopback; Beacon's
+mutation guard compares `Origin` to `Host` for same-origin POST, PATCH, and
+DELETE requests. Terminate TLS and authentication in the proxy or VPN layer.
+Beacon's dashboard, JSON API, and `/api/mcp` trust the local network boundary
+once the request reaches the process.
 
 ## ClickHouse
 
@@ -258,8 +256,7 @@ If the dashboard is unreachable:
    curl -fsS http://localhost:4600/health
    ```
 
-4. If using a proxy or VPN, confirm the upstream forwards to `127.0.0.1:4600`
-   with a loopback Host header.
+4. If using a proxy or VPN, confirm the upstream forwards to `127.0.0.1:4600`.
 5. Check Beacon logs from your terminal, systemd unit, LaunchAgent, or tmux
    session.
 

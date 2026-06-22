@@ -20,7 +20,9 @@ func TestRouterMCPRouteUsesConfiguredMCPHandler(t *testing.T) {
 	)
 
 	mcpReq := httptest.NewRequest(http.MethodPost, "/api/mcp", strings.NewReader(`{"jsonrpc":"2.0","method":"initialized"}`))
+	mcpReq.Host = "beacon.example"
 	mcpReq.Header.Set("Content-Type", "application/json")
+	mcpReq.Header.Set("Origin", "https://beacon.example")
 	mcpRec := httptest.NewRecorder()
 	router.ServeHTTP(mcpRec, mcpReq)
 	if mcpRec.Code != http.StatusNoContent {
@@ -97,17 +99,29 @@ func TestMutationRequestGuardAllowsSameOriginJSONAndDeleteWithoutContentType(t *
 	jsonHandler := MutationRequestGuardMiddleware(true)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	jsonReq := httptest.NewRequest(http.MethodPost, "/api/annotations", strings.NewReader(`{"note":"x"}`))
-	jsonReq.Host = "127.0.0.1:4600"
-	jsonReq.Header.Set("Content-Type", "application/json; charset=utf-8")
-	jsonReq.Header.Set("Origin", "http://127.0.0.1:4600")
-	jsonReq.Header.Set("Sec-Fetch-Site", "same-origin")
-	jsonRec := httptest.NewRecorder()
+	tests := []struct {
+		name   string
+		host   string
+		origin string
+	}{
+		{name: "loopback host", host: "127.0.0.1:4600", origin: "http://127.0.0.1:4600"},
+		{name: "proxy host", host: "beacon.example", origin: "https://beacon.example"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			jsonReq := httptest.NewRequest(http.MethodPost, "/api/annotations", strings.NewReader(`{"note":"x"}`))
+			jsonReq.Host = tt.host
+			jsonReq.Header.Set("Content-Type", "application/json; charset=utf-8")
+			jsonReq.Header.Set("Origin", tt.origin)
+			jsonReq.Header.Set("Sec-Fetch-Site", "same-origin")
+			jsonRec := httptest.NewRecorder()
 
-	jsonHandler.ServeHTTP(jsonRec, jsonReq)
+			jsonHandler.ServeHTTP(jsonRec, jsonReq)
 
-	if jsonRec.Code != http.StatusNoContent {
-		t.Fatalf("same-origin JSON status = %d, want %d", jsonRec.Code, http.StatusNoContent)
+			if jsonRec.Code != http.StatusNoContent {
+				t.Fatalf("same-origin JSON status = %d, want %d", jsonRec.Code, http.StatusNoContent)
+			}
+		})
 	}
 
 	deleteHandler := MutationRequestGuardMiddleware(false)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -124,65 +138,28 @@ func TestMutationRequestGuardAllowsSameOriginJSONAndDeleteWithoutContentType(t *
 	}
 }
 
-func TestLoopbackHostMiddlewareRejectsDNSRebindingHosts(t *testing.T) {
-	middleware := LoopbackHostMiddleware("127.0.0.1")
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}))
-
-	tests := []struct {
-		host string
-		want int
-	}{
-		{host: "127.0.0.1:4600", want: http.StatusNoContent},
-		{host: "localhost:4600", want: http.StatusNoContent},
-		{host: "[::1]:4600", want: http.StatusNoContent},
-		{host: "beacon.example", want: http.StatusForbidden},
-		{host: "evil.example:4600", want: http.StatusForbidden},
-		{host: "", want: http.StatusForbidden},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.host, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			req.Host = tt.host
-			rec := httptest.NewRecorder()
-
-			handler.ServeHTTP(rec, req)
-
-			if rec.Code != tt.want {
-				t.Fatalf("status = %d, want %d", rec.Code, tt.want)
-			}
-			if tt.want == http.StatusForbidden {
-				if rec.Header().Get(HostGuardRejectedHeader) != "rejected" {
-					t.Fatalf("missing host guard rejection header")
-				}
-				if !strings.Contains(rec.Body.String(), "host guard") {
-					t.Fatalf("body = %q, want host guard diagnostic", rec.Body.String())
-				}
-			}
-		})
-	}
-}
-
-func TestRouterGlobalMiddlewareProtectsHealthAndStatic(t *testing.T) {
+func TestRouterGlobalMiddlewareAppliesToHealthAndStatic(t *testing.T) {
 	router := NewRouter(
 		fstest.MapFS{"app.js": &fstest.MapFile{Data: []byte("ok")}},
 		nil,
 		nil,
 		nil,
-		WithGlobalMiddleware(LoopbackHostMiddleware("127.0.0.1")),
+		WithGlobalMiddleware(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("X-Test-Global-Middleware", "applied")
+				next.ServeHTTP(w, r)
+			})
+		}),
 	)
 	for _, path := range []string{"/health", "/api/health", "/static/app.js"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
-			req.Host = "evil.example:4600"
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
 
-			if rec.Code != http.StatusForbidden {
-				t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+			if rec.Header().Get("X-Test-Global-Middleware") != "applied" {
+				t.Fatalf("global middleware header = %q, want applied", rec.Header().Get("X-Test-Global-Middleware"))
 			}
 		})
 	}

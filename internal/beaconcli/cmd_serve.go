@@ -143,7 +143,6 @@ func runServe(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("preparing static filesystem: %w", err)
 	}
 	routerOptions := []web.RouterOption{
-		web.WithGlobalMiddleware(web.LoopbackHostMiddleware(cfg.Server.Host)),
 		web.WithMCPHandler(mcpHTTPServer.HTTPHandler()),
 	}
 	router := web.NewRouter(staticFS, broker, handlers, apiHandlers, routerOptions...)
