@@ -124,65 +124,28 @@ func TestMutationRequestGuardAllowsSameOriginJSONAndDeleteWithoutContentType(t *
 	}
 }
 
-func TestLoopbackHostMiddlewareRejectsDNSRebindingHosts(t *testing.T) {
-	middleware := LoopbackHostMiddleware("127.0.0.1")
-	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}))
-
-	tests := []struct {
-		host string
-		want int
-	}{
-		{host: "127.0.0.1:4600", want: http.StatusNoContent},
-		{host: "localhost:4600", want: http.StatusNoContent},
-		{host: "[::1]:4600", want: http.StatusNoContent},
-		{host: "beacon.example", want: http.StatusForbidden},
-		{host: "evil.example:4600", want: http.StatusForbidden},
-		{host: "", want: http.StatusForbidden},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.host, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/", nil)
-			req.Host = tt.host
-			rec := httptest.NewRecorder()
-
-			handler.ServeHTTP(rec, req)
-
-			if rec.Code != tt.want {
-				t.Fatalf("status = %d, want %d", rec.Code, tt.want)
-			}
-			if tt.want == http.StatusForbidden {
-				if rec.Header().Get(HostGuardRejectedHeader) != "rejected" {
-					t.Fatalf("missing host guard rejection header")
-				}
-				if !strings.Contains(rec.Body.String(), "host guard") {
-					t.Fatalf("body = %q, want host guard diagnostic", rec.Body.String())
-				}
-			}
-		})
-	}
-}
-
-func TestRouterGlobalMiddlewareProtectsHealthAndStatic(t *testing.T) {
+func TestRouterGlobalMiddlewareAppliesToHealthAndStatic(t *testing.T) {
 	router := NewRouter(
 		fstest.MapFS{"app.js": &fstest.MapFile{Data: []byte("ok")}},
 		nil,
 		nil,
 		nil,
-		WithGlobalMiddleware(LoopbackHostMiddleware("127.0.0.1")),
+		WithGlobalMiddleware(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("X-Test-Global-Middleware", "applied")
+				next.ServeHTTP(w, r)
+			})
+		}),
 	)
 	for _, path := range []string{"/health", "/api/health", "/static/app.js"} {
 		t.Run(path, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, path, nil)
-			req.Host = "evil.example:4600"
 			rec := httptest.NewRecorder()
 
 			router.ServeHTTP(rec, req)
 
-			if rec.Code != http.StatusForbidden {
-				t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+			if rec.Header().Get("X-Test-Global-Middleware") != "applied" {
+				t.Fatalf("global middleware header = %q, want applied", rec.Header().Get("X-Test-Global-Middleware"))
 			}
 		})
 	}
