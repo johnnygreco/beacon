@@ -179,7 +179,7 @@ func TestCheckServerHealthStatus(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(okServer.Close)
-	if !checkServer(serverPort(t, okServer)) {
+	if !checkServer("127.0.0.1", serverPort(t, okServer)) {
 		t.Fatal("checkServer() = false, want true for healthy server")
 	}
 
@@ -187,8 +187,30 @@ func TestCheckServerHealthStatus(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	t.Cleanup(errorServer.Close)
-	if checkServer(serverPort(t, errorServer)) {
+	if checkServer("127.0.0.1", serverPort(t, errorServer)) {
 		t.Fatal("checkServer() = true, want false for non-200 health response")
+	}
+}
+
+func TestServerHealthURLUsesConfiguredHost(t *testing.T) {
+	tests := []struct {
+		name string
+		host string
+		want string
+	}{
+		{name: "loopback", host: "127.0.0.1", want: "http://127.0.0.1:4600/health"},
+		{name: "localhost", host: "localhost", want: "http://localhost:4600/health"},
+		{name: "tailscale ip", host: "100.88.255.7", want: "http://100.88.255.7:4600/health"},
+		{name: "wildcard ipv4", host: "0.0.0.0", want: "http://127.0.0.1:4600/health"},
+		{name: "wildcard ipv6", host: "::", want: "http://[::1]:4600/health"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := serverHealthURL(tt.host, 4600); got != tt.want {
+				t.Fatalf("serverHealthURL(%q) = %q, want %q", tt.host, got, tt.want)
+			}
+		})
 	}
 }
 

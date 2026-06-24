@@ -28,7 +28,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 	}
 
 	// No pidfile — try to find PID by port
-	if checkServer(cfg.Server.Port) {
+	if checkServer(cfg.Server.Host, cfg.Server.Port) {
 		pid, err := findPidByPort(cfg.Server.Port)
 		if err != nil || pid <= 0 {
 			return fmt.Errorf("server is running on port %d but could not determine PID\nStop it manually with: kill $(lsof -ti :%d)", cfg.Server.Port, cfg.Server.Port)

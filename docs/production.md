@@ -106,7 +106,7 @@ non-loopback interface when you opt in:
 
 ```toml
 [server]
-host = "0.0.0.0"
+host = "100.64.0.1" # replace with this machine's Tailscale/private IP
 port = 4600
 allow_non_loopback = true
 ```
@@ -114,11 +114,14 @@ allow_non_loopback = true
 Then open the dashboard through the machine's private address, for example:
 
 ```text
-http://100.x.y.z:4600
+http://100.64.0.1:4600
 ```
 
-Only use this on a network boundary you trust. Anyone who can reach the bound
-interface can inspect Beacon dashboard data, JSON APIs, and `/api/mcp`.
+You can use `host = "0.0.0.0"` to listen on every IPv4 interface, but that also
+exposes Beacon on Wi-Fi, Ethernet, and other reachable interfaces unless the OS,
+firewall, or Tailnet ACLs block them. Only use direct binding on a network
+boundary you trust. Anyone who can reach the bound interface can read Beacon
+dashboard data and invoke JSON API or `/api/mcp` mutation paths.
 
 ## ClickHouse
 
