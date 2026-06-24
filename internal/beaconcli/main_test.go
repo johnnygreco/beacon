@@ -359,10 +359,49 @@ addrs = ["127.0.0.1:1"]
 	if err == nil {
 		t.Fatal("runServe returned nil error")
 	}
-	if !strings.Contains(err.Error(), "server.host") || !strings.Contains(err.Error(), "local dashboards only") {
+	if !strings.Contains(err.Error(), "server.host") || !strings.Contains(err.Error(), "server.allow_non_loopback") {
 		t.Fatalf("runServe error = %q, want non-loopback host rejection", err.Error())
 	}
 	if strings.Contains(err.Error(), "clickhouse") {
 		t.Fatalf("runServe error = %q, host rejection should happen before ClickHouse", err.Error())
+	}
+}
+
+func TestRunServeAllowsNonLoopbackHostWithExplicitOptIn(t *testing.T) {
+	resetConfigState(t)
+	cfgPath := t.TempDir() + "/beacon.toml"
+	if err := os.WriteFile(cfgPath, []byte(`
+[server]
+host = "0.0.0.0"
+allow_non_loopback = true
+
+[database]
+addrs = ["127.0.0.1:1"]
+`), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfgFile = cfgPath
+	lock, err := acquireBeaconRunLock()
+	if err != nil {
+		t.Fatalf("acquire run lock: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := lock.Close(); err != nil {
+			t.Fatalf("close run lock: %v", err)
+		}
+	})
+
+	err = runServe(newUpCmd(), nil)
+	if err == nil {
+		t.Fatal("runServe returned nil error")
+	}
+	if !strings.Contains(err.Error(), "acquire beacon pidfile") || !strings.Contains(err.Error(), "locked") {
+		t.Fatalf("runServe error = %q, want pidfile lock rejection", err.Error())
+	}
+	if strings.Contains(err.Error(), "server.host") {
+		t.Fatalf("runServe error = %q, host validation should allow explicit non-loopback opt-in", err.Error())
+	}
+	if strings.Contains(err.Error(), "clickhouse") {
+		t.Fatalf("runServe error = %q, pidfile rejection should happen before ClickHouse", err.Error())
 	}
 }

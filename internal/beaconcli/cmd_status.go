@@ -3,6 +3,7 @@ package beaconcli
 import (
 	"database/sql"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -37,7 +38,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	fmt.Println("=============")
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
-	serverUp := checkServer(cfg.Server.Port)
+	serverUp := checkServer(cfg.Server.Host, cfg.Server.Port)
 	if serverUp {
 		pid := readPid()
 		if pid > 0 {
@@ -126,15 +127,39 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// checkServer returns true if the beacon server responds on the given port.
-func checkServer(port int) bool {
+// checkServer returns true if the beacon server responds on the configured host and port.
+func checkServer(host string, port int) bool {
 	client := http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
+	resp, err := client.Get(serverHealthURL(host, port))
 	if err != nil {
 		return false
 	}
 	resp.Body.Close()
 	return resp.StatusCode == http.StatusOK
+}
+
+func serverHealthURL(host string, port int) string {
+	probeHost := serverHealthProbeHost(host)
+	return "http://" + net.JoinHostPort(probeHost, strconv.Itoa(port)) + "/health"
+}
+
+func serverHealthProbeHost(host string) string {
+	probeHost := strings.TrimSpace(host)
+	if parsedHost, _, err := net.SplitHostPort(probeHost); err == nil {
+		probeHost = parsedHost
+	}
+	probeHost = strings.Trim(probeHost, "[]")
+	if probeHost == "" {
+		return "127.0.0.1"
+	}
+	ip := net.ParseIP(probeHost)
+	if ip == nil || !ip.IsUnspecified() {
+		return probeHost
+	}
+	if ip.To4() == nil {
+		return "::1"
+	}
+	return "127.0.0.1"
 }
 
 // readPid reads the PID from the pidfile. Returns 0 if not available or stale.

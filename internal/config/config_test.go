@@ -22,6 +22,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.Server.Port != 4600 {
 		t.Errorf("Server.Port = %d, want 4600", cfg.Server.Port)
 	}
+	if cfg.Server.AllowNonLoopback {
+		t.Error("Server.AllowNonLoopback = true, want false")
+	}
 	if cfg.Database.Database != "beacon" || cfg.Database.ReadPoolSize != 8 {
 		t.Errorf("Database defaults = %#v", cfg.Database)
 	}
@@ -193,6 +196,28 @@ host = "127.0.0.2"
 	}
 }
 
+func TestLoadAllowsConfiguredNonLoopbackServerHost(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "beacon.toml")
+	if err := os.WriteFile(path, []byte(`
+[server]
+host = "0.0.0.0"
+allow_non_loopback = true
+`), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if cfg.Server.Host != "0.0.0.0" {
+		t.Fatalf("Server.Host = %q, want 0.0.0.0", cfg.Server.Host)
+	}
+	if !cfg.Server.AllowNonLoopback {
+		t.Fatal("Server.AllowNonLoopback = false, want true")
+	}
+}
+
 func TestLoadExplicitMissingConfigFileFails(t *testing.T) {
 	_, err := Load(filepath.Join(t.TempDir(), "missing.toml"))
 	if err == nil {
@@ -207,7 +232,7 @@ func TestLoadInvalidValues(t *testing.T) {
 		wantErr string
 	}{
 		{name: "server port", body: "[server]\nport = 0\n", wantErr: "server.port must be between 1 and 65535"},
-		{name: "server host non loopback", body: "[server]\nhost = \"0.0.0.0\"\n", wantErr: "server.host"},
+		{name: "server host non loopback", body: "[server]\nhost = \"0.0.0.0\"\n", wantErr: "server.allow_non_loopback"},
 		{name: "database address", body: "[database]\naddrs = [\"127.0.0.1\"]\n", wantErr: "database.addrs[0] must be host:port"},
 		{name: "database name", body: "[database]\ndatabase = \"beacon-prod\"\n", wantErr: "database.database"},
 		{name: "reconcile duration", body: "[capture]\nreconcile_interval = \"0s\"\n", wantErr: "capture.reconcile_interval must be positive"},
@@ -302,6 +327,7 @@ func TestValidateInvalidFields(t *testing.T) {
 	}{
 		{name: "nil", mutate: nil, wantErr: "config is nil"},
 		{name: "server host", mutate: func(c *Config) { c.Server.Host = " " }, wantErr: "server.host is required"},
+		{name: "server host non loopback without opt in", mutate: func(c *Config) { c.Server.Host = "0.0.0.0" }, wantErr: "server.allow_non_loopback"},
 		{name: "empty addrs", mutate: func(c *Config) { c.Database.Addrs = nil }, wantErr: "database.addrs must contain"},
 		{name: "empty addr", mutate: func(c *Config) { c.Database.Addrs = []string{" "} }, wantErr: "database.addrs[0] is required"},
 		{name: "addr host", mutate: func(c *Config) { c.Database.Addrs = []string{":9000"} }, wantErr: "database.addrs[0] host is required"},

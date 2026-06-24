@@ -60,6 +60,7 @@ Beacon can run without a config file. For persistent settings, create
 [server]
 host = "127.0.0.1"
 port = 4600
+allow_non_loopback = false
 
 [database]
 addrs = ["127.0.0.1:9000"]
@@ -88,6 +89,7 @@ Keep Beacon itself bound to loopback:
 [server]
 host = "127.0.0.1"
 port = 4600
+allow_non_loopback = false
 ```
 
 Configure the proxy upstream to forward to `127.0.0.1:4600` while preserving the
@@ -96,6 +98,30 @@ mutation guard compares `Origin` to `Host` for same-origin POST, PATCH, and
 DELETE requests. Terminate TLS and authentication in the proxy or VPN layer.
 Beacon's dashboard, JSON API, and `/api/mcp` trust the local network boundary
 once the request reaches the process.
+
+## Direct Private Network Bind
+
+For a trusted private network such as a Tailnet, Beacon can bind directly to a
+non-loopback interface when you opt in:
+
+```toml
+[server]
+host = "100.64.0.1" # replace with this machine's Tailscale/private IP
+port = 4600
+allow_non_loopback = true
+```
+
+Then open the dashboard through the machine's private address, for example:
+
+```text
+http://100.64.0.1:4600
+```
+
+You can use `host = "0.0.0.0"` to listen on every IPv4 interface, but that also
+exposes Beacon on Wi-Fi, Ethernet, and other reachable interfaces unless the OS,
+firewall, or Tailnet ACLs block them. Only use direct binding on a network
+boundary you trust. Anyone who can reach the bound interface can read Beacon
+dashboard data and invoke JSON API or `/api/mcp` mutation paths.
 
 ## ClickHouse
 
@@ -249,7 +275,7 @@ you need to reset derived Beacon data, stop Beacon first and back up
 If the dashboard is unreachable:
 
 1. Confirm the process is running with `beacon status`.
-2. Check that the configured port is listening on loopback.
+2. Check that the configured port is listening on the expected interface.
 3. Curl the local health endpoint:
 
    ```bash
@@ -257,6 +283,9 @@ If the dashboard is unreachable:
    ```
 
 4. If using a proxy or VPN, confirm the upstream forwards to `127.0.0.1:4600`.
+   If using direct private-network access, confirm `[server]` sets
+   `allow_non_loopback = true` and that `lsof` shows Beacon listening on the
+   expected non-loopback address.
 5. Check Beacon logs from your terminal, systemd unit, LaunchAgent, or tmux
    session.
 

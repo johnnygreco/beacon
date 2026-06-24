@@ -82,10 +82,11 @@ func runDoctorSetup(cmd *cobra.Command, args []string) error {
 
 func runLocalSetupDoctor(ctx context.Context, report *doctorReport, cfg *config.Config) {
 	report.line("INFO", "mode", "single-machine local dashboard")
-	if checkServer(cfg.Server.Port) {
-		report.line("PASS", "local health", fmt.Sprintf("http://127.0.0.1:%d/health responded", cfg.Server.Port))
+	healthURL := serverHealthURL(cfg.Server.Host, cfg.Server.Port)
+	if checkServer(cfg.Server.Host, cfg.Server.Port) {
+		report.line("PASS", "local health", fmt.Sprintf("%s responded", healthURL))
 	} else {
-		report.line("WARN", "local health", fmt.Sprintf("Beacon is not responding at http://127.0.0.1:%d/health", cfg.Server.Port))
+		report.line("WARN", "local health", fmt.Sprintf("Beacon is not responding at %s", healthURL))
 		report.remediation("Start the dashboard with `beacon up`.")
 	}
 
