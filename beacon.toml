@@ -1,6 +1,7 @@
 [server]
 host = "127.0.0.1"
 port = 4600
+allow_non_loopback = false
 
 [database]
 addrs = ["127.0.0.1:9000"]

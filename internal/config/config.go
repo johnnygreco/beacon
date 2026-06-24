@@ -31,8 +31,9 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Host string
-	Port int
+	Host             string
+	Port             int
+	AllowNonLoopback bool `mapstructure:"allow_non_loopback"`
 }
 
 type DatabaseConfig struct {
@@ -138,6 +139,7 @@ func Load(cfgFile string) (*Config, error) {
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("server.host", "127.0.0.1")
 	v.SetDefault("server.port", 4600)
+	v.SetDefault("server.allow_non_loopback", false)
 	v.SetDefault("database.addrs", []string{"127.0.0.1:9000"})
 	v.SetDefault("database.database", "beacon")
 	v.SetDefault("database.username", "default")
@@ -221,8 +223,8 @@ func Validate(cfg *Config) error {
 	if cfg.Server.Host == "" {
 		return fmt.Errorf("server.host is required")
 	}
-	if !IsLoopbackURLHost(cfg.Server.Host) {
-		return fmt.Errorf("server.host %q is not loopback; Beacon supports local dashboards only", cfg.Server.Host)
+	if !IsLoopbackURLHost(cfg.Server.Host) && !cfg.Server.AllowNonLoopback {
+		return fmt.Errorf("server.host %q is not loopback; set server.allow_non_loopback = true to bind trusted private interfaces", cfg.Server.Host)
 	}
 	if err := validatePort("server.port", cfg.Server.Port); err != nil {
 		return err
